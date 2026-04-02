@@ -1,10 +1,11 @@
 # Author: Cascade (Claude Sonnet 4)
-# Date: 01-April-2026
+# Date: 02-April-2026
 # PURPOSE: Main service entry point for Farm Guardian. Orchestrates camera discovery,
-#          frame capture, YOLO animal detection, Discord alerting, and event logging.
-#          Runs as a foreground process on the Mac Mini. Handles graceful shutdown via
-#          SIGINT/SIGTERM. Supports periodic camera re-scanning, daily event cleanup,
-#          and configurable logging. All configuration loaded from config.json.
+#          frame capture, YOLO animal detection, Discord alerting, event logging, and
+#          the local web dashboard. Runs as a foreground process on the Mac Mini.
+#          Handles graceful shutdown via SIGINT/SIGTERM. Supports periodic camera
+#          re-scanning, daily event cleanup, and configurable logging.
+#          All configuration loaded from config.json.
 # SRP/DRY check: Pass — single responsibility is service lifecycle and module coordination.
 
 import argparse
@@ -15,6 +16,8 @@ import signal
 import sys
 import threading
 import time
+from collections import deque
+from datetime import datetime
 from pathlib import Path
 
 from discovery import CameraDiscovery
@@ -22,6 +25,7 @@ from capture import FrameCaptureManager, FrameResult
 from detect import AnimalDetector, DetectionResult
 from alerts import AlertManager
 from logger import EventLogger
+from dashboard import start_dashboard
 
 log = logging.getLogger("guardian")
 
@@ -38,8 +42,9 @@ _CLEANUP_INTERVAL = 3600
 class GuardianService:
     """Main service that wires together all Farm Guardian modules."""
 
-    def __init__(self, config: dict):
+    def __init__(self, config: dict, config_path: str = "config.json"):
         self._config = config
+        self._config_path = config_path
         self._shutdown_event = threading.Event()
 
         # Initialize modules
@@ -58,6 +63,10 @@ class GuardianService:
         self._frames_processed = 0
         self._alerts_sent = 0
         self._start_time: float | None = None
+
+        # Buffers for dashboard access — thread-safe deques
+        self.recent_detections: deque[dict] = deque(maxlen=200)
+        self.recent_alerts: deque[dict] = deque(maxlen=100)
 
     def start(self) -> None:
         """Start the guardian service: discover cameras, begin capture, run detection."""
@@ -100,6 +109,13 @@ class GuardianService:
             target=self._cleanup_loop, name="cleanup", daemon=True
         )
         self._cleanup_thread.start()
+
+        # Start web dashboard
+        dashboard_cfg = self._config.get("dashboard", {})
+        if dashboard_cfg.get("enabled", True):
+            self._dashboard_thread = start_dashboard(self, self._config, config_path=self._config_path)
+            port = dashboard_cfg.get("port", 8080)
+            log.info("Dashboard available at http://localhost:%d", port)
 
         active = self._capture_manager.active_cameras
         log.info(
@@ -152,15 +168,16 @@ class GuardianService:
             if not result.detections:
                 return
 
-            # Log all non-ignored detections
+            # Log all non-ignored detections and buffer for dashboard
             for det in result.detections:
-                self._event_logger.log_event(
+                event = self._event_logger.log_event(
                     camera_name=result.camera_name,
                     detection_class=det.class_name,
                     confidence=det.confidence,
                     bbox=det.bbox,
                     frame=result.frame,
                 )
+                self.recent_detections.append(event)
 
             # Send alert if any predator detections passed all filters (including dwell)
             if result.has_predators:
@@ -171,6 +188,12 @@ class GuardianService:
                 )
                 if sent:
                     self._alerts_sent += 1
+                    self.recent_alerts.append({
+                        "timestamp": datetime.now().isoformat(),
+                        "camera": result.camera_name,
+                        "classes": [d.class_name for d in result.predator_detections],
+                        "sent": True,
+                    })
 
         except Exception as exc:
             log.error(
@@ -304,7 +327,7 @@ def main() -> None:
     log.info("Config loaded from %s", args.config)
 
     # Start the service
-    service = GuardianService(config)
+    service = GuardianService(config, config_path=args.config)
     service.start()
 
 

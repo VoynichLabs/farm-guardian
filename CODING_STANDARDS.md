@@ -8,7 +8,7 @@
 
 ## 1. Mission
 
-Farm Guardian is a Python background service that watches Reolink security cameras via ONVIF/RTSP, detects predator animals with YOLOv8, and sends Discord alerts. It runs on a Mac Mini M4 Pro (64GB) on the same local network as the cameras. No cloud. No subscriptions. No UI.
+Farm Guardian is a Python service that watches Reolink security cameras via ONVIF/RTSP, detects predator animals with YOLOv8, sends Discord alerts, and serves a local web dashboard for monitoring and control. It runs on a Mac Mini M4 Pro (64GB) on the same local network as the cameras. No cloud. No subscriptions. Dashboard is local-only.
 
 **Read these files before touching code:**
 - `PLAN.md` — Full architecture, design decisions, v1 scope
@@ -39,6 +39,10 @@ farm-guardian/
 ├── detect.py         ← YOLOv8 inference + false-positive suppression
 ├── alerts.py         ← Discord webhook alerts with rate limiting
 ├── logger.py         ← JSONL event logs + snapshot images
+├── dashboard.py      ← FastAPI web dashboard (local network only)
+├── static/
+│   ├── index.html    ← Dashboard UI (Tailwind CSS, vanilla JS)
+│   └── app.js        ← Dashboard frontend logic
 ├── config.json       ← Runtime config (gitignored — copy from example)
 ├── config.example.json
 ├── requirements.txt
@@ -49,10 +53,14 @@ farm-guardian/
 **Data flow:**
 ```
 Camera (RTSP) → capture.py → detect.py → alerts.py → Discord
-                                       → logger.py → events/YYYY-MM-DD/
+                    │                   → logger.py → events/YYYY-MM-DD/
+                    │
+                    └→ dashboard.py → Browser (http://macmini:8080)
 ```
 
 Each module has exactly one job. Don't merge responsibilities. Don't add modules without a clear reason.
+
+**Dashboard (`dashboard.py`):** FastAPI app served on the local network. Provides live MJPEG camera feeds, detection timeline, alert history, camera start/stop/rescan controls, detection threshold tuning, zone masking config, and Discord alert testing. All controls apply immediately — config changes are saved to `config.json` and applied live where possible.
 
 ---
 
@@ -148,8 +156,11 @@ All dependencies live in `requirements.txt`. Do not add packages without updatin
 | `onvif-zeep` | ONVIF camera discovery and control |
 | `requests` | Discord webhook HTTP posts |
 | `Pillow` | Image format conversion and saving |
+| `fastapi` | Dashboard web API and static file serving |
+| `uvicorn` | ASGI server for FastAPI dashboard |
+| `python-multipart` | Form/file upload support for FastAPI |
 
-No cloud SDKs. No web frameworks. No databases. No ORMs.
+No cloud SDKs. No databases. No ORMs.
 
 ---
 
@@ -191,7 +202,7 @@ python guardian.py --config /path/to/config.json
 
 ## 12. What NOT To Do
 
-- Don't add a web UI — this is a headless background service
+- Don't add external/hosted web services — the dashboard is local-only
 - Don't add cloud APIs — all detection runs locally
 - Don't add a database — JSON logs and filesystem only
 - Don't add new dependencies without justification and `requirements.txt` update

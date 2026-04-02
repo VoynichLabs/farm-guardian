@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Farm Guardian</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        guardian: {
+                            bg: '#0f172a',
+                            card: '#1e293b',
+                            border: '#334155',
+                            hover: '#475569',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { background: #0f172a; }
+        .fade-in { animation: fadeIn 0.2s ease-in; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .pulse-dot { animation: pulse 2s infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        .camera-feed { background: #0f172a; min-height: 240px; object-fit: contain; width: 100%; }
+        input[type="number"], input[type="text"], select, textarea {
+            background: #0f172a; border: 1px solid #334155; color: #e2e8f0;
+            border-radius: 0.375rem; padding: 0.5rem 0.75rem; width: 100%;
+        }
+        input[type="number"]:focus, input[type="text"]:focus, textarea:focus {
+            outline: none; border-color: #3b82f6;
+        }
+    </style>
+</head>
+<body class="text-slate-200 min-h-screen">
+
+    <!-- Layout: sidebar + main -->
+    <div class="flex min-h-screen">
+
+        <!-- Sidebar -->
+        <nav class="w-16 lg:w-56 bg-guardian-card border-r border-guardian-border flex flex-col shrink-0">
+            <div class="p-3 lg:p-4 border-b border-guardian-border">
+                <div class="flex items-center gap-2">
+                    <div class="w-8 h-8 bg-emerald-600 rounded-lg flex items-center justify-center">
+                        <i data-lucide="shield" class="w-5 h-5 text-white"></i>
+                    </div>
+                    <span class="hidden lg:block font-bold text-sm">Farm Guardian</span>
+                </div>
+            </div>
+            <div class="flex-1 p-2 space-y-1">
+                <button onclick="navigate('dashboard')" data-nav="dashboard"
+                    class="nav-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm hover:bg-guardian-hover transition-colors">
+                    <i data-lucide="layout-dashboard" class="w-5 h-5 shrink-0"></i>
+                    <span class="hidden lg:block">Dashboard</span>
+                </button>
+                <button onclick="navigate('cameras')" data-nav="cameras"
+                    class="nav-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm hover:bg-guardian-hover transition-colors">
+                    <i data-lucide="camera" class="w-5 h-5 shrink-0"></i>
+                    <span class="hidden lg:block">Cameras</span>
+                </button>
+                <button onclick="navigate('events')" data-nav="events"
+                    class="nav-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm hover:bg-guardian-hover transition-colors">
+                    <i data-lucide="list" class="w-5 h-5 shrink-0"></i>
+                    <span class="hidden lg:block">Events</span>
+                </button>
+                <button onclick="navigate('alerts')" data-nav="alerts"
+                    class="nav-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm hover:bg-guardian-hover transition-colors">
+                    <i data-lucide="bell" class="w-5 h-5 shrink-0"></i>
+                    <span class="hidden lg:block">Alerts</span>
+                </button>
+                <button onclick="navigate('settings')" data-nav="settings"
+                    class="nav-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm hover:bg-guardian-hover transition-colors">
+                    <i data-lucide="settings" class="w-5 h-5 shrink-0"></i>
+                    <span class="hidden lg:block">Settings</span>
+                </button>
+            </div>
+            <div class="p-3 border-t border-guardian-border">
+                <div id="sidebar-status" class="flex items-center gap-2 text-xs text-slate-400">
+                    <span class="w-2 h-2 rounded-full bg-slate-500"></span>
+                    <span class="hidden lg:block">Loading...</span>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Main Content -->
+        <main class="flex-1 overflow-auto">
+            <!-- Header -->
+            <header class="border-b border-guardian-border bg-guardian-card px-4 lg:px-6 py-3 flex items-center justify-between sticky top-0 z-10">
+                <h1 id="page-title" class="text-lg font-semibold">Dashboard</h1>
+                <div class="flex items-center gap-3">
+                    <span id="header-status" class="text-xs text-slate-400"></span>
+                    <button onclick="refreshCurrentPage()" class="p-2 hover:bg-guardian-hover rounded-lg transition-colors" title="Refresh">
+                        <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+                    </button>
+                </div>
+            </header>
+
+            <div class="p-4 lg:p-6">
+                <!-- ═══════════════════════════════════════ -->
+                <!-- Dashboard Page -->
+                <!-- ═══════════════════════════════════════ -->
+                <section id="page-dashboard" class="page fade-in space-y-6">
+                    <!-- Stat Cards -->
+                    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div class="bg-guardian-card border border-guardian-border rounded-xl p-4">
+                            <div class="text-xs text-slate-400 mb-1">Service</div>
+                            <div id="stat-service" class="text-xl font-bold text-emerald-400">--</div>
+                            <div id="stat-uptime" class="text-xs text-slate-500 mt-1">--</div>
+                        </div>
+                        <div class="bg-guardian-card border border-guardian-border rounded-xl p-4">
+                            <div class="text-xs text-slate-400 mb-1">Cameras</div>
+                            <div id="stat-cameras" class="text-xl font-bold">--</div>
+                            <div id="stat-cameras-detail" class="text-xs text-slate-500 mt-1">--</div>
+                        </div>
+                        <div class="bg-guardian-card border border-guardian-border rounded-xl p-4">
+                            <div class="text-xs text-slate-400 mb-1">Detections Today</div>
+                            <div id="stat-detections" class="text-xl font-bold text-blue-400">--</div>
+                            <div id="stat-frames" class="text-xs text-slate-500 mt-1">--</div>
+                        </div>
+                        <div class="bg-guardian-card border border-guardian-border rounded-xl p-4">
+                            <div class="text-xs text-slate-400 mb-1">Alerts Today</div>
+                            <div id="stat-alerts" class="text-xl font-bold text-amber-400">--</div>
+                            <div id="stat-alerts-total" class="text-xs text-slate-500 mt-1">--</div>
+                        </div>
+                    </div>
+
+                    <!-- Camera Feeds -->
+                    <div>
+                        <h2 class="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">Live Feeds</h2>
+                        <div id="dashboard-feeds" class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                            <div class="bg-guardian-card border border-guardian-border rounded-xl p-4 text-center text-slate-500">
+                                No cameras connected
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Recent Detections -->
+                    <div>
+                        <h2 class="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">Recent Detections</h2>
+                        <div class="bg-guardian-card border border-guardian-border rounded-xl overflow-hidden">
+                            <table class="w-full text-sm">
+                                <thead class="bg-slate-800/50">
+                                    <tr>
+                                        <th class="text-left px-4 py-2 text-slate-400 font-medium">Time</th>
+                                        <th class="text-left px-4 py-2 text-slate-400 font-medium">Camera</th>
+                                        <th class="text-left px-4 py-2 text-slate-400 font-medium">Class</th>
+                                        <th class="text-left px-4 py-2 text-slate-400 font-medium">Confidence</th>
+                                        <th class="text-left px-4 py-2 text-slate-400 font-medium">Predator</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="dashboard-detections">
+                                    <tr><td colspan="5" class="px-4 py-8 text-center text-slate-500">No detections yet</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ═══════════════════════════════════════ -->
+                <!-- Cameras Page -->
+                <!-- ═══════════════════════════════════════ -->
+                <section id="page-cameras" class="page fade-in space-y-6 hidden">
+                    <div class="flex items-center justify-between">
+                        <h2 class="text-sm font-semibold text-slate-400 uppercase tracking-wider">Camera Management</h2>
+                        <button onclick="rescanCameras()" class="flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm transition-colors">
+                            <i data-lucide="scan" class="w-4 h-4"></i> Rescan Network
+                        </button>
+                    </div>
+                    <div id="cameras-grid" class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                        <div class="bg-guardian-card border border-guardian-border rounded-xl p-6 text-center text-slate-500">
+                            No cameras found — click Rescan Network
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ═══════════════════════════════════════ -->
+                <!-- Events Page -->
+                <!-- ═══════════════════════════════════════ -->
+                <section id="page-events" class="page fade-in space-y-6 hidden">
+                    <div class="flex items-center justify-between flex-wrap gap-3">
+                        <h2 class="text-sm font-semibold text-slate-400 uppercase tracking-wider">Event Browser</h2>
+                        <div class="flex items-center gap-3">
+                            <select id="event-date-select" onchange="loadEventsForDate(this.value)" class="text-sm">
+                                <option value="">Select date...</option>
+                            </select>
+                            <select id="event-class-filter" onchange="filterEvents()" class="text-sm">
+                                <option value="">All classes</option>
+                                <option value="bird">Bird</option>
+                                <option value="cat">Cat</option>
+                                <option value="dog">Dog</option>
+                                <option value="bear">Bear</option>
+                                <option value="person">Person</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="bg-guardian-card border border-guardian-border rounded-xl overflow-hidden">
+                        <table class="w-full text-sm">
+                            <thead class="bg-slate-800/50">
+                                <tr>
+                                    <th class="text-left px-4 py-2 text-slate-400 font-medium">Time</th>
+                                    <th class="text-left px-4 py-2 text-slate-400 font-medium">Camera</th>
+                                    <th class="text-left px-4 py-2 text-slate-400 font-medium">Class</th>
+                                    <th class="text-left px-4 py-2 text-slate-400 font-medium">Confidence</th>
+                                    <th class="text-left px-4 py-2 text-slate-400 font-medium">Snapshot</th>
+                                </tr>
+                            </thead>
+                            <tbody id="events-table">
+                                <tr><td colspan="5" class="px-4 py-8 text-center text-slate-500">Select a date to browse events</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <!-- Snapshot modal -->
+                    <div id="snapshot-modal" class="fixed inset-0 bg-black/80 z-50 flex items-center justify-center hidden" onclick="closeSnapshot()">
+                        <img id="snapshot-modal-img" src="" class="max-w-[90vw] max-h-[90vh] rounded-lg shadow-2xl">
+                    </div>
+                </section>
+
+                <!-- ═══════════════════════════════════════ -->
+                <!-- Alerts Page -->
+                <!-- ═══════════════════════════════════════ -->
+                <section id="page-alerts" class="page fade-in space-y-6 hidden">
+                    <div class="flex items-center justify-between">
+                        <h2 class="text-sm font-semibold text-slate-400 uppercase tracking-wider">Alert History</h2>
+                        <button onclick="sendTestAlert()" id="test-alert-btn"
+                            class="flex items-center gap-2 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 rounded-lg text-sm transition-colors">
+                            <i data-lucide="send" class="w-4 h-4"></i> Send Test Alert
+                        </button>
+                    </div>
+                    <div id="test-alert-result" class="hidden rounded-lg p-3 text-sm"></div>
+                    <div class="bg-guardian-card border border-guardian-border rounded-xl overflow-hidden">
+                        <table class="w-full text-sm">
+                            <thead class="bg-slate-800/50">
+                                <tr>
+                                    <th class="text-left px-4 py-2 text-slate-400 font-medium">Time</th>
+                                    <th class="text-left px-4 py-2 text-slate-400 font-medium">Camera</th>
+                                    <th class="text-left px-4 py-2 text-slate-400 font-medium">Classes</th>
+                                    <th class="text-left px-4 py-2 text-slate-400 font-medium">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="alerts-table">
+                                <tr><td colspan="4" class="px-4 py-8 text-center text-slate-500">No alerts sent yet</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <!-- ═══════════════════════════════════════ -->
+                <!-- Settings Page -->
+                <!-- ═══════════════════════════════════════ -->
+                <section id="page-settings" class="page fade-in space-y-6 hidden">
+                    <h2 class="text-sm font-semibold text-slate-400 uppercase tracking-wider">Configuration</h2>
+
+                    <!-- Detection Settings -->
+                    <div class="bg-guardian-card border border-guardian-border rounded-xl p-6 space-y-4">
+                        <h3 class="font-semibold flex items-center gap-2">
+                            <i data-lucide="scan-eye" class="w-5 h-5 text-blue-400"></i> Detection Settings
+                        </h3>
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            <div>
+                                <label class="block text-xs text-slate-400 mb-1">Confidence Threshold</label>
+                                <input type="number" id="cfg-confidence" min="0" max="1" step="0.05" value="0.45">
+                            </div>
+                            <div>
+                                <label class="block text-xs text-slate-400 mb-1">Bird Min BBox Width %</label>
+                                <input type="number" id="cfg-bird-min" min="0" max="50" step="0.5" value="8">
+                            </div>
+                            <div>
+                                <label class="block text-xs text-slate-400 mb-1">Min Dwell Frames</label>
+                                <input type="number" id="cfg-dwell" min="1" max="30" step="1" value="3">
+                            </div>
+                            <div>
+                                <label class="block text-xs text-slate-400 mb-1">Frame Interval (seconds)</label>
+                                <input type="number" id="cfg-interval" min="0.1" max="10" step="0.1" value="1.0">
+                            </div>
+                            <div>
+                                <label class="block text-xs text-slate-400 mb-1">Predator Classes (comma-sep)</label>
+                                <input type="text" id="cfg-predators" value="bird,cat,dog,bear">
+                            </div>
+                            <div>
+                                <label class="block text-xs text-slate-400 mb-1">Ignore Classes (comma-sep)</label>
+                                <input type="text" id="cfg-ignore" value="person,car,truck,bicycle">
+                            </div>
+                        </div>
+
+                        <!-- Per-class thresholds -->
+                        <div>
+                            <label class="block text-xs text-slate-400 mb-2">Per-Class Confidence Thresholds</label>
+                            <div id="class-thresholds" class="grid grid-cols-2 md:grid-cols-4 gap-3"></div>
+                        </div>
+
+                        <!-- No-alert zone -->
+                        <div>
+                            <label class="block text-xs text-slate-400 mb-1">No-Alert Zone (JSON array of [x%, y%] points)</label>
+                            <textarea id="cfg-zone" rows="2" class="font-mono text-xs" placeholder='e.g. [[10,60],[30,60],[30,90],[10,90]]'></textarea>
+                        </div>
+
+                        <button onclick="saveDetectionConfig()" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition-colors">
+                            Save Detection Settings
+                        </button>
+                        <div id="detection-save-result" class="hidden text-sm mt-2"></div>
+                    </div>
+
+                    <!-- Alert Settings -->
+                    <div class="bg-guardian-card border border-guardian-border rounded-xl p-6 space-y-4">
+                        <h3 class="font-semibold flex items-center gap-2">
+                            <i data-lucide="bell-ring" class="w-5 h-5 text-amber-400"></i> Alert Settings
+                        </h3>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs text-slate-400 mb-1">Discord Webhook URL</label>
+                                <input type="text" id="cfg-webhook" placeholder="https://discord.com/api/webhooks/...">
+                            </div>
+                            <div>
+                                <label class="block text-xs text-slate-400 mb-1">Alert Cooldown (seconds)</label>
+                                <input type="number" id="cfg-cooldown" min="0" max="3600" step="30" value="300">
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <input type="checkbox" id="cfg-snapshot" class="rounded">
+                                <label for="cfg-snapshot" class="text-sm text-slate-300">Include snapshot in alerts</label>
+                            </div>
+                        </div>
+                        <button onclick="saveAlertConfig()" class="px-4 py-2 bg-amber-600 hover:bg-amber-700 rounded-lg text-sm font-medium transition-colors">
+                            Save Alert Settings
+                        </button>
+                        <div id="alert-save-result" class="hidden text-sm mt-2"></div>
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <script src="/static/app.js"></script>
+    <script>lucide.createIcons();</script>
+</body>
+</html>

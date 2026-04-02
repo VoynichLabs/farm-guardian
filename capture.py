@@ -240,6 +240,13 @@ class FrameCaptureManager:
             cap.stop()
         self._captures.clear()
 
+    def get_latest_frame(self, camera_name: str) -> Optional[FrameResult]:
+        """Return the most recent frame for a camera, or None if unavailable."""
+        cap = self._captures.get(camera_name)
+        if cap and cap.recent_frames:
+            return cap.recent_frames[-1]
+        return None
+
     @property
     def active_cameras(self) -> list[str]:
         """Return names of cameras currently being captured."""

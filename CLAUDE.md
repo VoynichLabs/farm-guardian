@@ -4,7 +4,7 @@ This file provides guidance to AI coding agents working in this repository.
 
 ## Project
 
-Farm Guardian — a Python service that watches Reolink security cameras via ONVIF/RTSP, detects predator animals using YOLOv8, and sends Discord alerts. Runs on a Mac Mini M4 Pro (64GB) on the same local network as the cameras.
+Farm Guardian — a Python service that watches Reolink security cameras via ONVIF/RTSP, detects predator animals using YOLOv8, sends Discord alerts, and serves a local web dashboard for monitoring and control. Runs on a Mac Mini M4 Pro (64GB) on the same local network as the cameras.
 
 ## Commands
 
@@ -35,6 +35,8 @@ Read `PLAN.md` for the full architecture document with module specifications.
 - `detect.py` — Runs YOLOv8 inference on frames. Classifies objects. Returns detections with bounding boxes.
 - `alerts.py` — Posts Discord messages with snapshots when predator-class animals are detected. Rate-limits alerts.
 - `logger.py` — Writes structured JSON event logs. Saves snapshot images to `events/YYYY-MM-DD/`.
+- `dashboard.py` — FastAPI web dashboard served locally. Live camera feeds, detection timeline, alert history, full config controls. Accessible at `http://macmini:8080`.
+- `static/index.html` + `static/app.js` — Dashboard frontend (Tailwind CSS, vanilla JS, no build step).
 
 **Config:** `config.json` (copied from `config.example.json`). Contains camera IPs, Discord webhook URL, detection thresholds, alert settings.
 
@@ -52,6 +54,8 @@ Read `PLAN.md` for the full architecture document with module specifications.
 - `onvif-zeep` — ONVIF camera discovery and control
 - `requests` — Discord webhook HTTP posts
 - `Pillow` — Image saving and manipulation
+- `fastapi` + `uvicorn` — Local web dashboard
+- `python-multipart` — Form support for FastAPI
 
 ---
 
@@ -124,7 +128,7 @@ These standards apply to ALL code in this repository. Non-negotiable.
 
 ### What NOT To Do
 
-- Don't add a web UI — this is a background service
+- Don't add external/hosted web services — the dashboard is local-network only
 - Don't add cloud APIs for detection — everything runs locally
 - Don't add a database — JSON logs and filesystem storage only
 - Don't over-abstract — this has 6 modules, not 60
