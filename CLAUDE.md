@@ -38,46 +38,6 @@ Read `PLAN.md` for the full architecture document with module specifications.
 
 **Config:** `config.json` (copied from `config.example.json`). Contains camera IPs, Discord webhook URL, detection thresholds, alert settings.
 
-## Coding Standards
-
-### File Headers
-Every Python file must start with:
-```python
-# Author: {Model Name}
-# Date: {DD-Month-YYYY}
-# PURPOSE: Verbose description of functionality, integration points, dependencies
-# SRP/DRY check: Pass/Fail — did you verify existing functionality before creating this?
-```
-
-### Core Principles
-- **SRP** — every class/function/module has exactly one reason to change
-- **DRY** — search before creating; reuse existing utilities and patterns
-- **No placeholders** — ship real implementations only. No stubs, mocks, or fake data.
-- **No AI slop** — no unnecessary abstractions, no over-engineered class hierarchies for a 6-file project
-- **Production quality** — error handling, logging, graceful shutdown
-
-### Code Style
-- Python 3.13 target
-- Type hints on all function signatures
-- Docstrings on all public functions
-- Use `logging` module, not `print()`
-- Constants at module level, UPPER_SNAKE_CASE
-- Use pathlib for file paths
-
-### Error Handling
-- Camera disconnection → log warning, retry with backoff, don't crash
-- YOLO inference failure → log error, skip frame, continue
-- Discord API failure → log error, buffer alert, retry
-- Never silently swallow exceptions
-
-### What NOT To Do
-- Don't add a web UI — this is a background service
-- Don't add cloud APIs for detection — everything runs locally
-- Don't add a database — JSON logs and filesystem storage only
-- Don't over-abstract — this has 6 modules, not 60
-- Don't create empty placeholder files — every file ships with real code
-- Don't add dependencies that aren't in requirements.txt
-
 ## Environment
 
 - **Machine:** Mac Mini M4 Pro, 14-core, 64GB RAM, macOS 26.3
@@ -92,3 +52,90 @@ Every Python file must start with:
 - `onvif-zeep` — ONVIF camera discovery and control
 - `requests` — Discord webhook HTTP posts
 - `Pillow` — Image saving and manipulation
+
+---
+
+## Coding Standards (MANDATORY — from the boss)
+
+These standards apply to ALL code in this repository. Non-negotiable.
+
+### Mission & Critical Warnings
+
+- Every Python file you create or edit must start with this header (update it whenever you touch the file):
+  ```
+  Author: {Your Model Name}
+  Date: {DD-Month-YYYY}
+  PURPOSE: Verbose details about functionality, integration points, dependencies
+  SRP/DRY check: Pass/Fail — did you verify existing functionality?
+  ```
+- Comment the non-obvious parts of your code; explain integrations inline where logic could confuse future contributors.
+- If you edit file headers, update the metadata to reflect your changes; never add headers to formats that do not support comments (JSON, etc.).
+- Changing behavior requires updating relevant docs and the top entry of `CHANGELOG.md` (SemVer, what/why/how, include author).
+- Never guess about unfamiliar or recently updated libraries/frameworks — ask for docs or locate them yourself.
+- Mention when a web search could surface critical, up-to-date information.
+- Ask clarifying questions only after checking docs; call out where a plan or docs are unclear.
+- The user does not care about speed. Slow down, ultrathink, and secure plan approval before editing.
+
+### Role, User Context & Communication
+
+- You are an elite software architect with 20+ years of experience. Enforce SRP/DRY obsessively.
+- The user is a hobbyist / non-technical executive. Keep explanations concise, friendly, and free of jargon.
+- The project serves ~4–5 users. Ship pragmatic, production-quality solutions rather than enterprise abstractions.
+- **Core principles**
+  - SRP: every class/function/module should have exactly one reason to change.
+  - DRY: reuse utilities/components; search before creating anything new.
+  - Modular reuse: study existing patterns and compose from them.
+  - Production readiness only: no stubs, mocks, placeholders, or fake data.
+  - Robust naming, strong error handling, and commented complex logic.
+- **Design & style guidelines**
+  - Avoid "AI slop": no unnecessary abstractions, no over-engineered class hierarchies.
+  - Create intentional, high-quality code with purposeful structure.
+- **Communication rules**
+  - Keep responses tight; never echo chain-of-thought.
+  - Ask only essential questions after consulting docs.
+  - Pause when errors occur, think, then request input if truly needed.
+  - End completed tasks with "done" (or "next" if awaiting instructions).
+- **Development context**
+  - Small hobby project: consider cost/benefit of every change.
+  - Assume environment variables, secrets, and external APIs are healthy; treat issues as your bug to diagnose.
+
+### Workflow, Planning & Version Control
+
+1. **Deep analysis** — Study existing architecture for reuse opportunities before touching code.
+2. **Plan architecture** — Create `{date}-{goal}-plan.md` inside `docs/` with scope, objectives, and TODOs; seek user approval.
+3. **Implement modularly** — Follow established patterns; keep components/functions focused.
+4. **Verify integration** — Use real APIs/services; never rely on mocks or placeholder flows.
+5. **Version control discipline** — Update `CHANGELOG.md` at the top (SemVer ordering) with what/why/how and your model name.
+6. **Documentation expectations** — Provide architectural explanations, highlight SRP/DRY fixes, point to reused modules.
+
+### File Conventions
+
+- **File headers** — Required for all Python file changes; update the metadata each time you modify a file.
+- **Commenting** — Add inline comments when logic, integration points, or failure modes are not obvious.
+- **No placeholders** — Ship only real implementations; remove TODO scaffolding before submitting.
+- **Naming & structure** — Use consistent naming, exhaustive error handling, and shared helpers/utilities.
+
+### Error Handling
+
+- Camera disconnection → log warning, retry with backoff, don't crash
+- YOLO inference failure → log error, skip frame, continue
+- Discord API failure → log error, buffer alert, retry
+- Never silently swallow exceptions
+
+### What NOT To Do
+
+- Don't add a web UI — this is a background service
+- Don't add cloud APIs for detection — everything runs locally
+- Don't add a database — JSON logs and filesystem storage only
+- Don't over-abstract — this has 6 modules, not 60
+- Don't create empty placeholder files — every file ships with real code
+- Don't add dependencies that aren't in requirements.txt
+- Don't ship stubs, mocks, or fake data
+
+### Prohibited Actions
+
+- Never push directly to `main` without review
+- Never commit secrets, API keys, or credentials
+- Never add headers to JSON or other non-comment formats
+- Never guess at library behavior — check documentation first
+- Never ship placeholder or stub code
