@@ -10,13 +10,25 @@
       "type": "ptz"
     }
   ],
+  "discovery": {
+    "rescan_interval_seconds": 300
+  },
   "detection": {
     "model": "yolov8n.pt",
-    "confidence_threshold": 0.5,
+    "confidence_threshold": 0.45,
+    "class_confidence_thresholds": {
+      "bird": 0.45,
+      "cat": 0.50,
+      "dog": 0.50,
+      "bear": 0.40
+    },
     "frame_interval_seconds": 1.0,
     "predator_classes": ["bird", "cat", "dog", "bear"],
     "ignore_classes": ["person", "car", "truck", "bicycle"],
-    "alert_cooldown_seconds": 300
+    "alert_cooldown_seconds": 300,
+    "bird_min_bbox_width_pct": 8.0,
+    "min_dwell_frames": 3,
+    "no_alert_zone": []
   },
   "alerts": {
     "discord_webhook_url": "https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN",
