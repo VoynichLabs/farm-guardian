@@ -1,0 +1,36 @@
+{
+  "cameras": [
+    {
+      "name": "house-yard",
+      "ip": "192.168.0.XXX",
+      "port": 80,
+      "username": "admin",
+      "password": "your_camera_password",
+      "onvif_port": 8000,
+      "type": "ptz"
+    }
+  ],
+  "detection": {
+    "model": "yolov8n.pt",
+    "confidence_threshold": 0.5,
+    "frame_interval_seconds": 1.0,
+    "predator_classes": ["bird", "cat", "dog", "bear"],
+    "ignore_classes": ["person", "car", "truck", "bicycle"],
+    "alert_cooldown_seconds": 300
+  },
+  "alerts": {
+    "discord_webhook_url": "https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN",
+    "include_snapshot": true,
+    "mention_on_alert": false
+  },
+  "storage": {
+    "events_dir": "events",
+    "max_days_retained": 30,
+    "save_all_detections": false,
+    "save_predator_snapshots": true
+  },
+  "logging": {
+    "level": "INFO",
+    "file": "guardian.log"
+  }
+}
