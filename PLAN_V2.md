@@ -18,7 +18,8 @@ Farm Guardian is an intelligent farm security system that protects chickens from
 - **Animal visit tracking** — groups detections into visits with duration, behavior, and outcomes
 - **Active deterrence** — programmatic control of camera spotlight, siren, and PTZ via Reolink API
 - **PTZ patrol automation** — camera cycles through preset monitoring positions
-- **Daily intelligence reports** — natural language summaries for LLM assistants (OpenClaw)
+- **Vision model species refinement** — YOLO detects "bird", local GLM vision model confirms "hawk" vs "chicken"
+- **Daily intelligence reports** — natural language summaries for local LLM assistants
 - **Web-hostable architecture** — local-first, but deployable to `farm.markbarney.net` when ready
 - **REST API** for LLM tool access — structured queries over detection history and patterns
 
@@ -84,15 +85,29 @@ POST /api.cgi?cmd=SetAiCfg         → Configure auto-tracking behavior
 
 ## 3. The Problem We're Solving (More Precisely)
 
-Hawks and ground predators (fox, raccoon, coyote, possibly fisher cat) are killing chickens during **daytime hours** at the Hampton property. The camera already has motion detection and a spotlight, but it can't tell a chicken from a hawk.
+Aerial and ground predators are killing chickens at the Hampton property. The camera has motion detection and a spotlight, but it can't distinguish a chicken from a hawk.
 
-**What we need that the camera alone can't do:**
+### Known Local Animals
 
-1. **Species-level classification** — "that's a red-tailed hawk, not a chicken"
+| Animal | Category | Threat Level | Notes |
+|--------|----------|-------------|-------|
+| **Chickens** | Livestock | N/A | The birds we're protecting |
+| **Small dogs** | Regular visitor | None | Neighbor dogs, frequent visitors |
+| **Small birds** | Wildlife | None | Songbirds, sparrows, etc. |
+| **Large raptor (hawk)** | Aerial predator | **HIGH** | Swoops from sky — primary threat |
+| **Bobcat** | Ground predator | **HIGH** | Large dog-like, stalks from cover |
+| **Raccoon** | Ground predator | **MEDIUM** | Nocturnal, opportunistic |
+| **Possum** | Ground nuisance | **LOW** | Nocturnal, occasional egg thief |
+
+No bears, cows, or large livestock in the area.
+
+### What we need that the camera alone can't do:
+
+1. **Species-level classification** — "that's a hawk, not a chicken" — YOLO detects "bird", then our local **GLM vision model** (`zai-org/glm-4.6v-flash`) confirms the species
 2. **Intelligent alerting** — alert on predators only, not every motion event
 3. **Active deterrence** — automatically trigger spotlight + siren when a predator is detected (the camera can do this on any motion, but we want it only for predators)
 4. **Tracking over time** — which species visit, when, how often, do deterrents work?
-5. **Pattern intelligence** — "hawks come between 10am-2pm from the northeast" — feed this to LLM assistants for analysis
+5. **Pattern intelligence** — "hawks come between 10am-2pm" — feed this to local LLM for analysis
 6. **Remote monitoring** — dashboard accessible from phone/laptop, eventually from `farm.markbarney.net`
 
 ---
@@ -274,6 +289,7 @@ farm-guardian/
 ├── discovery.py            ← ONVIF camera scanner + registration
 ├── capture.py              ← RTSP frame grabber (per-camera threads, 4K→1080p)
 ├── detect.py               ← YOLOv8 inference + false-positive suppression
+├── vision.py               ← NEW: GLM vision model species refinement
 ├── tracker.py              ← NEW: Animal visit tracking + pattern analysis
 ├── camera_control.py       ← NEW: PTZ, spotlight, siren via reolink_aio
 ├── deterrent.py            ← NEW: Automated deterrent response engine
@@ -282,7 +298,7 @@ farm-guardian/
 ├── database.py             ← NEW: SQLite abstraction layer
 ├── reports.py              ← NEW: Daily summaries + LLM-ready exports
 ├── dashboard.py            ← FastAPI web dashboard (local + deployable)
-├── api.py                  ← NEW: REST API for LLM tools (OpenClaw)
+├── api.py                  ← NEW: REST API for LLM tools
 ├── static/
 │   ├── index.html          ← Dashboard UI (Tailwind CSS, vanilla JS)
 │   └── app.js              ← Dashboard frontend logic
@@ -303,19 +319,19 @@ farm-guardian/
 ```
 Reolink E1 Outdoor Pro (WiFi, RTSP)
          │
-         ├──[RTSP stream]──→ capture.py ──→ detect.py ──→ tracker.py
-         │                                      │              │
-         │                                      │         (group into visits,
-         │                                      │          track duration,
-         │                                      │          assign outcomes)
-         │                                      │              │
-         │                                      ▼              ▼
+         ├──[RTSP stream]──→ capture.py ──→ detect.py ──→ vision.py ──→ tracker.py
+         │                                      │            │                │
+         │                                      │     (YOLO says "bird"?   (group into visits,
+         │                                      │      ask GLM: hawk or     track duration,
+         │                                      │      chicken?)             assign outcomes)
+         │                                      │            │                │
+         │                                      ▼            ▼                ▼
          │                                 database.py ◄── logger.py
          │                                      │
          │                                      ├──→ alerts.py ──→ Discord
          │                                      ├──→ deterrent.py ──→ camera_control.py ──┐
          │                                      ├──→ reports.py ──→ data/exports/         │
-         │                                      └──→ api.py ──→ LLM tools (OpenClaw)     │
+         │                                      └──→ api.py ──→ LLM tools (local)        │
          │                                                                                │
          ◄──[Reolink HTTP API / reolink_aio]──── camera_control.py ◄──────────────────────┘
               (PTZ move, spotlight on/off,          │
@@ -325,6 +341,49 @@ Reolink E1 Outdoor Pro (WiFi, RTSP)
 ```
 
 ### New Module Descriptions
+
+#### `vision.py` — GLM Vision Model Species Refinement
+
+Uses the locally-running `zai-org/glm-4.6v-flash` vision model (via LM Studio at `http://127.0.0.1:1234`) as a **second-pass species identifier**.
+
+**The problem:** YOLO detects "bird" but can't distinguish a hawk from a chicken. Both are critical to get right — one is the predator, the other is the livestock.
+
+**The solution:** When YOLO detects a "bird" class, we crop the bounding box region, encode it as JPEG, and send it to the GLM vision model with a structured prompt:
+
+```
+You are a wildlife identification system on a chicken farm.
+Look at this image and identify the bird species.
+Is this a: (a) chicken, (b) hawk/raptor, (c) small songbird, (d) other bird?
+Respond with ONLY the category letter and species name.
+```
+
+**Behavior:**
+- Only triggered for ambiguous YOLO classes ("bird") — not for every detection
+- Also used when YOLO detects a large "cat" or "dog" to distinguish: is it a bobcat or a house cat? A neighbor's dog or something wild?
+- Response cached per track — don't re-query for same animal in same visit
+- Timeout: 3 seconds max — if vision model is slow/offline, fall back to YOLO class
+- All vision refinements logged to `detections` table (`model_name` = `glm-4.6v-flash`)
+
+**LM Studio API format** (OpenAI-compatible):
+```python
+POST http://127.0.0.1:1234/v1/chat/completions
+{
+  "model": "zai-org/glm-4.6v-flash",
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        { "type": "text", "text": "Identify this bird on a chicken farm..." },
+        { "type": "image_url", "image_url": { "url": "data:image/jpeg;base64,..." } }
+      ]
+    }
+  ],
+  "max_tokens": 50,
+  "temperature": 0.1
+}
+```
+
+This is a huge advantage — we get species-level classification without needing to custom-train a YOLO model, using hardware we already have.
 
 #### `database.py` — Data Layer
 
@@ -378,22 +437,22 @@ Decides what deterrent actions to take when a predator is detected.
 
 | Level | Trigger | Actions | Use Case |
 |-------|---------|---------|----------|
-| 0 | Any detection | Log only | Passive monitoring, data collection |
-| 1 | Low-threat predator | Spotlight on | Cat near coop |
-| 2 | Medium-threat predator | Spotlight + audio alarm | Hawk overhead |
-| 3 | High-threat predator | Spotlight + siren + audio alarm | Fox/coyote approaching |
+| 0 | Any detection | Log only | Passive monitoring (chickens, small birds, small dogs) |
+| 1 | Low-threat animal | Spotlight on | Possum near coop |
+| 2 | Medium-threat predator | Spotlight + audio alarm | Raccoon approaching, hawk overhead |
+| 3 | High-threat predator | Spotlight + siren + audio alarm | Bobcat stalking |
 
 **Per-species response rules** (configurable):
 
 ```json
 {
   "hawk":    { "level": 2, "actions": ["spotlight", "audio_alarm"] },
-  "fox":     { "level": 3, "actions": ["spotlight", "siren", "audio_alarm"] },
-  "coyote":  { "level": 3, "actions": ["spotlight", "siren", "audio_alarm"] },
+  "bobcat":  { "level": 3, "actions": ["spotlight", "siren", "audio_alarm"] },
   "raccoon": { "level": 2, "actions": ["spotlight", "audio_alarm"] },
-  "cat":     { "level": 1, "actions": ["spotlight"] },
-  "dog":     { "level": 2, "actions": ["spotlight", "audio_alarm"] },
-  "bear":    { "level": 3, "actions": ["spotlight", "siren", "audio_alarm"] }
+  "possum":  { "level": 1, "actions": ["spotlight"] },
+  "small_dog": { "level": 0, "actions": [] },
+  "chicken": { "level": 0, "actions": [] },
+  "small_bird": { "level": 0, "actions": [] }
 }
 ```
 
@@ -422,7 +481,7 @@ Generates daily summaries for human review and LLM consumption.
 
 #### `api.py` — REST API for LLM Tools
 
-Structured API that LLM assistants (via OpenClaw) can query.
+Structured API that local LLM assistants can query.
 
 ```
 GET  /api/v1/status                          → Service health + camera status
@@ -525,7 +584,15 @@ This data is what gets fed to LLM assistants for analysis and recommendations.
 
 ---
 
-## 8. LLM Integration (OpenClaw)
+## 8. LLM Integration (Local LM Studio)
+
+The Mac Mini runs **LM Studio** locally, serving LLM inference on ports 1-4 with an OpenAI-compatible API. The vision model `zai-org/glm-4.6v-flash` runs at `http://127.0.0.1:1234` and is used for real-time species refinement (see `vision.py` above).
+
+Beyond real-time classification, the LLMs can also be used for:
+- **Daily report generation** — feed structured data, get natural language summary
+- **Pattern analysis** — "what's different about this week vs. last week?"
+- **Alert enrichment** — add context to Discord messages ("this hawk has visited 3 times today")
+- **Queryable assistant** — answer ad-hoc questions about farm activity via the REST API
 
 ### Data Format for LLM Consumption
 
@@ -604,11 +671,11 @@ Monitored for 12.5 hours (6:00 AM – 6:30 PM). Processed 45,000 frames.
 
 ### Queryable API for LLM Tools
 
-LLM assistants query the REST API to answer questions like:
+Local LLM assistants query the REST API to answer questions like:
 - "How many hawks visited this week?"
 - "What time do predators usually appear?"
 - "Are the deterrents working?"
-- "Show me the last fox sighting"
+- "Show me the last raccoon sighting"
 - "What's the trend in predator activity?"
 
 ---
@@ -691,16 +758,26 @@ Mac Mini (local)                    farm.markbarney.net (cloud)
     "model_path": "yolov8n.pt",
     "confidence_threshold": 0.45,
     "frame_interval_seconds": 1.0,
-    "predator_classes": ["bird", "cat", "dog", "bear"],
+    "predator_classes": ["bird", "cat"],
+    "safe_classes": ["chicken", "small_bird", "small_dog"],
     "ignore_classes": ["person", "car", "truck", "bicycle"],
     "class_confidence_thresholds": {
       "bird": 0.50,
-      "cat": 0.40,
-      "dog": 0.40
+      "cat": 0.40
     },
     "bird_min_bbox_width_pct": 8,
     "min_dwell_frames": 3,
     "no_alert_zones": []
+  },
+  "vision": {
+    "enabled": true,
+    "endpoint": "http://127.0.0.1:1234/v1/chat/completions",
+    "model": "zai-org/glm-4.6v-flash",
+    "timeout_seconds": 3,
+    "trigger_classes": ["bird", "cat", "dog"],
+    "max_tokens": 50,
+    "temperature": 0.1,
+    "fallback_on_error": true
   },
   "tracking": {
     "track_timeout_seconds": 60,
@@ -711,13 +788,13 @@ Mac Mini (local)                    farm.markbarney.net (cloud)
     "enabled": true,
     "response_delay_seconds": 1.5,
     "response_rules": {
-      "hawk":    { "level": 2, "actions": ["spotlight", "audio_alarm"] },
-      "fox":     { "level": 3, "actions": ["spotlight", "siren", "audio_alarm"] },
-      "coyote":  { "level": 3, "actions": ["spotlight", "siren", "audio_alarm"] },
-      "raccoon": { "level": 2, "actions": ["spotlight", "audio_alarm"] },
-      "cat":     { "level": 1, "actions": ["spotlight"] },
-      "dog":     { "level": 2, "actions": ["spotlight", "audio_alarm"] },
-      "bear":    { "level": 3, "actions": ["spotlight", "siren", "audio_alarm"] }
+      "hawk":      { "level": 2, "actions": ["spotlight", "audio_alarm"] },
+      "bobcat":    { "level": 3, "actions": ["spotlight", "siren", "audio_alarm"] },
+      "raccoon":   { "level": 2, "actions": ["spotlight", "audio_alarm"] },
+      "possum":    { "level": 1, "actions": ["spotlight"] },
+      "small_dog": { "level": 0, "actions": [] },
+      "chicken":   { "level": 0, "actions": [] },
+      "small_bird":{ "level": 0, "actions": [] }
     },
     "spotlight_brightness": 100,
     "spotlight_duration_seconds": 120,
@@ -815,11 +892,12 @@ SQLite uses Python's built-in `sqlite3` module — no additional package needed.
 - [x] Service orchestration with graceful shutdown (`guardian.py`)
 - [x] Local web dashboard with live feeds (`dashboard.py`, `static/`)
 
-### Phase 2: Database + Tracking
+### Phase 2: Database + Vision + Tracking
 - [ ] `database.py` — SQLite abstraction layer, schema creation, migrations
+- [ ] `vision.py` — GLM vision model integration for species refinement
 - [ ] Update `logger.py` — write to both DB and legacy JSONL
 - [ ] `tracker.py` — animal visit tracking, track lifecycle management
-- [ ] Update `guardian.py` — wire tracker into detection pipeline
+- [ ] Update `guardian.py` — wire vision + tracker into detection pipeline
 - [ ] Update dashboard — event browser reads from DB, filterable
 
 ### Phase 3: Camera Control + Deterrence
@@ -846,7 +924,7 @@ SQLite uses Python's built-in `sqlite3` module — no additional package needed.
 - [ ] Public daily report pages
 
 ### Phase 6: Refinement
-- [ ] Custom YOLO model fine-tuned on local species (hawk vs chicken distinction)
+- [ ] Fine-tune vision model prompts based on real detection accuracy
 - [ ] Weather context integration (OpenWeather API — hawks hunt more on clear days)
 - [ ] Weekly trend reports (Discord + export)
 - [ ] Time-lapse compilation of daily activity
@@ -883,15 +961,15 @@ SQLite uses Python's built-in `sqlite3` module — no additional package needed.
 
 ## 14. Open Questions for Review
 
-1. **Custom YOLO training priority:** Should we start collecting training data from day one to eventually fine-tune a hawk-vs-chicken model? The generic YOLO "bird" class won't distinguish between them.
+1. **Siren neighbor impact:** The E1 Outdoor Pro has a built-in siren. At a 13-acre property, neighbors likely won't hear it — but worth confirming before enabling auto-siren.
 
-2. **Siren neighbor impact:** The E1 Outdoor Pro has a built-in siren. At a 13-acre property, neighbors may not hear it — but worth confirming before enabling auto-siren.
+2. **Night operation:** Hawks are daytime predators, but raccoons and possums are nocturnal. The camera has IR night vision. Do we want 24/7 monitoring or daytime only?
 
-3. **Night operation:** Hawks are daytime predators, but foxes/raccoons are nocturnal. The camera has IR night vision. Do we want 24/7 monitoring or daytime only?
+3. **Vision model latency:** The GLM vision model at `127.0.0.1:1234` needs to respond within ~3s for real-time use. If it's too slow on M4 Pro while also serving other LLM tasks on ports 1-4, we may need to adjust the pipeline (e.g., fire deterrent on YOLO "bird" immediately, then refine species async for logging).
 
-4. **PTZ vs. fixed second camera:** When adding the second camera, a fixed Lumus-style camera at the coop could provide continuous coverage while the E1 Pro does PTZ patrol elsewhere. Worth considering vs. two PTZ cameras.
+4. **PTZ vs. fixed second camera:** When adding a second camera, a fixed camera at the coop could provide continuous coverage while the E1 Pro does PTZ patrol elsewhere.
 
-5. **OpenClaw integration specifics:** What format does OpenClaw expect for tool definitions? We can shape the API to match exactly.
+5. **LM Studio port allocation:** User runs LM Studio on ports 1-4. Need to confirm which port serves the text LLM (for report generation) vs. the vision model (confirmed at 1234). Are these separate model instances?
 
 6. **farm.markbarney.net hosting stack:** What's currently running there? (Static site? CMS? What host?) This affects how we deploy the dashboard alongside it.
 
