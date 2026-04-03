@@ -1,11 +1,11 @@
-# Author: Cascade (Claude Sonnet 4)
-# Date: 02-April-2026
-# PURPOSE: Main service entry point for Farm Guardian. Orchestrates camera discovery,
-#          frame capture, YOLO animal detection, Discord alerting, event logging, and
-#          the local web dashboard. Runs as a foreground process on the Mac Mini.
-#          Handles graceful shutdown via SIGINT/SIGTERM. Supports periodic camera
-#          re-scanning, daily event cleanup, and configurable logging.
-#          All configuration loaded from config.json.
+# Author: Claude Opus 4.6 (updated), Cascade (Claude Sonnet 4) (original)
+# Date: 03-April-2026
+# PURPOSE: Main service entry point for Farm Guardian v2. Orchestrates camera discovery,
+#          frame capture, YOLO animal detection, GLM vision refinement, animal visit tracking,
+#          Discord alerting, event logging (DB + JSONL), and the local web dashboard.
+#          Runs as a foreground process on the Mac Mini. Handles graceful shutdown via
+#          SIGINT/SIGTERM. Supports periodic camera re-scanning, daily event cleanup,
+#          and daily database backup. All configuration loaded from config.json.
 # SRP/DRY check: Pass — single responsibility is service lifecycle and module coordination.
 
 import argparse
@@ -19,15 +19,25 @@ import time
 from collections import deque
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 from discovery import CameraDiscovery
 from capture import FrameCaptureManager, FrameResult
 from detect import AnimalDetector, DetectionResult
 from alerts import AlertManager
 from logger import EventLogger
+from database import GuardianDB
+from vision import VisionRefiner
+from tracker import AnimalTracker
 from dashboard import start_dashboard
 
 log = logging.getLogger("guardian")
+
+# Vision-refined class → predator mapping. YOLO detects generic "bird"/"cat"/"dog",
+# but the vision model refines to specific species. These sets determine whether
+# the refined class is a threat or safe.
+_REFINED_PREDATORS = {"hawk", "bobcat", "coyote", "fox", "wild_cat", "other_canine", "other_bird"}
+_REFINED_SAFE = {"chicken", "small_bird", "small_dog", "house_cat"}
 
 # Default config file path
 _CONFIG_PATH = "config.json"
@@ -48,11 +58,17 @@ class GuardianService:
         self._shutdown_event = threading.Event()
 
         # Initialize modules
-        log.info("Initializing Farm Guardian modules...")
+        log.info("Initializing Farm Guardian v2 modules...")
+
+        # Database — foundation for v2 (all other modules may write to it)
+        self._db = GuardianDB(config)
+
         self._discovery = CameraDiscovery(config)
         self._detector = AnimalDetector(config)
         self._alert_manager = AlertManager(config)
-        self._event_logger = EventLogger(config)
+        self._event_logger = EventLogger(config, db=self._db)
+        self._vision = VisionRefiner(config)
+        self._tracker = AnimalTracker(config, db=self._db)
         self._capture_manager = FrameCaptureManager(config, on_frame=self._on_frame)
 
         # Background task threads
@@ -90,8 +106,19 @@ class GuardianService:
                 _RESCAN_INTERVAL,
             )
         else:
-            # Start capturing from all online cameras with RTSP URLs
+            # Register cameras in DB and start capturing
             for cam in online_cameras:
+                # Register in database for v2 tracking
+                cam_cfg = self._get_camera_config(cam.name)
+                self._db.get_or_create_camera(
+                    camera_id=cam.name,
+                    name=cam.name,
+                    model=cam_cfg.get("model", "unknown") if cam_cfg else "unknown",
+                    ip=cam.ip if hasattr(cam, "ip") else None,
+                    rtsp_url=cam.rtsp_url,
+                    cam_type=cam_cfg.get("type", "ptz") if cam_cfg else "ptz",
+                )
+
                 if cam.rtsp_url:
                     self._capture_manager.add_camera(cam.name, cam.rtsp_url)
                 else:
@@ -114,7 +141,7 @@ class GuardianService:
         dashboard_cfg = self._config.get("dashboard", {})
         if dashboard_cfg.get("enabled", True):
             self._dashboard_thread = start_dashboard(self, self._config, config_path=self._config_path)
-            port = dashboard_cfg.get("port", 8080)
+            port = dashboard_cfg.get("port", 6530)
             log.info("Dashboard available at http://localhost:%d", port)
 
         active = self._capture_manager.active_cameras
@@ -140,6 +167,8 @@ class GuardianService:
         self._shutdown_event.set()
 
         self._capture_manager.stop_all()
+        self._tracker.close_all()
+        self._db.close()
 
         uptime = time.time() - self._start_time if self._start_time else 0
         log.info(
@@ -158,6 +187,7 @@ class GuardianService:
     def _on_frame(self, frame_result: FrameResult) -> None:
         """
         Callback invoked by capture threads for each new frame. Runs detection,
+        optionally refines species via vision model, tracks animal visits,
         logs events, and sends alerts if predators are found. This runs on the
         capture thread — keep it fast.
         """
@@ -168,14 +198,49 @@ class GuardianService:
             if not result.detections:
                 return
 
-            # Log all non-ignored detections and buffer for dashboard
             for det in result.detections:
+                # -- v2: Vision refinement for ambiguous classes --
+                model_name = "yolov8n"
+                if self._vision.should_refine(det.class_name):
+                    # Get existing track to check cache, or pass None for new
+                    existing_track = self._tracker.get_track_for_detection(
+                        result.camera_name, det.class_name
+                    )
+                    existing_track_id = existing_track.track_id if existing_track else None
+
+                    refined_class, refined_conf, model_name = self._vision.refine(
+                        class_name=det.class_name,
+                        frame=result.frame,
+                        bbox=det.bbox,
+                        track_id=existing_track_id,
+                    )
+                    # Update detection with refined class
+                    if refined_class != det.class_name:
+                        det.class_name = refined_class
+                        if refined_class in _REFINED_PREDATORS:
+                            det.is_predator = True
+                        elif refined_class in _REFINED_SAFE:
+                            det.is_predator = False
+                        # else: keep original YOLO predator status
+
+                # -- v2: Track this detection as part of an animal visit --
+                track = self._tracker.process_detection(
+                    camera_id=result.camera_name,
+                    detection=det,
+                )
+                track_id = track.track_id if track else None
+
+                # -- Log to JSONL + DB --
                 event = self._event_logger.log_event(
                     camera_name=result.camera_name,
                     detection_class=det.class_name,
                     confidence=det.confidence,
                     bbox=det.bbox,
                     frame=result.frame,
+                    bbox_area_pct=det.bbox_area_pct,
+                    is_predator=det.is_predator,
+                    track_id=track_id,
+                    model_name=model_name,
                 )
                 self.recent_detections.append(event)
 
@@ -202,6 +267,13 @@ class GuardianService:
                 exc,
                 exc_info=True,
             )
+
+    def _get_camera_config(self, camera_name: str) -> Optional[dict]:
+        """Find the config dict for a camera by name."""
+        for cam_cfg in self._config.get("cameras", []):
+            if cam_cfg.get("name") == camera_name:
+                return cam_cfg
+        return None
 
     def _rescan_loop(self) -> None:
         """Periodically re-scan for cameras that may have reconnected."""
@@ -230,7 +302,7 @@ class GuardianService:
                 log.error("Camera re-scan failed: %s", exc)
 
     def _cleanup_loop(self) -> None:
-        """Periodically clean up old event directories."""
+        """Periodically clean up old event directories and back up the database."""
         while not self._shutdown_event.is_set():
             self._shutdown_event.wait(_CLEANUP_INTERVAL)
             if self._shutdown_event.is_set():
@@ -242,6 +314,15 @@ class GuardianService:
                     log.info("Cleaned up %d old event directories", removed)
             except Exception as exc:
                 log.error("Event cleanup failed: %s", exc)
+
+            # Daily database backup
+            db_cfg = self._config.get("database", {})
+            if db_cfg.get("backup_daily", True):
+                try:
+                    self._db.backup()
+                    self._db.cleanup_old_backups()
+                except Exception as exc:
+                    log.error("Database backup failed: %s", exc)
 
 
 def load_config(config_path: str) -> dict:

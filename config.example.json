@@ -41,6 +41,26 @@
     "save_all_detections": false,
     "save_predator_snapshots": true
   },
+  "vision": {
+    "enabled": false,
+    "endpoint": "http://127.0.0.1:1234/v1/chat/completions",
+    "model": "zai-org/glm-4.6v-flash",
+    "timeout_seconds": 3,
+    "trigger_classes": ["bird", "cat", "dog"],
+    "max_tokens": 50,
+    "temperature": 0.1,
+    "fallback_on_error": true
+  },
+  "tracking": {
+    "track_timeout_seconds": 60,
+    "min_detections_for_track": 2
+  },
+  "database": {
+    "path": "data/guardian.db",
+    "backup_daily": true,
+    "backup_dir": "data/backups",
+    "retention_days": 365
+  },
   "logging": {
     "level": "INFO",
     "file": "guardian.log"
@@ -48,6 +68,6 @@
   "dashboard": {
     "enabled": true,
     "host": "0.0.0.0",
-    "port": 8080
+    "port": 6530
   }
 }

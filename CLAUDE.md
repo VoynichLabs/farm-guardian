@@ -35,7 +35,7 @@ Read `PLAN.md` for the full architecture document with module specifications.
 - `detect.py` — Runs YOLOv8 inference on frames. Classifies objects. Returns detections with bounding boxes.
 - `alerts.py` — Posts Discord messages with snapshots when predator-class animals are detected. Rate-limits alerts.
 - `logger.py` — Writes structured JSON event logs. Saves snapshot images to `events/YYYY-MM-DD/`.
-- `dashboard.py` — FastAPI web dashboard served locally. Live camera feeds, detection timeline, alert history, full config controls. Accessible at `http://macmini:8080`.
+- `dashboard.py` — FastAPI web dashboard served locally. Live camera feeds, detection timeline, alert history, full config controls. Accessible at `http://macmini:6530`.
 - `static/index.html` + `static/app.js` — Dashboard frontend (Tailwind CSS, vanilla JS, no build step).
 
 **Config:** `config.json` (copied from `config.example.json`). Contains camera IPs, Discord webhook URL, detection thresholds, alert settings.

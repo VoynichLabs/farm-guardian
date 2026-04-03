@@ -391,7 +391,7 @@ def start_dashboard(service, config: dict, config_path: str = "config.json") -> 
 
     dashboard_cfg = config.get("dashboard", {})
     host = dashboard_cfg.get("host", "0.0.0.0")
-    port = dashboard_cfg.get("port", 8080)
+    port = dashboard_cfg.get("port", 6530)
 
     app = create_app()
 

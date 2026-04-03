@@ -1,10 +1,12 @@
-# Author: Cascade (Claude Sonnet 4)
-# Date: 01-April-2026
-# PURPOSE: Structured JSON event logging for Farm Guardian. Writes detection events
-#          to daily-rotated JSON log files and saves snapshot images to daily subdirectories
-#          under the configured events directory. Each event includes timestamp, camera name,
-#          detection class, confidence score, bounding box, and snapshot path.
-# SRP/DRY check: Pass — single responsibility is event persistence (log + snapshot).
+# Author: Claude Opus 4.6 (updated), Cascade (Claude Sonnet 4) (original)
+# Date: 03-April-2026
+# PURPOSE: Structured event logging for Farm Guardian. Dual-write: persists detection events
+#          to both daily-rotated JSONL log files (v1 legacy) and SQLite database (v2) via
+#          the database.py module. Saves snapshot images to daily subdirectories under the
+#          configured events directory. Each event includes timestamp, camera name, detection
+#          class, confidence score, bounding box, snapshot path, and optional track/vision data.
+#          Backward-compatible: if no DB instance is provided, behaves exactly as v1.
+# SRP/DRY check: Pass — single responsibility is event persistence (log + snapshot + DB).
 
 import json
 import logging
@@ -20,9 +22,14 @@ log = logging.getLogger("guardian.logger")
 
 
 class EventLogger:
-    """Persists detection events as structured JSON logs and snapshot images."""
+    """Persists detection events as structured JSON logs, snapshots, and DB records."""
 
-    def __init__(self, config: dict):
+    def __init__(self, config: dict, db=None):
+        """
+        Args:
+            config: Full guardian config dict.
+            db: Optional GuardianDB instance for v2 dual-write. If None, JSONL-only (v1 mode).
+        """
         storage = config.get("storage", {})
         self._events_dir = Path(storage.get("events_dir", "events"))
         self._max_days = storage.get("max_days_retained", 30)
@@ -31,10 +38,12 @@ class EventLogger:
         self._predator_classes = set(
             config.get("detection", {}).get("predator_classes", [])
         )
+        self._db = db
 
         # Ensure base events directory exists
         self._events_dir.mkdir(parents=True, exist_ok=True)
-        log.info("EventLogger initialized — events_dir=%s", self._events_dir)
+        mode = "DB + JSONL" if db else "JSONL only"
+        log.info("EventLogger initialized — events_dir=%s, mode=%s", self._events_dir, mode)
 
     def _daily_dir(self, dt: Optional[datetime] = None) -> Path:
         """Return (and create) the daily subdirectory for the given datetime."""
@@ -59,24 +68,35 @@ class EventLogger:
         bbox: tuple,
         frame: Optional[np.ndarray] = None,
         extra: Optional[dict] = None,
+        bbox_area_pct: float = 0.0,
+        is_predator: Optional[bool] = None,
+        track_id: Optional[int] = None,
+        model_name: str = "yolov8n",
     ) -> dict:
         """
-        Record a detection event. Saves a structured JSON line and optionally
-        a snapshot image. Returns the event dict that was written.
+        Record a detection event. Writes to JSONL (legacy) and SQLite (v2).
+        Returns the event dict that was written.
 
         Args:
             camera_name: which camera produced the detection
-            detection_class: YOLO class label (e.g. "bird", "cat")
+            detection_class: YOLO or vision-refined class label
             confidence: model confidence 0-1
             bbox: (x1, y1, x2, y2) pixel coordinates
             frame: numpy array (BGR, from OpenCV) — snapshot is saved from this
             extra: any additional metadata to attach
+            bbox_area_pct: bounding box area as percentage of frame
+            is_predator: explicit predator flag (if None, checks predator_classes)
+            track_id: associated track id from tracker module
+            model_name: which model produced this detection
         """
         now = datetime.now()
         day_dir = self._daily_dir(now)
 
+        # Determine predator status
+        if is_predator is None:
+            is_predator = detection_class in self._predator_classes
+
         # Determine whether to save a snapshot
-        is_predator = detection_class in self._predator_classes
         should_save_snapshot = frame is not None and (
             self._save_all or (is_predator and self._save_predator_snapshots)
         )
@@ -94,16 +114,39 @@ class EventLogger:
             "is_predator": is_predator,
             "snapshot": snapshot_path,
         }
+        if track_id is not None:
+            event["track_id"] = track_id
+        if model_name != "yolov8n":
+            event["model"] = model_name
         if extra:
             event["extra"] = extra
 
-        # Append to JSONL log
+        # 1. Append to JSONL log (v1 legacy)
         log_file = self._log_path(day_dir)
         try:
             with open(log_file, "a", encoding="utf-8") as f:
                 f.write(json.dumps(event) + "\n")
         except OSError as exc:
             log.error("Failed to write event log %s: %s", log_file, exc)
+
+        # 2. Write to SQLite database (v2)
+        if self._db:
+            try:
+                db_id = self._db.insert_detection(
+                    camera_id=camera_name,
+                    detected_at=now.isoformat(),
+                    class_name=detection_class,
+                    confidence=confidence,
+                    bbox=bbox,
+                    bbox_area_pct=bbox_area_pct,
+                    is_predator=is_predator,
+                    track_id=track_id,
+                    snapshot_path=snapshot_path,
+                    model_name=model_name,
+                )
+                event["db_id"] = db_id
+            except Exception as exc:
+                log.error("Failed to write detection to DB: %s", exc)
 
         log.debug("Logged event: %s %.2f on %s", detection_class, confidence, camera_name)
         return event
