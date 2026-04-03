@@ -4,7 +4,7 @@ This file provides guidance to AI coding agents working in this repository.
 
 ## Project
 
-Farm Guardian — a Python service that watches Reolink security cameras via ONVIF/RTSP, detects predator animals using YOLOv8, sends Discord alerts, and serves a local web dashboard for monitoring and control. Runs on a Mac Mini M4 Pro (64GB) on the same local network as the cameras.
+Farm Guardian — a Python service that watches Reolink security cameras via ONVIF/RTSP, detects predator animals using YOLOv8 + GLM vision model, automates camera deterrents (spotlight/siren/PTZ), tracks animal visits in SQLite, generates daily intelligence reports, and serves a local web dashboard with REST API. Runs on a Mac Mini M4 Pro (64GB) on the same local network as the cameras.
 
 ## Commands
 
@@ -21,24 +21,40 @@ python guardian.py
 python guardian.py --debug
 ```
 
-No test suite yet. This is a v1 prototype.
+No test suite yet. This is a v2 production system (Phases 1-4 complete).
 
 ## Architecture
 
-Read `PLAN.md` for the full architecture document with module specifications.
+Read `PLAN_V2.md` for the full v2 architecture document with module specifications.
 
 **Entry point:** `guardian.py` — orchestrates all modules, runs as a foreground process.
 
-**Modules:**
+**Modules (15 total):**
+
+*Phase 1 — Core pipeline:*
 - `discovery.py` — Scans local network for ONVIF cameras. Stores IPs and stream URLs.
 - `capture.py` — Connects to camera RTSP streams. Grabs frames at configurable intervals (~1fps).
 - `detect.py` — Runs YOLOv8 inference on frames. Classifies objects. Returns detections with bounding boxes.
 - `alerts.py` — Posts Discord messages with snapshots when predator-class animals are detected. Rate-limits alerts.
-- `logger.py` — Writes structured JSON event logs. Saves snapshot images to `events/YYYY-MM-DD/`.
-- `dashboard.py` — FastAPI web dashboard served locally. Live camera feeds, detection timeline, alert history, full config controls. Accessible at `http://macmini:6530`.
+- `logger.py` — Writes events to SQLite database and legacy JSONL files. Saves snapshots.
+- `dashboard.py` — FastAPI web dashboard + API host. Live feeds, PTZ controls, reports, settings. Accessible at `http://macmini:6530`.
 - `static/index.html` + `static/app.js` — Dashboard frontend (Tailwind CSS, vanilla JS, no build step).
 
-**Config:** `config.json` (copied from `config.example.json`). Contains camera IPs, Discord webhook URL, detection thresholds, alert settings.
+*Phase 2 — Intelligence foundation:*
+- `database.py` — SQLite abstraction layer (8 tables). WAL mode for concurrent reads. Daily backups.
+- `vision.py` — GLM vision model species refinement via LM Studio. Distinguishes hawk/chicken, bobcat/house-cat.
+- `tracker.py` — Groups individual detections into animal visit tracks. Duration, confidence, outcome tracking.
+
+*Phase 3 — Deterrence:*
+- `camera_control.py` — Reolink camera hardware control via reolink_aio. PTZ, spotlight, siren, patrol with pause/resume.
+- `deterrent.py` — Automated response engine. 4 escalation levels, per-species rules, cooldowns, effectiveness tracking.
+- `ebird.py` — eBird API polling for regional raptor early warning. 30-min intervals during hawk hours.
+
+*Phase 4 — Reporting:*
+- `reports.py` — Daily intelligence reports. Species breakdown, deterrent stats, hourly heatmaps, 7-day trends. Exports JSON + Markdown.
+- `api.py` — REST API at `/api/v1/` for LLM tool queries. 14 endpoints for detections, patterns, camera control.
+
+**Config:** `config.json` (copied from `config.example.json`). Contains camera IPs, Discord webhook, detection thresholds, deterrent rules, PTZ presets, eBird API key, report settings.
 
 ## Environment
 
@@ -52,10 +68,13 @@ Read `PLAN.md` for the full architecture document with module specifications.
 - `opencv-python` — RTSP stream capture and frame processing
 - `ultralytics` — YOLOv8 model loading and inference
 - `onvif-zeep` — ONVIF camera discovery and control
-- `requests` — Discord webhook HTTP posts
+- `reolink-aio` — Reolink camera control (PTZ, spotlight, siren)
+- `aiohttp` — Async HTTP (required by reolink-aio)
+- `requests` — Discord webhook and eBird API HTTP posts
 - `Pillow` — Image saving and manipulation
-- `fastapi` + `uvicorn` — Local web dashboard
+- `fastapi` + `uvicorn` — Local web dashboard + REST API
 - `python-multipart` — Form support for FastAPI
+- `sqlite3` (stdlib) — Structured detection/track/alert storage
 
 ---
 
@@ -123,15 +142,19 @@ These standards apply to ALL code in this repository. Non-negotiable.
 
 - Camera disconnection → log warning, retry with backoff, don't crash
 - YOLO inference failure → log error, skip frame, continue
+- Vision model timeout → fall back to YOLO class, log warning
+- Deterrent action failure → log error, skip action, don't block pipeline
+- eBird API failure → log error, skip poll cycle, retry next interval
 - Discord API failure → log error, buffer alert, retry
+- SQLite write failure → log error, continue (JSONL fallback still writes)
 - Never silently swallow exceptions
 
 ### What NOT To Do
 
-- Don't add external/hosted web services — the dashboard is local-network only
+- Don't add external/hosted web services — the dashboard is local-network only (Phase 5 will add hosting)
 - Don't add cloud APIs for detection — everything runs locally
-- Don't add a database — JSON logs and filesystem storage only
-- Don't over-abstract — this has 6 modules, not 60
+- Don't add a second database — SQLite is the single data store (Phase 5 adds PostgreSQL sync)
+- Don't over-abstract — this has 15 modules, each with one clear responsibility
 - Don't create empty placeholder files — every file ships with real code
 - Don't add dependencies that aren't in requirements.txt
 - Don't ship stubs, mocks, or fake data

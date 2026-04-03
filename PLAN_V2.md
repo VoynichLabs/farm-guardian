@@ -1121,28 +1121,28 @@ SQLite uses Python's built-in `sqlite3` module — no additional package needed.
 - [x] Service orchestration with graceful shutdown (`guardian.py`)
 - [x] Local web dashboard with live feeds (`dashboard.py`, `static/`)
 
-### Phase 2: Database + Vision + Tracking
-- [ ] `database.py` — SQLite abstraction layer, schema creation, migrations
-- [ ] `vision.py` — GLM vision model integration for species refinement
-- [ ] Update `logger.py` — write to both DB and legacy JSONL
-- [ ] `tracker.py` — animal visit tracking, track lifecycle management
-- [ ] Update `guardian.py` — wire vision + tracker into detection pipeline
-- [ ] Update dashboard — event browser reads from DB, filterable
+### Phase 2: Database + Vision + Tracking (COMPLETE)
+- [x] `database.py` — SQLite abstraction layer, schema creation, migrations
+- [x] `vision.py` — GLM vision model integration for species refinement
+- [x] Update `logger.py` — write to both DB and legacy JSONL
+- [x] `tracker.py` — animal visit tracking, track lifecycle management
+- [x] Update `guardian.py` — wire vision + tracker into detection pipeline
+- [x] Update dashboard — event browser reads from DB, filterable
 
-### Phase 3: Camera Control + Deterrence
-- [ ] `camera_control.py` — reolink_aio integration for PTZ/spotlight/siren
-- [ ] `deterrent.py` — automated response engine with escalation levels
-- [ ] PTZ preset management (save, list, go-to, patrol)
-- [ ] PTZ patrol automation loop
-- [ ] Detection-triggered PTZ tracking + zoom
-- [ ] Update dashboard — PTZ joystick, preset buttons, deterrent controls
+### Phase 3: Camera Control + Deterrence (COMPLETE)
+- [x] `camera_control.py` — reolink_aio integration for PTZ/spotlight/siren
+- [x] `deterrent.py` — automated response engine with escalation levels
+- [x] PTZ preset management (save, list, go-to, patrol)
+- [x] PTZ patrol automation loop
+- [x] Detection-triggered PTZ tracking + zoom
+- [x] Update dashboard — PTZ joystick, preset buttons, deterrent controls
 
-### Phase 4: Intelligence + Reporting
-- [ ] `reports.py` — daily summary generation (JSON + Markdown)
-- [ ] Pattern analysis (per-species time profiles, trends)
-- [ ] Deterrent effectiveness scoring
-- [ ] `api.py` — REST API for LLM tool queries
-- [ ] Update dashboard — charts, trend visualization, report viewer
+### Phase 4: Intelligence + Reporting (COMPLETE)
+- [x] `reports.py` — daily summary generation (JSON + Markdown)
+- [x] Pattern analysis (per-species time profiles, trends)
+- [x] Deterrent effectiveness scoring
+- [x] `api.py` — REST API for LLM tool queries
+- [x] Update dashboard — charts, trend visualization, report viewer
 
 ### Phase 5: Web Hosting Prep
 - [ ] Database abstraction supports PostgreSQL connection string
