@@ -1,11 +1,12 @@
 # Author: Claude Opus 4.6 (updated), Cascade (Claude Sonnet 4) (original)
 # Date: 03-April-2026
-# PURPOSE: Main service entry point for Farm Guardian v2. Orchestrates camera discovery,
-#          frame capture, YOLO animal detection, GLM vision refinement, animal visit tracking,
-#          Discord alerting, event logging (DB + JSONL), and the local web dashboard.
-#          Runs as a foreground process on the Mac Mini. Handles graceful shutdown via
-#          SIGINT/SIGTERM. Supports periodic camera re-scanning, daily event cleanup,
-#          and daily database backup. All configuration loaded from config.json.
+# PURPOSE: Main service entry point for Farm Guardian v2 (Phases 1-4). Orchestrates camera
+#          discovery, frame capture, YOLO animal detection, GLM vision refinement, animal
+#          visit tracking, automated deterrence (spotlight/siren/audio), PTZ patrol with
+#          pause-on-predator, eBird raptor early warning, Discord alerting, event logging
+#          (DB + JSONL), daily intelligence reports, REST API for LLM tools, and the local
+#          web dashboard. Runs as a foreground process on the Mac Mini. Handles graceful
+#          shutdown via SIGINT/SIGTERM.
 # SRP/DRY check: Pass — single responsibility is service lifecycle and module coordination.
 
 import argparse
@@ -29,6 +30,10 @@ from logger import EventLogger
 from database import GuardianDB
 from vision import VisionRefiner
 from tracker import AnimalTracker
+from camera_control import CameraController
+from deterrent import DeterrentEngine
+from ebird import EBirdWatcher
+from reports import ReportGenerator
 from dashboard import start_dashboard
 
 log = logging.getLogger("guardian")
@@ -58,26 +63,48 @@ class GuardianService:
         self._shutdown_event = threading.Event()
 
         # Initialize modules
-        log.info("Initializing Farm Guardian v2 modules...")
+        log.info("Initializing Farm Guardian v2 modules (Phases 1-4)...")
 
         # Database — foundation for v2 (all other modules may write to it)
         self._db = GuardianDB(config)
 
+        # Phase 1: Core pipeline
         self._discovery = CameraDiscovery(config)
         self._detector = AnimalDetector(config)
         self._alert_manager = AlertManager(config)
         self._event_logger = EventLogger(config, db=self._db)
+
+        # Phase 2: Vision + Tracking
         self._vision = VisionRefiner(config)
         self._tracker = AnimalTracker(config, db=self._db)
+
+        # Phase 3: Camera control + Deterrence
+        self._camera_ctrl = CameraController(config)
+        self._patrol_pause_event = threading.Event()  # set = patrol paused
+        self._deterrent = DeterrentEngine(
+            config, self._camera_ctrl, self._db,
+            patrol_pause_event=self._patrol_pause_event,
+        )
+
+        # Phase 3: eBird early warning
+        self._ebird = EBirdWatcher(config, self._db, self._alert_manager)
+
+        # Phase 4: Reports + API
+        self._reports = ReportGenerator(config, self._db)
+
+        # Capture manager (last — depends on other modules via callback)
         self._capture_manager = FrameCaptureManager(config, on_frame=self._on_frame)
 
         # Background task threads
         self._rescan_thread: threading.Thread | None = None
         self._cleanup_thread: threading.Thread | None = None
+        self._patrol_thread: threading.Thread | None = None
+        self._ebird_thread: threading.Thread | None = None
 
         # Stats tracking
         self._frames_processed = 0
         self._alerts_sent = 0
+        self._deterrents_fired = 0
         self._start_time: float | None = None
 
         # Buffers for dashboard access — thread-safe deques
@@ -126,6 +153,18 @@ class GuardianService:
                         "Camera '%s' online but no RTSP URL resolved — skipping capture", cam.name
                     )
 
+        # Connect camera hardware control (Phase 3)
+        for cam in online_cameras:
+            cam_cfg = self._get_camera_config(cam.name)
+            if cam_cfg and cam_cfg.get("type") == "ptz":
+                self._camera_ctrl.connect_camera(
+                    camera_id=cam.name,
+                    ip=cam_cfg.get("ip", ""),
+                    username=cam_cfg.get("username", "admin"),
+                    password=cam_cfg.get("password", ""),
+                    port=cam_cfg.get("port", 80),
+                )
+
         # Start background tasks
         self._rescan_thread = threading.Thread(
             target=self._rescan_loop, name="rescan", daemon=True
@@ -137,12 +176,52 @@ class GuardianService:
         )
         self._cleanup_thread.start()
 
-        # Start web dashboard
+        # Start PTZ patrol (Phase 3) — only for first PTZ camera
+        ptz_cfg = self._config.get("ptz", {})
+        if ptz_cfg.get("patrol_enabled", False) and online_cameras:
+            first_ptz = next(
+                (c for c in online_cameras
+                 if self._get_camera_config(c.name) and
+                    self._get_camera_config(c.name).get("type") == "ptz"),
+                None
+            )
+            if first_ptz:
+                presets = ptz_cfg.get("presets", [])
+                # Convert config presets to patrol format
+                patrol_presets = [
+                    {"index": i, "name": p["name"], "dwell": p.get("dwell", 30)}
+                    for i, p in enumerate(presets) if p.get("patrol", True)
+                ]
+                if patrol_presets:
+                    self._patrol_thread = threading.Thread(
+                        target=self._camera_ctrl.start_patrol,
+                        args=(first_ptz.name, patrol_presets),
+                        kwargs={
+                            "shutdown_event": self._shutdown_event,
+                            "pause_event": self._patrol_pause_event,
+                        },
+                        name="patrol", daemon=True,
+                    )
+                    self._patrol_thread.start()
+                    log.info("PTZ patrol started for '%s' — %d presets", first_ptz.name, len(patrol_presets))
+
+        # Start eBird polling (Phase 3)
+        self._ebird_thread = threading.Thread(
+            target=self._ebird.run_poll_loop,
+            args=(self._shutdown_event,),
+            name="ebird", daemon=True,
+        )
+        self._ebird_thread.start()
+
+        # Start web dashboard + API
         dashboard_cfg = self._config.get("dashboard", {})
         if dashboard_cfg.get("enabled", True):
-            self._dashboard_thread = start_dashboard(self, self._config, config_path=self._config_path)
+            self._dashboard_thread = start_dashboard(
+                self, self._config, config_path=self._config_path,
+                db=self._db, reports=self._reports,
+            )
             port = dashboard_cfg.get("port", 6530)
-            log.info("Dashboard available at http://localhost:%d", port)
+            log.info("Dashboard + API available at http://localhost:%d", port)
 
         active = self._capture_manager.active_cameras
         log.info(
@@ -166,16 +245,26 @@ class GuardianService:
         log.info("Shutting down Farm Guardian...")
         self._shutdown_event.set()
 
+        # Unpause patrol so patrol thread can exit
+        self._patrol_pause_event.clear()
+
         self._capture_manager.stop_all()
         self._tracker.close_all()
+        self._camera_ctrl.close()
+
+        # Generate end-of-day report before closing DB
+        try:
+            self._reports.generate_daily_report()
+            log.info("End-of-day report generated")
+        except Exception as exc:
+            log.error("Failed to generate shutdown report: %s", exc)
+
         self._db.close()
 
         uptime = time.time() - self._start_time if self._start_time else 0
         log.info(
-            "Guardian stopped — uptime: %.0fs, frames processed: %d, alerts sent: %d",
-            uptime,
-            self._frames_processed,
-            self._alerts_sent,
+            "Guardian stopped — uptime: %.0fs, frames: %d, alerts: %d, deterrents: %d",
+            uptime, self._frames_processed, self._alerts_sent, self._deterrents_fired,
         )
 
     def _signal_handler(self, signum: int, frame) -> None:
@@ -244,7 +333,7 @@ class GuardianService:
                 )
                 self.recent_detections.append(event)
 
-            # Send alert if any predator detections passed all filters (including dwell)
+            # Send alert and fire deterrents if predator detections passed all filters
             if result.has_predators:
                 sent = self._alert_manager.send_alert(
                     camera_name=result.camera_name,
@@ -259,6 +348,22 @@ class GuardianService:
                         "classes": [d.class_name for d in result.predator_detections],
                         "sent": True,
                     })
+
+                # Phase 3: Fire deterrents for predator tracks
+                for det in result.predator_detections:
+                    track = self._tracker.get_track_for_detection(
+                        result.camera_name, det.class_name
+                    )
+                    if track and track.is_predator:
+                        actions = self._deterrent.evaluate(track, result.camera_name)
+                        if actions:
+                            self._deterrents_fired += 1
+                            # Update track outcome via tracker
+                            self._tracker.set_track_outcome(
+                                track.track_id,
+                                outcome="deterred",
+                                deterrent_used=actions,
+                            )
 
         except Exception as exc:
             log.error(
@@ -323,6 +428,16 @@ class GuardianService:
                     self._db.cleanup_old_backups()
                 except Exception as exc:
                     log.error("Database backup failed: %s", exc)
+
+            # Phase 4: Generate daily report (run once per day at end of day)
+            now = datetime.now()
+            report_time = self._config.get("reports", {}).get("daily_summary_time", "23:59")
+            try:
+                rh, rm = int(report_time.split(":")[0]), int(report_time.split(":")[1])
+                if now.hour == rh and now.minute >= rm:
+                    self._reports.generate_daily_report()
+            except (ValueError, IndexError):
+                pass
 
 
 def load_config(config_path: str) -> dict:

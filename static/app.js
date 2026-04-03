@@ -46,7 +46,7 @@ function navigate(page) {
         btn.classList.toggle('text-white', btn.dataset.nav === page);
     });
     // Update page title
-    const titles = { dashboard: 'Dashboard', cameras: 'Cameras', events: 'Events', alerts: 'Alerts', settings: 'Settings' };
+    const titles = { dashboard: 'Dashboard', cameras: 'Cameras', events: 'Events', alerts: 'Alerts', ptz: 'PTZ Control', reports: 'Reports', settings: 'Settings' };
     document.getElementById('page-title').textContent = titles[page] || 'Dashboard';
     // Load page data
     refreshCurrentPage();
@@ -58,6 +58,8 @@ function refreshCurrentPage() {
         cameras: loadCameras,
         events: loadEventDates,
         alerts: loadAlerts,
+        ptz: loadPTZ,
+        reports: loadReportDates,
         settings: loadSettings,
     };
     const loader = loaders[currentPage];
@@ -379,6 +381,318 @@ async function sendTestAlert() {
     btn.innerHTML = '<i data-lucide="send" class="w-4 h-4"></i> Send Test Alert';
     lucide.createIcons();
     setTimeout(() => result.classList.add('hidden'), 5000);
+}
+
+// ─────────────────────────────────────────
+// PTZ Control Page (Phase 3)
+// ─────────────────────────────────────────
+async function loadPTZ() {
+    try {
+        const [cameras, ptzStatus, deterrentStatus, tracks] = await Promise.all([
+            api.get('/api/cameras'),
+            api.get('/api/ptz/status').catch(() => ({ patrol_active: false, patrol_paused: false })),
+            api.get('/api/deterrent/status').catch(() => ({ enabled: false, active_count: 0 })),
+            api.get('/api/tracks/active').catch(() => []),
+        ]);
+
+        // Populate camera select
+        const select = document.getElementById('ptz-camera-select');
+        const ptzCameras = cameras.filter(c => c.type === 'ptz' && c.online);
+        select.innerHTML = ptzCameras.length
+            ? ptzCameras.map(c => `<option value="${c.name}">${c.name}</option>`).join('')
+            : '<option value="">No PTZ cameras online</option>';
+
+        // Patrol status
+        const statusEl = document.getElementById('ptz-patrol-status');
+        if (ptzStatus.patrol_active) {
+            statusEl.innerHTML = ptzStatus.patrol_paused
+                ? '<span class="text-amber-400">Patrol paused (deterrent active)</span>'
+                : '<span class="text-emerald-400">Patrol running</span>';
+        } else {
+            statusEl.innerHTML = '<span class="text-slate-500">Patrol not active</span>';
+        }
+
+        // Render preset buttons from config
+        renderPresetButtons();
+
+        // Deterrent status
+        const detEl = document.getElementById('deterrent-status');
+        if (!deterrentStatus.enabled) {
+            detEl.innerHTML = '<span class="text-slate-500">Deterrents disabled</span>';
+        } else if (deterrentStatus.active_count > 0) {
+            const species = Object.keys(deterrentStatus.active);
+            detEl.innerHTML = `<span class="text-red-400">Active: ${species.join(', ')}</span>`;
+        } else {
+            detEl.innerHTML = '<span class="text-emerald-400">Ready (no active threats)</span>';
+        }
+
+        // Active tracks
+        const tracksEl = document.getElementById('active-tracks');
+        if (tracks.length) {
+            tracksEl.innerHTML = tracks.map(t =>
+                `<div class="flex items-center justify-between py-1">
+                    <span class="${t.is_predator ? 'text-red-400' : 'text-slate-300'}">${t.class_name}</span>
+                    <span class="text-xs text-slate-500">${t.detection_count} det, ${t.duration_sec}s</span>
+                </div>`
+            ).join('');
+        } else {
+            tracksEl.innerHTML = '<span class="text-slate-500">No active tracks</span>';
+        }
+    } catch (err) {
+        console.error('PTZ load error:', err);
+    }
+}
+
+async function renderPresetButtons() {
+    const container = document.getElementById('ptz-presets');
+    try {
+        const config = await api.get('/api/config');
+        const presets = (config.ptz || {}).presets || [];
+        if (!presets.length) {
+            container.innerHTML = '<div class="text-slate-500 text-sm">No presets configured</div>';
+            return;
+        }
+        container.innerHTML = presets.map((p, i) =>
+            `<button onclick="goToPreset(${i})"
+                class="w-full flex items-center justify-between px-3 py-2 bg-slate-700/50 hover:bg-slate-600 rounded-lg text-sm transition-colors">
+                <span class="font-medium">${p.name}</span>
+                <span class="text-xs text-slate-400">dwell: ${p.dwell || 30}s</span>
+            </button>`
+        ).join('');
+    } catch {
+        container.innerHTML = '<div class="text-slate-500 text-sm">Could not load presets</div>';
+    }
+}
+
+function getSelectedPTZCamera() {
+    return document.getElementById('ptz-camera-select')?.value || '';
+}
+
+async function ptzMove(direction) {
+    const cam = getSelectedPTZCamera();
+    if (!cam) return showToast('No PTZ camera selected', 'error');
+    const dirs = {
+        up: { pan: 0, tilt: 1 }, down: { pan: 0, tilt: -1 },
+        left: { pan: -1, tilt: 0 }, right: { pan: 1, tilt: 0 },
+    };
+    const d = dirs[direction] || { pan: 0, tilt: 0 };
+    try {
+        await api.post(`/api/ptz/${cam}/move`, { pan: d.pan, tilt: d.tilt, zoom: 0, speed: 25 });
+    } catch (err) {
+        showToast('PTZ move failed: ' + err.message, 'error');
+    }
+}
+
+async function ptzStop() {
+    const cam = getSelectedPTZCamera();
+    if (!cam) return;
+    try {
+        await api.post(`/api/ptz/${cam}/stop`);
+    } catch (err) {
+        showToast('PTZ stop failed: ' + err.message, 'error');
+    }
+}
+
+async function ptzZoom(direction) {
+    const cam = getSelectedPTZCamera();
+    if (!cam) return showToast('No PTZ camera selected', 'error');
+    const z = direction === 'in' ? 1 : -1;
+    try {
+        await api.post(`/api/ptz/${cam}/move`, { pan: 0, tilt: 0, zoom: z, speed: 25 });
+        setTimeout(() => api.post(`/api/ptz/${cam}/stop`).catch(() => {}), 500);
+    } catch (err) {
+        showToast('Zoom failed: ' + err.message, 'error');
+    }
+}
+
+async function goToPreset(index) {
+    const cam = getSelectedPTZCamera();
+    if (!cam) return showToast('No PTZ camera selected', 'error');
+    try {
+        await api.post(`/api/ptz/${cam}/preset/${index}`);
+        showToast(`Moving to preset ${index}`);
+    } catch (err) {
+        showToast('Preset goto failed: ' + err.message, 'error');
+    }
+}
+
+async function toggleSpotlight(on) {
+    const cam = getSelectedPTZCamera();
+    if (!cam) return showToast('No PTZ camera selected', 'error');
+    try {
+        await api.post(`/api/ptz/${cam}/spotlight`, { on, brightness: 100 });
+        showToast(on ? 'Spotlight on' : 'Spotlight off');
+    } catch (err) {
+        showToast('Spotlight failed: ' + err.message, 'error');
+    }
+}
+
+async function triggerSiren() {
+    const cam = getSelectedPTZCamera();
+    if (!cam) return showToast('No PTZ camera selected', 'error');
+    try {
+        await api.post(`/api/ptz/${cam}/siren`, { duration: 5 });
+        showToast('Siren triggered (5s)');
+    } catch (err) {
+        showToast('Siren failed: ' + err.message, 'error');
+    }
+}
+
+// ─────────────────────────────────────────
+// Reports Page (Phase 4)
+// ─────────────────────────────────────────
+async function loadReportDates() {
+    try {
+        const dates = await api.get('/api/reports/dates');
+        const select = document.getElementById('report-date-select');
+        const currentVal = select.value;
+        select.innerHTML = '<option value="">Select date...</option>' +
+            (dates || []).map(d => `<option value="${d}">${d}</option>`).join('');
+        if (currentVal) {
+            select.value = currentVal;
+            loadReport(currentVal);
+        }
+    } catch (err) {
+        console.error('Report dates load error:', err);
+    }
+}
+
+async function loadReport(dateStr) {
+    if (!dateStr) return;
+    try {
+        const report = await api.get(`/api/reports/${dateStr}`);
+        renderReport(report);
+    } catch (err) {
+        document.getElementById('report-content').innerHTML =
+            `<div class="bg-guardian-card border border-guardian-border rounded-xl p-6 text-center text-red-400">Failed to load report: ${err.message}</div>`;
+    }
+}
+
+async function generateReport() {
+    try {
+        showToast('Generating report...');
+        const report = await api.post('/api/reports/generate', {});
+        renderReport(report);
+        loadReportDates(); // refresh dates list
+        showToast('Report generated');
+    } catch (err) {
+        showToast('Generate failed: ' + err.message, 'error');
+    }
+}
+
+function renderReport(report) {
+    const container = document.getElementById('report-content');
+    const stats = report.stats || {};
+    const visits = report.predator_visits || [];
+
+    let html = '';
+
+    // Summary card
+    html += `<div class="bg-guardian-card border border-guardian-border rounded-xl p-6">
+        <h3 class="font-semibold mb-2">Summary -- ${report.date}</h3>
+        <p class="text-sm text-slate-300">${report.summary || 'No summary available.'}</p>
+    </div>`;
+
+    // Stat cards
+    html += `<div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="bg-guardian-card border border-guardian-border rounded-xl p-4">
+            <div class="text-xs text-slate-400 mb-1">Total Detections</div>
+            <div class="text-xl font-bold text-blue-400">${stats.total_detections || 0}</div>
+        </div>
+        <div class="bg-guardian-card border border-guardian-border rounded-xl p-4">
+            <div class="text-xs text-slate-400 mb-1">Predator Detections</div>
+            <div class="text-xl font-bold text-red-400">${stats.predator_detections || 0}</div>
+        </div>
+        <div class="bg-guardian-card border border-guardian-border rounded-xl p-4">
+            <div class="text-xs text-slate-400 mb-1">Alerts Sent</div>
+            <div class="text-xl font-bold text-amber-400">${stats.alerts_sent || 0}</div>
+        </div>
+        <div class="bg-guardian-card border border-guardian-border rounded-xl p-4">
+            <div class="text-xs text-slate-400 mb-1">Deterrent Success</div>
+            <div class="text-xl font-bold text-emerald-400">${((stats.deterrent_success_rate || 0) * 100).toFixed(0)}%</div>
+        </div>
+    </div>`;
+
+    // Species breakdown
+    const species = stats.species_counts || {};
+    if (Object.keys(species).length) {
+        html += `<div class="bg-guardian-card border border-guardian-border rounded-xl p-6">
+            <h3 class="font-semibold mb-3">Species Breakdown</h3>
+            <div class="space-y-2">
+                ${Object.entries(species).sort((a, b) => b[1] - a[1]).map(([name, count]) => {
+                    const maxCount = Math.max(...Object.values(species));
+                    const pct = maxCount > 0 ? (count / maxCount * 100) : 0;
+                    const predators = new Set(['hawk','bobcat','coyote','fox','raccoon','possum','wild_cat']);
+                    const color = predators.has(name) ? 'bg-red-500' : 'bg-blue-500';
+                    return `<div class="flex items-center gap-3">
+                        <span class="w-24 text-sm text-right">${name}</span>
+                        <div class="flex-1 bg-slate-800 rounded-full h-3">
+                            <div class="${color} rounded-full h-3" style="width:${pct}%"></div>
+                        </div>
+                        <span class="text-sm text-slate-400 w-12">${count}</span>
+                    </div>`;
+                }).join('')}
+            </div>
+        </div>`;
+    }
+
+    // Predator visits
+    if (visits.length) {
+        html += `<div class="bg-guardian-card border border-guardian-border rounded-xl p-6">
+            <h3 class="font-semibold mb-3">Predator Visits</h3>
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead class="bg-slate-800/50">
+                        <tr>
+                            <th class="text-left px-3 py-2 text-slate-400">Time</th>
+                            <th class="text-left px-3 py-2 text-slate-400">Species</th>
+                            <th class="text-left px-3 py-2 text-slate-400">Duration</th>
+                            <th class="text-left px-3 py-2 text-slate-400">Confidence</th>
+                            <th class="text-left px-3 py-2 text-slate-400">Deterrent</th>
+                            <th class="text-left px-3 py-2 text-slate-400">Outcome</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${visits.map(v => {
+                            const dur = v.duration_seconds || 0;
+                            const durStr = dur < 60 ? `${dur.toFixed(0)}s` : `${(dur/60).toFixed(1)}m`;
+                            return `<tr class="border-t border-guardian-border">
+                                <td class="px-3 py-2">${v.time}</td>
+                                <td class="px-3 py-2"><span class="text-red-400">${v.species}</span></td>
+                                <td class="px-3 py-2">${durStr}</td>
+                                <td class="px-3 py-2">${((v.max_confidence || 0) * 100).toFixed(0)}%</td>
+                                <td class="px-3 py-2">${(v.deterrent || []).join(', ') || '--'}</td>
+                                <td class="px-3 py-2">
+                                    <span class="${v.outcome === 'deterred' ? 'text-emerald-400' : 'text-slate-400'}">${v.outcome}</span>
+                                </td>
+                            </tr>`;
+                        }).join('')}
+                    </tbody>
+                </table>
+            </div>
+        </div>`;
+    }
+
+    // Hourly activity chart (simple bar chart)
+    const hourly = stats.activity_by_hour || {};
+    if (Object.keys(hourly).length) {
+        const maxH = Math.max(...Object.values(hourly));
+        html += `<div class="bg-guardian-card border border-guardian-border rounded-xl p-6">
+            <h3 class="font-semibold mb-3">Activity by Hour</h3>
+            <div class="flex items-end gap-1 h-32">
+                ${Array.from({length: 24}, (_, h) => {
+                    const count = hourly[String(h)] || 0;
+                    const pct = maxH > 0 ? (count / maxH * 100) : 0;
+                    return `<div class="flex-1 flex flex-col items-center justify-end h-full">
+                        <div class="w-full bg-blue-500/60 rounded-t" style="height:${pct}%" title="${h}:00 - ${count} detections"></div>
+                        <span class="text-[9px] text-slate-500 mt-1">${h}</span>
+                    </div>`;
+                }).join('')}
+            </div>
+        </div>`;
+    }
+
+    container.innerHTML = html;
 }
 
 // ─────────────────────────────────────────

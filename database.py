@@ -496,6 +496,206 @@ class GuardianDB:
         return [dict(r) for r in rows]
 
     # ------------------------------------------------------------------
+    # Deterrent actions
+    # ------------------------------------------------------------------
+
+    def insert_deterrent_action(
+        self,
+        track_id: int,
+        camera_id: str,
+        acted_at: str,
+        action_type: str,
+        duration_sec: Optional[float] = None,
+        result: Optional[str] = None,
+    ) -> int:
+        """Insert a deterrent action record. Returns the new row id."""
+        with self._lock:
+            cursor = self._conn.execute(
+                """INSERT INTO deterrent_actions
+                   (track_id, camera_id, acted_at, action_type, duration_sec, result)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (track_id, camera_id, acted_at, action_type, duration_sec, result),
+            )
+            self._conn.commit()
+            return cursor.lastrowid
+
+    def update_deterrent_result(self, track_id: int, result: str) -> None:
+        """Update the result field on deterrent actions for a given track."""
+        with self._lock:
+            self._conn.execute(
+                "UPDATE deterrent_actions SET result = ? WHERE track_id = ? AND result IS NULL",
+                (result, track_id),
+            )
+            self._conn.commit()
+
+    def get_deterrent_actions(self, days: int = 7, limit: int = 100) -> list[dict]:
+        """Fetch recent deterrent actions."""
+        cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+        rows = self._conn.execute(
+            """SELECT * FROM deterrent_actions WHERE acted_at >= ?
+               ORDER BY acted_at DESC LIMIT ?""",
+            (cutoff, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_deterrent_effectiveness(self, days: int = 30) -> dict:
+        """Calculate deterrent success rate over the given period."""
+        cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+        rows = self._conn.execute(
+            """SELECT result, COUNT(*) as cnt FROM deterrent_actions
+               WHERE acted_at >= ? AND result IS NOT NULL
+               GROUP BY result""",
+            (cutoff,),
+        ).fetchall()
+        counts = {row["result"]: row["cnt"] for row in rows}
+        total = sum(counts.values())
+        deterred = counts.get("deterred", 0)
+        return {
+            "total_actions": total,
+            "deterred": deterred,
+            "no_effect": counts.get("no_effect", 0),
+            "success_rate": round(deterred / total, 2) if total > 0 else 0.0,
+            "period_days": days,
+        }
+
+    # ------------------------------------------------------------------
+    # Detections — aggregation queries for reports
+    # ------------------------------------------------------------------
+
+    def get_detection_counts_by_class(
+        self, target_date: Optional[str] = None, days: int = 1
+    ) -> dict[str, int]:
+        """Count detections grouped by class for a date range."""
+        if target_date:
+            start = f"{target_date}T00:00:00"
+            end = f"{target_date}T23:59:59"
+        else:
+            end_dt = datetime.now()
+            start_dt = end_dt - timedelta(days=days)
+            start = start_dt.isoformat()
+            end = end_dt.isoformat()
+
+        rows = self._conn.execute(
+            """SELECT class_name, COUNT(*) as cnt FROM detections
+               WHERE detected_at BETWEEN ? AND ? AND suppressed = 0
+               GROUP BY class_name ORDER BY cnt DESC""",
+            (start, end),
+        ).fetchall()
+        return {row["class_name"]: row["cnt"] for row in rows}
+
+    def get_detections_by_hour(
+        self, target_date: Optional[str] = None
+    ) -> dict[int, int]:
+        """Count detections grouped by hour for a given date."""
+        if not target_date:
+            target_date = date.today().isoformat()
+        start = f"{target_date}T00:00:00"
+        end = f"{target_date}T23:59:59"
+
+        rows = self._conn.execute(
+            """SELECT CAST(SUBSTR(detected_at, 12, 2) AS INTEGER) as hour,
+                      COUNT(*) as cnt
+               FROM detections
+               WHERE detected_at BETWEEN ? AND ? AND suppressed = 0
+               GROUP BY hour ORDER BY hour""",
+            (start, end),
+        ).fetchall()
+        return {row["hour"]: row["cnt"] for row in rows}
+
+    def get_predator_tracks_for_date(self, target_date: str) -> list[dict]:
+        """Fetch predator tracks for a specific date with deterrent info."""
+        start = f"{target_date}T00:00:00"
+        end = f"{target_date}T23:59:59"
+        rows = self._conn.execute(
+            """SELECT t.*, GROUP_CONCAT(DISTINCT da.action_type) as deterrent_actions_list
+               FROM tracks t
+               LEFT JOIN deterrent_actions da ON da.track_id = t.id
+               WHERE t.is_predator = 1 AND t.first_seen_at BETWEEN ? AND ?
+               GROUP BY t.id
+               ORDER BY t.first_seen_at""",
+            (start, end),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_species_pattern(self, class_name: str, days: int = 30) -> dict:
+        """Build a species activity pattern from track history."""
+        cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+        tracks = self._conn.execute(
+            """SELECT * FROM tracks WHERE class_name = ? AND first_seen_at >= ?
+               ORDER BY first_seen_at""",
+            (class_name, cutoff),
+        ).fetchall()
+
+        if not tracks:
+            return {"species": class_name, "total_visits": 0}
+
+        tracks = [dict(t) for t in tracks]
+        total_visits = len(tracks)
+        durations = [t["duration_sec"] for t in tracks if t["duration_sec"]]
+        avg_duration = sum(durations) / len(durations) if durations else 0
+
+        # Hour distribution
+        hour_counts: dict[int, int] = {}
+        for t in tracks:
+            try:
+                hour = int(t["first_seen_at"][11:13])
+                hour_counts[hour] = hour_counts.get(hour, 0) + 1
+            except (ValueError, IndexError):
+                pass
+
+        peak_hour = max(hour_counts, key=hour_counts.get) if hour_counts else None
+        typical_hours = sorted(
+            h for h, c in hour_counts.items() if c >= max(hour_counts.values()) * 0.3
+        ) if hour_counts else []
+
+        # Day-of-week distribution
+        dow_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        dow_counts: dict[str, int] = {d: 0 for d in dow_names}
+        for t in tracks:
+            try:
+                dt = datetime.fromisoformat(t["first_seen_at"])
+                dow_counts[dow_names[dt.weekday()]] += 1
+            except (ValueError, IndexError):
+                pass
+
+        # Deterrent stats
+        deterred = sum(1 for t in tracks if t.get("outcome") == "deterred")
+        with_deterrent = sum(1 for t in tracks if t.get("deterrent_used"))
+
+        # Last seen
+        last_seen = tracks[-1]["first_seen_at"] if tracks else None
+
+        # Trend: compare last 7 days vs previous 7 days
+        now = datetime.now()
+        week_ago = (now - timedelta(days=7)).isoformat()
+        two_weeks_ago = (now - timedelta(days=14)).isoformat()
+        recent_count = sum(1 for t in tracks if t["first_seen_at"] >= week_ago)
+        prev_count = sum(
+            1 for t in tracks
+            if two_weeks_ago <= t["first_seen_at"] < week_ago
+        )
+        if recent_count > prev_count * 1.2:
+            trend = "increasing"
+        elif recent_count < prev_count * 0.8:
+            trend = "decreasing"
+        else:
+            trend = "stable"
+
+        return {
+            "species": class_name,
+            "total_visits": total_visits,
+            "total_duration_minutes": round(sum(durations) / 60, 1),
+            "avg_visit_duration_seconds": round(avg_duration, 1),
+            "typical_hours": typical_hours,
+            "peak_hour": peak_hour,
+            "visits_by_day_of_week": dow_counts,
+            "deterrent_success_rate": round(deterred / with_deterrent, 2) if with_deterrent else 0.0,
+            "last_seen": last_seen,
+            "trend": trend,
+            "period_days": days,
+        }
+
+    # ------------------------------------------------------------------
     # Daily summaries
     # ------------------------------------------------------------------
 
@@ -575,6 +775,26 @@ class GuardianDB:
             )
             self._conn.commit()
             return cursor.lastrowid
+
+    def get_recent_ebird_sightings(self, days: int = 7, limit: int = 50) -> list[dict]:
+        """Fetch recent eBird raptor sightings."""
+        cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+        rows = self._conn.execute(
+            """SELECT * FROM ebird_sightings WHERE polled_at >= ?
+               ORDER BY polled_at DESC LIMIT ?""",
+            (cutoff, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def mark_ebird_alert_sent(self, species_code: str, polled_at: str) -> None:
+        """Mark eBird sightings as alerted for a given species and poll time."""
+        with self._lock:
+            self._conn.execute(
+                """UPDATE ebird_sightings SET alert_sent = 1
+                   WHERE species_code = ? AND polled_at = ?""",
+                (species_code, polled_at),
+            )
+            self._conn.commit()
 
     # ------------------------------------------------------------------
     # Backup

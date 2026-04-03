@@ -37,6 +37,7 @@
   },
   "storage": {
     "events_dir": "events",
+    "exports_dir": "data/exports",
     "max_days_retained": 30,
     "save_all_detections": false,
     "save_predator_snapshots": true
@@ -60,6 +61,55 @@
     "backup_daily": true,
     "backup_dir": "data/backups",
     "retention_days": 365
+  },
+  "deterrent": {
+    "enabled": true,
+    "response_delay_seconds": 1.5,
+    "response_rules": {
+      "hawk":       { "level": 2, "actions": ["spotlight", "audio_alarm"] },
+      "bobcat":     { "level": 3, "actions": ["spotlight", "siren", "audio_alarm"] },
+      "coyote":     { "level": 3, "actions": ["spotlight", "siren", "audio_alarm"] },
+      "raccoon":    { "level": 2, "actions": ["spotlight", "audio_alarm"] },
+      "possum":     { "level": 1, "actions": ["spotlight"] },
+      "small_dog":  { "level": 0, "actions": [] },
+      "chicken":    { "level": 0, "actions": [] },
+      "small_bird": { "level": 0, "actions": [] }
+    },
+    "spotlight_brightness": 100,
+    "spotlight_duration_seconds": 120,
+    "siren_duration_seconds": 10,
+    "cooldown_seconds": 300,
+    "effectiveness_window_seconds": 60
+  },
+  "ptz": {
+    "patrol_enabled": false,
+    "patrol_interval_seconds": 45,
+    "detection_zoom_level": 2.0,
+    "track_timeout_seconds": 60,
+    "return_to_patrol_delay_seconds": 10,
+    "presets": [
+      { "name": "yard-center",   "pan": 180, "tilt": 25, "zoom": 1.0, "dwell": 45, "patrol": true },
+      { "name": "coop-approach", "pan": 220, "tilt": 30, "zoom": 1.5, "dwell": 30, "patrol": true },
+      { "name": "fence-line",    "pan": 120, "tilt": 20, "zoom": 1.0, "dwell": 30, "patrol": true },
+      { "name": "sky-watch",     "pan": 180, "tilt": 10, "zoom": 1.0, "dwell": 20, "patrol": true },
+      { "name": "driveway",      "pan": 300, "tilt": 25, "zoom": 1.0, "dwell": 20, "patrol": true }
+    ]
+  },
+  "ebird": {
+    "enabled": false,
+    "api_key": "YOUR_EBIRD_API_KEY",
+    "poll_interval_seconds": 1800,
+    "poll_hours_start": 8,
+    "poll_hours_end": 16,
+    "alert_on_threat_levels": ["HIGH", "MEDIUM"],
+    "alert_cooldown_seconds": 7200,
+    "radius_km": 15,
+    "lookback_hours": 2
+  },
+  "reports": {
+    "daily_summary_time": "23:59",
+    "export_formats": ["json", "markdown"],
+    "discord_daily_report": false
   },
   "logging": {
     "level": "INFO",

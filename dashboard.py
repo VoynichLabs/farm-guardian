@@ -1,11 +1,12 @@
-# Author: Cascade (Claude Sonnet 4)
-# Date: 02-April-2026
+# Author: Claude Opus 4.6 (updated), Cascade (Claude Sonnet 4) (original)
+# Date: 03-April-2026
 # PURPOSE: Local web dashboard for Farm Guardian. Serves a FastAPI app on the Mac Mini
 #          that provides real-time monitoring and full control of the guardian service.
-#          Features: live MJPEG camera feeds, detection timeline, alert history, camera
-#          start/stop/rescan controls, detection threshold tuning, zone masking config,
-#          and Discord alert testing. Accessed via browser on the local network.
-#          Integrates with all guardian modules via a shared service reference.
+#          Features: live MJPEG camera feeds, detection timeline, alert history, PTZ
+#          controls, deterrent status, daily reports, camera start/stop/rescan controls,
+#          detection threshold tuning, zone masking config, and Discord alert testing.
+#          Also mounts the /api/v1/ REST API router for LLM tool access.
+#          Accessed via browser on the local network.
 # SRP/DRY check: Pass — single responsibility is HTTP API + dashboard serving.
 
 import asyncio
@@ -342,6 +343,131 @@ def create_app() -> FastAPI:
 
         return {"ok": True, "updated": updated}
 
+    # ──────────────────────────────────────────────
+    # PTZ Controls (Phase 3)
+    # ──────────────────────────────────────────────
+
+    @app.get("/api/ptz/status")
+    async def ptz_status():
+        if not _service or not hasattr(_service, '_camera_ctrl'):
+            return {"patrol_active": False}
+        patrol_paused = _service._patrol_pause_event.is_set() if hasattr(_service, '_patrol_pause_event') else False
+        return {
+            "patrol_active": _service._patrol_thread is not None and _service._patrol_thread.is_alive() if hasattr(_service, '_patrol_thread') and _service._patrol_thread else False,
+            "patrol_paused": patrol_paused,
+        }
+
+    @app.post("/api/ptz/{camera_name}/move")
+    async def ptz_move(camera_name: str, request: Request):
+        if not _service or not hasattr(_service, '_camera_ctrl'):
+            raise HTTPException(503, "Camera control not available")
+        body = await request.json()
+        ok = _service._camera_ctrl.ptz_move(
+            camera_name, pan=body.get("pan", 0), tilt=body.get("tilt", 0),
+            zoom=body.get("zoom", 0), speed=body.get("speed", 25),
+        )
+        return {"ok": ok}
+
+    @app.post("/api/ptz/{camera_name}/stop")
+    async def ptz_stop(camera_name: str):
+        if not _service or not hasattr(_service, '_camera_ctrl'):
+            raise HTTPException(503, "Camera control not available")
+        ok = _service._camera_ctrl.ptz_stop(camera_name)
+        return {"ok": ok}
+
+    @app.post("/api/ptz/{camera_name}/preset/{index}")
+    async def ptz_goto_preset(camera_name: str, index: int):
+        if not _service or not hasattr(_service, '_camera_ctrl'):
+            raise HTTPException(503, "Camera control not available")
+        ok = _service._camera_ctrl.ptz_goto_preset(camera_name, index)
+        return {"ok": ok}
+
+    @app.post("/api/ptz/{camera_name}/spotlight")
+    async def toggle_spotlight(camera_name: str, request: Request):
+        if not _service or not hasattr(_service, '_camera_ctrl'):
+            raise HTTPException(503, "Camera control not available")
+        body = await request.json()
+        if body.get("on", True):
+            ok = _service._camera_ctrl.spotlight_on(camera_name, body.get("brightness", 100))
+        else:
+            ok = _service._camera_ctrl.spotlight_off(camera_name)
+        return {"ok": ok}
+
+    @app.post("/api/ptz/{camera_name}/siren")
+    async def trigger_siren(camera_name: str, request: Request):
+        if not _service or not hasattr(_service, '_camera_ctrl'):
+            raise HTTPException(503, "Camera control not available")
+        body = await request.json()
+        duration = body.get("duration", 10)
+        ok = _service._camera_ctrl.siren_timed(camera_name, duration)
+        return {"ok": ok, "duration": duration}
+
+    # ──────────────────────────────────────────────
+    # Deterrent Status (Phase 3)
+    # ──────────────────────────────────────────────
+
+    @app.get("/api/deterrent/status")
+    async def deterrent_status():
+        if not _service or not hasattr(_service, '_deterrent'):
+            return {"active": {}, "enabled": False}
+        active = _service._deterrent.active_deterrents
+        return {
+            "enabled": _service._deterrent._enabled,
+            "active_count": len(active),
+            "active": {k: {"track_id": v[0], "since": v[1]} for k, v in active.items()},
+        }
+
+    # ──────────────────────────────────────────────
+    # Reports (Phase 4)
+    # ──────────────────────────────────────────────
+
+    @app.get("/api/reports/dates")
+    async def report_dates():
+        if not _service or not hasattr(_service, '_reports'):
+            return []
+        return _service._reports.get_available_dates()
+
+    @app.get("/api/reports/{target_date}")
+    async def get_report(target_date: str):
+        if not _service or not hasattr(_service, '_reports'):
+            raise HTTPException(503, "Reports not available")
+        report = _service._reports.get_report(target_date)
+        if not report:
+            report = _service._reports.generate_daily_report(target_date)
+        return report
+
+    @app.post("/api/reports/generate")
+    async def generate_report(request: Request):
+        """Generate report on-demand. Body: {date: "YYYY-MM-DD"} or empty for today."""
+        if not _service or not hasattr(_service, '_reports'):
+            raise HTTPException(503, "Reports not available")
+        body = await request.json() if request.headers.get("content-type") == "application/json" else {}
+        target_date = body.get("date")
+        report = _service._reports.generate_daily_report(target_date)
+        return report
+
+    # ──────────────────────────────────────────────
+    # Tracks (Phase 2+)
+    # ──────────────────────────────────────────────
+
+    @app.get("/api/tracks/active")
+    async def active_tracks():
+        if not _service:
+            return []
+        tracks = _service._tracker.get_active_tracks()
+        return [
+            {
+                "track_id": t.track_id,
+                "camera_id": t.camera_id,
+                "class_name": t.class_name,
+                "is_predator": t.is_predator,
+                "detection_count": t.detection_count,
+                "duration_sec": round(t.duration_sec, 1),
+                "max_confidence": round(t.max_confidence, 2),
+            }
+            for t in tracks
+        ]
+
     @app.post("/api/config/alerts")
     async def update_alert_config(request: Request):
         body = await request.json()
@@ -382,7 +508,8 @@ def _save_config():
         log.error("Failed to save config: %s", exc)
 
 
-def start_dashboard(service, config: dict, config_path: str = "config.json") -> threading.Thread:
+def start_dashboard(service, config: dict, config_path: str = "config.json",
+                    db=None, reports=None) -> threading.Thread:
     """Start the dashboard in a daemon thread. Called from guardian.py."""
     global _service, _config, _config_path
     _service = service
@@ -394,6 +521,14 @@ def start_dashboard(service, config: dict, config_path: str = "config.json") -> 
     port = dashboard_cfg.get("port", 6530)
 
     app = create_app()
+
+    # Register the v1 REST API for LLM tool access (Phase 4)
+    if db and reports:
+        try:
+            from api import register_api
+            register_api(app, service, db, reports)
+        except Exception as exc:
+            log.error("Failed to register API v1: %s", exc)
 
     def run():
         uvicorn.run(app, host=host, port=port, log_level="warning")

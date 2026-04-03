@@ -74,6 +74,16 @@
                     <i data-lucide="bell" class="w-5 h-5 shrink-0"></i>
                     <span class="hidden lg:block">Alerts</span>
                 </button>
+                <button onclick="navigate('ptz')" data-nav="ptz"
+                    class="nav-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm hover:bg-guardian-hover transition-colors">
+                    <i data-lucide="move" class="w-5 h-5 shrink-0"></i>
+                    <span class="hidden lg:block">PTZ Control</span>
+                </button>
+                <button onclick="navigate('reports')" data-nav="reports"
+                    class="nav-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm hover:bg-guardian-hover transition-colors">
+                    <i data-lucide="file-text" class="w-5 h-5 shrink-0"></i>
+                    <span class="hidden lg:block">Reports</span>
+                </button>
                 <button onclick="navigate('settings')" data-nav="settings"
                     class="nav-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm hover:bg-guardian-hover transition-colors">
                     <i data-lucide="settings" class="w-5 h-5 shrink-0"></i>
@@ -247,6 +257,108 @@
                                 <tr><td colspan="4" class="px-4 py-8 text-center text-slate-500">No alerts sent yet</td></tr>
                             </tbody>
                         </table>
+                    </div>
+                </section>
+
+                <!-- ═══════════════════════════════════════ -->
+                <!-- PTZ Control Page (Phase 3) -->
+                <!-- ═══════════════════════════════════════ -->
+                <section id="page-ptz" class="page fade-in space-y-6 hidden">
+                    <h2 class="text-sm font-semibold text-slate-400 uppercase tracking-wider">PTZ Camera Control</h2>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <!-- PTZ Joystick -->
+                        <div class="bg-guardian-card border border-guardian-border rounded-xl p-6 space-y-4">
+                            <h3 class="font-semibold flex items-center gap-2">
+                                <i data-lucide="move" class="w-5 h-5 text-blue-400"></i> Manual Control
+                            </h3>
+                            <div id="ptz-camera-select-wrap">
+                                <label class="block text-xs text-slate-400 mb-1">Camera</label>
+                                <select id="ptz-camera-select" class="text-sm mb-4"></select>
+                            </div>
+                            <!-- Directional pad -->
+                            <div class="flex flex-col items-center gap-2">
+                                <button onclick="ptzMove('up')" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm transition-colors">
+                                    <i data-lucide="chevron-up" class="w-5 h-5"></i>
+                                </button>
+                                <div class="flex gap-2">
+                                    <button onclick="ptzMove('left')" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm transition-colors">
+                                        <i data-lucide="chevron-left" class="w-5 h-5"></i>
+                                    </button>
+                                    <button onclick="ptzStop()" class="px-4 py-2 bg-red-600/30 hover:bg-red-600/50 text-red-300 rounded-lg text-sm transition-colors font-medium">
+                                        Stop
+                                    </button>
+                                    <button onclick="ptzMove('right')" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm transition-colors">
+                                        <i data-lucide="chevron-right" class="w-5 h-5"></i>
+                                    </button>
+                                </div>
+                                <button onclick="ptzMove('down')" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm transition-colors">
+                                    <i data-lucide="chevron-down" class="w-5 h-5"></i>
+                                </button>
+                            </div>
+                            <div class="flex justify-center gap-3 mt-2">
+                                <button onclick="ptzZoom('in')" class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded text-xs transition-colors">Zoom +</button>
+                                <button onclick="ptzZoom('out')" class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded text-xs transition-colors">Zoom -</button>
+                            </div>
+
+                            <!-- Spotlight / Siren -->
+                            <div class="flex gap-3 pt-3 border-t border-guardian-border">
+                                <button onclick="toggleSpotlight(true)" class="flex-1 px-3 py-2 bg-amber-600/20 text-amber-400 hover:bg-amber-600/40 rounded-lg text-sm transition-colors">
+                                    <i data-lucide="sun" class="w-4 h-4 inline"></i> Spotlight On
+                                </button>
+                                <button onclick="toggleSpotlight(false)" class="flex-1 px-3 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm transition-colors">
+                                    Spotlight Off
+                                </button>
+                                <button onclick="triggerSiren()" class="px-3 py-2 bg-red-600/20 text-red-400 hover:bg-red-600/40 rounded-lg text-sm transition-colors">
+                                    <i data-lucide="volume-2" class="w-4 h-4 inline"></i> Siren
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Patrol Presets -->
+                        <div class="bg-guardian-card border border-guardian-border rounded-xl p-6 space-y-4">
+                            <h3 class="font-semibold flex items-center gap-2">
+                                <i data-lucide="map-pin" class="w-5 h-5 text-emerald-400"></i> Patrol Presets
+                            </h3>
+                            <div id="ptz-patrol-status" class="text-sm text-slate-400">Loading patrol status...</div>
+                            <div id="ptz-presets" class="space-y-2"></div>
+
+                            <!-- Deterrent status -->
+                            <div class="pt-3 border-t border-guardian-border">
+                                <h4 class="text-xs text-slate-400 uppercase mb-2">Deterrent Status</h4>
+                                <div id="deterrent-status" class="text-sm text-slate-400">Loading...</div>
+                            </div>
+
+                            <!-- Active tracks -->
+                            <div class="pt-3 border-t border-guardian-border">
+                                <h4 class="text-xs text-slate-400 uppercase mb-2">Active Tracks</h4>
+                                <div id="active-tracks" class="text-sm text-slate-400">No active tracks</div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ═══════════════════════════════════════ -->
+                <!-- Reports Page (Phase 4) -->
+                <!-- ═══════════════════════════════════════ -->
+                <section id="page-reports" class="page fade-in space-y-6 hidden">
+                    <div class="flex items-center justify-between flex-wrap gap-3">
+                        <h2 class="text-sm font-semibold text-slate-400 uppercase tracking-wider">Daily Reports</h2>
+                        <div class="flex items-center gap-3">
+                            <select id="report-date-select" onchange="loadReport(this.value)" class="text-sm">
+                                <option value="">Select date...</option>
+                            </select>
+                            <button onclick="generateReport()" class="flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm transition-colors">
+                                <i data-lucide="refresh-cw" class="w-4 h-4"></i> Generate Today
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Report summary -->
+                    <div id="report-content" class="space-y-4">
+                        <div class="bg-guardian-card border border-guardian-border rounded-xl p-6 text-center text-slate-500">
+                            Select a date or generate a report to view
+                        </div>
                     </div>
                 </section>
 

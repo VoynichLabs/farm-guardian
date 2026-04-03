@@ -3,8 +3,9 @@
 # PURPOSE: Reolink camera hardware control for Farm Guardian v2. Provides async
 #          PTZ (pan/tilt/zoom), spotlight, siren, audio alarm, and snapshot control
 #          via the reolink_aio library. Manages authentication with auto-refresh,
-#          PTZ preset save/recall, and patrol route cycling. Wraps the async reolink_aio
-#          API with synchronous methods for use from the detection pipeline threads.
+#          PTZ preset save/recall, and patrol route cycling with pause/resume support
+#          for deterrent integration. Wraps the async reolink_aio API with synchronous
+#          methods for use from the detection pipeline threads.
 #          This module talks directly to the camera over the local network.
 # SRP/DRY check: Pass — single responsibility is camera hardware control.
 
@@ -221,39 +222,86 @@ class CameraController:
             return False
 
     # ------------------------------------------------------------------
-    # Patrol
+    # Timed deterrent helpers
+    # ------------------------------------------------------------------
+
+    def spotlight_timed(self, camera_id: str, duration: float = 120,
+                        brightness: int = 100) -> bool:
+        """Turn on spotlight for a set duration, then auto-off. Non-blocking."""
+        if not self.spotlight_on(camera_id, brightness):
+            return False
+
+        def _auto_off():
+            time.sleep(duration)
+            self.spotlight_off(camera_id)
+
+        threading.Thread(target=_auto_off, name=f"spot-off-{camera_id}", daemon=True).start()
+        return True
+
+    def siren_timed(self, camera_id: str, duration: float = 10) -> bool:
+        """Trigger siren for a set duration, then auto-off. Non-blocking."""
+        if not self.siren_on(camera_id):
+            return False
+
+        def _auto_off():
+            time.sleep(duration)
+            self.siren_off(camera_id)
+
+        threading.Thread(target=_auto_off, name=f"siren-off-{camera_id}", daemon=True).start()
+        return True
+
+    # ------------------------------------------------------------------
+    # Patrol with pause/resume
     # ------------------------------------------------------------------
 
     def start_patrol(self, camera_id: str, presets: list[dict],
-                     shutdown_event: Optional[threading.Event] = None) -> None:
+                     shutdown_event: Optional[threading.Event] = None,
+                     pause_event: Optional[threading.Event] = None) -> None:
         """
         Run a PTZ patrol loop through preset positions. Blocks until shutdown.
         Each preset dict should have: index, name, dwell (seconds).
         Call from a dedicated thread.
+
+        pause_event: when set, patrol pauses until cleared. Used by deterrent
+        module to hold the camera while tracking a predator.
         """
         if not presets:
             log.warning("No patrol presets configured for '%s'", camera_id)
             return
 
         log.info("Starting patrol for '%s' with %d presets", camera_id, len(presets))
+        preset_idx = 0
         while not (shutdown_event and shutdown_event.is_set()):
-            for preset in presets:
-                if shutdown_event and shutdown_event.is_set():
-                    break
-                idx = preset.get("index", 0)
-                name = preset.get("name", f"preset-{idx}")
-                dwell = preset.get("dwell", 30)
-
-                self.ptz_goto_preset(camera_id, idx)
-                log.debug("Patrol: '%s' at preset '%s', dwell %ds", camera_id, name, dwell)
-
-                # Wait for dwell time, checking shutdown periodically
-                waited = 0
-                while waited < dwell:
+            # Wait while paused (deterrent tracking)
+            if pause_event and pause_event.is_set():
+                log.debug("Patrol paused for '%s' — deterrent active", camera_id)
+                while pause_event.is_set():
                     if shutdown_event and shutdown_event.is_set():
                         break
-                    time.sleep(min(1.0, dwell - waited))
-                    waited += 1
+                    time.sleep(0.5)
+                log.debug("Patrol resumed for '%s'", camera_id)
+
+            if shutdown_event and shutdown_event.is_set():
+                break
+
+            preset = presets[preset_idx % len(presets)]
+            preset_idx += 1
+            idx = preset.get("index", preset_idx - 1)
+            name = preset.get("name", f"preset-{idx}")
+            dwell = preset.get("dwell", 30)
+
+            self.ptz_goto_preset(camera_id, idx)
+            log.debug("Patrol: '%s' at preset '%s', dwell %ds", camera_id, name, dwell)
+
+            # Wait for dwell time, checking shutdown and pause periodically
+            waited = 0
+            while waited < dwell:
+                if shutdown_event and shutdown_event.is_set():
+                    break
+                if pause_event and pause_event.is_set():
+                    break  # exit dwell early, outer loop handles pause
+                time.sleep(min(1.0, dwell - waited))
+                waited += 1
 
         log.info("Patrol stopped for '%s'", camera_id)
 

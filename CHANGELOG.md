@@ -2,6 +2,71 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.0.0-beta] - 2026-04-03
+
+### Added — Phase 3: Camera Control + Deterrence (Claude Opus 4.6)
+
+- **`camera_control.py` (enhanced)** — Added timed spotlight/siren helpers (`spotlight_timed`,
+  `siren_timed`) for auto-off after duration. Patrol loop now accepts a `pause_event` so
+  the deterrent engine can pause patrol during active predator tracking and resume after.
+
+- **`deterrent.py`** — Automated deterrent response engine with 4 escalation levels:
+  Level 0 (log only), Level 1 (spotlight), Level 2 (spotlight + audio alarm),
+  Level 3 (spotlight + siren + audio alarm). Per-species response rules configurable in
+  config.json. Enforces cooldown between activations per species (default 5 min).
+  Tracks effectiveness — monitors whether animal leaves within 60s of deterrent.
+  Pauses PTZ patrol during active deterrence. All actions logged to deterrent_actions table.
+
+- **`ebird.py`** — eBird API polling for regional raptor activity near Hampton CT.
+  Polls Cornell Lab's eBird Recent Observations API every 30 minutes during hawk hours
+  (8am-4pm). Sends Discord alerts for HIGH/MEDIUM threat raptors with 2-hour cooldown.
+  Logs all sightings to ebird_sightings table. Tracks 10 raptor species with threat levels.
+
+### Added — Phase 4: Intelligence + Reporting (Claude Opus 4.6)
+
+- **`reports.py`** — Daily intelligence report generator. Queries SQLite for detection
+  counts, species breakdown, predator visit summaries, deterrent effectiveness, hourly
+  activity distribution, and 7-day trends. Exports to data/exports/ as JSON and Markdown.
+  Can run on-demand via API/dashboard or automatically at end of day.
+
+- **`api.py`** — REST API at /api/v1/ for LLM tool access. Endpoints: status, daily
+  summaries, detection queries, track queries, species patterns, deterrent effectiveness,
+  eBird sightings, camera PTZ/spotlight/siren control, and report export. Mounted on
+  the same FastAPI app as the dashboard.
+
+### Changed
+
+- **`guardian.py`** — Wires all Phase 3+4 modules into the service lifecycle. Connects
+  camera hardware control on startup, starts PTZ patrol thread with pause support, starts
+  eBird polling thread, registers API router on dashboard. Detection callback now fires
+  deterrents on predator tracks. Generates end-of-day report on shutdown.
+
+- **`dashboard.py`** — Added PTZ control endpoints (move, stop, preset, spotlight, siren),
+  deterrent status endpoint, active tracks endpoint, report endpoints (list dates, load,
+  generate on-demand). Updated start_dashboard to accept db/reports and register API router.
+
+- **`database.py`** — Added deterrent action CRUD (insert, update result, get actions,
+  effectiveness stats). Added detection aggregation queries (counts by class, by hour,
+  predator tracks for date). Added species pattern analysis query. Added eBird sighting
+  queries and alert marking.
+
+- **`static/index.html`** — Added PTZ Control page (manual directional pad, zoom, preset
+  buttons, spotlight/siren controls, deterrent status, active tracks). Added Reports page
+  (date picker, generate button, summary cards, species bar chart, predator visit table,
+  hourly activity histogram).
+
+- **`static/app.js`** — Added PTZ control functions (move, stop, zoom, presets, spotlight,
+  siren). Added Reports page functions (date loading, report rendering with charts).
+
+- **`config.example.json`** — Added `deterrent`, `ptz`, `ebird`, and `reports` config
+  sections with all configurable parameters.
+
+### Why
+
+Phase 3 enables the camera to actively deter predators (not just detect them) with
+automated spotlight, siren, and PTZ response. Phase 4 provides intelligence reporting
+so the system tracks patterns over time and exposes structured data for LLM queries.
+
 ## [2.0.0-alpha] - 2026-04-03
 
 ### Added — Phase 2: Database + Vision + Tracking (Claude Opus 4.6)
