@@ -2,7 +2,7 @@
 
 **Author:** Cascade (Claude Opus 4.6)
 **Date:** 02-April-2026
-**Status:** Plan — Awaiting review by secondary assistant
+**Status:** Plan — Reviewed by Bubba (Claude Sonnet 4.6), 03-April-2026
 **For:** Mark Barney, Hampton CT
 
 ---
@@ -677,6 +677,235 @@ Local LLM assistants query the REST API to answer questions like:
 - "Are the deterrents working?"
 - "Show me the last raccoon sighting"
 - "What's the trend in predator activity?"
+
+---
+
+## 9. External Hawk Tracking — eBird Early Warning System
+
+*Added by Bubba (Claude Sonnet 4.6), 03-April-2026*
+
+> **Context:** Hawks are fast and come from above. On-camera detection fires AFTER the hawk is already in the yard. For aerial predators, we want advance warning before they arrive — ideally enough time to bring the flock inside or ramp up deterrence posture.
+
+### The Problem
+
+Ground-level YOLO detection fires when the hawk is within camera view — typically 1-3 seconds before it could strike. That's not enough time for human intervention. The rooster helps (natural alarm caller), but we need a software layer that gives 15-60 minutes of early warning.
+
+### Solution: eBird Recent Observations API
+
+Cornell Lab's eBird maintains a real-time database of bird sightings submitted by birders. The API is free (API key required, no cost). We can poll for raptor sightings near Hampton CT every 30 minutes and alert when hawks are active in the area.
+
+**Key facts about Hampton CT:**
+- Located in the Connecticut River Valley corridor — major raptor migration route
+- Red-tailed Hawk, Cooper's Hawk, Sharp-shinned Hawk, and Red-shouldered Hawk are all common
+- Peak hawk activity: March–May (northbound migration) and September–November (southbound)
+- Daily pattern: hawks most active 9am–3pm on clear days with light winds
+
+### eBird API Integration
+
+**Endpoint:**
+```
+GET https://api.ebird.org/v2/data/obs/geo/recent
+    ?lat=41.7943&lng=-72.0591
+    &dist=15
+    &back=2
+    &cat=species
+    &key=YOUR_EBIRD_KEY
+```
+
+Parameters:
+- `lat/lng` — Hampton CT coordinates (41.7943, -72.0591)
+- `dist=15` — 15km radius (~9 miles)
+- `back=2` — observations within last 2 hours
+- `cat=species` — species sightings only
+
+**Raptor species to watch:**
+```python
+RAPTOR_SPECIES = {
+    "rethaw": "Red-tailed Hawk",      # HIGH — primary chicken killer
+    "coohaw": "Cooper's Hawk",        # HIGH — specialist bird/poultry hunter
+    "shshaw": "Sharp-shinned Hawk",   # MEDIUM — smaller, takes bantams
+    "reshaw": "Red-shouldered Hawk",  # MEDIUM
+    "osfreh": "Osprey",               # LOW — fish-eater, rarely threatens chickens
+    "amerke": "American Kestrel",     # LOW — too small for adult chickens
+    "merlin": "Merlin",               # LOW
+    "pefafa": "Peregrine Falcon",     # MEDIUM — opportunistic
+    "norbob": "Northern Harrier",     # MEDIUM
+    "baleag": "Bald Eagle",           # LOW — rare visitor, prefers fish
+}
+
+HIGH_THREAT_RAPTORS = {"rethaw", "coohaw", "shshaw"}
+```
+
+### New Module: `ebird.py`
+
+```python
+# ebird.py
+# Author: Bubba (Claude Sonnet 4.6)
+# Date: 03-April-2026
+# PURPOSE: eBird API polling for regional raptor activity near Hampton CT.
+# Provides early warning when hawks are reported within 15km of the farm.
+# SRP/DRY check: Pass — single responsibility: external raptor intelligence.
+
+import requests
+import json
+from datetime import datetime, timezone
+from typing import Optional
+from pathlib import Path
+
+
+HAMPTON_CT_LAT = 41.7943
+HAMPTON_CT_LNG = -72.0591
+SEARCH_RADIUS_KM = 15
+LOOKBACK_HOURS = 2
+
+RAPTOR_SPECIES = {
+    "rethaw": ("Red-tailed Hawk", "HIGH"),
+    "coohaw": ("Cooper's Hawk", "HIGH"),
+    "shshaw": ("Sharp-shinned Hawk", "MEDIUM"),
+    "reshaw": ("Red-shouldered Hawk", "MEDIUM"),
+    "pefafa": ("Peregrine Falcon", "MEDIUM"),
+    "norbob": ("Northern Harrier", "MEDIUM"),
+    "osfreh": ("Osprey", "LOW"),
+    "amerke": ("American Kestrel", "LOW"),
+    "merlin": ("Merlin", "LOW"),
+    "baleag": ("Bald Eagle", "LOW"),
+}
+
+
+def get_recent_raptors(api_key: str) -> list[dict]:
+    """
+    Poll eBird for raptor sightings within 15km of Hampton CT.
+    Returns list of sighting dicts with species, location, distance, threat level.
+    """
+    url = "https://api.ebird.org/v2/data/obs/geo/recent"
+    params = {
+        "lat": HAMPTON_CT_LAT,
+        "lng": HAMPTON_CT_LNG,
+        "dist": SEARCH_RADIUS_KM,
+        "back": LOOKBACK_HOURS,
+        "cat": "species",
+    }
+    headers = {"X-eBirdApiToken": api_key}
+
+    try:
+        resp = requests.get(url, params=params, headers=headers, timeout=10)
+        resp.raise_for_status()
+        observations = resp.json()
+    except requests.RequestException as e:
+        return []  # fail silently — don't crash guardian on eBird outage
+
+    raptors = []
+    for obs in observations:
+        species_code = obs.get("speciesCode", "")
+        if species_code in RAPTOR_SPECIES:
+            name, threat = RAPTOR_SPECIES[species_code]
+            raptors.append({
+                "species_code": species_code,
+                "common_name": name,
+                "threat_level": threat,
+                "location_name": obs.get("locName", "Unknown location"),
+                "lat": obs.get("lat"),
+                "lng": obs.get("lng"),
+                "observed_at": obs.get("obsDt"),
+                "count": obs.get("howMany", 1),
+                "observer_count": obs.get("numObservers", 1),
+            })
+
+    return raptors
+
+
+def format_ebird_alert(raptors: list[dict]) -> Optional[str]:
+    """Build a Discord alert message for regional raptor activity."""
+    if not raptors:
+        return None
+
+    high = [r for r in raptors if r["threat_level"] == "HIGH"]
+    medium = [r for r in raptors if r["threat_level"] == "MEDIUM"]
+    all_others = [r for r in raptors if r["threat_level"] == "LOW"]
+
+    lines = ["🦅 **Regional Raptor Alert** — eBird sightings within 15km of farm"]
+    if high:
+        lines.append("**HIGH THREAT:**")
+        for r in high:
+            lines.append(f"  • {r['common_name']} — {r['location_name']} ({r['observed_at']})")
+    if medium:
+        lines.append("**MEDIUM THREAT:**")
+        for r in medium:
+            lines.append(f"  • {r['common_name']} — {r['location_name']}")
+    if all_others:
+        lines.append(f"*Low-threat raptors: {', '.join(r['common_name'] for r in all_others)}*")
+
+    lines.append("\n⚠️ Consider bringing flock inside or increasing yard supervision.")
+    return "\n".join(lines)
+```
+
+### Polling Schedule
+
+New cron-style task in `guardian.py`:
+- Poll eBird every **30 minutes** during hawk hours (8am–4pm)
+- Only alert if HIGH or MEDIUM threat raptors found AND we haven't alerted in last 2 hours
+- Log all raptor sightings to `ebird_sightings` table (new table, schema below)
+- Suppress duplicate alerts for same species within cooldown window
+
+### New DB Table: `ebird_sightings`
+
+```sql
+CREATE TABLE ebird_sightings (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    species_code    TEXT NOT NULL,
+    common_name     TEXT NOT NULL,
+    threat_level    TEXT NOT NULL,        -- "HIGH" | "MEDIUM" | "LOW"
+    location_name   TEXT,
+    lat             REAL,
+    lng             REAL,
+    observed_at     TEXT,                 -- eBird observation datetime
+    polled_at       TEXT NOT NULL,        -- when we retrieved this
+    count           INTEGER DEFAULT 1,
+    alert_sent      INTEGER DEFAULT 0,    -- 1 if Discord alert fired
+    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX idx_ebird_time ON ebird_sightings(polled_at);
+CREATE INDEX idx_ebird_threat ON ebird_sightings(threat_level, polled_at);
+```
+
+### Config Addition
+
+```json
+"ebird": {
+  "enabled": true,
+  "api_key": "YOUR_EBIRD_KEY",
+  "poll_interval_seconds": 1800,
+  "poll_hours_start": 8,
+  "poll_hours_end": 16,
+  "alert_on_threat_levels": ["HIGH", "MEDIUM"],
+  "alert_cooldown_seconds": 7200,
+  "radius_km": 15,
+  "lookback_hours": 2
+}
+```
+
+### eBird API Key
+
+Free at https://ebird.org/api/keygen — requires eBird account. No cost.
+
+### Limitations
+
+- eBird data depends on birder submissions — a hawk in the area may not be reported if no birder saw it
+- 30-min poll interval means sighting could be 30-90 minutes old by the time alert fires
+- Not a substitute for on-camera detection — this is **advance warning**, not ground truth
+
+### Integration Into Guardian Daily Reports
+
+Daily report adds a new section:
+
+```
+### Regional Hawk Activity (eBird)
+- 2 Cooper's Hawk sightings reported within 15km (10am, 1pm)
+- 1 Red-tailed Hawk reported at Goodwin Forest, 8km away (11:30am)
+- 3 alerts sent to Discord
+- Correlation with on-camera detections: 2/3 eBird alerts preceded a camera detection within 45 min
+```
 
 ---
 
