@@ -21,3 +21,9 @@ Thumbs.db
 .vscode/
 .idea/
 .windsurf/
+
+# ML models
+yolov8n.pt
+
+# Runtime database
+data/
