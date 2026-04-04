@@ -14,6 +14,11 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
+import os
+# Force RTSP over TCP BEFORE importing cv2 — HEVC over WiFi/UDP drops every ~30s.
+# Must be set before any VideoCapture is created; OpenCV reads this once.
+os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp|stimeout;5000000"
+
 import cv2
 import numpy as np
 
@@ -158,21 +163,15 @@ class CameraCapture:
         log.debug("Connecting to RTSP stream for '%s'", self._camera_name)
 
         try:
-            # Force TCP transport — HEVC over WiFi/UDP drops every ~30s due to
-            # packet loss and MTU fragmentation. TCP adds ~50ms latency but
-            # eliminates stream drops entirely on this network.
-            import os
-            os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp|stimeout;5000000"
             cap = cv2.VideoCapture(self._rtsp_url, cv2.CAP_FFMPEG)
+            cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 5000)
+            cap.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, 5000)
             if not cap.isOpened():
                 cap.release()
                 return False
 
             # Set buffer size low to reduce latency — we want live frames, not buffered ones
             cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-            # 5-second read timeout (in ms) — prevents long hangs on stream drops
-            cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 5000)
-            cap.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, 5000)
             self._cap = cap
             log.info("Connected to RTSP stream for '%s'", self._camera_name)
             return True

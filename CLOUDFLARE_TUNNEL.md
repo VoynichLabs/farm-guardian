@@ -2,7 +2,7 @@
 
 **Author:** Bubba (Claude Sonnet 4.6)
 **Date:** 04-April-2026
-**Status:** PARTIALLY COMPLETE — tunnel created, connections dying on startup
+**Status:** WORKING — tunnel live via HTTP/2, LaunchAgent persists across reboots
 
 ---
 
@@ -79,63 +79,14 @@ ingress:
 
 ---
 
-## What's Broken — Connection Termination
+## Root Cause (Resolved 04-April-2026)
 
-### Symptom
-When running the tunnel, cloudflared registers 4 QUIC connections to Cloudflare IAD data centers, then ALL connections terminate within 10-15 seconds:
+QUIC connections on UDP port 7844 were being blocked — likely by the home router (TP-Link Archer AX55)
+or ISP. Switching to `--protocol http2` (TCP port 443) fixed it immediately. All 4 connections
+register to Cloudflare IAD data centers and stay alive indefinitely.
 
-```
-INF Registered tunnel connection connIndex=0 location=iad10 protocol=quic
-INF Registered tunnel connection connIndex=1 location=iad08 protocol=quic
-INF Registered tunnel connection connIndex=2 location=iad07 protocol=quic
-INF Registered tunnel connection connIndex=3 location=iad16 protocol=quic
-ERR Connection terminated connIndex=0
-ERR Connection terminated connIndex=2
-ERR Connection terminated connIndex=3
-ERR Connection terminated connIndex=1
-ERR no more connections active and exiting
-```
-
-The public URL returns Cloudflare error **1033** ("Argo Tunnel error").
-
-### Attempted Run Commands
-Both of these produced the same result:
-
-```bash
-# Method 1: Local config file
-cloudflared tunnel --config ~/.cloudflared/config.yml run
-
-# Method 2: Token-based (remotely managed)
-cloudflared tunnel --no-autoupdate run --token "$CLOUDFLARE_TUNNEL_TOKEN"
-```
-
-### Likely Causes (investigate in order)
-
-1. **Port 7844 UDP blocked** — Cloudflare tunnels use QUIC on UDP port 7844. The home router (TP-Link Archer AX55) or ISP may be blocking outbound UDP on that port.
-   - Test: `nc -z -v -u 198.41.192.57 7844`
-   - Fix: Force HTTP/2 fallback on port 443 (always works):
-     ```bash
-     cloudflared tunnel --protocol http2 --config ~/.cloudflared/config.yml run
-     ```
-
-2. **Token mismatch** — The tunnel was created via API, then run both locally and with a token. There may be a credential conflict. Try deleting and recreating:
-   ```bash
-   # Delete tunnel
-   curl -X DELETE "https://api.cloudflare.com/client/v4/accounts/81d30569eb85075e41114d4ba9aa8217/cfd_tunnel/eb766f6f-6777-43a1-8017-22fca1ed8123" \
-     -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"
-   
-   # Recreate with fresh secret
-   TUNNEL_SECRET=$(openssl rand -base64 32)
-   curl -X POST "https://api.cloudflare.com/client/v4/accounts/81d30569eb85075e41114d4ba9aa8217/cfd_tunnel" \
-     -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-     -H "Content-Type: application/json" \
-     --data "{\"name\":\"farm-guardian\",\"tunnel_secret\":\"${TUNNEL_SECRET}\"}"
-   ```
-
-3. **Firewall/antivirus on Mac Mini** — Check macOS firewall settings:
-   ```bash
-   sudo /usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate
-   ```
+The fix was simply adding `--protocol http2` to the run command. The LaunchAgent plist already
+had this flag but hadn't been reloaded after it was added.
 
 ---
 
@@ -281,10 +232,10 @@ export CLOUDFLARE_TUNNEL_TOKEN="<stored in ~/.zshrc on Mac Mini>"
 
 ---
 
-## Next Steps (for whoever picks this up)
+## Next Steps
 
-1. **Try `--protocol http2`** — this is the most likely fix for the connection termination
-2. If that works, set up the LaunchAgent (template above) so the tunnel persists across reboots
-3. Add auth (Cloudflare Access or Guardian-side basic auth)
-4. Add the "Live Cam" page to `farm.markbarney.net` (VoynichLabs/farm-2026 repo)
-5. Test the MJPEG stream performance through the tunnel — may need to reduce frame rate or quality for public access
+1. ~~**Try `--protocol http2`**~~ — DONE, this was the fix
+2. ~~**LaunchAgent**~~ — DONE, tunnel persists across reboots via `com.cloudflare.tunnel.farm-guardian.plist`
+3. **Add auth** — Cloudflare Access (free tier) or Guardian-side basic auth before the dashboard goes fully public
+4. **Live Cam page** — Add to `farm.markbarney.net` (VoynichLabs/farm-2026 repo)
+5. **Test MJPEG stream performance** through the tunnel — may need to reduce frame rate or quality for public access

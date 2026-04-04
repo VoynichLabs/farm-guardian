@@ -38,6 +38,13 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 - **`requirements.txt`** — Added `python-dotenv>=1.0.0`.
 
+- **Cloudflare Tunnel** — Fixed by switching from QUIC (UDP 7844, blocked by router/ISP)
+  to HTTP/2 (TCP 443). Tunnel now stable — 4 connections to Cloudflare IAD, `guardian.markbarney.net`
+  returns 200. LaunchAgent loaded and persists across reboots.
+
+- **`capture.py`** — Moved `OPENCV_FFMPEG_CAPTURE_OPTIONS` env var to module level (before
+  `cv2` import) so TCP transport and 5s timeout are set before any VideoCapture is created.
+
 ### Phase C — WIP Commit Review
 
 - Reviewed all 969 lines across 7 files in the WIP commit (edab3c5). All changes are
