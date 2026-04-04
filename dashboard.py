@@ -65,14 +65,47 @@ def create_app() -> FastAPI:
         cameras = _service._discovery.cameras
         online_count = sum(1 for c in cameras.values() if c.online)
 
-        # Count today's detections from buffer
         today_str = date.today().isoformat()
-        today_detections = sum(
-            1 for d in _service.recent_detections if d.get("timestamp", "").startswith(today_str)
-        )
-        today_alerts = sum(
-            1 for a in _service.recent_alerts if a.get("timestamp", "").startswith(today_str)
-        )
+
+        # Prefer DB counts — accurate after restart. Fall back to in-memory buffer
+        # if DB is unavailable.
+        today_detections = 0
+        today_alerts = 0
+        if hasattr(_service, '_db') and _service._db:
+            try:
+                db = _service._db
+                today_start = f"{today_str}T00:00:00"
+                today_end = f"{today_str}T23:59:59"
+                with db._lock:
+                    row = db._conn.execute(
+                        "SELECT COUNT(*) as cnt FROM detections WHERE detected_at BETWEEN ? AND ? AND suppressed = 0",
+                        (today_start, today_end),
+                    ).fetchone()
+                    today_detections = row["cnt"] if row else 0
+                    row2 = db._conn.execute(
+                        "SELECT COUNT(*) as cnt FROM alerts WHERE alerted_at BETWEEN ? AND ?",
+                        (today_start, today_end),
+                    ).fetchone()
+                    today_alerts = row2["cnt"] if row2 else 0
+            except Exception as exc:
+                log.warning("DB count query failed, falling back to buffer: %s", exc)
+                today_detections = sum(
+                    1 for d in _service.recent_detections
+                    if d.get("timestamp", "").startswith(today_str)
+                )
+                today_alerts = sum(
+                    1 for a in _service.recent_alerts
+                    if a.get("timestamp", "").startswith(today_str)
+                )
+        else:
+            today_detections = sum(
+                1 for d in _service.recent_detections
+                if d.get("timestamp", "").startswith(today_str)
+            )
+            today_alerts = sum(
+                1 for a in _service.recent_alerts
+                if a.get("timestamp", "").startswith(today_str)
+            )
 
         return {
             "online": True,
@@ -196,6 +229,27 @@ def create_app() -> FastAPI:
         if not _service:
             return []
         items = list(_service.recent_detections)
+        # If in-memory buffer is empty (fresh restart), fall back to DB
+        if not items and hasattr(_service, '_db') and _service._db:
+            try:
+                db_rows = _service._db.get_recent_detections(minutes=120, limit=limit)
+                # Normalize DB rows to match the buffer dict format
+                result = []
+                for r in db_rows:
+                    result.append({
+                        "timestamp": r.get("detected_at", ""),
+                        "camera": r.get("camera_id", ""),
+                        "class": r.get("class_name", ""),
+                        "confidence": r.get("confidence", 0.0),
+                        "bbox": [r.get("bbox_x1", 0), r.get("bbox_y1", 0),
+                                 r.get("bbox_x2", 0), r.get("bbox_y2", 0)],
+                        "is_predator": bool(r.get("is_predator", False)),
+                        "snapshot": r.get("snapshot_path"),
+                    })
+                return result[:limit]
+            except Exception as exc:
+                log.warning("DB fallback for recent detections failed: %s", exc)
+                return []
         items.reverse()  # newest first
         return items[:limit]
 
@@ -531,7 +585,13 @@ def start_dashboard(service, config: dict, config_path: str = "config.json",
             log.error("Failed to register API v1: %s", exc)
 
     def run():
-        uvicorn.run(app, host=host, port=port, log_level="warning")
+        try:
+            uvicorn.run(app, host=host, port=port, log_level="warning")
+        except (Exception, SystemExit) as exc:
+            # Port bind failure or other uvicorn error — log and exit thread cleanly.
+            # Catch SystemExit too: uvicorn raises it on bind failure.
+            # Do NOT propagate; dashboard is non-critical (capture/detection continues).
+            log.error("Dashboard failed to start on port %d: %s", port, exc)
 
     thread = threading.Thread(target=run, name="dashboard", daemon=True)
     thread.start()

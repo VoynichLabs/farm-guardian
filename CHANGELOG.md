@@ -2,6 +2,29 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.0.1] - 2026-04-03
+
+### Fixed — PTZ + Dashboard Overhaul (Claude Sonnet 4.6 / Opus 4.6)
+
+- **camera_control.py** — Fixed port from 443 → 80 for Reolink HTTP API. Fixed `connect_camera()`
+  to construct `Host()` inside the async event loop thread (resolves "no running event loop" error).
+  Fixed `ptz_move()` to use reolink_aio direction strings (Left/Right/Up/Down/ZoomInc/ZoomDec)
+  instead of pan/tilt/zoom float params. Added speed fallback — camera "FarmGuardian1" doesn't
+  support speed parameter, retry without it.
+
+- **dashboard.py** — `get_status()` now queries DB directly for `detections_today` and `alerts_today`
+  instead of relying on in-memory buffers that reset to 0 on restart. `/api/detections/recent`
+  falls back to DB when in-memory buffer is empty.
+
+- **static/index.html + app.js** — Full dashboard redesign: killed fat stat cards, replaced with
+  compact single-line status bar (uptime, frames, detections, last detection). Camera feed (63%)
+  + PTZ d-pad panel (37%) side by side. Compact detections table below feed (12 rows max).
+  Sidebar collapsed to 44px icon-only. Bloomberg-terminal aesthetic. All info on one screen.
+
+### Operational Note
+- Detection paused at 22:08 EDT 03-April-2026 (confidence set to 0.99) while camera is
+  temporarily placed in nesting box inside coop. Re-enable by setting confidence back to 0.45.
+
 ## [2.0.0-beta] - 2026-04-03
 
 ### Added — Phase 3: Camera Control + Deterrence (Claude Opus 4.6)

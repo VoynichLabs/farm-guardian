@@ -18,7 +18,16 @@ from onvif import ONVIFCamera
 log = logging.getLogger("guardian.discovery")
 
 # Default ONVIF WSDL path shipped with onvif-zeep
-_WSDL_DIR = None  # Let onvif-zeep use its bundled WSDLs
+# onvif-zeep ships WSDLs at site-packages/wsdl/, not inside the onvif package dir
+import os as _os, site as _site
+_WSDL_DIR = _os.path.join(_os.path.dirname(_site.getsitepackages()[0] if hasattr(_site, 'getsitepackages') else _site.getusersitepackages()), 'wsdl')
+if not _os.path.exists(_WSDL_DIR):
+    # fallback: search site-packages
+    for _sp in (_site.getsitepackages() if hasattr(_site, 'getsitepackages') else []):
+        _candidate = _os.path.join(_sp, 'wsdl')
+        if _os.path.exists(_candidate):
+            _WSDL_DIR = _candidate
+            break
 
 
 @dataclass
@@ -63,7 +72,26 @@ class CameraDiscovery:
         for cam_cfg in self._camera_configs:
             name = cam_cfg.get("name", "unnamed")
             try:
-                info = self._probe_camera(cam_cfg)
+                # Run probe in a thread with a hard timeout so ONVIF hangs don't block forever
+                result: list = []
+                exc_holder: list = []
+
+                def _probe():
+                    try:
+                        result.append(self._probe_camera(cam_cfg))
+                    except Exception as e:
+                        exc_holder.append(e)
+
+                t = threading.Thread(target=_probe, daemon=True)
+                t.start()
+                t.join(timeout=15)  # 15s hard limit per camera
+
+                if t.is_alive():
+                    raise TimeoutError(f"ONVIF probe timed out after 15s")
+                if exc_holder:
+                    raise exc_holder[0]
+
+                info = result[0]
                 with self._lock:
                     self._cameras[name] = info
                 log.info(

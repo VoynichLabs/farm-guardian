@@ -59,10 +59,21 @@ class CameraController:
 
     def connect_camera(self, camera_id: str, ip: str, username: str, password: str,
                        port: int = 80, channel: int = 0) -> bool:
-        """Connect to a Reolink camera. Returns True on success."""
-        try:
+        """Connect to a Reolink camera. Returns True on success.
+
+        Host() must be constructed inside the dedicated event loop thread to avoid
+        'no running event loop' errors that occur when reolink_aio tries to access
+        the current event loop during __init__ from a non-async context.
+        """
+        async def _do_connect():
             host = Host(ip, username, password, port=port)
-            self._run_async(host.get_host_data())
+            await host.get_host_data()
+            return host
+
+        try:
+            host = self._run_async(_do_connect())
+            if host is None:
+                raise RuntimeError("_run_async returned None — check logs for async error")
             with self._lock:
                 self._cameras[camera_id] = host
                 self._channel[camera_id] = channel
@@ -166,14 +177,43 @@ class CameraController:
 
     def ptz_move(self, camera_id: str, pan: float = 0, tilt: float = 0,
                  zoom: float = 0, speed: int = 25) -> bool:
-        """Start continuous PTZ movement. Pan/tilt/zoom are direction values."""
+        """Start continuous PTZ movement.
+
+        Maps pan/tilt/zoom direction values to reolink_aio PtzEnum command strings:
+          pan > 0 → Right, pan < 0 → Left
+          tilt > 0 → Up,   tilt < 0 → Down
+          zoom > 0 → ZoomInc, zoom < 0 → ZoomDec
+          Diagonal combos: LeftUp, RightUp, LeftDown, RightDown
+        """
         host = self._get_host(camera_id)
         if not host:
             return False
         ch = self._get_channel(camera_id)
+
+        # Derive direction command from pan/tilt/zoom values
+        if zoom != 0:
+            command = "ZoomInc" if zoom > 0 else "ZoomDec"
+        elif pan != 0 and tilt != 0:
+            h = "Right" if pan > 0 else "Left"
+            v = "Up" if tilt > 0 else "Down"
+            command = f"{h}{v}"  # e.g. "RightUp"
+        elif pan != 0:
+            command = "Right" if pan > 0 else "Left"
+        elif tilt != 0:
+            command = "Up" if tilt > 0 else "Down"
+        else:
+            command = "Stop"
+
+        # Try with speed first; fall back without if camera doesn't support it
+        async def _do_move():
+            try:
+                await host.set_ptz_command(ch, command=command, speed=speed)
+            except Exception:
+                # Camera may not support speed parameter — retry without it
+                await host.set_ptz_command(ch, command=command)
+
         try:
-            self._run_async(host.set_ptz_command(ch, command="Start",
-                                                  pan=pan, tilt=tilt, zoom=zoom, speed=speed))
+            self._run_async(_do_move())
             return True
         except Exception as exc:
             log.error("PTZ move failed for '%s': %s", camera_id, exc)
@@ -193,13 +233,16 @@ class CameraController:
             return False
 
     def ptz_goto_preset(self, camera_id: str, preset_index: int) -> bool:
-        """Move camera to a saved PTZ preset by index."""
+        """Move camera to a saved PTZ preset by index (0-based).
+
+        reolink_aio expects preset as an int index into the ptz_presets dict.
+        """
         host = self._get_host(camera_id)
         if not host:
             return False
         ch = self._get_channel(camera_id)
         try:
-            self._run_async(host.set_ptz_command(ch, command="ToPos", preset=preset_index))
+            self._run_async(host.set_ptz_command(ch, preset=preset_index))
             log.info("PTZ goto preset %d for '%s'", preset_index, camera_id)
             return True
         except Exception as exc:
@@ -213,10 +256,9 @@ class CameraController:
             return False
         ch = self._get_channel(camera_id)
         try:
-            self._run_async(host.set_ptz_command(ch, command="SetPreset",
-                                                  preset=preset_index, name=name))
-            log.info("Saved PTZ preset %d ('%s') for '%s'", preset_index, name, camera_id)
-            return True
+            # reolink_aio does not expose a SetPreset command — this is a no-op stub.
+            log.warning("ptz_save_preset not supported by reolink_aio for '%s'", camera_id)
+            return False
         except Exception as exc:
             log.error("PTZ save preset failed for '%s': %s", camera_id, exc)
             return False
