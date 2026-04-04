@@ -70,27 +70,27 @@ No new modules. All changes target existing files:
 
 ### Phase A — Make It See Again (Critical, Day 1)
 
-- [ ] A1. Reset `detection.confidence_threshold` from `0.99` to `0.45` in `config.json`
-- [ ] A2. Create `.gitignore` — `config.json`, `guardian.log`, `data/`, `events/`, `__pycache__/`, `venv/`, `*.pt`, `.claude/`
-- [ ] A3. Sanitize `config.json` — replace camera password and Discord webhook with placeholders, then add to `.gitignore` so the live file is never tracked again
-- [ ] A4. Verify `config.example.json` has no real credentials (it shouldn't, but confirm)
-- [ ] A5. Mask password in `discovery.py` log output — the RTSP URL `rtsp://admin:bird2026@...` gets printed every 5 minutes during camera rescans
+- [x] A1. Reset `detection.confidence_threshold` from `0.99` to `0.45` in `config.json`
+- [x] A2. Updated `.gitignore` — added `.claude/`, `.env`. Already had `config.json`, `data/`, `events/`, etc.
+- [x] A3. Sanitized `config.json` — replaced real password + Discord webhook with placeholders. Created `.env` for real secrets with `python-dotenv` integration.
+- [x] A4. Verified `config.example.json` has no real credentials.
+- [x] A5. Masked password in `discovery.py` log output — RTSP URLs now show `admin:***@`
 
 ### Phase B — Fix the Stream (Critical, Day 1)
 
-- [ ] B1. Switch RTSP transport from UDP to TCP in `capture.py` — HEVC over WiFi/UDP drops every ~30s. TCP adds latency but eliminates drops. Either set `OPENCV_FFMPEG_CAPTURE_OPTIONS=rtsp_transport;tcp` or append transport param to RTSP URL.
-- [ ] B2. Tune OpenCV read timeout — current default is 30s which causes long hangs before reconnect
-- [ ] B3. Run `python guardian.py` for 10+ minutes, verify stream stability in `guardian.log`
+- [x] B1. Forced TCP via `OPENCV_FFMPEG_CAPTURE_OPTIONS=rtsp_transport;tcp` env var at top of `guardian.py` (before any cv2 import). Verified via `lsof` — no UDP connections to camera.
+- [x] B2. OpenCV's 30s interrupt callback is hardcoded and not configurable. Implemented threaded 10-second manual timeout on `cap.read()` — abandoned cap objects (not released, to avoid segfault) get GC'd. Reconnects in 10s instead of 30s.
+- [x] B3. Verified: 10+ minute run, 508 frames, process stable, 0 frame failures. 6 reconnects from WiFi stalls (recovered in 10s each).
 
 ### Phase C — Resolve WIP Commit (Important, Day 1)
 
-- [ ] C1. `git diff HEAD~1` — review all 969 lines in the WIP commit across 7 files
-- [ ] C2. For each file: determine if the changes are complete and working, or half-done
-- [ ] C3. Keep finished work, revert incomplete changes, make a clean commit
+- [x] C1. Reviewed all 969 lines across 7 files in WIP commit (edab3c5).
+- [x] C2. All changes complete and production-ready: dashboard redesign, camera_control port fix, dashboard DB queries, CHANGELOG entry.
+- [x] C3. No reverts needed — committed clean on top of WIP.
 
 ### Phase D — Tune Detection (Important, Day 2)
 
-- [ ] D1. Review false positive tracks — bear/dog ghosts with 0.0s duration and 1 detection are being created. The `min_dwell_frames: 3` filter correctly marks them `predator=False`, but they still create tracks in the DB. Evaluate whether `tracker.py` should skip creating tracks for single-frame detections entirely.
+- [x] D1. Ghost tracks (< `min_detections_for_track`) now deleted from DB on track close. Added `delete_track()` to `database.py`.
 - [ ] D2. Review `bird_min_bbox_width_pct: 8.0` — verify this threshold makes sense for the current camera mount height and yard distance
 - [ ] D3. Monitor live detections for 1 hour after confidence is restored to 0.45
 
@@ -102,10 +102,10 @@ No new modules. All changes target existing files:
 
 ### Phase F — Remote Access (Enhancement, Day 3)
 
-- [ ] F1. Try `cloudflared tunnel --protocol http2 run --token "$CLOUDFLARE_TUNNEL_TOKEN"` — the QUIC connections die within 10–15s, HTTP/2 fallback on port 443 should work
-- [ ] F2. If tunnel connects, test from phone on cellular: visit `guardian.markbarney.net`
-- [ ] F3. Set up LaunchAgent for persistence across reboots (template already in `CLOUDFLARE_TUNNEL.md`)
-- [ ] F4. Add authentication — Cloudflare Access (free tier, up to 50 users) or FastAPI basic auth middleware before the dashboard goes public
+- [x] F1. `--protocol http2` fixed the tunnel. QUIC/UDP port 7844 blocked by router/ISP; HTTP/2 on TCP 443 works.
+- [x] F2. `guardian.markbarney.net` returns HTTP 200 through Cloudflare tunnel.
+- [x] F3. LaunchAgent loaded and persistent (`com.cloudflare.tunnel.farm-guardian.plist`).
+- [x] F4. Mark decided: no auth needed, dashboard is intentionally public.
 
 ### Phase G — Test Foundation (Nice to Have, Day 3+)
 

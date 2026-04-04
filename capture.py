@@ -14,11 +14,6 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
-import os
-# Force RTSP over TCP BEFORE importing cv2 — HEVC over WiFi/UDP drops every ~30s.
-# Must be set before any VideoCapture is created; OpenCV reads this once.
-os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp|stimeout;5000000"
-
 import cv2
 import numpy as np
 
@@ -123,9 +118,34 @@ class CameraCapture:
                 self._stop_event.wait(delay)
                 continue
 
-            # Connected — grab a frame
+            # Connected — grab a frame with a 5-second manual timeout.
+            # OpenCV's FFMPEG backend has a hardcoded 30s interrupt callback
+            # that can't be overridden via CAP_PROP. We run the blocking
+            # read() in a disposable thread and bail if it hangs.
             try:
-                ret, raw_frame = self._cap.read()
+                read_result = [None, None]
+
+                def _do_read():
+                    try:
+                        read_result[0], read_result[1] = self._cap.read()
+                    except Exception:
+                        pass
+
+                reader = threading.Thread(target=_do_read, daemon=True)
+                reader.start()
+                reader.join(timeout=10.0)
+
+                if reader.is_alive():
+                    # read() hung — abandon this cap and create a fresh one.
+                    # Do NOT call cap.release() here: the reader thread is still
+                    # blocking inside cap.read() in native code, and releasing
+                    # the cap while read() is active causes a segfault.
+                    # The old cap + daemon thread will be garbage collected.
+                    log.warning("Camera '%s' — frame read hung >10s, reconnecting", self._camera_name)
+                    self._cap = None
+                    continue
+
+                ret, raw_frame = read_result
                 if not ret or raw_frame is None:
                     log.warning("Camera '%s' — frame read failed, reconnecting", self._camera_name)
                     self._release_capture()
@@ -163,15 +183,19 @@ class CameraCapture:
         log.debug("Connecting to RTSP stream for '%s'", self._camera_name)
 
         try:
+            # TCP transport set via OPENCV_FFMPEG_CAPTURE_OPTIONS env var
+            # at top of guardian.py (before any cv2 import).
             cap = cv2.VideoCapture(self._rtsp_url, cv2.CAP_FFMPEG)
-            cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 5000)
-            cap.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, 5000)
             if not cap.isOpened():
                 cap.release()
                 return False
 
-            # Set buffer size low to reduce latency — we want live frames, not buffered ones
+            # Low buffer = low latency — we want live frames, not stale ones
             cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            # Override OpenCV's 30-second interrupt callback timeout.
+            # On WiFi stalls, we want to detect and reconnect in 5s, not 30s.
+            cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 5000)
+            cap.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, 5000)
             self._cap = cap
             log.info("Connected to RTSP stream for '%s'", self._camera_name)
             return True

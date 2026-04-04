@@ -9,10 +9,16 @@
 #          shutdown via SIGINT/SIGTERM.
 # SRP/DRY check: Pass — single responsibility is service lifecycle and module coordination.
 
+import os
+# MUST be set before any cv2 import anywhere in the process — forces RTSP over
+# TCP (eliminates HEVC/WiFi/UDP packet drops) and sets a 5-second stream timeout
+# (prevents 30-second hangs on stream loss). OpenCV reads this env var once when
+# the FFMPEG backend initializes.
+os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp|stimeout;5000000"
+
 import argparse
 import json
 import logging
-import os
 import signal
 import sys
 import threading

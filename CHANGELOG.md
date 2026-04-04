@@ -42,8 +42,16 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
   to HTTP/2 (TCP 443). Tunnel now stable — 4 connections to Cloudflare IAD, `guardian.markbarney.net`
   returns 200. LaunchAgent loaded and persists across reboots.
 
-- **`capture.py`** — Moved `OPENCV_FFMPEG_CAPTURE_OPTIONS` env var to module level (before
-  `cv2` import) so TCP transport and 5s timeout are set before any VideoCapture is created.
+- **`capture.py`** — RTSP stream stability overhaul. Replaced OpenCV's built-in 30-second
+  read timeout (hardcoded in the FFMPEG backend, not configurable) with a threaded 10-second
+  manual timeout on `cap.read()`. When a read hangs, the old VideoCapture is abandoned (not
+  released — releasing while read() is blocking in native code causes a segfault) and a fresh
+  connection is created. Result: stream runs continuously, reconnects in 10s instead of 30s,
+  no process crashes.
+
+- **`guardian.py`** — Set `OPENCV_FFMPEG_CAPTURE_OPTIONS=rtsp_transport;tcp` at the top of
+  the file (before any `cv2` import) to force RTSP over TCP. HEVC over WiFi/UDP was dropping
+  due to packet loss and MTU fragmentation.
 
 ### Phase C — WIP Commit Review
 
