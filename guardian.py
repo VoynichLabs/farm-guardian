@@ -1,5 +1,5 @@
 # Author: Claude Opus 4.6 (updated), Cascade (Claude Sonnet 4) (original)
-# Date: 03-April-2026
+# Date: 04-April-2026
 # PURPOSE: Main service entry point for Farm Guardian v2 (Phases 1-4). Orchestrates camera
 #          discovery, frame capture, YOLO animal detection, GLM vision refinement, animal
 #          visit tracking, automated deterrence (spotlight/siren/audio), PTZ patrol with
@@ -17,6 +17,8 @@ import signal
 import sys
 import threading
 import time
+
+from dotenv import load_dotenv
 from collections import deque
 from datetime import datetime
 from pathlib import Path
@@ -461,6 +463,23 @@ def load_config(config_path: str) -> dict:
     if not config.get("cameras"):
         log.warning("No cameras configured in %s — guardian will wait for cameras", config_path)
 
+    # Overlay secrets from environment variables (.env or system env).
+    # Env vars take precedence over config.json values, and they replace
+    # placeholder strings so config.json can stay sanitized in git.
+    env_camera_pw = os.environ.get("CAMERA_PASSWORD")
+    if env_camera_pw:
+        for cam in config.get("cameras", []):
+            if not cam.get("password") or "YOUR_" in cam.get("password", ""):
+                cam["password"] = env_camera_pw
+
+    env_webhook = os.environ.get("DISCORD_WEBHOOK_URL")
+    if env_webhook:
+        config.setdefault("alerts", {})["discord_webhook_url"] = env_webhook
+
+    env_ebird_key = os.environ.get("EBIRD_API_KEY")
+    if env_ebird_key:
+        config.setdefault("ebird", {})["api_key"] = env_ebird_key
+
     webhook_url = config.get("alerts", {}).get("discord_webhook_url", "")
     if not webhook_url or "YOUR_WEBHOOK" in webhook_url:
         log.warning("Discord webhook not configured — alerts will be logged but not sent")
@@ -513,7 +532,8 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    # Load config first (basic logging for config errors)
+    # Load .env file (secrets), then config
+    load_dotenv()
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     config = load_config(args.config)
 

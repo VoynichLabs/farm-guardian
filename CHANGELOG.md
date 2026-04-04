@@ -2,6 +2,48 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.1.0] - 2026-04-04
+
+### Fixed — Stabilization & Cleanup (Claude Opus 4.6)
+
+- **config.json** — Reset `confidence_threshold` from 0.99 → 0.45, restoring detection.
+  Scrubbed real camera password and Discord webhook from tracked config (now `.gitignore`d).
+
+- **`.gitignore`** — Added `.claude/` to existing ignore rules.
+
+- **`discovery.py`** — Camera RTSP URLs containing credentials are now masked in log
+  output (`rtsp://admin:***@...`). Previously, the plaintext password was logged every
+  5 minutes during camera rescans.
+
+- **`capture.py`** — Switched RTSP transport from UDP to TCP via
+  `OPENCV_FFMPEG_CAPTURE_OPTIONS=rtsp_transport;tcp`. HEVC over WiFi/UDP was dropping
+  every ~30 seconds due to packet loss and MTU fragmentation. Also set 5-second read
+  timeout (down from 30s default) to speed up reconnection after stream drops.
+
+- **`tracker.py`** — Ghost tracks (single-frame false positives) are now deleted from
+  the DB when they close with fewer detections than `min_detections_for_track` (default 2).
+  Previously, bear/dog flickers created 0.0s-duration, 1-detection tracks that polluted
+  the database.
+
+- **`database.py`** — Added `delete_track()` method for ghost track cleanup.
+
+- **`guardian.py`** — Added `python-dotenv` integration. Secrets (camera password,
+  Discord webhook, eBird API key) are now loaded from `.env` and overlaid onto
+  `config.json` at startup. Env vars take precedence over config file values,
+  so `config.json` can stay sanitized in git while `.env` holds real credentials.
+
+- **`.env` / `.env.example`** — Created `.env` for local secrets (camera password,
+  Discord webhook, eBird API key, Cloudflare Tunnel token). `.env.example` committed
+  as a template. Both `.env` and `config.json` are `.gitignore`d.
+
+- **`requirements.txt`** — Added `python-dotenv>=1.0.0`.
+
+### Phase C — WIP Commit Review
+
+- Reviewed all 969 lines across 7 files in the WIP commit (edab3c5). All changes are
+  complete and production-ready: dashboard redesign (Bloomberg-terminal aesthetic),
+  camera_control port fix, dashboard DB queries, CHANGELOG entry. No reverts needed.
+
 ## [2.0.1] - 2026-04-03
 
 ### Fixed — PTZ + Dashboard Overhaul (Claude Sonnet 4.6 / Opus 4.6)

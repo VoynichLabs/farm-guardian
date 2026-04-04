@@ -5,8 +5,9 @@ venv/
 .venv/
 *.egg-info/
 
-# Config with secrets
+# Config and secrets
 config.json
+.env
 
 # Runtime data
 events/
@@ -27,3 +28,6 @@ yolov8n.pt
 
 # Runtime database
 data/
+
+# Claude Code
+.claude/

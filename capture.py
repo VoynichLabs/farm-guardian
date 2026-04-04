@@ -1,5 +1,5 @@
-# Author: Cascade (Claude Sonnet 4)
-# Date: 01-April-2026
+# Author: Claude Opus 4.6
+# Date: 04-April-2026
 # PURPOSE: RTSP frame capture for Farm Guardian. Connects to camera RTSP streams via
 #          OpenCV, grabs frames at a configurable interval (default 1 fps), and downscales
 #          4K frames to 1080p before passing them to detection. Maintains a small ring buffer
@@ -155,9 +155,14 @@ class CameraCapture:
             return True
 
         self._release_capture()
-        log.debug("Connecting to RTSP stream for '%s': %s", self._camera_name, self._rtsp_url)
+        log.debug("Connecting to RTSP stream for '%s'", self._camera_name)
 
         try:
+            # Force TCP transport — HEVC over WiFi/UDP drops every ~30s due to
+            # packet loss and MTU fragmentation. TCP adds ~50ms latency but
+            # eliminates stream drops entirely on this network.
+            import os
+            os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp|stimeout;5000000"
             cap = cv2.VideoCapture(self._rtsp_url, cv2.CAP_FFMPEG)
             if not cap.isOpened():
                 cap.release()
@@ -165,6 +170,9 @@ class CameraCapture:
 
             # Set buffer size low to reduce latency — we want live frames, not buffered ones
             cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            # 5-second read timeout (in ms) — prevents long hangs on stream drops
+            cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 5000)
+            cap.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, 5000)
             self._cap = cap
             log.info("Connected to RTSP stream for '%s'", self._camera_name)
             return True

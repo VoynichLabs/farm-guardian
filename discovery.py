@@ -1,5 +1,5 @@
-# Author: Cascade (Claude Sonnet 4)
-# Date: 01-April-2026
+# Author: Claude Opus 4.6
+# Date: 04-April-2026
 # PURPOSE: ONVIF camera discovery for Farm Guardian. Connects to cameras defined in
 #          config.json, validates ONVIF connectivity, retrieves RTSP stream URIs, and
 #          subscribes to motion alarm events. Supports periodic re-scanning to handle
@@ -94,10 +94,12 @@ class CameraDiscovery:
                 info = result[0]
                 with self._lock:
                     self._cameras[name] = info
+                # Mask credentials in RTSP URL before logging
+                safe_url = self._mask_rtsp_url(info.rtsp_url) if info.rtsp_url else "(none)"
                 log.info(
                     "Camera '%s' online — RTSP: %s | motion_events: %s",
                     name,
-                    info.rtsp_url or "(none)",
+                    safe_url,
                     info.supports_motion_events,
                 )
             except Exception as exc:
@@ -200,6 +202,13 @@ class CameraDiscovery:
         except Exception as exc:
             log.debug("ONVIF events not available: %s", exc)
             return False
+
+    @staticmethod
+    def _mask_rtsp_url(url: str) -> str:
+        """Replace credentials in an RTSP URL with '***' for safe logging."""
+        # rtsp://user:pass@host:port/... -> rtsp://user:***@host:port/...
+        import re
+        return re.sub(r"(rtsp://[^:]+:)[^@]+(@)", r"\1***\2", url)
 
     def get_rtsp_url(self, camera_name: str) -> Optional[str]:
         """Return the resolved RTSP URL for a named camera, or None if unavailable."""

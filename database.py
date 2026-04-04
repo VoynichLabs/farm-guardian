@@ -1,5 +1,5 @@
 # Author: Claude Opus 4.6
-# Date: 03-April-2026
+# Date: 04-April-2026
 # PURPOSE: SQLite abstraction layer for Farm Guardian v2. All database reads/writes
 #          go through this module. Creates and manages the guardian.db schema with
 #          tables for cameras, detections, tracks, alerts, deterrent actions, PTZ presets,
@@ -425,6 +425,12 @@ class GuardianDB:
                     (round(duration, 2), outcome, track_id),
                 )
                 self._conn.commit()
+
+    def delete_track(self, track_id: int) -> None:
+        """Remove a ghost track (single-frame false positive) from the database."""
+        with self._lock:
+            self._conn.execute("DELETE FROM tracks WHERE id = ?", (track_id,))
+            self._conn.commit()
 
     def get_tracks(
         self,

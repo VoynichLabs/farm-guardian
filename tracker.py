@@ -1,5 +1,5 @@
 # Author: Claude Opus 4.6
-# Date: 03-April-2026
+# Date: 04-April-2026
 # PURPOSE: Animal visit tracking for Farm Guardian v2. Converts a stream of individual
 #          YOLO detections into meaningful "tracks" (visits). A track represents one
 #          animal's continuous presence in the monitored area. New tracks open when a
@@ -168,6 +168,21 @@ class AnimalTracker:
 
         # Finalize closed tracks in DB (outside lock to avoid holding it during I/O)
         for track in closed:
+            # Skip ghost tracks — single-frame detections that never met the dwell
+            # threshold. These are typically false positives (bear/dog flickers) that
+            # pollute the DB with 0.0s duration, 1-detection tracks.
+            if track.detection_count < self._min_detections:
+                log.debug(
+                    "Ghost track %d discarded — %s on %s (detections=%d < min=%d)",
+                    track.track_id, track.class_name, track.camera_id,
+                    track.detection_count, self._min_detections,
+                )
+                try:
+                    self._db.delete_track(track.track_id)
+                except Exception as exc:
+                    log.error("Failed to delete ghost track %d: %s", track.track_id, exc)
+                continue
+
             outcome = "left"  # default — animal left on its own
             try:
                 self._db.close_track(track.track_id, outcome=outcome)
