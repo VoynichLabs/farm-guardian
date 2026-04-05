@@ -38,6 +38,15 @@ STATIC_DIR = Path(__file__).parent / "static"
 def create_app() -> FastAPI:
     app = FastAPI(title="Farm Guardian", docs_url=None, redoc_url=None)
 
+    # Allow farm site to call Guardian API (PTZ controls, etc.)
+    from fastapi.middleware.cors import CORSMiddleware
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["https://farm.markbarney.net"],
+        allow_methods=["GET", "POST"],
+        allow_headers=["Content-Type"],
+    )
+
     # Serve static files (JS, CSS)
     STATIC_DIR.mkdir(exist_ok=True)
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
