@@ -2,6 +2,14 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.1.1] - 2026-04-05
+
+### Added — CORS for Farm Website (Claude Opus 4.6)
+
+- **`dashboard.py`** — Added `CORSMiddleware` allowing `https://farm.markbarney.net` to make GET and POST requests to the Guardian API. Enables PTZ controls, spotlight, and siren from the farm website's live Guardian dashboard page.
+
+**Why:** The farm website (`farm.markbarney.net`) now has an interactive Guardian dashboard that needs to POST to the Guardian API for camera controls. Browser preflight (OPTIONS) requests were failing without CORS headers.
+
 ## [2.1.0] - 2026-04-04
 
 ### Fixed — Stabilization & Cleanup (Claude Opus 4.6)
