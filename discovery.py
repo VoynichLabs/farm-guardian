@@ -1,5 +1,5 @@
 # Author: Claude Opus 4.6
-# Date: 04-April-2026
+# Date: 06-April-2026
 # PURPOSE: ONVIF camera discovery for Farm Guardian. Connects to cameras defined in
 #          config.json, validates ONVIF connectivity, retrieves RTSP stream URIs, and
 #          subscribes to motion alarm events. Supports periodic re-scanning to handle
@@ -72,6 +72,30 @@ class CameraDiscovery:
         for cam_cfg in self._camera_configs:
             name = cam_cfg.get("name", "unnamed")
             try:
+                # If config provides an explicit RTSP URL, skip ONVIF entirely.
+                # Used for non-ONVIF cameras like phones running IP Webcam.
+                rtsp_override = cam_cfg.get("rtsp_url_override")
+                if rtsp_override:
+                    info = CameraInfo(
+                        name=name,
+                        ip=cam_cfg.get("ip", ""),
+                        port=cam_cfg.get("port", 80),
+                        username=cam_cfg.get("username", ""),
+                        password=cam_cfg.get("password", ""),
+                        onvif_port=0,
+                        camera_type=cam_cfg.get("type", "fixed"),
+                        rtsp_url=rtsp_override,
+                        onvif_camera=None,
+                        supports_motion_events=False,
+                        last_seen=time.time(),
+                        online=True,
+                    )
+                    with self._lock:
+                        self._cameras[name] = info
+                    safe_url = self._mask_rtsp_url(rtsp_override)
+                    log.info("Camera '%s' online (manual RTSP) — %s", name, safe_url)
+                    continue
+
                 # Run probe in a thread with a hard timeout so ONVIF hangs don't block forever
                 result: list = []
                 exc_holder: list = []

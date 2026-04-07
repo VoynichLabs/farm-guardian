@@ -2,6 +2,34 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.2.0] - 2026-04-06
+
+### Added — Continuous Sweep Patrol (Claude Opus 4.6)
+
+- **`patrol.py`** (new) — Continuous serpentine sweep patrol. The PTZ camera slowly pans across its full range, shifts tilt, reverses, and repeats — covering everything it can physically see. Uses continuous movement commands with position polling (reolink_aio has no absolute pan/tilt positioning). Configurable dead zone to skip the camera's own mounting point. Integrates with deterrent pause/resume.
+
+- **`camera_control.py`** — Added position-readback methods: `get_pan_position()`, `get_tilt_position()`, `get_position()`, `get_zoom()`, and `set_zoom()`. These poll the camera's current PTZ state, enabling the sweep patrol to track where the camera is pointing.
+
+- **`guardian.py`** — New `patrol_mode` config switch: `"sweep"` (default) for continuous sweep patrol, `"preset"` for the legacy preset-hopping patrol.
+
+- **`config.json`** — New `ptz.sweep` configuration block with tunable pan/tilt speeds, tilt range, stall detection threshold, dead zone, and edge dwell time.
+
+**Why:** The old preset-hopping patrol watched 5 fixed spots in rotation, leaving gaps between them. The sweep patrol scans everything the camera can see — no blind spots.
+
+### Added — Manual RTSP Camera Support (Claude Opus 4.6)
+
+- **`discovery.py`** — Cameras with `rtsp_url_override` in config now skip ONVIF discovery and go online immediately with the provided URL. Enables non-ONVIF cameras (phones, software encoders) to integrate as fixed cameras.
+
+- **`config.json`** — Added `nesting-box` camera entry pointing to Samsung Galaxy S7 running RTSP Camera Server (com.miv.rtspcamera) at `rtsp://192.168.0.249:5554/camera`.
+
+**Why:** Repurposed a Samsung Galaxy S7 (SM-G930F, Android 8.0.0) as a dedicated nesting box camera for incubator chick monitoring. Phone was factory-reset, Samsung bloatware disabled, configured for always-on kiosk mode (max brightness, stay awake on power, no screen timeout).
+
+### Known Issue — RTSP Transport Mismatch
+
+- Guardian's `OPENCV_FFMPEG_CAPTURE_OPTIONS` globally forces `rtsp_transport;tcp` (needed for the Reolink PTZ camera — HEVC over WiFi/UDP drops packets). The S7's RTSP Camera Server only supports UDP transport. OpenCV reads this env var once at FFMPEG backend init, so it can't be set per-camera.
+- **Workaround confirmed:** Removing the global TCP override and letting FFMPEG auto-negotiate works for the S7 (30/30 frames at 9.6 fps over UDP). Needs testing with the Reolink to confirm auto-negotiation still picks TCP for that camera, or a per-camera transport config option needs to be added.
+- **Blocked:** Guardian has not been restarted with the S7 camera yet pending this transport fix.
+
 ## [2.1.1] - 2026-04-05
 
 ### Added — CORS for Farm Website (Claude Opus 4.6)

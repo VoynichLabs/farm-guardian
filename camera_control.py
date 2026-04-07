@@ -1,5 +1,5 @@
 # Author: Claude Opus 4.6
-# Date: 03-April-2026
+# Date: 06-April-2026
 # PURPOSE: Reolink camera hardware control for Farm Guardian v2. Provides async
 #          PTZ (pan/tilt/zoom), spotlight, siren, audio alarm, and snapshot control
 #          via the reolink_aio library. Manages authentication with auto-refresh,
@@ -346,6 +346,79 @@ class CameraController:
                 waited += 1
 
         log.info("Patrol stopped for '%s'", camera_id)
+
+    # ------------------------------------------------------------------
+    # Position readback (for sweep patrol)
+    # ------------------------------------------------------------------
+
+    def get_pan_position(self, camera_id: str) -> Optional[float]:
+        """Read the camera's current pan position. Returns value or None."""
+        host = self._get_host(camera_id)
+        if not host:
+            return None
+        ch = self._get_channel(camera_id)
+        try:
+            # Refresh position data from camera before reading
+            self._run_async(host.get_state(cmd="GetPtzCurPos"))
+            return host.ptz_pan_position(ch)
+        except Exception as exc:
+            log.error("Failed to read pan position for '%s': %s", camera_id, exc)
+            return None
+
+    def get_tilt_position(self, camera_id: str) -> Optional[float]:
+        """Read the camera's current tilt position. Returns value or None."""
+        host = self._get_host(camera_id)
+        if not host:
+            return None
+        ch = self._get_channel(camera_id)
+        try:
+            self._run_async(host.get_state(cmd="GetPtzCurPos"))
+            return host.ptz_tilt_position(ch)
+        except Exception as exc:
+            log.error("Failed to read tilt position for '%s': %s", camera_id, exc)
+            return None
+
+    def get_position(self, camera_id: str) -> Optional[tuple[float, float]]:
+        """Read current (pan, tilt) in one call. Returns tuple or None."""
+        host = self._get_host(camera_id)
+        if not host:
+            return None
+        ch = self._get_channel(camera_id)
+        try:
+            self._run_async(host.get_state(cmd="GetPtzCurPos"))
+            pan = host.ptz_pan_position(ch)
+            tilt = host.ptz_tilt_position(ch)
+            if pan is not None and tilt is not None:
+                return (pan, tilt)
+            return None
+        except Exception as exc:
+            log.error("Failed to read position for '%s': %s", camera_id, exc)
+            return None
+
+    def get_zoom(self, camera_id: str) -> Optional[float]:
+        """Read the camera's current zoom level. Returns value or None."""
+        host = self._get_host(camera_id)
+        if not host:
+            return None
+        ch = self._get_channel(camera_id)
+        try:
+            return host.get_zoom(ch)
+        except Exception as exc:
+            log.error("Failed to read zoom for '%s': %s", camera_id, exc)
+            return None
+
+    def set_zoom(self, camera_id: str, zoom: int) -> bool:
+        """Set absolute zoom level (0–33). Returns True on success."""
+        host = self._get_host(camera_id)
+        if not host:
+            return False
+        ch = self._get_channel(camera_id)
+        try:
+            self._run_async(host.set_zoom(ch, zoom))
+            return True
+        except Exception as exc:
+            log.error("Failed to set zoom for '%s': %s", camera_id, exc)
+            return False
 
     # ------------------------------------------------------------------
     # Snapshot

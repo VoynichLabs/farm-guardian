@@ -1,5 +1,5 @@
 # Author: Claude Opus 4.6 (updated), Cascade (Claude Sonnet 4) (original)
-# Date: 04-April-2026
+# Date: 06-April-2026
 # PURPOSE: Main service entry point for Farm Guardian v2 (Phases 1-4). Orchestrates camera
 #          discovery, frame capture, YOLO animal detection, GLM vision refinement, animal
 #          visit tracking, automated deterrence (spotlight/siren/audio), PTZ patrol with
@@ -40,6 +40,7 @@ from vision import VisionRefiner
 from tracker import AnimalTracker
 from camera_control import CameraController
 from deterrent import DeterrentEngine
+from patrol import SweepPatrol
 from ebird import EBirdWatcher
 from reports import ReportGenerator
 from dashboard import start_dashboard
@@ -194,24 +195,44 @@ class GuardianService:
                 None
             )
             if first_ptz:
-                presets = ptz_cfg.get("presets", [])
-                # Convert config presets to patrol format
-                patrol_presets = [
-                    {"index": i, "name": p["name"], "dwell": p.get("dwell", 30)}
-                    for i, p in enumerate(presets) if p.get("patrol", True)
-                ]
-                if patrol_presets:
+                patrol_mode = ptz_cfg.get("patrol_mode", "sweep")
+
+                if patrol_mode == "sweep":
+                    # Continuous sweep patrol — camera scans everything it can see
+                    self._sweep_patrol = SweepPatrol(
+                        self._camera_ctrl, first_ptz.name, self._config
+                    )
                     self._patrol_thread = threading.Thread(
-                        target=self._camera_ctrl.start_patrol,
-                        args=(first_ptz.name, patrol_presets),
-                        kwargs={
-                            "shutdown_event": self._shutdown_event,
-                            "pause_event": self._patrol_pause_event,
-                        },
-                        name="patrol", daemon=True,
+                        target=self._sweep_patrol.run,
+                        args=(self._shutdown_event,),
+                        kwargs={"pause_event": self._patrol_pause_event},
+                        name="patrol-sweep", daemon=True,
                     )
                     self._patrol_thread.start()
-                    log.info("PTZ patrol started for '%s' — %d presets", first_ptz.name, len(patrol_presets))
+                    log.info("Sweep patrol started for '%s'", first_ptz.name)
+
+                elif patrol_mode == "preset":
+                    # Legacy preset-hopping patrol
+                    presets = ptz_cfg.get("presets", [])
+                    patrol_presets = [
+                        {"index": i, "name": p["name"], "dwell": p.get("dwell", 30)}
+                        for i, p in enumerate(presets) if p.get("patrol", True)
+                    ]
+                    if patrol_presets:
+                        self._patrol_thread = threading.Thread(
+                            target=self._camera_ctrl.start_patrol,
+                            args=(first_ptz.name, patrol_presets),
+                            kwargs={
+                                "shutdown_event": self._shutdown_event,
+                                "pause_event": self._patrol_pause_event,
+                            },
+                            name="patrol-preset", daemon=True,
+                        )
+                        self._patrol_thread.start()
+                        log.info("Preset patrol started for '%s' — %d presets",
+                                 first_ptz.name, len(patrol_presets))
+                else:
+                    log.warning("Unknown patrol_mode '%s' — patrol disabled", patrol_mode)
 
         # Start eBird polling (Phase 3)
         self._ebird_thread = threading.Thread(
