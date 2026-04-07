@@ -142,10 +142,19 @@ class GuardianService:
             port = dashboard_cfg.get("port", 6530)
             log.info("Dashboard + API available at http://localhost:%d", port)
 
-        # Load YOLO detector AFTER dashboard — the ultralytics import pulls in
-        # PyTorch (~60s on cold start). Dashboard is already serving while this loads.
-        log.info("Loading YOLO detector (this may take a minute on first run)...")
-        self._detector = AnimalDetector(self._config)
+        # Load YOLO detector in background thread — the ultralytics import pulls
+        # in PyTorch (~60s on cold start). Camera feeds and dashboard work immediately;
+        # detection kicks in once the model finishes loading. The null guard in
+        # _on_frame() silently skips frames until self._detector is set.
+        def _load_detector():
+            try:
+                log.info("Loading YOLO detector in background (this may take a minute)...")
+                self._detector = AnimalDetector(self._config)
+                log.info("YOLO detector ready — detection active")
+            except Exception as exc:
+                log.error("Failed to load YOLO detector: %s — detection disabled", exc)
+
+        threading.Thread(target=_load_detector, name="yolo-load", daemon=True).start()
 
         # Initial camera scan
         cameras = self._discovery.scan()
