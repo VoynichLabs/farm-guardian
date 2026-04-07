@@ -93,6 +93,22 @@ python guardian.py --debug
 
 No test suite yet. This is a v2 production system (Phases 1-4 complete).
 
+## Immediate TODO (as of 06-Apr-2026)
+
+**RTSP transport fix — BLOCKING Guardian restart with S7 camera:**
+
+`guardian.py` line 17 sets `OPENCV_FFMPEG_CAPTURE_OPTIONS = "rtsp_transport;tcp|stimeout;5000000"` globally before any cv2 import. This forces TCP for ALL cameras. Problem: the Reolink needs TCP (UDP drops HEVC packets over WiFi), but the S7's RTSP Camera Server only supports UDP. OpenCV reads this env var once at FFMPEG backend init — can't change per-camera.
+
+**Confirmed working:** `rtsp_transport;udp` with S7 gives 30/30 frames at 9.6 fps. TCP gives "Nonmatching transport in server reply" error.
+
+**Options:**
+- **Option A (try first):** Remove global `rtsp_transport;tcp`, keep only `stimeout;5000000`. Let FFMPEG auto-negotiate transport per-camera. Test that Reolink still connects reliably.
+- **Option B (if A fails):** Add `rtsp_transport` field to per-camera config. Swap the env var before each `cv2.VideoCapture()` call in `capture.py`. More complex but guarantees correct transport per camera.
+
+**After transport fix:**
+- Restart Guardian — both cameras should come online
+- Front camera mirror mode for hatched chick — switch RTSP Camera Server to front camera on the S7 screen so the chick can see herself (enrichment). This is just an app toggle, separate from Guardian's rear camera monitoring.
+
 ## Architecture
 
 Read `docs/02-Apr-2026-v2-system-plan.md` for the full v2 architecture document with module specifications.
@@ -101,7 +117,9 @@ Read `docs/02-Apr-2026-v2-system-plan.md` for the full v2 architecture document 
 - `docs/01-Apr-2026-v1-guardian-plan.md` — Original v1 plan
 - `docs/02-Apr-2026-v2-system-plan.md` — Full v2 architecture spec (15 modules)
 - `docs/02-Apr-2026-smart-devices-plan.md` — Smart plug deterrent integration (future)
-- `docs/04-Apr-2026-full-cleanup-plan.md` — Current: stabilization & cleanup
+- `docs/04-Apr-2026-full-cleanup-plan.md` — Stabilization & cleanup
+- `docs/06-Apr-2026-sweep-patrol-plan.md` — Continuous sweep patrol design
+- `docs/06-Apr-2026-s7-nesting-box-camera-setup.md` — S7 phone camera setup plan & findings
 
 **Entry point:** `guardian.py` — orchestrates all modules, runs as a foreground process.
 
@@ -122,7 +140,8 @@ Read `docs/02-Apr-2026-v2-system-plan.md` for the full v2 architecture document 
 - `tracker.py` — Groups individual detections into animal visit tracks. Duration, confidence, outcome tracking.
 
 *Phase 3 — Deterrence:*
-- `camera_control.py` — Reolink camera hardware control via reolink_aio. PTZ, spotlight, siren, patrol with pause/resume.
+- `camera_control.py` — Reolink camera hardware control via reolink_aio. PTZ, spotlight, siren, patrol with pause/resume. Position readback methods for sweep patrol.
+- `patrol.py` — Continuous serpentine sweep patrol. PTZ camera scans full pan range, shifts tilt, reverses. Replaces preset-hopping. Configurable via `ptz.sweep` in config.
 - `deterrent.py` — Automated response engine. 4 escalation levels, per-species rules, cooldowns, effectiveness tracking.
 - `ebird.py` — eBird API polling for regional raptor early warning. 30-min intervals during hawk hours.
 
@@ -136,7 +155,8 @@ Read `docs/02-Apr-2026-v2-system-plan.md` for the full v2 architecture document 
 
 - **Machine:** Mac Mini M4 Pro, 14-core, 64GB RAM, macOS 26.3
 - **Python:** 3.13 (Homebrew)
-- **Camera:** Reolink E1 Outdoor Pro (ONVIF, RTSP, 4K, PTZ, WiFi)
+- **Camera 1 (house-yard):** Reolink E1 Outdoor Pro — ONVIF, RTSP, 4K, PTZ, WiFi. IP `192.168.0.88`. Needs TCP RTSP transport (HEVC over WiFi/UDP drops packets).
+- **Camera 2 (nesting-box):** Samsung Galaxy S7 (SM-G930F, Android 8.0.0, arm64-v8a) running RTSP Camera Server (com.miv.rtspcamera). IP `192.168.0.249`, RTSP port 5554. Needs UDP RTSP transport (only transport this app supports). Phone is factory-reset, bloatware disabled, kiosk mode (always-on, max brightness, no screen timeout). Connected via USB and WiFi.
 - **Network:** All devices on same local WiFi network
 
 ## Key Dependencies
