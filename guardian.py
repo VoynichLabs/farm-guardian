@@ -328,6 +328,11 @@ class GuardianService:
         if self._detector is None:
             return  # Detector still loading — skip frame
 
+        # Skip detection for cameras with detection_enabled=false in config
+        cam_cfg = self._get_camera_config(frame_result.camera_name)
+        if cam_cfg and not cam_cfg.get("detection_enabled", True):
+            return
+
         try:
             result = self._detector.detect(frame_result.frame, frame_result.camera_name)
             self._frames_processed += 1

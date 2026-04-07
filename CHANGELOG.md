@@ -2,17 +2,19 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
-## [2.3.3] - 2026-04-07
+## [2.4.0] - 2026-04-07
 
-### Fixed — Dual camera feeds, patrol starts on rescan (Claude Opus 4.6)
+### Changed — Dashboard dual-feed layout, per-camera detection toggle (Claude Opus 4.6)
 
-- **`static/index.html`** — Dashboard now shows both house-yard (large) and nesting-box (below) camera feeds instead of only house-yard.
+- **`static/index.html`** — Dashboard shows both camera feeds side-by-side at equal size. Removed PTZ controls from the dashboard (camera is on automated patrol). Compact status strip shows patrol/deterrent state.
 
-- **`static/app.js`** — `renderDashboardFeed()` updated to drive both feed panels from the cameras API response.
+- **`static/app.js`** — `renderDashboardFeed()` drives both feed panels from the cameras API response.
 
-- **`guardian.py`** — Rescan loop now starts sweep patrol and connects PTZ hardware when a PTZ camera comes online after initial startup. Previously, if the Reolink missed the initial scan, patrol never started.
+- **`guardian.py`** — Per-camera `detection_enabled` config flag. Cameras with `detection_enabled: false` skip YOLO inference entirely (feed-only mode). Rescan loop now starts sweep patrol and connects PTZ hardware when a PTZ camera comes online after initial startup.
 
-**Why:** Dashboard was hardcoded to one camera feed. Patrol only started during initial boot — if the Reolink was slow to respond on first scan, patrol never kicked in and had to wait for a full Guardian restart.
+- **`config.json`** — Nesting-box camera set to `detection_enabled: false` (monitoring chick, not detecting predators).
+
+**Why:** Dashboard was hardcoded to one camera with PTZ controls. The nesting-box camera monitors a hatching chick — running predator detection on it wastes inference cycles and would generate false alerts. Patrol only started during initial boot — if the Reolink was slow to respond on first scan, patrol never kicked in.
 
 ## [2.3.2] - 2026-04-07
 

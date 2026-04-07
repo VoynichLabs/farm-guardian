@@ -87,14 +87,9 @@
         .nav-btn:hover { background: #334155; color: #e2e8f0; }
         .nav-btn.active { background: #334155; color: #f8fafc; }
         /* Layout containers for dashboard */
-        #dashboard-main-area { display: flex; gap: 6px; flex: 1; min-height: 0; }
-        #cam-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 4px; }
-        #ptz-panel { flex: 0 0 200px; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; }
+        #dashboard-main-area { display: flex; flex-direction: column; gap: 4px; flex: 1; min-height: 0; }
+        #cam-panel { flex: 1; min-height: 0; display: flex; flex-direction: row; gap: 4px; }
         #det-panel { flex-shrink: 0; }
-        /* Hide scrollbar but still scroll */
-        #ptz-panel::-webkit-scrollbar { width: 4px; }
-        #ptz-panel::-webkit-scrollbar-track { background: transparent; }
-        #ptz-panel::-webkit-scrollbar-thumb { background: #334155; border-radius: 2px; }
     </style>
 </head>
 <body class="text-slate-200" style="height:100vh; overflow:hidden;">
@@ -169,11 +164,10 @@
                 <!-- ═══════════════════════════════════════ -->
                 <section id="page-dashboard" class="page fade-in" style="position:absolute; inset:0; display:flex; flex-direction:column; gap:4px; padding:4px; overflow:hidden;">
 
-                    <!-- Main area: camera feed + PTZ panel -->
+                    <!-- Main area: dual camera feeds -->
                     <div id="dashboard-main-area">
-                        <!-- Camera Feeds Panel -->
                         <div id="cam-panel">
-                            <!-- Primary feed: house-yard -->
+                            <!-- house-yard feed -->
                             <div style="flex:1; min-height:0; background:#0a0f1e; border:1px solid #334155; border-radius:4px; overflow:hidden; position:relative;">
                                 <img id="main-feed-img" src="/api/cameras/house-yard/stream"
                                      class="camera-feed"
@@ -185,8 +179,8 @@
                                     <span id="feed-cam-label">house-yard</span>
                                 </div>
                             </div>
-                            <!-- Secondary feed: nesting-box -->
-                            <div style="flex:0 0 30%; min-height:0; background:#0a0f1e; border:1px solid #334155; border-radius:4px; overflow:hidden; position:relative;">
+                            <!-- nesting-box feed -->
+                            <div style="flex:1; min-height:0; background:#0a0f1e; border:1px solid #334155; border-radius:4px; overflow:hidden; position:relative;">
                                 <img id="nest-feed-img" src="/api/cameras/nesting-box/stream"
                                      class="camera-feed"
                                      alt="nesting-box"
@@ -198,51 +192,11 @@
                                 </div>
                             </div>
                         </div>
-
-                        <!-- PTZ Control Panel -->
-                        <div id="ptz-panel" style="background:#1e293b; border:1px solid #334155; border-radius:4px; padding:8px; gap:8px; display:flex; flex-direction:column;">
-                            <div style="font-size:0.65rem; text-transform:uppercase; letter-spacing:0.08em; color:#475569; font-weight:600; margin-bottom:2px;">PTZ — house-yard</div>
-
-                            <!-- D-Pad -->
-                            <div style="display:grid; grid-template-columns:1fr 1fr 1fr; grid-template-rows:1fr 1fr 1fr; gap:3px; width:100px; margin:0 auto;">
-                                <div></div>
-                                <button class="ptz-btn" onclick="dashPtzMove('up')" title="Tilt Up" style="height:28px;">▲</button>
-                                <div></div>
-                                <button class="ptz-btn" onclick="dashPtzMove('left')" title="Pan Left" style="height:28px;">◄</button>
-                                <button class="ptz-btn ptz-btn-stop" onclick="dashPtzStop()" title="Stop" style="height:28px; font-size:0.6rem; font-weight:700;">■</button>
-                                <button class="ptz-btn" onclick="dashPtzMove('right')" title="Pan Right" style="height:28px;">►</button>
-                                <div></div>
-                                <button class="ptz-btn" onclick="dashPtzMove('down')" title="Tilt Down" style="height:28px;">▼</button>
-                                <div></div>
-                            </div>
-
-                            <!-- Zoom -->
-                            <div style="display:flex; gap:4px; justify-content:center;">
-                                <button class="ptz-btn" onclick="dashPtzZoom('in')" style="padding:3px 10px; font-size:0.7rem;">Z+</button>
-                                <button class="ptz-btn" onclick="dashPtzZoom('out')" style="padding:3px 10px; font-size:0.7rem;">Z−</button>
-                            </div>
-
-                            <!-- Spotlight -->
-                            <div style="display:flex; gap:4px; justify-content:center;">
-                                <button class="ptz-btn ptz-btn-amber" onclick="dashSpotlight(true)" style="padding:3px 8px; font-size:0.65rem; flex:1;">☀ ON</button>
-                                <button class="ptz-btn" onclick="dashSpotlight(false)" style="padding:3px 8px; font-size:0.65rem; flex:1;">☀ OFF</button>
-                            </div>
-
-                            <!-- Siren -->
-                            <button class="ptz-btn ptz-btn-red" onclick="dashSiren()" style="padding:4px; font-size:0.65rem; width:100%;">⚠ SIREN (5s)</button>
-
-                            <!-- Divider -->
-                            <div style="border-top:1px solid #334155; margin:2px 0;"></div>
-
-                            <!-- Patrol status + deterrent -->
-                            <div style="font-size:0.65rem; color:#64748b;">
-                                <div>Patrol: <span id="dash-patrol-status" style="color:#94a3b8;">—</span></div>
-                                <div>Deterrent: <span id="dash-deterrent-status" style="color:#94a3b8;">—</span></div>
-                                <div>Active tracks: <span id="dash-tracks-count" style="color:#94a3b8;">0</span></div>
-                            </div>
-
-                            <!-- PTZ feedback -->
-                            <div id="dash-ptz-feedback" style="font-size:0.6rem; color:#475569; min-height:12px; text-align:center;"></div>
+                        <!-- Status strip -->
+                        <div style="display:flex; gap:12px; padding:4px 8px; background:#1e293b; border:1px solid #334155; border-radius:4px; font-size:0.65rem; color:#64748b; align-items:center;">
+                            <div>Patrol: <span id="dash-patrol-status" style="color:#94a3b8;">—</span></div>
+                            <div>Deterrent: <span id="dash-deterrent-status" style="color:#94a3b8;">—</span></div>
+                            <div>Active tracks: <span id="dash-tracks-count" style="color:#94a3b8;">0</span></div>
                         </div>
                     </div>
 

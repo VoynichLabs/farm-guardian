@@ -3,7 +3,7 @@
   "configurations": [
     {
       "name": "guardian",
-      "runtimeExecutable": "python",
+      "runtimeExecutable": "/Users/macmini/Documents/GitHub/farm-guardian/venv/bin/python",
       "runtimeArgs": ["guardian.py"],
       "port": 6530
     }

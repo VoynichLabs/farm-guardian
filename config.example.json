@@ -19,7 +19,8 @@
       "onvif_port": 0,
       "type": "fixed",
       "rtsp_transport": "udp",
-      "rtsp_url_override": "rtsp://192.168.0.YYY:5554/camera"
+      "rtsp_url_override": "rtsp://192.168.0.YYY:5554/camera",
+      "detection_enabled": false
     }
   ],
   "discovery": {
