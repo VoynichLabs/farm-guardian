@@ -2,6 +2,16 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.4.1] - 2026-04-07
+
+### Fixed — Sweep patrol calibrated for Reolink E1 Outdoor Pro (Claude Opus 4.6)
+
+- **`patrol.py`** — Calibrated sweep for Reolink's coordinate system (0–7240 units, not degrees). Patrol now pans to a configurable `start_pan` position on boot (opposite the mounting post). Tilt positioning replaced with timed bursts — the Reolink E1's tilt position readback is broken (always returns 945), so the old poll-and-nudge approach never converged. Dead zone support now active.
+
+- **`config.json`** — Sweep config updated: `start_pan: 3620` (faces away from the mounting post at pan=0), `dead_zone_pan: [6800, 440]` (skips the narrow band behind the post where pan wraps), `tilt_burst_seconds: 1.5`. Removed `tilt_min`/`tilt_max` (useless without working tilt readback).
+
+**Why:** The post the camera is mounted on sits directly behind the mount at pan=0. The patrol was starting there and staring at a blurry wooden post. Tilt positioning was spinning forever because it relied on position feedback that doesn't exist on this camera model.
+
 ## [2.4.0] - 2026-04-07
 
 ### Changed — Dashboard dual-feed layout, per-camera detection toggle (Claude Opus 4.6)

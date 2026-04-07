@@ -1,5 +1,5 @@
 # Author: Claude Opus 4.6
-# Date: 06-April-2026
+# Date: 07-April-2026
 # PURPOSE: Continuous sweep patrol for Farm Guardian. Drives the PTZ camera through a
 #          serpentine raster scan — slow pan across full range, shift tilt, reverse —
 #          so the camera views everything it can physically see. Uses continuous movement
@@ -32,26 +32,25 @@ class SweepPatrol:
         self._pan_speed = sweep_cfg.get("pan_speed", 15)
         self._tilt_speed = sweep_cfg.get("tilt_speed", 10)
         self._tilt_steps = sweep_cfg.get("tilt_steps", 3)
-        self._tilt_min = sweep_cfg.get("tilt_min", 5)
-        self._tilt_max = sweep_cfg.get("tilt_max", 60)
+        self._tilt_burst_seconds = sweep_cfg.get("tilt_burst_seconds", 1.5)
         self._poll_interval = sweep_cfg.get("position_poll_interval", 1.0)
         self._stall_threshold = sweep_cfg.get("stall_threshold", 3)
+        self._start_pan = sweep_cfg.get("start_pan", None)
         self._dead_zone = sweep_cfg.get("dead_zone_pan", None)
         self._dead_zone_skip_speed = sweep_cfg.get("dead_zone_skip_speed", 60)
         self._dwell_at_edge = sweep_cfg.get("dwell_at_edge", 2.0)
 
         # Direction state: 1 = panning right, -1 = panning left
         self._pan_direction = 1
-        # Tilt row index and direction
-        self._tilt_row = 0
-        self._tilt_direction = 1  # 1 = moving down through rows, -1 = moving up
+        # Tilt direction alternates each full pan sweep: 1 = nudge down, -1 = nudge up
+        self._tilt_direction = -1
 
         log.info(
             "SweepPatrol configured — camera='%s', pan_speed=%d, tilt_steps=%d, "
-            "tilt_range=[%d, %d], poll=%.1fs, stall=%d, dead_zone=%s",
+            "tilt_burst=%.1fs, poll=%.1fs, stall=%d, start_pan=%s, dead_zone=%s",
             camera_id, self._pan_speed, self._tilt_steps,
-            self._tilt_min, self._tilt_max, self._poll_interval,
-            self._stall_threshold, self._dead_zone,
+            self._tilt_burst_seconds, self._poll_interval,
+            self._stall_threshold, self._start_pan, self._dead_zone,
         )
 
     def run(self, shutdown_event: threading.Event,
@@ -68,8 +67,9 @@ class SweepPatrol:
         self._ctrl.set_zoom(self._camera_id, 0)
         time.sleep(0.5)
 
-        # Move tilt to starting row before first pan sweep
-        self._move_tilt_to_row(self._tilt_row)
+        # Move to start position (away from the mounting post)
+        if self._start_pan is not None:
+            self._pan_to_position(self._start_pan, shutdown_event)
 
         while not shutdown_event.is_set():
             # Handle pause (deterrent active)
@@ -81,12 +81,11 @@ class SweepPatrol:
                 if shutdown_event.is_set():
                     break
                 log.debug("Sweep resumed")
-                # Re-zoom wide after deterrent may have changed zoom
                 self._ctrl.set_zoom(self._camera_id, 0)
                 time.sleep(0.3)
 
-            # Execute one pan sweep across the current tilt row
-            stalled = self._sweep_pan(shutdown_event, pause_event)
+            # Execute one pan sweep
+            self._sweep_pan(shutdown_event, pause_event)
 
             if shutdown_event.is_set():
                 break
@@ -97,9 +96,10 @@ class SweepPatrol:
             # Reverse pan direction
             self._pan_direction *= -1
 
-            # Advance to next tilt row
-            self._advance_tilt_row()
-            self._move_tilt_to_row(self._tilt_row)
+            # Nudge tilt between sweeps (tilt readback doesn't work on this
+            # camera, so we use short timed bursts instead of poll-and-nudge)
+            self._tilt_direction *= -1
+            self._tilt_burst(self._tilt_direction)
 
         self._ctrl.ptz_stop(self._camera_id)
         log.info("Sweep patrol stopped for '%s'", self._camera_id)
@@ -120,8 +120,8 @@ class SweepPatrol:
             self._camera_id, pan=pan_val, tilt=0, speed=self._pan_speed
         )
         log.debug(
-            "Sweep: panning %s at speed %d, tilt row %d",
-            "right" if pan_val > 0 else "left", self._pan_speed, self._tilt_row,
+            "Sweep: panning %s at speed %d",
+            "right" if pan_val > 0 else "left", self._pan_speed,
         )
 
         while not shutdown_event.is_set():
@@ -182,62 +182,57 @@ class SweepPatrol:
         self._ctrl.ptz_stop(self._camera_id)
         return False
 
-    def _move_tilt_to_row(self, row: int) -> None:
+    def _tilt_burst(self, direction: int) -> None:
         """
-        Tilt the camera to the target row position using timed continuous movement.
+        Nudge the tilt with a short timed burst. Direction: 1=up, -1=down.
 
-        Since we can't set absolute tilt, we move tilt up/down based on current
-        position vs target. We compute the target tilt angle from the row index
-        and move toward it using short bursts + position polling.
+        Tilt position readback is broken on the Reolink E1 Outdoor Pro (always
+        returns 945), so we can't poll-and-nudge to a target. Instead we send a
+        brief movement command to shift the view slightly between pan sweeps.
         """
-        if self._tilt_steps <= 1:
-            target_tilt = (self._tilt_min + self._tilt_max) / 2
-        else:
-            step_size = (self._tilt_max - self._tilt_min) / (self._tilt_steps - 1)
-            target_tilt = self._tilt_min + (row * step_size)
+        tilt_val = 1 if direction > 0 else -1
+        log.debug("Sweep: tilt burst %s for %.1fs",
+                  "up" if direction > 0 else "down", self._tilt_burst_seconds)
+        self._ctrl.ptz_move(
+            self._camera_id, pan=0, tilt=tilt_val, speed=self._tilt_speed
+        )
+        time.sleep(self._tilt_burst_seconds)
+        self._ctrl.ptz_stop(self._camera_id)
+        time.sleep(0.3)
 
-        log.debug("Sweep: moving tilt to row %d (target=%.1f)", row, target_tilt)
+    def _pan_to_position(self, target_pan: float,
+                         shutdown_event: threading.Event) -> None:
+        """
+        Move the camera to a target pan position using continuous movement
+        with position polling. Used to reach the start position on patrol boot.
+        """
+        log.info("Sweep: moving to start position (pan=%d)", target_pan)
+        max_seconds = 30
+        start = time.time()
 
-        # Poll-and-nudge loop to reach target tilt
-        max_attempts = 20
-        for _ in range(max_attempts):
+        while not shutdown_event.is_set() and (time.time() - start) < max_seconds:
             pos = self._ctrl.get_position(self._camera_id)
             if pos is None:
-                time.sleep(0.5)
+                time.sleep(1)
                 continue
 
-            _, current_tilt = pos
-            diff = target_tilt - current_tilt
+            current_pan, _ = pos
+            diff = target_pan - current_pan
 
-            if abs(diff) < 3.0:
-                # Close enough
+            if abs(diff) < 200:  # Close enough (~10° in Reolink units)
                 self._ctrl.ptz_stop(self._camera_id)
-                log.debug("Sweep: tilt reached %.1f (target %.1f)", current_tilt, target_tilt)
+                log.info("Sweep: reached start position (pan=%d)", current_pan)
                 return
 
-            # Move toward target
-            tilt_val = 1 if diff > 0 else -1
+            # Pan toward target
+            pan_val = 1 if diff > 0 else -1
             self._ctrl.ptz_move(
-                self._camera_id, pan=0, tilt=tilt_val, speed=self._tilt_speed
+                self._camera_id, pan=pan_val, tilt=0, speed=40
             )
-            time.sleep(0.5)
-            self._ctrl.ptz_stop(self._camera_id)
-            time.sleep(0.3)
+            time.sleep(self._poll_interval)
 
-        log.warning("Sweep: tilt positioning timed out after %d attempts", max_attempts)
-
-    def _advance_tilt_row(self) -> None:
-        """Move to the next tilt row, reversing direction at the limits."""
-        next_row = self._tilt_row + self._tilt_direction
-
-        if next_row >= self._tilt_steps or next_row < 0:
-            # Reverse tilt direction
-            self._tilt_direction *= -1
-            next_row = self._tilt_row + self._tilt_direction
-
-        self._tilt_row = max(0, min(next_row, self._tilt_steps - 1))
-        log.debug("Sweep: advancing to tilt row %d (direction=%d)",
-                  self._tilt_row, self._tilt_direction)
+        self._ctrl.ptz_stop(self._camera_id)
+        log.warning("Sweep: start positioning timed out")
 
     def _in_dead_zone(self, pan: float) -> bool:
         """Check if the given pan angle falls within the dead zone.
