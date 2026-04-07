@@ -453,6 +453,46 @@ class GuardianService:
                         transport = cam_cfg.get("rtsp_transport") if cam_cfg else None
                         self._capture_manager.add_camera(cam.name, cam.rtsp_url, rtsp_transport=transport)
 
+                        # Connect camera hardware control if PTZ
+                        if cam_cfg and cam_cfg.get("type") == "ptz":
+                            self._camera_ctrl.connect_camera(
+                                camera_id=cam.name,
+                                ip=cam_cfg.get("ip", ""),
+                                username=cam_cfg.get("username", "admin"),
+                                password=cam_cfg.get("password", ""),
+                                port=cam_cfg.get("port", 80),
+                            )
+
+                # Start patrol if a PTZ camera is online but patrol isn't running
+                patrol_alive = (
+                    hasattr(self, '_patrol_thread')
+                    and self._patrol_thread is not None
+                    and self._patrol_thread.is_alive()
+                )
+                if not patrol_alive:
+                    ptz_cfg = self._config.get("ptz", {})
+                    if ptz_cfg.get("patrol_enabled", False):
+                        first_ptz = next(
+                            (c for c in online
+                             if self._get_camera_config(c.name)
+                             and self._get_camera_config(c.name).get("type") == "ptz"),
+                            None
+                        )
+                        if first_ptz:
+                            patrol_mode = ptz_cfg.get("patrol_mode", "sweep")
+                            if patrol_mode == "sweep":
+                                self._sweep_patrol = SweepPatrol(
+                                    self._camera_ctrl, first_ptz.name, self._config
+                                )
+                                self._patrol_thread = threading.Thread(
+                                    target=self._sweep_patrol.run,
+                                    args=(self._shutdown_event,),
+                                    kwargs={"pause_event": self._patrol_pause_event},
+                                    name="patrol-sweep", daemon=True,
+                                )
+                                self._patrol_thread.start()
+                                log.info("Sweep patrol started for '%s' (via rescan)", first_ptz.name)
+
             except Exception as exc:
                 log.error("Camera re-scan failed: %s", exc)
 

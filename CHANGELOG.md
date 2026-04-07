@@ -2,6 +2,18 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.3.3] - 2026-04-07
+
+### Fixed — Dual camera feeds, patrol starts on rescan (Claude Opus 4.6)
+
+- **`static/index.html`** — Dashboard now shows both house-yard (large) and nesting-box (below) camera feeds instead of only house-yard.
+
+- **`static/app.js`** — `renderDashboardFeed()` updated to drive both feed panels from the cameras API response.
+
+- **`guardian.py`** — Rescan loop now starts sweep patrol and connects PTZ hardware when a PTZ camera comes online after initial startup. Previously, if the Reolink missed the initial scan, patrol never started.
+
+**Why:** Dashboard was hardcoded to one camera feed. Patrol only started during initial boot — if the Reolink was slow to respond on first scan, patrol never kicked in and had to wait for a full Guardian restart.
+
 ## [2.3.2] - 2026-04-07
 
 ### Fixed — Lazy YOLO import unblocks Guardian startup (Claude Opus 4.6)

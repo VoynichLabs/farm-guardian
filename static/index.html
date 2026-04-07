@@ -88,8 +88,8 @@
         .nav-btn.active { background: #334155; color: #f8fafc; }
         /* Layout containers for dashboard */
         #dashboard-main-area { display: flex; gap: 6px; flex: 1; min-height: 0; }
-        #cam-panel { flex: 0 0 63%; min-height: 0; display: flex; flex-direction: column; }
-        #ptz-panel { flex: 0 0 37%; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; }
+        #cam-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 4px; }
+        #ptz-panel { flex: 0 0 200px; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; }
         #det-panel { flex-shrink: 0; }
         /* Hide scrollbar but still scroll */
         #ptz-panel::-webkit-scrollbar { width: 4px; }
@@ -171,16 +171,31 @@
 
                     <!-- Main area: camera feed + PTZ panel -->
                     <div id="dashboard-main-area">
-                        <!-- Camera Feed Panel -->
-                        <div id="cam-panel" style="background:#0a0f1e; border:1px solid #334155; border-radius:4px; overflow:hidden; position:relative;">
-                            <img id="main-feed-img" src="/api/cameras/house-yard/stream"
-                                 class="camera-feed"
-                                 alt="house-yard"
-                                 onerror="handleFeedError(this)">
-                            <div id="main-feed-placeholder" class="camera-placeholder" style="display:none;">No feed</div>
-                            <div id="feed-overlay" style="position:absolute; top:4px; right:4px; background:rgba(0,0,0,0.65); border-radius:3px; padding:2px 6px; font-size:0.65rem; display:flex; align-items:center; gap:4px;">
-                                <span id="feed-status-dot" style="width:6px; height:6px; border-radius:50%; background:#22c55e; display:inline-block;"></span>
-                                <span id="feed-cam-label">house-yard</span>
+                        <!-- Camera Feeds Panel -->
+                        <div id="cam-panel">
+                            <!-- Primary feed: house-yard -->
+                            <div style="flex:1; min-height:0; background:#0a0f1e; border:1px solid #334155; border-radius:4px; overflow:hidden; position:relative;">
+                                <img id="main-feed-img" src="/api/cameras/house-yard/stream"
+                                     class="camera-feed"
+                                     alt="house-yard"
+                                     onerror="handleFeedError(this)">
+                                <div id="main-feed-placeholder" class="camera-placeholder" style="display:none;">No feed</div>
+                                <div id="feed-overlay" style="position:absolute; top:4px; right:4px; background:rgba(0,0,0,0.65); border-radius:3px; padding:2px 6px; font-size:0.65rem; display:flex; align-items:center; gap:4px;">
+                                    <span id="feed-status-dot" style="width:6px; height:6px; border-radius:50%; background:#22c55e; display:inline-block;"></span>
+                                    <span id="feed-cam-label">house-yard</span>
+                                </div>
+                            </div>
+                            <!-- Secondary feed: nesting-box -->
+                            <div style="flex:0 0 30%; min-height:0; background:#0a0f1e; border:1px solid #334155; border-radius:4px; overflow:hidden; position:relative;">
+                                <img id="nest-feed-img" src="/api/cameras/nesting-box/stream"
+                                     class="camera-feed"
+                                     alt="nesting-box"
+                                     onerror="this.style.display='none'; document.getElementById('nest-feed-placeholder').style.display='flex';">
+                                <div id="nest-feed-placeholder" class="camera-placeholder" style="display:none;">Nesting box offline</div>
+                                <div style="position:absolute; top:4px; right:4px; background:rgba(0,0,0,0.65); border-radius:3px; padding:2px 6px; font-size:0.65rem; display:flex; align-items:center; gap:4px;">
+                                    <span id="nest-status-dot" style="width:6px; height:6px; border-radius:50%; background:#22c55e; display:inline-block;"></span>
+                                    <span>nesting-box</span>
+                                </div>
                             </div>
                         </div>
 

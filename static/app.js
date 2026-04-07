@@ -134,31 +134,38 @@ async function loadDashboard() {
 }
 
 function renderDashboardFeed(cameras) {
-    const img = document.getElementById('main-feed-img');
-    const placeholder = document.getElementById('main-feed-placeholder');
-    const feedDot = document.getElementById('feed-status-dot');
+    if (!cameras || !cameras.length) return;
 
-    if (!cameras || !cameras.length) {
-        if (img) img.style.display = 'none';
-        if (placeholder) placeholder.style.display = 'flex';
-        if (feedDot) feedDot.style.background = '#ef4444';
-        return;
-    }
+    // Update each camera feed by matching config name to DOM elements
+    const feedMap = [
+        { name: DASH_CAM, img: 'main-feed-img', placeholder: 'main-feed-placeholder', dot: 'feed-status-dot' },
+        { name: 'nesting-box', img: 'nest-feed-img', placeholder: 'nest-feed-placeholder', dot: 'nest-status-dot' },
+    ];
 
-    // Find the primary camera (house-yard), else first
-    const cam = cameras.find(c => c.name === DASH_CAM) || cameras[0];
-    if (!cam) return;
+    for (const f of feedMap) {
+        const cam = cameras.find(c => c.name === f.name);
+        const img = document.getElementById(f.img);
+        const placeholder = document.getElementById(f.placeholder);
+        const dot = document.getElementById(f.dot);
 
-    if (feedDot) feedDot.style.background = cam.online ? '#22c55e' : '#ef4444';
+        if (!cam) {
+            if (img) img.style.display = 'none';
+            if (placeholder) { placeholder.style.display = 'flex'; placeholder.textContent = `${f.name} not found`; }
+            if (dot) dot.style.background = '#ef4444';
+            continue;
+        }
 
-    if (cam.capturing && cam.online) {
-        if (img) { img.style.display = 'block'; img.src = `/api/cameras/${cam.name}/stream`; }
-        if (placeholder) placeholder.style.display = 'none';
-    } else {
-        if (img) img.style.display = 'none';
-        if (placeholder) {
-            placeholder.style.display = 'flex';
-            placeholder.textContent = cam.online ? 'Not capturing' : `${cam.name} offline`;
+        if (dot) dot.style.background = cam.online ? '#22c55e' : '#ef4444';
+
+        if (cam.capturing && cam.online) {
+            if (img) { img.style.display = 'block'; img.src = `/api/cameras/${cam.name}/stream`; }
+            if (placeholder) placeholder.style.display = 'none';
+        } else {
+            if (img) img.style.display = 'none';
+            if (placeholder) {
+                placeholder.style.display = 'flex';
+                placeholder.textContent = cam.online ? 'Not capturing' : `${cam.name} offline`;
+            }
         }
     }
 }
