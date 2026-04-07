@@ -427,8 +427,15 @@ class GuardianDB:
                 self._conn.commit()
 
     def delete_track(self, track_id: int) -> None:
-        """Remove a ghost track (single-frame false positive) from the database."""
+        """Remove a ghost track (single-frame false positive) from the database.
+
+        Detections, alerts, and deterrent_actions may reference this track via
+        foreign key, so null out those references before deleting the track row.
+        """
         with self._lock:
+            self._conn.execute("UPDATE detections SET track_id = NULL WHERE track_id = ?", (track_id,))
+            self._conn.execute("UPDATE alerts SET track_id = NULL WHERE track_id = ?", (track_id,))
+            self._conn.execute("UPDATE deterrent_actions SET track_id = NULL WHERE track_id = ?", (track_id,))
             self._conn.execute("DELETE FROM tracks WHERE id = ?", (track_id,))
             self._conn.commit()
 
