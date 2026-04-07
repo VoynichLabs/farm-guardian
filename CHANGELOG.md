@@ -2,6 +2,28 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.3.1] - 2026-04-07
+
+### Fixed — Dashboard starts before camera discovery (Claude Opus 4.6)
+
+- **`guardian.py`** — Moved `start_dashboard()` call to before camera discovery. ONVIF discovery can hang for 30+ seconds when the Reolink is slow to respond over WiFi, which blocked the entire API and stream endpoints from coming up. Dashboard now starts immediately after signal handlers, so the API is available while cameras connect in the background.
+
+**Why:** Guardian appeared dead on the website because the dashboard/API wouldn't start until after ONVIF discovery completed (or timed out). With two cameras — one ONVIF, one manual RTSP — the discovery phase got even slower.
+
+## [2.3.0] - 2026-04-06
+
+### Fixed — Per-Camera RTSP Transport (Claude Opus 4.6)
+
+- **`guardian.py`** — Removed global `rtsp_transport;tcp` from `OPENCV_FFMPEG_CAPTURE_OPTIONS`. Transport is now set per-camera in `capture.py` before each `VideoCapture()` call.
+
+- **`capture.py`** — `CameraCapture` accepts `rtsp_transport` param (`"tcp"`, `"udp"`, or `None` for auto). Uses a module-level thread lock to safely swap the env var before creating each `VideoCapture`, preventing concurrent capture threads from clobbering each other's transport setting.
+
+- **`dashboard.py`** — Rescan and start-capture endpoints now pass per-camera transport through to the capture manager.
+
+- **`config.json` / `config.example.json`** — Added `rtsp_transport` field to each camera entry: `"tcp"` for Reolink (HEVC/WiFi needs TCP), `"udp"` for S7 (RTSP Camera Server only supports UDP).
+
+**Why:** The Reolink needs TCP (HEVC over WiFi/UDP drops packets) but the S7's RTSP Camera Server only supports UDP. The old global TCP forced both cameras to use the same transport, blocking the S7 from connecting. Both cameras now connect simultaneously with their correct transport.
+
 ## [2.2.0] - 2026-04-06
 
 ### Added — Continuous Sweep Patrol (Claude Opus 4.6)
@@ -23,12 +45,6 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 - **`config.json`** — Added `nesting-box` camera entry pointing to Samsung Galaxy S7 running RTSP Camera Server (com.miv.rtspcamera) at `rtsp://192.168.0.249:5554/camera`.
 
 **Why:** Repurposed a Samsung Galaxy S7 (SM-G930F, Android 8.0.0) as a dedicated nesting box camera for incubator chick monitoring. Phone was factory-reset, Samsung bloatware disabled, configured for always-on kiosk mode (max brightness, stay awake on power, no screen timeout).
-
-### Known Issue — RTSP Transport Mismatch
-
-- Guardian's `OPENCV_FFMPEG_CAPTURE_OPTIONS` globally forces `rtsp_transport;tcp` (needed for the Reolink PTZ camera — HEVC over WiFi/UDP drops packets). The S7's RTSP Camera Server only supports UDP transport. OpenCV reads this env var once at FFMPEG backend init, so it can't be set per-camera.
-- **Workaround confirmed:** Removing the global TCP override and letting FFMPEG auto-negotiate works for the S7 (30/30 frames at 9.6 fps over UDP). Needs testing with the Reolink to confirm auto-negotiation still picks TCP for that camera, or a per-camera transport config option needs to be added.
-- **Blocked:** Guardian has not been restarted with the S7 camera yet pending this transport fix.
 
 ## [2.1.1] - 2026-04-05
 

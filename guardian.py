@@ -1,5 +1,5 @@
 # Author: Claude Opus 4.6 (updated), Cascade (Claude Sonnet 4) (original)
-# Date: 06-April-2026
+# Date: 07-April-2026 (dashboard-before-discovery fix)
 # PURPOSE: Main service entry point for Farm Guardian v2 (Phases 1-4). Orchestrates camera
 #          discovery, frame capture, YOLO animal detection, GLM vision refinement, animal
 #          visit tracking, automated deterrence (spotlight/siren/audio), PTZ patrol with
@@ -10,11 +10,11 @@
 # SRP/DRY check: Pass — single responsibility is service lifecycle and module coordination.
 
 import os
-# MUST be set before any cv2 import anywhere in the process — forces RTSP over
-# TCP (eliminates HEVC/WiFi/UDP packet drops) and sets a 5-second stream timeout
-# (prevents 30-second hangs on stream loss). OpenCV reads this env var once when
-# the FFMPEG backend initializes.
-os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp|stimeout;5000000"
+# MUST be set before any cv2 import anywhere in the process — sets a 5-second
+# stream timeout (prevents 30-second hangs on stream loss). Per-camera RTSP
+# transport (TCP/UDP) is set in capture.py before each VideoCapture() call,
+# because the Reolink needs TCP and the S7 needs UDP.
+os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "stimeout;5000000"
 
 import argparse
 import json
@@ -131,6 +131,17 @@ class GuardianService:
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
 
+        # Start web dashboard + API FIRST — so the API is available during
+        # camera discovery, which can hang on ONVIF/RTSP timeouts
+        dashboard_cfg = self._config.get("dashboard", {})
+        if dashboard_cfg.get("enabled", True):
+            self._dashboard_thread = start_dashboard(
+                self, self._config, config_path=self._config_path,
+                db=self._db, reports=self._reports,
+            )
+            port = dashboard_cfg.get("port", 6530)
+            log.info("Dashboard + API available at http://localhost:%d", port)
+
         # Initial camera scan
         cameras = self._discovery.scan()
         online_cameras = self._discovery.get_online_cameras()
@@ -156,7 +167,8 @@ class GuardianService:
                 )
 
                 if cam.rtsp_url:
-                    self._capture_manager.add_camera(cam.name, cam.rtsp_url)
+                    transport = cam_cfg.get("rtsp_transport") if cam_cfg else None
+                    self._capture_manager.add_camera(cam.name, cam.rtsp_url, rtsp_transport=transport)
                 else:
                     log.warning(
                         "Camera '%s' online but no RTSP URL resolved — skipping capture", cam.name
@@ -241,16 +253,6 @@ class GuardianService:
             name="ebird", daemon=True,
         )
         self._ebird_thread.start()
-
-        # Start web dashboard + API
-        dashboard_cfg = self._config.get("dashboard", {})
-        if dashboard_cfg.get("enabled", True):
-            self._dashboard_thread = start_dashboard(
-                self, self._config, config_path=self._config_path,
-                db=self._db, reports=self._reports,
-            )
-            port = dashboard_cfg.get("port", 6530)
-            log.info("Dashboard + API available at http://localhost:%d", port)
 
         active = self._capture_manager.active_cameras
         log.info(
@@ -430,7 +432,9 @@ class GuardianService:
                 for cam in online:
                     if cam.name not in active and cam.rtsp_url:
                         log.info("New/reconnected camera '%s' — starting capture", cam.name)
-                        self._capture_manager.add_camera(cam.name, cam.rtsp_url)
+                        cam_cfg = self._get_camera_config(cam.name)
+                        transport = cam_cfg.get("rtsp_transport") if cam_cfg else None
+                        self._capture_manager.add_camera(cam.name, cam.rtsp_url, rtsp_transport=transport)
 
             except Exception as exc:
                 log.error("Camera re-scan failed: %s", exc)

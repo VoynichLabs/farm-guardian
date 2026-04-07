@@ -201,7 +201,9 @@ def create_app() -> FastAPI:
         started = []
         for cam in online:
             if cam.name not in active and cam.rtsp_url:
-                _service._capture_manager.add_camera(cam.name, cam.rtsp_url)
+                cam_cfg = _service._get_camera_config(cam.name)
+                transport = cam_cfg.get("rtsp_transport") if cam_cfg else None
+                _service._capture_manager.add_camera(cam.name, cam.rtsp_url, rtsp_transport=transport)
                 started.append(cam.name)
         return {
             "ok": True,
@@ -219,7 +221,9 @@ def create_app() -> FastAPI:
             raise HTTPException(404, f"Camera '{name}' not found")
         if not cam.rtsp_url:
             raise HTTPException(400, f"No RTSP URL for '{name}'")
-        _service._capture_manager.add_camera(name, cam.rtsp_url)
+        cam_cfg = _service._get_camera_config(name)
+        transport = cam_cfg.get("rtsp_transport") if cam_cfg else None
+        _service._capture_manager.add_camera(name, cam.rtsp_url, rtsp_transport=transport)
         return {"ok": True, "message": f"Capture started for '{name}'"}
 
     @app.post("/api/cameras/{name}/capture/stop")

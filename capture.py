@@ -1,5 +1,5 @@
 # Author: Claude Opus 4.6
-# Date: 04-April-2026
+# Date: 06-April-2026
 # PURPOSE: RTSP frame capture for Farm Guardian. Connects to camera RTSP streams via
 #          OpenCV, grabs frames at a configurable interval (default 1 fps), and downscales
 #          4K frames to 1080p before passing them to detection. Maintains a small ring buffer
@@ -8,6 +8,7 @@
 # SRP/DRY check: Pass — single responsibility is frame acquisition from RTSP streams.
 
 import logging
+import os
 import threading
 import time
 from collections import deque
@@ -26,6 +27,11 @@ _TARGET_WIDTH = 1920
 _BACKOFF_BASE = 2.0
 _BACKOFF_MAX = 60.0
 _BACKOFF_MULTIPLIER = 2.0
+
+# Lock protecting OPENCV_FFMPEG_CAPTURE_OPTIONS env var during VideoCapture creation.
+# Each camera may need a different rtsp_transport (tcp vs udp), but the env var is
+# process-global. We hold this lock while setting the var and calling VideoCapture().
+_env_lock = threading.Lock()
 
 
 @dataclass
@@ -48,11 +54,13 @@ class CameraCapture:
         frame_interval: float = 1.0,
         buffer_size: int = 10,
         on_frame: Optional[Callable[[FrameResult], None]] = None,
+        rtsp_transport: Optional[str] = None,
     ):
         self._camera_name = camera_name
         self._rtsp_url = rtsp_url
         self._frame_interval = frame_interval
         self._on_frame = on_frame
+        self._rtsp_transport = rtsp_transport  # "tcp", "udp", or None (auto)
 
         self._buffer: deque[FrameResult] = deque(maxlen=buffer_size)
         self._cap: Optional[cv2.VideoCapture] = None
@@ -183,9 +191,18 @@ class CameraCapture:
         log.debug("Connecting to RTSP stream for '%s'", self._camera_name)
 
         try:
-            # TCP transport set via OPENCV_FFMPEG_CAPTURE_OPTIONS env var
-            # at top of guardian.py (before any cv2 import).
-            cap = cv2.VideoCapture(self._rtsp_url, cv2.CAP_FFMPEG)
+            # Set per-camera RTSP transport before creating VideoCapture.
+            # The env var is process-global, so we hold a lock to prevent
+            # concurrent capture threads from clobbering each other's transport.
+            with _env_lock:
+                env_key = "OPENCV_FFMPEG_CAPTURE_OPTIONS"
+                saved = os.environ.get(env_key, "")
+                if self._rtsp_transport:
+                    os.environ[env_key] = f"rtsp_transport;{self._rtsp_transport}|stimeout;5000000"
+                # else: leave the default stimeout-only value set by guardian.py
+                cap = cv2.VideoCapture(self._rtsp_url, cv2.CAP_FFMPEG)
+                os.environ[env_key] = saved
+
             if not cap.isOpened():
                 cap.release()
                 return False
@@ -197,7 +214,8 @@ class CameraCapture:
             cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 5000)
             cap.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, 5000)
             self._cap = cap
-            log.info("Connected to RTSP stream for '%s'", self._camera_name)
+            transport_label = self._rtsp_transport or "auto"
+            log.info("Connected to RTSP stream for '%s' (transport=%s)", self._camera_name, transport_label)
             return True
 
         except Exception as exc:
@@ -243,7 +261,7 @@ class FrameCaptureManager:
         self._on_frame = on_frame
         self._captures: dict[str, CameraCapture] = {}
 
-    def add_camera(self, camera_name: str, rtsp_url: str) -> None:
+    def add_camera(self, camera_name: str, rtsp_url: str, rtsp_transport: Optional[str] = None) -> None:
         """Register and start capturing from a camera."""
         if camera_name in self._captures:
             log.warning("Camera '%s' already registered — skipping", camera_name)
@@ -254,6 +272,7 @@ class FrameCaptureManager:
             rtsp_url=rtsp_url,
             frame_interval=self._frame_interval,
             on_frame=self._on_frame,
+            rtsp_transport=rtsp_transport,
         )
         self._captures[camera_name] = cap
         cap.start()

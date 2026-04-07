@@ -7,7 +7,19 @@
       "username": "admin",
       "password": "your_camera_password",
       "onvif_port": 8000,
-      "type": "ptz"
+      "type": "ptz",
+      "rtsp_transport": "tcp"
+    },
+    {
+      "name": "nesting-box",
+      "ip": "192.168.0.YYY",
+      "port": 5554,
+      "username": "",
+      "password": "",
+      "onvif_port": 0,
+      "type": "fixed",
+      "rtsp_transport": "udp",
+      "rtsp_url_override": "rtsp://192.168.0.YYY:5554/camera"
     }
   ],
   "discovery": {

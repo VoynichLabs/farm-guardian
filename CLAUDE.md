@@ -93,21 +93,12 @@ python guardian.py --debug
 
 No test suite yet. This is a v2 production system (Phases 1-4 complete).
 
-## Immediate TODO (as of 06-Apr-2026)
+## Recent Changes (06-Apr-2026)
 
-**RTSP transport fix — BLOCKING Guardian restart with S7 camera:**
+**Per-camera RTSP transport (v2.3.0):** Resolved the TCP/UDP transport mismatch. Each camera now has an `rtsp_transport` field in config (`"tcp"` for Reolink, `"udp"` for S7). `capture.py` sets the transport env var per-camera with a thread lock before each `VideoCapture()` call. Both cameras should now connect simultaneously.
 
-`guardian.py` line 17 sets `OPENCV_FFMPEG_CAPTURE_OPTIONS = "rtsp_transport;tcp|stimeout;5000000"` globally before any cv2 import. This forces TCP for ALL cameras. Problem: the Reolink needs TCP (UDP drops HEVC packets over WiFi), but the S7's RTSP Camera Server only supports UDP. OpenCV reads this env var once at FFMPEG backend init — can't change per-camera.
-
-**Confirmed working:** `rtsp_transport;udp` with S7 gives 30/30 frames at 9.6 fps. TCP gives "Nonmatching transport in server reply" error.
-
-**Options:**
-- **Option A (try first):** Remove global `rtsp_transport;tcp`, keep only `stimeout;5000000`. Let FFMPEG auto-negotiate transport per-camera. Test that Reolink still connects reliably.
-- **Option B (if A fails):** Add `rtsp_transport` field to per-camera config. Swap the env var before each `cv2.VideoCapture()` call in `capture.py`. More complex but guarantees correct transport per camera.
-
-**After transport fix:**
-- Restart Guardian — both cameras should come online
-- Front camera mirror mode for hatched chick — switch RTSP Camera Server to front camera on the S7 screen so the chick can see herself (enrichment). This is just an app toggle, separate from Guardian's rear camera monitoring.
+**TODO:**
+- Front camera mirror mode for hatched chick — switch RTSP Camera Server to front camera on the S7 screen so the chick can see herself (enrichment). This is just an app toggle on the phone, separate from Guardian's rear camera monitoring.
 
 ## Architecture
 
@@ -120,6 +111,7 @@ Read `docs/02-Apr-2026-v2-system-plan.md` for the full v2 architecture document 
 - `docs/04-Apr-2026-full-cleanup-plan.md` — Stabilization & cleanup
 - `docs/06-Apr-2026-sweep-patrol-plan.md` — Continuous sweep patrol design
 - `docs/06-Apr-2026-s7-nesting-box-camera-setup.md` — S7 phone camera setup plan & findings
+- `docs/06-Apr-2026-per-camera-rtsp-transport-plan.md` — Per-camera RTSP transport fix (TCP/UDP)
 
 **Entry point:** `guardian.py` — orchestrates all modules, runs as a foreground process.
 
@@ -149,7 +141,7 @@ Read `docs/02-Apr-2026-v2-system-plan.md` for the full v2 architecture document 
 - `reports.py` — Daily intelligence reports. Species breakdown, deterrent stats, hourly heatmaps, 7-day trends. Exports JSON + Markdown.
 - `api.py` — REST API at `/api/v1/` for LLM tool queries. 14 endpoints for detections, patterns, camera control.
 
-**Config:** `config.json` (copied from `config.example.json`). Contains camera IPs, Discord webhook, detection thresholds, deterrent rules, PTZ presets, eBird API key, report settings.
+**Config:** `config.json` (copied from `config.example.json`). Contains camera IPs, per-camera RTSP transport (`"tcp"`/`"udp"`), Discord webhook, detection thresholds, deterrent rules, PTZ presets, eBird API key, report settings.
 
 ## Environment
 
