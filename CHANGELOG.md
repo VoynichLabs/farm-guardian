@@ -2,6 +2,16 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.3.2] - 2026-04-07
+
+### Fixed — Lazy YOLO import unblocks Guardian startup (Claude Opus 4.6)
+
+- **`detect.py`** — Moved `from ultralytics import YOLO` from module-level to inside `_load_model()`. The module-level import pulled in PyTorch (~60s on cold start) at import time, before `main()` or `start()` ever ran — making the v2.3.1 dashboard-before-discovery fix dead on arrival.
+
+- **`guardian.py`** — Deferred `AnimalDetector` creation from `__init__()` to `start()`, after the dashboard is already serving. Added null guard in `_on_frame()` for the edge case where a dashboard API call starts capture before the detector finishes loading.
+
+**Why:** The v2.3.1 fix moved `start_dashboard()` before camera discovery in `start()`, but `from detect import AnimalDetector` at the top of `guardian.py` triggered the full PyTorch import chain at module load — 60+ seconds before `start()` was ever called. Dashboard, API, and streams were all blocked. Now the dashboard comes up immediately, YOLO loads after, then cameras connect.
+
 ## [2.3.1] - 2026-04-07
 
 ### Fixed — Dashboard starts before camera discovery (Claude Opus 4.6)

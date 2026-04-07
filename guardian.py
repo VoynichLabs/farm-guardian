@@ -1,5 +1,5 @@
 # Author: Claude Opus 4.6 (updated), Cascade (Claude Sonnet 4) (original)
-# Date: 07-April-2026 (dashboard-before-discovery fix)
+# Date: 07-April-2026 (lazy YOLO import, deferred detector init)
 # PURPOSE: Main service entry point for Farm Guardian v2 (Phases 1-4). Orchestrates camera
 #          discovery, frame capture, YOLO animal detection, GLM vision refinement, animal
 #          visit tracking, automated deterrence (spotlight/siren/audio), PTZ patrol with
@@ -79,7 +79,7 @@ class GuardianService:
 
         # Phase 1: Core pipeline
         self._discovery = CameraDiscovery(config)
-        self._detector = AnimalDetector(config)
+        self._detector = None  # Deferred to start() — YOLO import is slow (~60s PyTorch load)
         self._alert_manager = AlertManager(config)
         self._event_logger = EventLogger(config, db=self._db)
 
@@ -132,7 +132,7 @@ class GuardianService:
         signal.signal(signal.SIGTERM, self._signal_handler)
 
         # Start web dashboard + API FIRST — so the API is available during
-        # camera discovery, which can hang on ONVIF/RTSP timeouts
+        # YOLO model loading and camera discovery (both can take 30-60s)
         dashboard_cfg = self._config.get("dashboard", {})
         if dashboard_cfg.get("enabled", True):
             self._dashboard_thread = start_dashboard(
@@ -141,6 +141,11 @@ class GuardianService:
             )
             port = dashboard_cfg.get("port", 6530)
             log.info("Dashboard + API available at http://localhost:%d", port)
+
+        # Load YOLO detector AFTER dashboard — the ultralytics import pulls in
+        # PyTorch (~60s on cold start). Dashboard is already serving while this loads.
+        log.info("Loading YOLO detector (this may take a minute on first run)...")
+        self._detector = AnimalDetector(self._config)
 
         # Initial camera scan
         cameras = self._discovery.scan()
@@ -311,6 +316,9 @@ class GuardianService:
         logs events, and sends alerts if predators are found. This runs on the
         capture thread — keep it fast.
         """
+        if self._detector is None:
+            return  # Detector still loading — skip frame
+
         try:
             result = self._detector.detect(frame_result.frame, frame_result.camera_name)
             self._frames_processed += 1

@@ -1,5 +1,5 @@
-# Author: Cascade (Claude Sonnet 4)
-# Date: 01-April-2026
+# Author: Claude Opus 4.6 (updated), Cascade (Claude Sonnet 4) (original)
+# Date: 07-April-2026
 # PURPOSE: YOLOv8 animal detection for Farm Guardian. Loads a YOLOv8 model (nano by default)
 #          and runs inference on frames captured from RTSP streams. Implements the v1
 #          false-positive suppression strategy from PLAN.md:
@@ -19,7 +19,6 @@ from typing import Optional
 
 import cv2
 import numpy as np
-from ultralytics import YOLO
 
 log = logging.getLogger("guardian.detect")
 
@@ -96,8 +95,13 @@ class AnimalDetector:
             self._min_dwell_frames,
         )
 
-    def _load_model(self, model_path: str) -> YOLO:
+    def _load_model(self, model_path: str):
         """Load YOLOv8 model. Downloads if not present. Uses MPS on Apple Silicon."""
+        # Lazy import — ultralytics pulls in PyTorch (~60s on cold start).
+        # By importing here instead of at module level, guardian.py can start
+        # the dashboard and other modules before this heavy load happens.
+        from ultralytics import YOLO
+
         log.info("Loading YOLO model: %s", model_path)
         model = YOLO(model_path)
 
