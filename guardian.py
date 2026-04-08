@@ -1,5 +1,5 @@
 # Author: Claude Opus 4.6 (updated), Cascade (Claude Sonnet 4) (original)
-# Date: 07-April-2026 (lazy YOLO import, deferred detector init)
+# Date: 08-April-2026 (fix basicConfig double-call, debug logging broken)
 # PURPOSE: Main service entry point for Farm Guardian v2 (Phases 1-4). Orchestrates camera
 #          discovery, frame capture, YOLO animal detection, GLM vision refinement, animal
 #          visit tracking, automated deterrence (spotlight/siren/audio), PTZ patrol with
@@ -602,6 +602,8 @@ def setup_logging(config: dict, debug: bool = False) -> None:
         format=log_format,
         datefmt=date_format,
         handlers=handlers,
+        force=True,  # Replace bootstrap handler from main() — without this,
+                     # basicConfig is a no-op and DEBUG/file logging never activates
     )
 
     # Suppress noisy third-party loggers
@@ -627,10 +629,14 @@ def main() -> None:
 
     # Load .env file (secrets), then config
     load_dotenv()
+    # Temporary bootstrap logger for config loading messages only.
+    # setup_logging() replaces this with the real config-driven setup using
+    # force=True so basicConfig doesn't silently no-op.
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     config = load_config(args.config)
 
-    # Now set up full logging from config
+    # Replace the bootstrap logger with full config-driven logging (file + console).
+    # force=True is required because basicConfig above already set a handler.
     setup_logging(config, debug=args.debug)
 
     log.info("Config loaded from %s", args.config)

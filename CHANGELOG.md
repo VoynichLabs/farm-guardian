@@ -2,6 +2,14 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.5.1] - 2026-04-08
+
+### Fixed — Debug logging and file logging were silently broken (Claude Opus 4.6)
+
+- **`guardian.py`** — `logging.basicConfig()` was called twice without `force=True`. The second call (which sets debug level and adds the file handler) was silently ignored by Python's logging module, so `--debug` never actually enabled DEBUG output and `guardian.log` was never written to after the first session. Added `force=True` to replace the bootstrap handler.
+
+**Why:** Zero DEBUG messages were reaching logs, making it impossible to monitor patrol position data. The `guardian.log` file was stale from the first-ever session.
+
 ## [2.5.0] - 2026-04-08
 
 ### Fixed — Camera autofocus, PTZ guard disable, patrol cleanup (Claude Opus 4.6)
