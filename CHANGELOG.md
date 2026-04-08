@@ -2,6 +2,16 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.6.0] - 2026-04-08
+
+### Changed — Step-and-dwell patrol replaces continuous sweep (Claude Opus 4.6)
+
+- **`patrol.py`** — Complete rewrite of patrol behavior. Instead of continuously panning at ~70°/s (which produced motion-blurred garbage frames), the camera now steps through 11 evenly-spaced positions (every 30°), stopping at each for 8 seconds of clean, stationary frame capture. Moves between positions at speed 8 with 0.3s position polling for precise placement. 3-second settle + autofocus at each stop. Dead zone positions (mounting post) are automatically skipped. Full patrol cycle takes ~2 minutes instead of 5 seconds.
+
+- **`config.example.json`** — New `ptz.sweep` settings: `step_degrees`, `dwell_seconds`, `move_speed`, `settle_seconds`. Removed obsolete continuous sweep settings (`pan_speed`, `tilt_speed`, `tilt_burst_seconds`, `stall_threshold`, `start_pan`, `dead_zone_skip_speed`, `dwell_at_edge`).
+
+**Why:** The continuous sweep moved so fast that every captured frame was motion-blurred. YOLO detection was running on useless images. The camera needs to be stationary to produce frames worth analyzing.
+
 ## [2.5.1] - 2026-04-08
 
 ### Fixed — Debug logging and file logging were silently broken (Claude Opus 4.6)

@@ -109,17 +109,13 @@
       { "name": "driveway",      "pan": 300, "tilt": 25, "zoom": 1.0, "dwell": 20, "patrol": true }
     ],
     "sweep": {
-      "pan_speed": 15,
-      "tilt_speed": 10,
-      "tilt_burst_seconds": 1.5,
-      "position_poll_interval": 1.0,
-      "stall_threshold": 3,
-      "start_pan": 3620,
+      "step_degrees": 30,
+      "dwell_seconds": 8,
+      "move_speed": 8,
+      "settle_seconds": 3,
       "dead_zone_pan": [6800, 440],
-      "dead_zone_skip_speed": 60,
-      "dwell_at_edge": 2.0,
-      "positioning_tolerance": 200,
-      "positioning_speed": 40
+      "positioning_tolerance": 300,
+      "position_poll_interval": 0.3
     }
   },
   "ebird": {
