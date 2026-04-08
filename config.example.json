@@ -96,6 +96,7 @@
   },
   "ptz": {
     "patrol_enabled": false,
+    "patrol_mode": "sweep",
     "patrol_interval_seconds": 45,
     "detection_zoom_level": 2.0,
     "track_timeout_seconds": 60,
@@ -106,7 +107,20 @@
       { "name": "fence-line",    "pan": 120, "tilt": 20, "zoom": 1.0, "dwell": 30, "patrol": true },
       { "name": "sky-watch",     "pan": 180, "tilt": 10, "zoom": 1.0, "dwell": 20, "patrol": true },
       { "name": "driveway",      "pan": 300, "tilt": 25, "zoom": 1.0, "dwell": 20, "patrol": true }
-    ]
+    ],
+    "sweep": {
+      "pan_speed": 15,
+      "tilt_speed": 10,
+      "tilt_burst_seconds": 1.5,
+      "position_poll_interval": 1.0,
+      "stall_threshold": 3,
+      "start_pan": 3620,
+      "dead_zone_pan": [6800, 440],
+      "dead_zone_skip_speed": 60,
+      "dwell_at_edge": 2.0,
+      "positioning_tolerance": 200,
+      "positioning_speed": 40
+    }
   },
   "ebird": {
     "enabled": false,

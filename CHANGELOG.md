@@ -2,6 +2,18 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.5.0] - 2026-04-08
+
+### Fixed — Camera autofocus, PTZ guard disable, patrol cleanup (Claude Opus 4.6)
+
+- **`camera_control.py`** — Added `ensure_autofocus()`, `trigger_autofocus()` to enable and force autofocus after zoom/movement changes. Added `is_guard_enabled()`, `disable_guard()`, `set_guard_position()` to control the Reolink PTZ guard (auto-return-to-home) feature. Removed dead `ptz_save_preset()` stub that logged a warning and did nothing.
+
+- **`patrol.py`** — On patrol startup, disables PTZ guard so the camera stops auto-returning to pan=0 (the mounting post) during gaps in PTZ commands. Triggers autofocus after setting zoom on startup and after resuming from deterrent pause. Added startup position diagnostic logging (pan in degrees, dead zone check). Removed dead `tilt_steps` config variable that was read but never used. Replaced magic numbers (tolerance=200, speed=40) with config-driven `positioning_tolerance` and `positioning_speed`. Added Reolink E1 coordinate system documentation in comments. Upgraded dead zone entry/exit logging from DEBUG to INFO for visibility.
+
+- **`config.example.json`** — Added full `ptz.sweep` block with all settings including new `positioning_tolerance` and `positioning_speed`. Added `patrol_mode` field.
+
+**Why:** The Reolink E1's PTZ guard feature was returning the camera to pan=0 (the mounting post) every time there was a gap in PTZ commands — during dwells, tilt bursts, and pauses. The camera was spending most of its time staring at a wooden post instead of surveilling the yard. Additionally, the camera never refocused after zoom changes, producing blurry frames that made detection useless.
+
 ## [2.4.1] - 2026-04-07
 
 ### Fixed — Sweep patrol calibrated for Reolink E1 Outdoor Pro (Claude Opus 4.6)

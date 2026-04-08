@@ -1,11 +1,11 @@
 # Author: Claude Opus 4.6
-# Date: 06-April-2026
-# PURPOSE: Reolink camera hardware control for Farm Guardian v2. Provides async
-#          PTZ (pan/tilt/zoom), spotlight, siren, audio alarm, and snapshot control
-#          via the reolink_aio library. Manages authentication with auto-refresh,
-#          PTZ preset save/recall, and patrol route cycling with pause/resume support
-#          for deterrent integration. Wraps the async reolink_aio API with synchronous
-#          methods for use from the detection pipeline threads.
+# Date: 08-April-2026
+# PURPOSE: Reolink camera hardware control for Farm Guardian v2. Provides sync
+#          wrappers around the async reolink_aio library for PTZ (pan/tilt/zoom),
+#          spotlight, siren, audio alarm, autofocus, PTZ guard (auto-return-to-home),
+#          and snapshot control. Manages authentication with auto-refresh, PTZ preset
+#          recall, and patrol route cycling with pause/resume support for deterrent
+#          integration. Runs an async event loop in a background thread.
 #          This module talks directly to the camera over the local network.
 # SRP/DRY check: Pass — single responsibility is camera hardware control.
 
@@ -249,18 +249,113 @@ class CameraController:
             log.error("PTZ goto preset failed for '%s': %s", camera_id, exc)
             return False
 
-    def ptz_save_preset(self, camera_id: str, preset_index: int, name: str = "") -> bool:
-        """Save current camera position as a preset."""
+    # ------------------------------------------------------------------
+    # Autofocus
+    # ------------------------------------------------------------------
+
+    def ensure_autofocus(self, camera_id: str) -> bool:
+        """Enable autofocus on the camera if not already enabled.
+
+        The Reolink E1 Outdoor Pro has a motorized lens with autofocus.
+        After zoom changes or significant PTZ movement, autofocus must be
+        enabled so the camera refocuses the lens for the new field of view.
+        Returns True on success.
+        """
+        host = self._get_host(camera_id)
+        if not host:
+            log.warning("ensure_autofocus: camera '%s' not connected", camera_id)
+            return False
+        ch = self._get_channel(camera_id)
+        try:
+            if not host.autofocus_enabled(ch):
+                self._run_async(host.set_autofocus(ch, True))
+                log.info("Autofocus enabled for '%s'", camera_id)
+            else:
+                log.debug("Autofocus already enabled for '%s'", camera_id)
+            return True
+        except Exception as exc:
+            log.error("Failed to enable autofocus for '%s': %s", camera_id, exc)
+            return False
+
+    def trigger_autofocus(self, camera_id: str) -> bool:
+        """Trigger a one-shot autofocus cycle.
+
+        Briefly disables then re-enables autofocus to force the camera to
+        recalculate focus for the current scene. Useful after zoom changes
+        or moving to a new PTZ position where the depth-of-field has changed.
+        """
         host = self._get_host(camera_id)
         if not host:
             return False
         ch = self._get_channel(camera_id)
         try:
-            # reolink_aio does not expose a SetPreset command — this is a no-op stub.
-            log.warning("ptz_save_preset not supported by reolink_aio for '%s'", camera_id)
-            return False
+            # Cycle autofocus off→on to force a fresh focus calculation
+            self._run_async(host.set_autofocus(ch, False))
+            self._run_async(host.set_autofocus(ch, True))
+            log.info("Autofocus triggered for '%s'", camera_id)
+            return True
         except Exception as exc:
-            log.error("PTZ save preset failed for '%s': %s", camera_id, exc)
+            # If the camera doesn't support AutoFocus commands, log and move on.
+            # Focus may still work via the camera's own internal auto-focus.
+            log.warning("Autofocus trigger failed for '%s': %s (may not be supported)", camera_id, exc)
+            return False
+
+    # ------------------------------------------------------------------
+    # PTZ Guard (auto-return-to-home prevention)
+    # ------------------------------------------------------------------
+
+    def is_guard_enabled(self, camera_id: str) -> bool:
+        """Check if PTZ guard (auto-return-to-home) is active.
+
+        When guard is enabled, the camera automatically returns to its saved
+        guard/home position after a period of PTZ inactivity. On the Reolink E1,
+        the default guard position is pan=0 — which may point at the mounting
+        post, making the camera useless when idle.
+        """
+        host = self._get_host(camera_id)
+        if not host:
+            return False
+        ch = self._get_channel(camera_id)
+        try:
+            return host.ptz_guard_enabled(ch)
+        except Exception:
+            return False
+
+    def disable_guard(self, camera_id: str) -> bool:
+        """Disable PTZ guard so the camera stays where patrol leaves it.
+
+        Without this, the Reolink returns to pan=0 (mounting post) after the
+        guard timeout expires during any gap in PTZ commands.
+        """
+        host = self._get_host(camera_id)
+        if not host:
+            log.warning("disable_guard: camera '%s' not connected", camera_id)
+            return False
+        ch = self._get_channel(camera_id)
+        try:
+            self._run_async(host.set_ptz_guard(ch, enable=False))
+            log.info("PTZ guard disabled for '%s' — camera will not auto-return to home", camera_id)
+            return True
+        except Exception as exc:
+            log.error("Failed to disable PTZ guard for '%s': %s", camera_id, exc)
+            return False
+
+    def set_guard_position(self, camera_id: str) -> bool:
+        """Save the camera's current position as the guard/home position.
+
+        If guard must stay enabled, at least make it return to a useful position
+        (e.g. pointing at the yard) instead of pan=0 (mounting post).
+        """
+        host = self._get_host(camera_id)
+        if not host:
+            return False
+        ch = self._get_channel(camera_id)
+        try:
+            self._run_async(host.set_ptz_guard(ch, command="setPos"))
+            log.info("Guard position saved to current position for '%s'", camera_id)
+            return True
+        except Exception as exc:
+            log.error("Failed to set guard position for '%s': %s", camera_id, exc)
             return False
 
     # ------------------------------------------------------------------
