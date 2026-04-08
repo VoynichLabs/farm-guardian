@@ -3,447 +3,326 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Farm Guardian</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>FARM GUARDIAN</title>
     <script src="https://unpkg.com/lucide@latest"></script>
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    colors: {
-                        guardian: {
-                            bg: '#0f172a',
-                            card: '#1e293b',
-                            border: '#334155',
-                            hover: '#475569',
-                        }
-                    }
-                }
-            }
-        }
-    </script>
     <style>
-        * { box-sizing: border-box; }
-        html, body { height: 100%; overflow: hidden; background: #0f172a; }
-        .fade-in { animation: fadeIn 0.2s ease-in; }
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-        .pulse-dot { animation: pulse 2s infinite; }
-        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
-        .camera-feed { background: #0a0f1e; object-fit: contain; width: 100%; height: 100%; display: block; }
-        .camera-placeholder { background: #0a0f1e; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: #475569; font-size: 0.75rem; }
-        input[type="number"], input[type="text"], select, textarea {
-            background: #0f172a; border: 1px solid #334155; color: #e2e8f0;
-            border-radius: 0.25rem; padding: 0.25rem 0.5rem; width: 100%; font-size: 0.8125rem;
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        :root {
+            --bg-0: #08090d;
+            --bg-1: #0e1117;
+            --bg-2: #161b22;
+            --bg-3: #1c2129;
+            --border: #21262d;
+            --border-bright: #30363d;
+            --text-0: #e6edf3;
+            --text-1: #8b949e;
+            --text-2: #484f58;
+            --green: #3fb950;
+            --red: #f85149;
+            --amber: #d29922;
+            --blue: #58a6ff;
+            --mono: 'SF Mono', 'Cascadia Code', Consolas, 'Liberation Mono', monospace;
         }
-        input[type="number"]:focus, input[type="text"]:focus, textarea:focus {
-            outline: none; border-color: #3b82f6;
-        }
-        /* Compact table rows */
-        .det-table th, .det-table td {
-            padding: 2px 8px;
-            font-size: 0.75rem;
-            white-space: nowrap;
-        }
-        /* PTZ d-pad buttons */
-        .ptz-btn {
-            background: #1e293b;
-            border: 1px solid #334155;
-            color: #cbd5e1;
-            border-radius: 4px;
-            padding: 4px 8px;
-            cursor: pointer;
-            font-size: 0.7rem;
-            line-height: 1;
-            transition: background 0.1s;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        .ptz-btn:hover { background: #334155; }
-        .ptz-btn-stop { background: rgba(239,68,68,0.15); color: #f87171; border-color: rgba(239,68,68,0.3); }
-        .ptz-btn-stop:hover { background: rgba(239,68,68,0.3); }
-        .ptz-btn-amber { background: rgba(245,158,11,0.15); color: #fbbf24; border-color: rgba(245,158,11,0.3); }
-        .ptz-btn-amber:hover { background: rgba(245,158,11,0.3); }
-        .ptz-btn-red { background: rgba(239,68,68,0.15); color: #f87171; border-color: rgba(239,68,68,0.3); }
-        .ptz-btn-red:hover { background: rgba(239,68,68,0.3); }
-        /* Scrollable sub-pages */
+        html, body { height: 100%; overflow: hidden; background: var(--bg-0); color: var(--text-0); font-family: var(--mono); font-size: 11px; }
+
+        /* Layout */
+        .root { display: flex; height: 100vh; overflow: hidden; }
+        .sidebar { width: 38px; background: var(--bg-1); border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; padding: 4px 3px; gap: 1px; }
+        .main { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+
+        /* Sidebar */
+        .nav-btn { display: flex; align-items: center; justify-content: center; width: 32px; height: 28px; border-radius: 3px; cursor: pointer; background: none; border: none; color: var(--text-2); transition: all 0.1s; }
+        .nav-btn:hover { background: var(--bg-3); color: var(--text-1); }
+        .nav-btn.active { background: var(--bg-3); color: var(--text-0); }
+        .nav-icon { width: 15px; height: 15px; flex-shrink: 0; }
+
+        /* Status bar */
+        .status-bar { height: 22px; background: var(--bg-1); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 8px; gap: 8px; font-size: 10px; color: var(--text-2); flex-shrink: 0; white-space: nowrap; overflow: hidden; }
+        .status-bar .sep { color: var(--border-bright); margin: 0 2px; }
+        .status-bar .val { color: var(--text-1); }
+        .status-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+        .dot-green { background: var(--green); }
+        .dot-red { background: var(--red); }
+        .dot-amber { background: var(--amber); }
+        .dot-off { background: var(--text-2); }
+        .pulse { animation: pulse 2s infinite; }
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+        /* Pages */
+        .page { position: absolute; inset: 0; display: none; flex-direction: column; padding: 3px; gap: 3px; overflow: hidden; }
+        .page.active { display: flex; }
         .page-scroll { overflow-y: auto; }
-        /* Top status bar */
-        #status-bar {
-            font-size: 0.7rem;
-            line-height: 1;
-            padding: 3px 8px;
-            border-bottom: 1px solid #334155;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            background: #1e293b;
-            min-height: 22px;
-            flex-shrink: 0;
+
+        /* Camera feeds */
+        .cam-grid { display: grid; gap: 2px; flex: 1; min-height: 0; }
+        .cam-cell { background: var(--bg-0); border: 1px solid var(--border); position: relative; overflow: hidden; min-height: 0; }
+        .cam-cell img { width: 100%; height: 100%; object-fit: contain; display: block; }
+        .cam-cell .cam-label { position: absolute; top: 0; left: 0; background: rgba(0,0,0,0.75); padding: 1px 6px; font-size: 10px; display: flex; align-items: center; gap: 4px; color: var(--text-1); }
+        .cam-cell .cam-offline { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: var(--text-2); font-size: 10px; }
+
+        /* System strip */
+        .sys-strip { display: flex; gap: 12px; padding: 2px 6px; background: var(--bg-1); border: 1px solid var(--border); font-size: 10px; color: var(--text-2); align-items: center; flex-shrink: 0; }
+        .sys-strip .lbl { color: var(--text-2); }
+        .sys-strip .val { color: var(--text-1); }
+
+        /* Tables */
+        .tbl { width: 100%; border-collapse: collapse; }
+        .tbl th { text-align: left; padding: 2px 6px; font-size: 10px; color: var(--text-2); font-weight: 500; background: var(--bg-1); border-bottom: 1px solid var(--border); }
+        .tbl td { padding: 2px 6px; font-size: 10px; color: var(--text-1); border-bottom: 1px solid var(--bg-2); }
+        .tbl tr:hover td { background: var(--bg-2); }
+
+        /* Detection panel */
+        .det-panel { background: var(--bg-1); border: 1px solid var(--border); overflow: hidden; flex-shrink: 0; }
+
+        /* Badges */
+        .badge { display: inline-block; padding: 0 4px; font-size: 9px; border-radius: 2px; line-height: 16px; }
+        .badge-red { background: rgba(248,81,73,0.15); color: var(--red); }
+        .badge-mute { background: rgba(139,148,158,0.1); color: var(--text-2); }
+
+        /* Cards */
+        .card { background: var(--bg-2); border: 1px solid var(--border); padding: 8px; }
+        .card-title { font-size: 10px; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+
+        /* Buttons */
+        .btn { padding: 3px 8px; border-radius: 2px; font-size: 10px; font-family: var(--mono); cursor: pointer; border: 1px solid var(--border-bright); background: var(--bg-3); color: var(--text-1); transition: background 0.1s; }
+        .btn:hover { background: var(--border-bright); color: var(--text-0); }
+        .btn-blue { background: rgba(88,166,255,0.15); border-color: rgba(88,166,255,0.3); color: var(--blue); }
+        .btn-blue:hover { background: rgba(88,166,255,0.25); }
+        .btn-red { background: rgba(248,81,73,0.15); border-color: rgba(248,81,73,0.3); color: var(--red); }
+        .btn-red:hover { background: rgba(248,81,73,0.25); }
+        .btn-amber { background: rgba(210,153,34,0.15); border-color: rgba(210,153,34,0.3); color: var(--amber); }
+        .btn-amber:hover { background: rgba(210,153,34,0.25); }
+        .btn-green { background: rgba(63,185,80,0.15); border-color: rgba(63,185,80,0.3); color: var(--green); }
+        .btn-green:hover { background: rgba(63,185,80,0.25); }
+
+        /* PTZ */
+        .ptz-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 3px; width: 108px; }
+        .ptz-grid .btn { height: 28px; display: flex; align-items: center; justify-content: center; font-size: 11px; }
+
+        /* Inputs */
+        input[type="number"], input[type="text"], select, textarea {
+            background: var(--bg-0); border: 1px solid var(--border); color: var(--text-0);
+            border-radius: 2px; padding: 2px 6px; width: 100%; font-size: 10px; font-family: var(--mono);
         }
-        #status-bar .sep { color: #475569; }
-        /* Compact nav */
-        .nav-btn { display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: 5px; font-size: 0.75rem; cursor: pointer; transition: background 0.1s; width: 100%; background: none; border: none; color: #94a3b8; }
-        .nav-btn:hover { background: #334155; color: #e2e8f0; }
-        .nav-btn.active { background: #334155; color: #f8fafc; }
-        /* Layout containers for dashboard */
-        #dashboard-main-area { display: flex; flex-direction: column; gap: 4px; flex: 1; min-height: 0; }
-        #cam-panel { flex: 1; min-height: 0; display: flex; flex-direction: row; gap: 4px; }
-        #det-panel { flex-shrink: 0; }
+        input:focus, select:focus, textarea:focus { outline: none; border-color: var(--blue); }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: var(--bg-0); }
+        ::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 3px; }
     </style>
 </head>
-<body class="text-slate-200" style="height:100vh; overflow:hidden;">
+<body>
+    <div class="root">
 
-    <div style="display:flex; height:100vh; overflow:hidden;">
-
-        <!-- Sidebar — narrow, compact -->
-        <nav style="width:44px; background:#1e293b; border-right:1px solid #334155; display:flex; flex-direction:column; flex-shrink:0; padding:6px 4px; gap:2px; overflow:hidden;">
-            <div style="margin-bottom:6px; padding:4px 6px;">
-                <div style="width:28px; height:28px; background:#059669; border-radius:5px; display:flex; align-items:center; justify-content:center;">
-                    <i data-lucide="shield" style="width:16px; height:16px; color:white;"></i>
+        <!-- Sidebar -->
+        <nav class="sidebar">
+            <div style="margin-bottom: 4px; display: flex; justify-content: center;">
+                <div style="width: 26px; height: 26px; background: var(--green); border-radius: 3px; display: flex; align-items: center; justify-content: center; opacity: 0.9;">
+                    <i data-lucide="shield" class="nav-icon" style="color: #000; width: 14px; height: 14px;"></i>
                 </div>
             </div>
-            <button onclick="navigate('dashboard')" data-nav="dashboard" title="Dashboard" class="nav-btn active">
-                <i data-lucide="layout-dashboard" style="width:16px; height:16px; flex-shrink:0;"></i>
-            </button>
-            <button onclick="navigate('cameras')" data-nav="cameras" title="Cameras" class="nav-btn">
-                <i data-lucide="camera" style="width:16px; height:16px; flex-shrink:0;"></i>
-            </button>
-            <button onclick="navigate('events')" data-nav="events" title="Events" class="nav-btn">
-                <i data-lucide="list" style="width:16px; height:16px; flex-shrink:0;"></i>
-            </button>
-            <button onclick="navigate('alerts')" data-nav="alerts" title="Alerts" class="nav-btn">
-                <i data-lucide="bell" style="width:16px; height:16px; flex-shrink:0;"></i>
-            </button>
-            <button onclick="navigate('ptz')" data-nav="ptz" title="PTZ Control" class="nav-btn">
-                <i data-lucide="move" style="width:16px; height:16px; flex-shrink:0;"></i>
-            </button>
-            <button onclick="navigate('reports')" data-nav="reports" title="Reports" class="nav-btn">
-                <i data-lucide="file-text" style="width:16px; height:16px; flex-shrink:0;"></i>
-            </button>
-            <button onclick="navigate('settings')" data-nav="settings" title="Settings" class="nav-btn">
-                <i data-lucide="settings" style="width:16px; height:16px; flex-shrink:0;"></i>
-            </button>
-            <!-- Sidebar status dot at bottom -->
-            <div style="margin-top:auto; padding:4px 6px;">
-                <span id="sidebar-dot" style="display:block; width:8px; height:8px; border-radius:50%; background:#64748b;"></span>
+            <button onclick="navigate('dashboard')" data-nav="dashboard" title="Dashboard" class="nav-btn active"><i data-lucide="layout-dashboard" class="nav-icon"></i></button>
+            <button onclick="navigate('cameras')" data-nav="cameras" title="Cameras" class="nav-btn"><i data-lucide="camera" class="nav-icon"></i></button>
+            <button onclick="navigate('events')" data-nav="events" title="Events" class="nav-btn"><i data-lucide="list" class="nav-icon"></i></button>
+            <button onclick="navigate('alerts')" data-nav="alerts" title="Alerts" class="nav-btn"><i data-lucide="bell" class="nav-icon"></i></button>
+            <button onclick="navigate('ptz')" data-nav="ptz" title="PTZ" class="nav-btn"><i data-lucide="move" class="nav-icon"></i></button>
+            <button onclick="navigate('reports')" data-nav="reports" title="Reports" class="nav-btn"><i data-lucide="file-text" class="nav-icon"></i></button>
+            <button onclick="navigate('settings')" data-nav="settings" title="Settings" class="nav-btn"><i data-lucide="settings" class="nav-icon"></i></button>
+            <div style="margin-top: auto; display: flex; justify-content: center;">
+                <span id="sidebar-dot" class="status-dot dot-off"></span>
             </div>
         </nav>
 
-        <!-- Main content area -->
-        <div style="flex:1; display:flex; flex-direction:column; min-width:0; overflow:hidden;">
+        <div class="main">
 
-            <!-- Status Bar (top, compact single line) -->
-            <div id="status-bar">
-                <span id="sb-dot" style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#64748b; flex-shrink:0;"></span>
-                <span id="sb-status" style="color:#94a3b8;">Loading...</span>
+            <!-- Status bar -->
+            <div class="status-bar">
+                <span id="sb-dot" class="status-dot dot-off"></span>
+                <span id="sb-status" class="val">--</span>
                 <span class="sep">|</span>
-                <span id="sb-uptime" style="color:#64748b;">--</span>
+                <span id="sb-uptime" class="val">--</span>
                 <span class="sep">|</span>
-                <span style="color:#64748b;">Frames:</span>
-                <span id="sb-frames" style="color:#94a3b8;">--</span>
+                <span>FRM</span> <span id="sb-frames" class="val">--</span>
                 <span class="sep">|</span>
-                <span style="color:#64748b;">Detections today:</span>
-                <span id="sb-detections" style="color:#60a5fa; font-weight:600;">--</span>
+                <span>DET</span> <span id="sb-detections" class="val" style="color: var(--blue);">--</span>
                 <span class="sep">|</span>
-                <span style="color:#64748b;">Last:</span>
-                <span id="sb-last-detection" style="color:#94a3b8;">--</span>
-                <div style="margin-left:auto; display:flex; gap:6px; align-items:center;">
-                    <span id="page-title" style="color:#475569; font-size:0.65rem; text-transform:uppercase; letter-spacing:0.05em;">Dashboard</span>
-                    <button onclick="refreshCurrentPage()" title="Refresh" style="background:none; border:none; cursor:pointer; color:#475569; padding:0;">
-                        <i data-lucide="refresh-cw" style="width:12px; height:12px;"></i>
+                <span>LAST</span> <span id="sb-last-detection" class="val">--</span>
+                <div style="margin-left: auto; display: flex; gap: 6px; align-items: center;">
+                    <span id="page-title" style="color: var(--text-2); font-size: 9px; text-transform: uppercase; letter-spacing: 0.08em;">DASHBOARD</span>
+                    <button onclick="refreshCurrentPage()" class="btn" style="padding: 1px 4px; border: none; background: none; color: var(--text-2);">
+                        <i data-lucide="refresh-cw" style="width: 10px; height: 10px;"></i>
                     </button>
                 </div>
             </div>
 
-            <!-- Pages container -->
-            <div style="flex:1; min-height:0; position:relative;">
+            <!-- Pages -->
+            <div style="flex: 1; min-height: 0; position: relative;">
 
-                <!-- ═══════════════════════════════════════ -->
-                <!-- Dashboard Page -->
-                <!-- ═══════════════════════════════════════ -->
-                <section id="page-dashboard" class="page fade-in" style="position:absolute; inset:0; display:flex; flex-direction:column; gap:4px; padding:4px; overflow:hidden;">
-
-                    <!-- Main area: dual camera feeds -->
-                    <div id="dashboard-main-area">
-                        <div id="cam-panel">
-                            <!-- house-yard feed -->
-                            <div style="flex:1; min-height:0; background:#0a0f1e; border:1px solid #334155; border-radius:4px; overflow:hidden; position:relative;">
-                                <img id="main-feed-img" src="/api/cameras/house-yard/stream"
-                                     class="camera-feed"
-                                     alt="house-yard"
-                                     onerror="handleFeedError(this)">
-                                <div id="main-feed-placeholder" class="camera-placeholder" style="display:none;">No feed</div>
-                                <div id="feed-overlay" style="position:absolute; top:4px; right:4px; background:rgba(0,0,0,0.65); border-radius:3px; padding:2px 6px; font-size:0.65rem; display:flex; align-items:center; gap:4px;">
-                                    <span id="feed-status-dot" style="width:6px; height:6px; border-radius:50%; background:#22c55e; display:inline-block;"></span>
-                                    <span id="feed-cam-label">house-yard</span>
-                                </div>
-                            </div>
-                            <!-- nesting-box feed -->
-                            <div style="flex:1; min-height:0; background:#0a0f1e; border:1px solid #334155; border-radius:4px; overflow:hidden; position:relative;">
-                                <img id="nest-feed-img" src="/api/cameras/nesting-box/stream"
-                                     class="camera-feed"
-                                     alt="nesting-box"
-                                     onerror="this.style.display='none'; document.getElementById('nest-feed-placeholder').style.display='flex';">
-                                <div id="nest-feed-placeholder" class="camera-placeholder" style="display:none;">Nesting box offline</div>
-                                <div style="position:absolute; top:4px; right:4px; background:rgba(0,0,0,0.65); border-radius:3px; padding:2px 6px; font-size:0.65rem; display:flex; align-items:center; gap:4px;">
-                                    <span id="nest-status-dot" style="width:6px; height:6px; border-radius:50%; background:#22c55e; display:inline-block;"></span>
-                                    <span>nesting-box</span>
-                                </div>
-                            </div>
-                        </div>
-                        <!-- Status strip -->
-                        <div style="display:flex; gap:12px; padding:4px 8px; background:#1e293b; border:1px solid #334155; border-radius:4px; font-size:0.65rem; color:#64748b; align-items:center;">
-                            <div>Patrol: <span id="dash-patrol-status" style="color:#94a3b8;">—</span></div>
-                            <div>Deterrent: <span id="dash-deterrent-status" style="color:#94a3b8;">—</span></div>
-                            <div>Active tracks: <span id="dash-tracks-count" style="color:#94a3b8;">0</span></div>
-                        </div>
+                <!-- Dashboard -->
+                <section id="page-dashboard" class="page active">
+                    <div id="cam-grid" class="cam-grid"></div>
+                    <div class="sys-strip">
+                        <div><span class="lbl">PATROL</span> <span id="dash-patrol-status" class="val">--</span></div>
+                        <div><span class="lbl">DETERRENT</span> <span id="dash-deterrent-status" class="val">--</span></div>
+                        <div><span class="lbl">TRACKS</span> <span id="dash-tracks-count" class="val">0</span></div>
                     </div>
-
-                    <!-- Recent Detections Table -->
-                    <div id="det-panel" style="background:#1e293b; border:1px solid #334155; border-radius:4px; overflow:hidden; flex-shrink:0;">
-                        <table class="det-table" style="width:100%; border-collapse:collapse;">
-                            <thead style="background:#0f172a;">
-                                <tr>
-                                    <th style="text-align:left; color:#475569; font-weight:500;">Time</th>
-                                    <th style="text-align:left; color:#475569; font-weight:500;">Camera</th>
-                                    <th style="text-align:left; color:#475569; font-weight:500;">Class</th>
-                                    <th style="text-align:left; color:#475569; font-weight:500;">Conf</th>
-                                    <th style="text-align:left; color:#475569; font-weight:500;">Predator</th>
-                                </tr>
-                            </thead>
+                    <div class="det-panel" id="det-panel">
+                        <table class="tbl">
+                            <thead><tr>
+                                <th>TIME</th><th>CAM</th><th>CLASS</th><th>CONF</th><th>THREAT</th>
+                            </tr></thead>
                             <tbody id="dashboard-detections">
-                                <tr><td colspan="5" style="padding:6px 8px; text-align:center; color:#475569; font-size:0.7rem;">No detections yet</td></tr>
+                                <tr><td colspan="5" style="text-align: center; color: var(--text-2);">--</td></tr>
                             </tbody>
                         </table>
                     </div>
                 </section>
 
-                <!-- ═══════════════════════════════════════ -->
-                <!-- Cameras Page -->
-                <!-- ═══════════════════════════════════════ -->
-                <section id="page-cameras" class="page page-scroll fade-in" style="position:absolute; inset:0; display:none; padding:8px; gap:8px; flex-direction:column;">
-                    <div style="display:flex; align-items:center; justify-content:space-between; flex-shrink:0;">
-                        <div style="font-size:0.7rem; text-transform:uppercase; color:#475569; letter-spacing:0.05em;">Camera Management</div>
-                        <button onclick="rescanCameras()" style="display:flex; align-items:center; gap:4px; padding:3px 8px; background:#2563eb; border-radius:4px; font-size:0.7rem; border:none; color:white; cursor:pointer;">
-                            <i data-lucide="scan" style="width:12px; height:12px;"></i> Rescan
-                        </button>
+                <!-- Cameras -->
+                <section id="page-cameras" class="page page-scroll" style="padding: 6px; gap: 6px;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;">
+                        <span class="card-title" style="margin: 0;">CAMERAS</span>
+                        <button onclick="rescanCameras()" class="btn btn-blue"><i data-lucide="scan" style="width: 10px; height: 10px; margin-right: 4px;"></i>RESCAN</button>
                     </div>
-                    <div id="cameras-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
-                        <div style="background:#1e293b; border:1px solid #334155; border-radius:4px; padding:12px; text-align:center; color:#475569; font-size:0.75rem;">
-                            No cameras found
-                        </div>
-                    </div>
+                    <div id="cameras-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 4px;"></div>
                 </section>
 
-                <!-- ═══════════════════════════════════════ -->
-                <!-- Events Page -->
-                <!-- ═══════════════════════════════════════ -->
-                <section id="page-events" class="page page-scroll fade-in" style="position:absolute; inset:0; display:none; padding:8px; flex-direction:column; gap:6px;">
-                    <div style="display:flex; align-items:center; gap:8px; flex-shrink:0; flex-wrap:wrap;">
-                        <div style="font-size:0.7rem; text-transform:uppercase; color:#475569; letter-spacing:0.05em;">Event Browser</div>
-                        <select id="event-date-select" onchange="loadEventsForDate(this.value)" style="font-size:0.75rem; padding:2px 6px;">
-                            <option value="">Select date...</option>
-                        </select>
-                        <select id="event-class-filter" onchange="filterEvents()" style="font-size:0.75rem; padding:2px 6px;">
-                            <option value="">All classes</option>
-                            <option value="bird">Bird</option>
-                            <option value="cat">Cat</option>
-                            <option value="dog">Dog</option>
-                            <option value="bear">Bear</option>
-                            <option value="person">Person</option>
+                <!-- Events -->
+                <section id="page-events" class="page page-scroll" style="padding: 6px; gap: 6px;">
+                    <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
+                        <span class="card-title" style="margin: 0;">EVENTS</span>
+                        <select id="event-date-select" onchange="loadEventsForDate(this.value)"><option value="">date...</option></select>
+                        <select id="event-class-filter" onchange="filterEvents()">
+                            <option value="">all</option>
+                            <option value="bird">bird</option><option value="cat">cat</option>
+                            <option value="dog">dog</option><option value="bear">bear</option>
+                            <option value="person">person</option>
                         </select>
                     </div>
-                    <div style="background:#1e293b; border:1px solid #334155; border-radius:4px; overflow:hidden;">
-                        <table class="det-table" style="width:100%; border-collapse:collapse;">
-                            <thead style="background:#0f172a;">
-                                <tr>
-                                    <th style="text-align:left; color:#475569; font-weight:500;">Time</th>
-                                    <th style="text-align:left; color:#475569; font-weight:500;">Camera</th>
-                                    <th style="text-align:left; color:#475569; font-weight:500;">Class</th>
-                                    <th style="text-align:left; color:#475569; font-weight:500;">Conf</th>
-                                    <th style="text-align:left; color:#475569; font-weight:500;">Snapshot</th>
-                                </tr>
-                            </thead>
-                            <tbody id="events-table">
-                                <tr><td colspan="5" style="padding:8px; text-align:center; color:#475569; font-size:0.7rem;">Select a date</td></tr>
-                            </tbody>
+                    <div style="border: 1px solid var(--border); overflow: hidden;">
+                        <table class="tbl">
+                            <thead><tr><th>TIME</th><th>CAM</th><th>CLASS</th><th>CONF</th><th>SNAP</th></tr></thead>
+                            <tbody id="events-table"><tr><td colspan="5" style="text-align:center;">--</td></tr></tbody>
                         </table>
                     </div>
-                    <div id="snapshot-modal" onclick="closeSnapshot()" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.85); z-index:50; align-items:center; justify-content:center;">
-                        <img id="snapshot-modal-img" src="" style="max-width:90vw; max-height:90vh; border-radius:6px;">
+                    <div id="snapshot-modal" onclick="closeSnapshot()" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.9); z-index:50; align-items:center; justify-content:center;">
+                        <img id="snapshot-modal-img" src="" style="max-width:90vw; max-height:90vh;">
                     </div>
                 </section>
 
-                <!-- ═══════════════════════════════════════ -->
-                <!-- Alerts Page -->
-                <!-- ═══════════════════════════════════════ -->
-                <section id="page-alerts" class="page page-scroll fade-in" style="position:absolute; inset:0; display:none; padding:8px; flex-direction:column; gap:6px;">
-                    <div style="display:flex; align-items:center; justify-content:space-between; flex-shrink:0;">
-                        <div style="font-size:0.7rem; text-transform:uppercase; color:#475569; letter-spacing:0.05em;">Alert History</div>
-                        <button onclick="sendTestAlert()" id="test-alert-btn" style="display:flex; align-items:center; gap:4px; padding:3px 8px; background:rgba(217,119,6,0.3); border:1px solid rgba(217,119,6,0.4); border-radius:4px; font-size:0.7rem; color:#fbbf24; cursor:pointer;">
-                            <i data-lucide="send" style="width:12px; height:12px;"></i> Test Alert
-                        </button>
+                <!-- Alerts -->
+                <section id="page-alerts" class="page page-scroll" style="padding: 6px; gap: 6px;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;">
+                        <span class="card-title" style="margin: 0;">ALERTS</span>
+                        <button onclick="sendTestAlert()" id="test-alert-btn" class="btn btn-amber">TEST ALERT</button>
                     </div>
-                    <div id="test-alert-result" style="display:none; font-size:0.75rem; padding:4px 8px; border-radius:4px;"></div>
-                    <div style="background:#1e293b; border:1px solid #334155; border-radius:4px; overflow:hidden;">
-                        <table class="det-table" style="width:100%; border-collapse:collapse;">
-                            <thead style="background:#0f172a;">
-                                <tr>
-                                    <th style="text-align:left; color:#475569; font-weight:500;">Time</th>
-                                    <th style="text-align:left; color:#475569; font-weight:500;">Camera</th>
-                                    <th style="text-align:left; color:#475569; font-weight:500;">Classes</th>
-                                    <th style="text-align:left; color:#475569; font-weight:500;">Status</th>
-                                </tr>
-                            </thead>
-                            <tbody id="alerts-table">
-                                <tr><td colspan="4" style="padding:8px; text-align:center; color:#475569; font-size:0.7rem;">No alerts sent yet</td></tr>
-                            </tbody>
+                    <div id="test-alert-result" style="display:none; font-size:10px; padding:3px 6px;"></div>
+                    <div style="border: 1px solid var(--border); overflow: hidden;">
+                        <table class="tbl">
+                            <thead><tr><th>TIME</th><th>CAM</th><th>CLASSES</th><th>STATUS</th></tr></thead>
+                            <tbody id="alerts-table"><tr><td colspan="4" style="text-align:center;">--</td></tr></tbody>
                         </table>
                     </div>
                 </section>
 
-                <!-- ═══════════════════════════════════════ -->
-                <!-- PTZ Control Page (full) -->
-                <!-- ═══════════════════════════════════════ -->
-                <section id="page-ptz" class="page page-scroll fade-in" style="position:absolute; inset:0; display:none; padding:8px; gap:8px; flex-direction:column;">
-                    <div style="font-size:0.7rem; text-transform:uppercase; color:#475569; letter-spacing:0.05em; flex-shrink:0;">PTZ Camera Control</div>
-                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
-                        <div style="background:#1e293b; border:1px solid #334155; border-radius:4px; padding:10px; display:flex; flex-direction:column; gap:8px;">
-                            <div style="font-size:0.7rem; font-weight:600; color:#93c5fd;">Manual Control</div>
-                            <div style="font-size:0.65rem; color:#475569;">Camera</div>
-                            <select id="ptz-camera-select" style="font-size:0.75rem; padding:2px 6px; margin-bottom:4px;"></select>
-                            <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:4px; width:120px; margin:0 auto;">
-                                <div></div>
-                                <button class="ptz-btn" onclick="ptzMove('up')" style="height:32px;">▲</button>
-                                <div></div>
-                                <button class="ptz-btn" onclick="ptzMove('left')" style="height:32px;">◄</button>
-                                <button class="ptz-btn ptz-btn-stop" onclick="ptzStop()" style="height:32px; font-weight:700;">■</button>
-                                <button class="ptz-btn" onclick="ptzMove('right')" style="height:32px;">►</button>
-                                <div></div>
-                                <button class="ptz-btn" onclick="ptzMove('down')" style="height:32px;">▼</button>
-                                <div></div>
+                <!-- PTZ -->
+                <section id="page-ptz" class="page page-scroll" style="padding: 6px; gap: 6px;">
+                    <span class="card-title">PTZ CONTROL</span>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
+                        <div class="card">
+                            <div class="card-title">MANUAL</div>
+                            <select id="ptz-camera-select" style="margin-bottom: 6px;"></select>
+                            <div style="display: flex; justify-content: center; margin-bottom: 6px;">
+                                <div class="ptz-grid">
+                                    <div></div><button class="btn" onclick="ptzMove('up')">&#9650;</button><div></div>
+                                    <button class="btn" onclick="ptzMove('left')">&#9668;</button>
+                                    <button class="btn btn-red" onclick="ptzStop()" style="font-weight:700;">&#9632;</button>
+                                    <button class="btn" onclick="ptzMove('right')">&#9658;</button>
+                                    <div></div><button class="btn" onclick="ptzMove('down')">&#9660;</button><div></div>
+                                </div>
                             </div>
-                            <div style="display:flex; gap:4px; justify-content:center;">
-                                <button class="ptz-btn" onclick="ptzZoom('in')" style="padding:3px 12px; font-size:0.7rem;">Zoom +</button>
-                                <button class="ptz-btn" onclick="ptzZoom('out')" style="padding:3px 12px; font-size:0.7rem;">Zoom −</button>
+                            <div style="display: flex; gap: 3px; justify-content: center; margin-bottom: 8px;">
+                                <button class="btn" onclick="ptzZoom('in')">ZOOM +</button>
+                                <button class="btn" onclick="ptzZoom('out')">ZOOM -</button>
                             </div>
-                            <div style="display:flex; gap:4px; border-top:1px solid #334155; padding-top:8px; flex-wrap:wrap;">
-                                <button class="ptz-btn ptz-btn-amber" onclick="toggleSpotlight(true)" style="flex:1; padding:4px; font-size:0.7rem;">☀ Spotlight On</button>
-                                <button class="ptz-btn" onclick="toggleSpotlight(false)" style="flex:1; padding:4px; font-size:0.7rem;">Spotlight Off</button>
-                                <button class="ptz-btn ptz-btn-red" onclick="triggerSiren()" style="flex:1; padding:4px; font-size:0.7rem;">⚠ Siren</button>
+                            <div style="border-top: 1px solid var(--border); padding-top: 6px; display: flex; gap: 3px; flex-wrap: wrap;">
+                                <button class="btn btn-amber" onclick="toggleSpotlight(true)">SPOT ON</button>
+                                <button class="btn" onclick="toggleSpotlight(false)">SPOT OFF</button>
+                                <button class="btn btn-red" onclick="triggerSiren()">SIREN</button>
                             </div>
                         </div>
-                        <div style="background:#1e293b; border:1px solid #334155; border-radius:4px; padding:10px; display:flex; flex-direction:column; gap:8px;">
-                            <div style="font-size:0.7rem; font-weight:600; color:#6ee7b7;">Patrol Presets</div>
-                            <div id="ptz-patrol-status" style="font-size:0.7rem; color:#475569;">Loading...</div>
-                            <div id="ptz-presets" style="display:flex; flex-direction:column; gap:3px;"></div>
-                            <div style="border-top:1px solid #334155; padding-top:6px;">
-                                <div style="font-size:0.65rem; color:#475569; margin-bottom:4px; text-transform:uppercase;">Deterrent Status</div>
-                                <div id="deterrent-status" style="font-size:0.7rem; color:#475569;">Loading...</div>
+                        <div class="card">
+                            <div class="card-title">PATROL</div>
+                            <div id="ptz-patrol-status" style="color: var(--text-2); margin-bottom: 6px;">--</div>
+                            <div id="ptz-presets" style="display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px;"></div>
+                            <div style="border-top: 1px solid var(--border); padding-top: 6px;">
+                                <div class="card-title">DETERRENT</div>
+                                <div id="deterrent-status" style="color: var(--text-2);">--</div>
                             </div>
-                            <div style="border-top:1px solid #334155; padding-top:6px;">
-                                <div style="font-size:0.65rem; color:#475569; margin-bottom:4px; text-transform:uppercase;">Active Tracks</div>
-                                <div id="active-tracks" style="font-size:0.7rem; color:#475569;">No active tracks</div>
+                            <div style="border-top: 1px solid var(--border); padding-top: 6px; margin-top: 6px;">
+                                <div class="card-title">ACTIVE TRACKS</div>
+                                <div id="active-tracks" style="color: var(--text-2);">--</div>
                             </div>
                         </div>
                     </div>
                 </section>
 
-                <!-- ═══════════════════════════════════════ -->
-                <!-- Reports Page -->
-                <!-- ═══════════════════════════════════════ -->
-                <section id="page-reports" class="page page-scroll fade-in" style="position:absolute; inset:0; display:none; padding:8px; flex-direction:column; gap:6px;">
-                    <div style="display:flex; align-items:center; gap:8px; flex-shrink:0; flex-wrap:wrap;">
-                        <div style="font-size:0.7rem; text-transform:uppercase; color:#475569; letter-spacing:0.05em;">Daily Reports</div>
-                        <select id="report-date-select" onchange="loadReport(this.value)" style="font-size:0.75rem; padding:2px 6px;">
-                            <option value="">Select date...</option>
-                        </select>
-                        <button onclick="generateReport()" style="display:flex; align-items:center; gap:4px; padding:3px 8px; background:#2563eb; border-radius:4px; font-size:0.7rem; border:none; color:white; cursor:pointer;">
-                            <i data-lucide="refresh-cw" style="width:12px; height:12px;"></i> Generate Today
-                        </button>
+                <!-- Reports -->
+                <section id="page-reports" class="page page-scroll" style="padding: 6px; gap: 6px;">
+                    <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
+                        <span class="card-title" style="margin: 0;">REPORTS</span>
+                        <select id="report-date-select" onchange="loadReport(this.value)"><option value="">date...</option></select>
+                        <button onclick="generateReport()" class="btn btn-blue">GENERATE</button>
                     </div>
-                    <div id="report-content" style="flex:1;">
-                        <div style="background:#1e293b; border:1px solid #334155; border-radius:4px; padding:16px; text-align:center; color:#475569; font-size:0.75rem;">
-                            Select a date or generate a report to view
+                    <div id="report-content"><div class="card" style="text-align: center; color: var(--text-2);">--</div></div>
+                </section>
+
+                <!-- Settings -->
+                <section id="page-settings" class="page page-scroll" style="padding: 6px; gap: 6px; overflow-y: auto;">
+                    <span class="card-title">CONFIGURATION</span>
+                    <div class="card">
+                        <div class="card-title" style="color: var(--blue);">DETECTION</div>
+                        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;">
+                            <div><label style="display:block; font-size:9px; color:var(--text-2); margin-bottom:1px;">CONFIDENCE</label><input type="number" id="cfg-confidence" min="0" max="1" step="0.05" value="0.45"></div>
+                            <div><label style="display:block; font-size:9px; color:var(--text-2); margin-bottom:1px;">BIRD MIN BBOX %</label><input type="number" id="cfg-bird-min" min="0" max="50" step="0.5" value="8"></div>
+                            <div><label style="display:block; font-size:9px; color:var(--text-2); margin-bottom:1px;">MIN DWELL FRAMES</label><input type="number" id="cfg-dwell" min="1" max="30" step="1" value="3"></div>
+                            <div><label style="display:block; font-size:9px; color:var(--text-2); margin-bottom:1px;">FRAME INTERVAL (S)</label><input type="number" id="cfg-interval" min="0.1" max="10" step="0.1" value="1.0"></div>
+                            <div><label style="display:block; font-size:9px; color:var(--text-2); margin-bottom:1px;">PREDATOR CLASSES</label><input type="text" id="cfg-predators" value="bird,cat,dog,bear"></div>
+                            <div><label style="display:block; font-size:9px; color:var(--text-2); margin-bottom:1px;">IGNORE CLASSES</label><input type="text" id="cfg-ignore" value="person,car,truck,bicycle"></div>
+                        </div>
+                        <div style="margin-top: 6px;">
+                            <label style="display:block; font-size:9px; color:var(--text-2); margin-bottom:2px;">PER-CLASS THRESHOLDS</label>
+                            <div id="class-thresholds" style="display:grid; grid-template-columns:repeat(4,1fr); gap:4px;"></div>
+                        </div>
+                        <div style="margin-top: 6px;">
+                            <label style="display:block; font-size:9px; color:var(--text-2); margin-bottom:1px;">NO-ALERT ZONE (JSON)</label>
+                            <textarea id="cfg-zone" rows="2" style="font-size:10px;" placeholder='[[10,60],[30,60],[30,90],[10,90]]'></textarea>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:6px; margin-top:6px;">
+                            <button onclick="saveDetectionConfig()" class="btn btn-blue">SAVE</button>
+                            <span id="detection-save-result" style="display:none; font-size:10px;"></span>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-title" style="color: var(--amber);">ALERTS</div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
+                            <div><label style="display:block; font-size:9px; color:var(--text-2); margin-bottom:1px;">DISCORD WEBHOOK</label><input type="text" id="cfg-webhook" placeholder="https://discord.com/api/webhooks/..."></div>
+                            <div><label style="display:block; font-size:9px; color:var(--text-2); margin-bottom:1px;">COOLDOWN (S)</label><input type="number" id="cfg-cooldown" min="0" max="3600" step="30" value="300"></div>
+                            <div style="display:flex; align-items:center; gap:4px;">
+                                <input type="checkbox" id="cfg-snapshot"><label for="cfg-snapshot" style="font-size:10px; color:var(--text-1);">include snapshot</label>
+                            </div>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:6px; margin-top:6px;">
+                            <button onclick="saveAlertConfig()" class="btn btn-amber">SAVE</button>
+                            <span id="alert-save-result" style="display:none; font-size:10px;"></span>
                         </div>
                     </div>
                 </section>
 
-                <!-- ═══════════════════════════════════════ -->
-                <!-- Settings Page -->
-                <!-- ═══════════════════════════════════════ -->
-                <section id="page-settings" class="page page-scroll fade-in" style="position:absolute; inset:0; display:none; padding:8px; flex-direction:column; gap:8px; overflow-y:auto;">
-                    <div style="font-size:0.7rem; text-transform:uppercase; color:#475569; letter-spacing:0.05em; flex-shrink:0;">Configuration</div>
-
-                    <div style="background:#1e293b; border:1px solid #334155; border-radius:4px; padding:10px; display:flex; flex-direction:column; gap:8px;">
-                        <div style="font-size:0.75rem; font-weight:600; color:#93c5fd;">Detection Settings</div>
-                        <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:8px;">
-                            <div>
-                                <label style="display:block; font-size:0.65rem; color:#475569; margin-bottom:2px;">Confidence Threshold</label>
-                                <input type="number" id="cfg-confidence" min="0" max="1" step="0.05" value="0.45">
-                            </div>
-                            <div>
-                                <label style="display:block; font-size:0.65rem; color:#475569; margin-bottom:2px;">Bird Min BBox Width %</label>
-                                <input type="number" id="cfg-bird-min" min="0" max="50" step="0.5" value="8">
-                            </div>
-                            <div>
-                                <label style="display:block; font-size:0.65rem; color:#475569; margin-bottom:2px;">Min Dwell Frames</label>
-                                <input type="number" id="cfg-dwell" min="1" max="30" step="1" value="3">
-                            </div>
-                            <div>
-                                <label style="display:block; font-size:0.65rem; color:#475569; margin-bottom:2px;">Frame Interval (s)</label>
-                                <input type="number" id="cfg-interval" min="0.1" max="10" step="0.1" value="1.0">
-                            </div>
-                            <div>
-                                <label style="display:block; font-size:0.65rem; color:#475569; margin-bottom:2px;">Predator Classes</label>
-                                <input type="text" id="cfg-predators" value="bird,cat,dog,bear">
-                            </div>
-                            <div>
-                                <label style="display:block; font-size:0.65rem; color:#475569; margin-bottom:2px;">Ignore Classes</label>
-                                <input type="text" id="cfg-ignore" value="person,car,truck,bicycle">
-                            </div>
-                        </div>
-                        <div>
-                            <label style="display:block; font-size:0.65rem; color:#475569; margin-bottom:4px;">Per-Class Confidence Thresholds</label>
-                            <div id="class-thresholds" style="display:grid; grid-template-columns:repeat(4,1fr); gap:6px;"></div>
-                        </div>
-                        <div>
-                            <label style="display:block; font-size:0.65rem; color:#475569; margin-bottom:2px;">No-Alert Zone (JSON [[x%,y%],...])</label>
-                            <textarea id="cfg-zone" rows="2" style="font-family:monospace; font-size:0.7rem;" placeholder='[[10,60],[30,60],[30,90],[10,90]]'></textarea>
-                        </div>
-                        <div style="display:flex; align-items:center; gap:8px;">
-                            <button onclick="saveDetectionConfig()" style="padding:4px 12px; background:#2563eb; border-radius:4px; font-size:0.75rem; border:none; color:white; cursor:pointer;">Save Detection Settings</button>
-                            <div id="detection-save-result" style="display:none; font-size:0.7rem;"></div>
-                        </div>
-                    </div>
-
-                    <div style="background:#1e293b; border:1px solid #334155; border-radius:4px; padding:10px; display:flex; flex-direction:column; gap:8px;">
-                        <div style="font-size:0.75rem; font-weight:600; color:#fbbf24;">Alert Settings</div>
-                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
-                            <div>
-                                <label style="display:block; font-size:0.65rem; color:#475569; margin-bottom:2px;">Discord Webhook URL</label>
-                                <input type="text" id="cfg-webhook" placeholder="https://discord.com/api/webhooks/...">
-                            </div>
-                            <div>
-                                <label style="display:block; font-size:0.65rem; color:#475569; margin-bottom:2px;">Alert Cooldown (s)</label>
-                                <input type="number" id="cfg-cooldown" min="0" max="3600" step="30" value="300">
-                            </div>
-                            <div style="display:flex; align-items:center; gap:6px;">
-                                <input type="checkbox" id="cfg-snapshot" style="background:#0f172a; border:1px solid #334155;">
-                                <label for="cfg-snapshot" style="font-size:0.75rem; color:#cbd5e1;">Include snapshot in alerts</label>
-                            </div>
-                        </div>
-                        <div style="display:flex; align-items:center; gap:8px;">
-                            <button onclick="saveAlertConfig()" style="padding:4px 12px; background:rgba(217,119,6,0.6); border-radius:4px; font-size:0.75rem; border:none; color:white; cursor:pointer;">Save Alert Settings</button>
-                            <div id="alert-save-result" style="display:none; font-size:0.7rem;"></div>
-                        </div>
-                    </div>
-                </section>
-
-            </div><!-- /pages container -->
-        </div><!-- /main content -->
-    </div><!-- /flex root -->
+            </div>
+        </div>
+    </div>
 
     <script src="/static/app.js"></script>
     <script>lucide.createIcons();</script>

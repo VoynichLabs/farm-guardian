@@ -1,17 +1,18 @@
-// Author: Claude Sonnet 4-6
-// Date: 03-April-2026
+// Author: Claude Opus 4.6
+// Date: 08-April-2026
 // PURPOSE: Farm Guardian Dashboard — Frontend Logic.
 //          Vanilla JS, no build step. Communicates with FastAPI backend via /api/ endpoints.
-//          Redesigned for single-screen Bloomberg-terminal-style layout.
+//          Dynamic camera grid renders whatever cameras the API returns.
+//          No hardcoded camera names anywhere.
 // SRP/DRY check: Pass — single responsibility is UI state and API communication.
 
 // ─────────────────────────────────────────
 // State
 // ─────────────────────────────────────────
 let currentPage = 'dashboard';
-let allEvents = [];       // current date's events (for filtering)
+let allEvents = [];
 let refreshInterval = null;
-const DASH_CAM = 'house-yard';   // hardcoded primary camera for dashboard PTZ controls
+let cachedCameras = [];  // latest camera list from API
 
 // ─────────────────────────────────────────
 // API Client
@@ -38,25 +39,14 @@ const api = {
 // ─────────────────────────────────────────
 function navigate(page) {
     currentPage = page;
-    // Hide all pages
-    document.querySelectorAll('.page').forEach(el => {
-        el.style.display = 'none';
-    });
+    document.querySelectorAll('.page').forEach(el => el.classList.remove('active'));
     const target = document.getElementById(`page-${page}`);
-    if (target) {
-        // Dashboard uses flex column layout; scrollable pages use flex column too
-        target.style.display = 'flex';
-        target.classList.add('fade-in');
-    }
-    // Update nav highlight
+    if (target) target.classList.add('active');
     document.querySelectorAll('.nav-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.nav === page);
     });
-    // Update page title in status bar
-    const titles = { dashboard: 'Dashboard', cameras: 'Cameras', events: 'Events', alerts: 'Alerts', ptz: 'PTZ', reports: 'Reports', settings: 'Settings' };
     const titleEl = document.getElementById('page-title');
-    if (titleEl) titleEl.textContent = titles[page] || page;
-
+    if (titleEl) titleEl.textContent = page.toUpperCase();
     refreshCurrentPage();
 }
 
@@ -75,7 +65,7 @@ function refreshCurrentPage() {
 }
 
 // ─────────────────────────────────────────
-// Status Bar (always visible at top)
+// Status Bar
 // ─────────────────────────────────────────
 function updateStatusBar(status, lastDetection) {
     const dot = document.getElementById('sb-dot');
@@ -87,33 +77,25 @@ function updateStatusBar(status, lastDetection) {
     const sidebarDot = document.getElementById('sidebar-dot');
 
     if (!status || !status.online) {
-        if (dot) dot.style.background = '#ef4444';
-        if (sidebarDot) sidebarDot.style.background = '#ef4444';
-        if (statusEl) statusEl.textContent = 'Offline';
+        if (dot) { dot.className = 'status-dot dot-red'; }
+        if (sidebarDot) { sidebarDot.className = 'status-dot dot-red'; }
+        if (statusEl) statusEl.textContent = 'OFFLINE';
         return;
     }
 
-    if (dot) { dot.style.background = '#22c55e'; dot.style.animation = 'pulse 2s infinite'; }
-    if (sidebarDot) { sidebarDot.style.background = '#22c55e'; }
-    if (statusEl) { statusEl.textContent = 'Online'; statusEl.style.color = '#4ade80'; }
+    if (dot) { dot.className = 'status-dot dot-green pulse'; }
+    if (sidebarDot) { sidebarDot.className = 'status-dot dot-green'; }
+    if (statusEl) { statusEl.textContent = 'ONLINE'; statusEl.style.color = 'var(--green)'; }
     if (uptimeEl) uptimeEl.textContent = formatUptime(status.uptime_seconds);
     if (framesEl) framesEl.textContent = (status.frames_processed || 0).toLocaleString();
-    if (detectionsEl) detectionsEl.textContent = status.detections_today ?? '—';
-
-    if (lastEl) {
-        if (lastDetection) {
-            const t = formatTime(lastDetection.timestamp);
-            const cls = lastDetection.class || lastDetection.class_name || '?';
-            lastEl.textContent = `${t} — ${cls}`;
-            lastEl.style.color = lastDetection.is_predator ? '#f87171' : '#94a3b8';
-        } else {
-            lastEl.textContent = '—';
-        }
+    if (detectionsEl) detectionsEl.textContent = status.detections_today || 0;
+    if (lastEl && lastDetection) {
+        lastEl.textContent = formatTime(lastDetection.timestamp || lastDetection.detected_at);
     }
 }
 
 // ─────────────────────────────────────────
-// Dashboard Page
+// Dashboard — Dynamic Camera Grid
 // ─────────────────────────────────────────
 async function loadDashboard() {
     try {
@@ -122,144 +104,106 @@ async function loadDashboard() {
             api.get('/api/cameras'),
             api.get('/api/detections/recent?limit=15'),
         ]);
+        cachedCameras = cameras;
         const lastDet = detections && detections.length ? detections[0] : null;
         updateStatusBar(status, lastDet);
-        renderDashboardFeed(cameras);
+        renderCameraGrid(cameras);
         renderDashboardDetections(detections);
-        // Also load PTZ/deterrent status for the dashboard panel
         loadDashboardPTZStatus();
     } catch (err) {
         console.error('Dashboard load error:', err);
     }
 }
 
-function renderDashboardFeed(cameras) {
-    if (!cameras || !cameras.length) return;
+function renderCameraGrid(cameras) {
+    const grid = document.getElementById('cam-grid');
+    if (!grid) return;
 
-    // Update each camera feed by matching config name to DOM elements
-    const feedMap = [
-        { name: DASH_CAM, img: 'main-feed-img', placeholder: 'main-feed-placeholder', dot: 'feed-status-dot' },
-        { name: 'nesting-box', img: 'nest-feed-img', placeholder: 'nest-feed-placeholder', dot: 'nest-status-dot' },
-    ];
-
-    for (const f of feedMap) {
-        const cam = cameras.find(c => c.name === f.name);
-        const img = document.getElementById(f.img);
-        const placeholder = document.getElementById(f.placeholder);
-        const dot = document.getElementById(f.dot);
-
-        if (!cam) {
-            if (img) img.style.display = 'none';
-            if (placeholder) { placeholder.style.display = 'flex'; placeholder.textContent = `${f.name} not found`; }
-            if (dot) dot.style.background = '#ef4444';
-            continue;
-        }
-
-        if (dot) dot.style.background = cam.online ? '#22c55e' : '#ef4444';
-
-        if (cam.capturing && cam.online) {
-            if (img) { img.style.display = 'block'; img.src = `/api/cameras/${cam.name}/stream`; }
-            if (placeholder) placeholder.style.display = 'none';
-        } else {
-            if (img) img.style.display = 'none';
-            if (placeholder) {
-                placeholder.style.display = 'flex';
-                placeholder.textContent = cam.online ? 'Not capturing' : `${cam.name} offline`;
-            }
-        }
+    if (!cameras || !cameras.length) {
+        grid.innerHTML = '<div class="cam-cell"><div class="cam-offline">NO CAMERAS</div></div>';
+        grid.style.gridTemplateColumns = '1fr';
+        return;
     }
-}
 
-function handleFeedError(imgEl) {
-    imgEl.style.display = 'none';
-    const placeholder = document.getElementById('main-feed-placeholder');
-    if (placeholder) { placeholder.style.display = 'flex'; placeholder.textContent = 'Feed unavailable'; }
+    // Determine grid layout based on camera count
+    const count = cameras.length;
+    if (count === 1) {
+        grid.style.gridTemplateColumns = '1fr';
+        grid.style.gridTemplateRows = '1fr';
+    } else if (count === 2) {
+        grid.style.gridTemplateColumns = '1fr 1fr';
+        grid.style.gridTemplateRows = '1fr';
+    } else if (count <= 4) {
+        grid.style.gridTemplateColumns = 'repeat(2, 1fr)';
+        grid.style.gridTemplateRows = `repeat(${Math.ceil(count / 2)}, 1fr)`;
+    } else if (count <= 6) {
+        grid.style.gridTemplateColumns = 'repeat(3, 1fr)';
+        grid.style.gridTemplateRows = `repeat(${Math.ceil(count / 3)}, 1fr)`;
+    } else {
+        grid.style.gridTemplateColumns = 'repeat(4, 1fr)';
+        grid.style.gridTemplateRows = `repeat(${Math.ceil(count / 4)}, 1fr)`;
+    }
+
+    // Build cells — only replace innerHTML if camera list changed
+    const currentNames = Array.from(grid.querySelectorAll('[data-cam]')).map(el => el.dataset.cam);
+    const newNames = cameras.map(c => c.name);
+    const structureChanged = currentNames.length !== newNames.length || currentNames.some((n, i) => n !== newNames[i]);
+
+    if (structureChanged) {
+        grid.innerHTML = cameras.map(cam => {
+            const dotClass = cam.online ? 'dot-green' : 'dot-red';
+            if (cam.capturing && cam.online) {
+                return `<div class="cam-cell" data-cam="${cam.name}">
+                    <img src="/api/cameras/${cam.name}/stream" alt="${cam.name}" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                    <div class="cam-offline" style="display:none; position:absolute; inset:0;">FEED LOST</div>
+                    <div class="cam-label"><span class="status-dot ${dotClass}"></span>${cam.name}</div>
+                </div>`;
+            } else {
+                return `<div class="cam-cell" data-cam="${cam.name}">
+                    <div class="cam-offline">${cam.online ? 'IDLE' : 'OFFLINE'}</div>
+                    <div class="cam-label"><span class="status-dot ${dotClass}"></span>${cam.name}</div>
+                </div>`;
+            }
+        }).join('');
+    } else {
+        // Structure same — just update status dots
+        cameras.forEach(cam => {
+            const cell = grid.querySelector(`[data-cam="${cam.name}"]`);
+            if (!cell) return;
+            const dot = cell.querySelector('.status-dot');
+            if (dot) dot.className = `status-dot ${cam.online ? 'dot-green' : 'dot-red'}`;
+        });
+    }
 }
 
 function renderDashboardDetections(detections) {
     const tbody = document.getElementById('dashboard-detections');
     if (!tbody) return;
     if (!detections || !detections.length) {
-        tbody.innerHTML = '<tr><td colspan="5" style="padding:6px 8px; text-align:center; color:#475569; font-size:0.7rem;">No detections yet</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-2);">--</td></tr>';
         return;
     }
-    // Show up to 12 rows max to keep it compact
-    const rows = detections.slice(0, 12);
+    const rows = detections.slice(0, 14);
     tbody.innerHTML = rows.map(d => {
         const isPred = d.is_predator;
         const cls = d.class || d.class_name || '?';
         const cam = d.camera || d.camera_id || '?';
-        const conf = typeof d.confidence === 'number' ? `${(d.confidence * 100).toFixed(0)}%` : '?';
+        const conf = typeof d.confidence === 'number' ? `${(d.confidence * 100).toFixed(0)}%` : '--';
         const ts = formatTime(d.timestamp || d.detected_at);
-        return `<tr style="border-top:1px solid #1e293b;">
-            <td style="color:#94a3b8;">${ts}</td>
-            <td style="color:#64748b;">${cam}</td>
-            <td><span style="display:inline-block; padding:0 4px; border-radius:2px; font-size:0.65rem; ${isPred ? 'background:rgba(239,68,68,0.15); color:#f87171;' : 'background:rgba(71,85,105,0.3); color:#94a3b8;'}">${cls}</span></td>
-            <td style="color:#64748b;">${conf}</td>
-            <td style="color:${isPred ? '#f87171' : '#334155'}; font-size:0.65rem;">${isPred ? '⚠ PRED' : '·'}</td>
+        const badgeClass = isPred ? 'badge-red' : 'badge-mute';
+        return `<tr>
+            <td>${ts}</td>
+            <td>${cam}</td>
+            <td><span class="badge ${badgeClass}">${cls}</span></td>
+            <td>${conf}</td>
+            <td style="color:${isPred ? 'var(--red)' : 'var(--text-2)'};">${isPred ? 'PRED' : '--'}</td>
         </tr>`;
     }).join('');
 }
 
 // ─────────────────────────────────────────
-// Dashboard PTZ helpers (hardcoded to DASH_CAM)
+// Dashboard PTZ Status
 // ─────────────────────────────────────────
-function setDashPtzFeedback(msg, color = '#475569') {
-    const el = document.getElementById('dash-ptz-feedback');
-    if (el) { el.textContent = msg; el.style.color = color; }
-    setTimeout(() => { if (el) el.textContent = ''; }, 2000);
-}
-
-async function dashPtzMove(direction) {
-    const dirs = {
-        up: { pan: 0, tilt: 1 }, down: { pan: 0, tilt: -1 },
-        left: { pan: -1, tilt: 0 }, right: { pan: 1, tilt: 0 },
-    };
-    const d = dirs[direction] || { pan: 0, tilt: 0 };
-    try {
-        const res = await api.post(`/api/ptz/${DASH_CAM}/move`, { pan: d.pan, tilt: d.tilt, zoom: 0, speed: 25 });
-        if (!res.ok) setDashPtzFeedback('PTZ failed', '#f87171');
-    } catch (err) {
-        setDashPtzFeedback('Error: ' + err.message, '#f87171');
-    }
-}
-
-async function dashPtzStop() {
-    try {
-        await api.post(`/api/ptz/${DASH_CAM}/stop`);
-    } catch (err) {
-        setDashPtzFeedback('Stop failed', '#f87171');
-    }
-}
-
-async function dashPtzZoom(direction) {
-    const z = direction === 'in' ? 1 : -1;
-    try {
-        await api.post(`/api/ptz/${DASH_CAM}/move`, { pan: 0, tilt: 0, zoom: z, speed: 25 });
-        setTimeout(() => api.post(`/api/ptz/${DASH_CAM}/stop`).catch(() => {}), 500);
-    } catch (err) {
-        setDashPtzFeedback('Zoom failed', '#f87171');
-    }
-}
-
-async function dashSpotlight(on) {
-    try {
-        const res = await api.post(`/api/ptz/${DASH_CAM}/spotlight`, { on, brightness: 100 });
-        setDashPtzFeedback(on ? '☀ Spotlight ON' : 'Spotlight off', on ? '#fbbf24' : '#475569');
-    } catch (err) {
-        setDashPtzFeedback('Spotlight failed', '#f87171');
-    }
-}
-
-async function dashSiren() {
-    try {
-        const res = await api.post(`/api/ptz/${DASH_CAM}/siren`, { duration: 5 });
-        setDashPtzFeedback('⚠ Siren triggered (5s)', '#f87171');
-    } catch (err) {
-        setDashPtzFeedback('Siren failed', '#f87171');
-    }
-}
-
 async function loadDashboardPTZStatus() {
     try {
         const [ptzStatus, deterrent, tracks] = await Promise.all([
@@ -271,32 +215,32 @@ async function loadDashboardPTZStatus() {
         const patrolEl = document.getElementById('dash-patrol-status');
         if (patrolEl) {
             if (ptzStatus.patrol_active) {
-                patrolEl.textContent = ptzStatus.patrol_paused ? 'Paused (deterrent)' : 'Running';
-                patrolEl.style.color = ptzStatus.patrol_paused ? '#fbbf24' : '#4ade80';
+                patrolEl.textContent = ptzStatus.patrol_paused ? 'PAUSED' : 'ACTIVE';
+                patrolEl.style.color = ptzStatus.patrol_paused ? 'var(--amber)' : 'var(--green)';
             } else {
-                patrolEl.textContent = 'Off'; patrolEl.style.color = '#475569';
+                patrolEl.textContent = 'OFF'; patrolEl.style.color = 'var(--text-2)';
             }
         }
 
         const detEl = document.getElementById('dash-deterrent-status');
         if (detEl) {
             if (!deterrent.enabled) {
-                detEl.textContent = 'Disabled'; detEl.style.color = '#475569';
+                detEl.textContent = 'OFF'; detEl.style.color = 'var(--text-2)';
             } else if (deterrent.active_count > 0) {
-                detEl.textContent = `Active (${Object.keys(deterrent.active || {}).join(', ')})`;
-                detEl.style.color = '#f87171';
+                detEl.textContent = `ACTIVE (${Object.keys(deterrent.active || {}).join(', ')})`;
+                detEl.style.color = 'var(--red)';
             } else {
-                detEl.textContent = 'Ready'; detEl.style.color = '#4ade80';
+                detEl.textContent = 'READY'; detEl.style.color = 'var(--green)';
             }
         }
 
         const tracksEl = document.getElementById('dash-tracks-count');
         if (tracksEl) {
             tracksEl.textContent = tracks.length || '0';
-            tracksEl.style.color = tracks.length > 0 ? '#fbbf24' : '#475569';
+            tracksEl.style.color = tracks.length > 0 ? 'var(--amber)' : 'var(--text-2)';
         }
     } catch (err) {
-        // Non-critical — ignore
+        // non-critical
     }
 }
 
@@ -306,6 +250,7 @@ async function loadDashboardPTZStatus() {
 async function loadCameras() {
     try {
         const cameras = await api.get('/api/cameras');
+        cachedCameras = cameras;
         renderCamerasGrid(cameras);
     } catch (err) {
         console.error('Cameras load error:', err);
@@ -316,30 +261,30 @@ function renderCamerasGrid(cameras) {
     const container = document.getElementById('cameras-grid');
     if (!container) return;
     if (!cameras.length) {
-        container.innerHTML = '<div style="background:#1e293b; border:1px solid #334155; border-radius:4px; padding:12px; text-align:center; color:#475569; font-size:0.75rem;">No cameras found — click Rescan</div>';
+        container.innerHTML = '<div class="card" style="text-align:center; color:var(--text-2);">NO CAMERAS — RESCAN</div>';
         return;
     }
     container.innerHTML = cameras.map(cam => `
-        <div style="background:#1e293b; border:1px solid #334155; border-radius:4px; overflow:hidden;">
-            <div style="height:200px; background:#0a0f1e; position:relative;">
+        <div style="border: 1px solid var(--border); overflow: hidden;">
+            <div style="height: 180px; background: var(--bg-0); position: relative;">
                 ${cam.capturing
                     ? `<img src="/api/cameras/${cam.name}/stream" style="width:100%; height:100%; object-fit:contain; display:block;" alt="${cam.name}">`
-                    : `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; color:#475569; font-size:0.75rem;">Capture stopped</div>`
+                    : `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; color:var(--text-2);">IDLE</div>`
                 }
-                <div style="position:absolute; top:4px; right:4px; background:rgba(0,0,0,0.65); border-radius:3px; padding:2px 6px; font-size:0.65rem; display:flex; align-items:center; gap:4px;">
-                    <span style="width:6px; height:6px; border-radius:50%; background:${cam.online ? '#22c55e' : '#ef4444'}; display:inline-block;"></span>
-                    ${cam.online ? 'Online' : 'Offline'}
+                <div style="position:absolute; top:0; left:0; background:rgba(0,0,0,0.75); padding:1px 6px; font-size:10px; display:flex; align-items:center; gap:4px;">
+                    <span class="status-dot ${cam.online ? 'dot-green' : 'dot-red'}"></span>
+                    ${cam.online ? 'ONLINE' : 'OFFLINE'}
                 </div>
             </div>
-            <div style="padding:6px 8px; display:flex; align-items:center; justify-content:space-between;">
+            <div style="padding:4px 6px; display:flex; align-items:center; justify-content:space-between; background:var(--bg-2); border-top: 1px solid var(--border);">
                 <div>
-                    <div style="font-size:0.75rem; font-weight:600;">${cam.name}</div>
-                    <div style="font-size:0.65rem; color:#475569;">${cam.ip} · ${cam.type}</div>
+                    <div style="font-size:11px; color:var(--text-0);">${cam.name}</div>
+                    <div style="font-size:9px; color:var(--text-2);">${cam.ip} · ${cam.type}</div>
                 </div>
-                <div style="display:flex; gap:4px;">
+                <div style="display:flex; gap:3px;">
                     ${cam.capturing
-                        ? `<button onclick="stopCapture('${cam.name}')" style="padding:2px 8px; background:rgba(239,68,68,0.3); border:1px solid rgba(239,68,68,0.4); border-radius:3px; font-size:0.65rem; color:#f87171; cursor:pointer;">Stop</button>`
-                        : `<button onclick="startCapture('${cam.name}')" style="padding:2px 8px; background:rgba(34,197,94,0.2); border:1px solid rgba(34,197,94,0.3); border-radius:3px; font-size:0.65rem; color:#4ade80; cursor:pointer;">Start</button>`
+                        ? `<button onclick="stopCapture('${cam.name}')" class="btn btn-red">STOP</button>`
+                        : `<button onclick="startCapture('${cam.name}')" class="btn btn-green">START</button>`
                     }
                 </div>
             </div>
@@ -361,20 +306,20 @@ async function rescanCameras() {
 async function startCapture(name) {
     try {
         await api.post(`/api/cameras/${name}/capture/start`);
-        showToast(`Capture started for ${name}`);
+        showToast(`Capture started: ${name}`);
         refreshCurrentPage();
     } catch (err) {
-        showToast(`Failed to start ${name}: ${err.message}`, 'error');
+        showToast(`Failed: ${err.message}`, 'error');
     }
 }
 
 async function stopCapture(name) {
     try {
         await api.post(`/api/cameras/${name}/capture/stop`);
-        showToast(`Capture stopped for ${name}`);
+        showToast(`Capture stopped: ${name}`);
         refreshCurrentPage();
     } catch (err) {
-        showToast(`Failed to stop ${name}: ${err.message}`, 'error');
+        showToast(`Failed: ${err.message}`, 'error');
     }
 }
 
@@ -387,7 +332,7 @@ async function loadEventDates() {
         const select = document.getElementById('event-date-select');
         if (!select) return;
         const currentVal = select.value;
-        select.innerHTML = '<option value="">Select date...</option>' +
+        select.innerHTML = '<option value="">date...</option>' +
             dates.map(d => `<option value="${d.date}">${d.date} (${d.count})</option>`).join('');
         if (currentVal) { select.value = currentVal; loadEventsForDate(currentVal); }
     } catch (err) {
@@ -416,23 +361,24 @@ function renderEventsTable(events) {
     const tbody = document.getElementById('events-table');
     if (!tbody) return;
     if (!events.length) {
-        tbody.innerHTML = '<tr><td colspan="5" style="padding:8px; text-align:center; color:#475569; font-size:0.7rem;">No events match filters</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-2);">--</td></tr>';
         return;
     }
     tbody.innerHTML = events.map(e => {
         const isPred = e.is_predator;
-        let snapshotCell = '<span style="color:#334155;">—</span>';
+        let snapshotCell = '<span style="color:var(--text-2);">--</span>';
         if (e.snapshot) {
             const parts = e.snapshot.replace(/\\/g, '/').split('/');
             const filename = parts[parts.length - 1];
             const dateDir = parts[parts.length - 2];
-            snapshotCell = `<button onclick="openSnapshot('/api/snapshots/${dateDir}/${filename}')" style="color:#60a5fa; background:none; border:none; cursor:pointer; font-size:0.7rem; text-decoration:underline;">View</button>`;
+            snapshotCell = `<button onclick="openSnapshot('/api/snapshots/${dateDir}/${filename}')" style="color:var(--blue); background:none; border:none; cursor:pointer; font-size:10px; font-family:var(--mono); text-decoration:underline;">VIEW</button>`;
         }
-        return `<tr style="border-top:1px solid #1e293b;">
-            <td style="color:#94a3b8;">${formatTime(e.timestamp)}</td>
-            <td style="color:#64748b;">${e.camera || '?'}</td>
-            <td><span style="display:inline-block; padding:0 4px; border-radius:2px; font-size:0.65rem; ${isPred ? 'background:rgba(239,68,68,0.15); color:#f87171;' : 'background:rgba(71,85,105,0.3); color:#94a3b8;'}">${e.class || '?'}</span></td>
-            <td style="color:#64748b;">${(e.confidence * 100).toFixed(0)}%</td>
+        const badgeClass = isPred ? 'badge-red' : 'badge-mute';
+        return `<tr>
+            <td>${formatTime(e.timestamp)}</td>
+            <td>${e.camera || '--'}</td>
+            <td><span class="badge ${badgeClass}">${e.class || '?'}</span></td>
+            <td>${(e.confidence * 100).toFixed(0)}%</td>
             <td>${snapshotCell}</td>
         </tr>`;
     }).join('');
@@ -467,17 +413,15 @@ function renderAlertsTable(alerts) {
     const tbody = document.getElementById('alerts-table');
     if (!tbody) return;
     if (!alerts.length) {
-        tbody.innerHTML = '<tr><td colspan="4" style="padding:8px; text-align:center; color:#475569; font-size:0.7rem;">No alerts sent yet</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:var(--text-2);">--</td></tr>';
         return;
     }
     tbody.innerHTML = alerts.map(a => `
-        <tr style="border-top:1px solid #1e293b;">
-            <td style="color:#94a3b8;">${formatTime(a.timestamp || a.alerted_at)}</td>
-            <td style="color:#64748b;">${a.camera || a.camera_id || '—'}</td>
-            <td>${(a.classes || []).map(c =>
-                `<span style="display:inline-block; padding:0 4px; border-radius:2px; font-size:0.65rem; background:rgba(239,68,68,0.15); color:#f87171; margin-right:2px;">${c}</span>`
-            ).join('')}</td>
-            <td style="font-size:0.65rem; color:${a.sent || a.delivered ? '#4ade80' : '#f87171'};">${a.sent || a.delivered ? 'Sent' : 'Failed'}</td>
+        <tr>
+            <td>${formatTime(a.timestamp || a.alerted_at)}</td>
+            <td>${a.camera || a.camera_id || '--'}</td>
+            <td>${(a.classes || []).map(c => `<span class="badge badge-red">${c}</span>`).join(' ')}</td>
+            <td style="color:${a.sent || a.delivered ? 'var(--green)' : 'var(--red)'};">${a.sent || a.delivered ? 'SENT' : 'FAIL'}</td>
         </tr>
     `).join('');
 }
@@ -485,29 +429,27 @@ function renderAlertsTable(alerts) {
 async function sendTestAlert() {
     const btn = document.getElementById('test-alert-btn');
     const result = document.getElementById('test-alert-result');
-    if (btn) { btn.disabled = true; btn.textContent = 'Sending...'; }
+    if (btn) { btn.disabled = true; btn.textContent = 'SENDING...'; }
     try {
         const res = await api.post('/api/alerts/test');
         if (result) {
             result.style.display = 'block';
-            result.style.background = res.ok ? 'rgba(6,78,59,0.4)' : 'rgba(127,29,29,0.4)';
-            result.style.color = res.ok ? '#4ade80' : '#f87171';
+            result.style.color = res.ok ? 'var(--green)' : 'var(--red)';
             result.textContent = res.message;
         }
     } catch (err) {
         if (result) {
             result.style.display = 'block';
-            result.style.background = 'rgba(127,29,29,0.4)';
-            result.style.color = '#f87171';
-            result.textContent = 'Request failed: ' + err.message;
+            result.style.color = 'var(--red)';
+            result.textContent = err.message;
         }
     }
-    if (btn) { btn.disabled = false; btn.textContent = 'Test Alert'; }
-    setTimeout(() => { if (result) result.style.display = 'none'; }, 5000);
+    if (btn) { btn.disabled = false; btn.textContent = 'TEST ALERT'; }
+    setTimeout(() => { if (result) result.style.display = 'none'; }, 4000);
 }
 
 // ─────────────────────────────────────────
-// PTZ Control Page (full page — uses dropdown)
+// PTZ Control Page
 // ─────────────────────────────────────────
 async function loadPTZ() {
     try {
@@ -523,16 +465,16 @@ async function loadPTZ() {
             const ptzCameras = cameras.filter(c => c.type === 'ptz' && c.online);
             select.innerHTML = ptzCameras.length
                 ? ptzCameras.map(c => `<option value="${c.name}">${c.name}</option>`).join('')
-                : '<option value="">No PTZ cameras online</option>';
+                : '<option value="">--</option>';
         }
 
         const statusEl = document.getElementById('ptz-patrol-status');
         if (statusEl) {
             if (ptzStatus.patrol_active) {
-                statusEl.textContent = ptzStatus.patrol_paused ? 'Patrol paused (deterrent active)' : 'Patrol running';
-                statusEl.style.color = ptzStatus.patrol_paused ? '#fbbf24' : '#4ade80';
+                statusEl.textContent = ptzStatus.patrol_paused ? 'PAUSED' : 'ACTIVE';
+                statusEl.style.color = ptzStatus.patrol_paused ? 'var(--amber)' : 'var(--green)';
             } else {
-                statusEl.textContent = 'Patrol not active'; statusEl.style.color = '#475569';
+                statusEl.textContent = 'OFF'; statusEl.style.color = 'var(--text-2)';
             }
         }
 
@@ -541,11 +483,11 @@ async function loadPTZ() {
         const detEl = document.getElementById('deterrent-status');
         if (detEl) {
             if (!deterrentStatus.enabled) {
-                detEl.textContent = 'Deterrents disabled'; detEl.style.color = '#475569';
+                detEl.textContent = 'OFF'; detEl.style.color = 'var(--text-2)';
             } else if (deterrentStatus.active_count > 0) {
-                detEl.textContent = `Active: ${Object.keys(deterrentStatus.active).join(', ')}`; detEl.style.color = '#f87171';
+                detEl.textContent = `ACTIVE: ${Object.keys(deterrentStatus.active).join(', ')}`; detEl.style.color = 'var(--red)';
             } else {
-                detEl.textContent = 'Ready (no active threats)'; detEl.style.color = '#4ade80';
+                detEl.textContent = 'READY'; detEl.style.color = 'var(--green)';
             }
         }
 
@@ -553,13 +495,13 @@ async function loadPTZ() {
         if (tracksEl) {
             if (tracks.length) {
                 tracksEl.innerHTML = tracks.map(t =>
-                    `<div style="display:flex; justify-content:space-between; padding:2px 0; font-size:0.7rem;">
-                        <span style="color:${t.is_predator ? '#f87171' : '#94a3b8'};">${t.class_name}</span>
-                        <span style="color:#475569;">${t.detection_count} det, ${t.duration_sec}s</span>
+                    `<div style="display:flex; justify-content:space-between; padding:1px 0;">
+                        <span style="color:${t.is_predator ? 'var(--red)' : 'var(--text-1)'};">${t.class_name}</span>
+                        <span style="color:var(--text-2);">${t.detection_count}x ${t.duration_sec}s</span>
                     </div>`
                 ).join('');
             } else {
-                tracksEl.textContent = 'No active tracks'; tracksEl.style.color = '#475569';
+                tracksEl.textContent = '--'; tracksEl.style.color = 'var(--text-2)';
             }
         }
     } catch (err) {
@@ -574,18 +516,17 @@ async function renderPresetButtons() {
         const config = await api.get('/api/config');
         const presets = (config.ptz || {}).presets || [];
         if (!presets.length) {
-            container.innerHTML = '<div style="font-size:0.7rem; color:#475569;">No presets configured</div>';
+            container.innerHTML = '<div style="color:var(--text-2);">--</div>';
             return;
         }
         container.innerHTML = presets.map((p, i) =>
-            `<button onclick="goToPreset(${i})"
-                style="display:flex; align-items:center; justify-content:space-between; padding:3px 8px; background:#0f172a; border:1px solid #334155; border-radius:3px; font-size:0.7rem; color:#94a3b8; cursor:pointer; width:100%;">
+            `<button onclick="goToPreset(${i})" class="btn" style="width:100%; display:flex; justify-content:space-between;">
                 <span>${p.name}</span>
-                <span style="color:#334155; font-size:0.65rem;">dwell: ${p.dwell || 30}s</span>
+                <span style="color:var(--text-2);">${p.dwell || 30}s</span>
             </button>`
         ).join('');
     } catch {
-        if (container) container.innerHTML = '<div style="font-size:0.7rem; color:#475569;">Could not load presets</div>';
+        if (container) container.innerHTML = '<div style="color:var(--text-2);">--</div>';
     }
 }
 
@@ -595,7 +536,7 @@ function getSelectedPTZCamera() {
 
 async function ptzMove(direction) {
     const cam = getSelectedPTZCamera();
-    if (!cam) return showToast('No PTZ camera selected', 'error');
+    if (!cam) return showToast('No PTZ camera', 'error');
     const dirs = {
         up: { pan: 0, tilt: 1 }, down: { pan: 0, tilt: -1 },
         left: { pan: -1, tilt: 0 }, right: { pan: 1, tilt: 0 },
@@ -604,7 +545,7 @@ async function ptzMove(direction) {
     try {
         await api.post(`/api/ptz/${cam}/move`, { pan: d.pan, tilt: d.tilt, zoom: 0, speed: 25 });
     } catch (err) {
-        showToast('PTZ move failed: ' + err.message, 'error');
+        showToast('PTZ failed: ' + err.message, 'error');
     }
 }
 
@@ -612,12 +553,12 @@ async function ptzStop() {
     const cam = getSelectedPTZCamera();
     if (!cam) return;
     try { await api.post(`/api/ptz/${cam}/stop`); }
-    catch (err) { showToast('PTZ stop failed: ' + err.message, 'error'); }
+    catch (err) { showToast('Stop failed: ' + err.message, 'error'); }
 }
 
 async function ptzZoom(direction) {
     const cam = getSelectedPTZCamera();
-    if (!cam) return showToast('No PTZ camera selected', 'error');
+    if (!cam) return showToast('No PTZ camera', 'error');
     const z = direction === 'in' ? 1 : -1;
     try {
         await api.post(`/api/ptz/${cam}/move`, { pan: 0, tilt: 0, zoom: z, speed: 25 });
@@ -629,21 +570,21 @@ async function ptzZoom(direction) {
 
 async function goToPreset(index) {
     const cam = getSelectedPTZCamera();
-    if (!cam) return showToast('No PTZ camera selected', 'error');
+    if (!cam) return showToast('No PTZ camera', 'error');
     try {
         await api.post(`/api/ptz/${cam}/preset/${index}`);
-        showToast(`Moving to preset ${index}`);
+        showToast(`Preset ${index}`);
     } catch (err) {
-        showToast('Preset goto failed: ' + err.message, 'error');
+        showToast('Preset failed: ' + err.message, 'error');
     }
 }
 
 async function toggleSpotlight(on) {
     const cam = getSelectedPTZCamera();
-    if (!cam) return showToast('No PTZ camera selected', 'error');
+    if (!cam) return showToast('No PTZ camera', 'error');
     try {
         await api.post(`/api/ptz/${cam}/spotlight`, { on, brightness: 100 });
-        showToast(on ? 'Spotlight on' : 'Spotlight off');
+        showToast(on ? 'SPOT ON' : 'SPOT OFF');
     } catch (err) {
         showToast('Spotlight failed: ' + err.message, 'error');
     }
@@ -651,10 +592,10 @@ async function toggleSpotlight(on) {
 
 async function triggerSiren() {
     const cam = getSelectedPTZCamera();
-    if (!cam) return showToast('No PTZ camera selected', 'error');
+    if (!cam) return showToast('No PTZ camera', 'error');
     try {
         await api.post(`/api/ptz/${cam}/siren`, { duration: 5 });
-        showToast('Siren triggered (5s)');
+        showToast('SIREN 5s');
     } catch (err) {
         showToast('Siren failed: ' + err.message, 'error');
     }
@@ -669,7 +610,7 @@ async function loadReportDates() {
         const select = document.getElementById('report-date-select');
         if (!select) return;
         const currentVal = select.value;
-        select.innerHTML = '<option value="">Select date...</option>' +
+        select.innerHTML = '<option value="">date...</option>' +
             (dates || []).map(d => `<option value="${d}">${d}</option>`).join('');
         if (currentVal) { select.value = currentVal; loadReport(currentVal); }
     } catch (err) {
@@ -684,19 +625,19 @@ async function loadReport(dateStr) {
         renderReport(report);
     } catch (err) {
         const container = document.getElementById('report-content');
-        if (container) container.innerHTML = `<div style="color:#f87171; font-size:0.75rem; padding:8px;">Failed to load report: ${err.message}</div>`;
+        if (container) container.innerHTML = `<div style="color:var(--red); padding:6px;">${err.message}</div>`;
     }
 }
 
 async function generateReport() {
     try {
-        showToast('Generating report...');
+        showToast('Generating...');
         const report = await api.post('/api/reports/generate', {});
         renderReport(report);
         loadReportDates();
         showToast('Report generated');
     } catch (err) {
-        showToast('Generate failed: ' + err.message, 'error');
+        showToast('Failed: ' + err.message, 'error');
     }
 }
 
@@ -706,89 +647,68 @@ function renderReport(report) {
     const stats = report.stats || {};
     const visits = report.predator_visits || [];
 
-    let html = `<div style="background:#1e293b; border:1px solid #334155; border-radius:4px; padding:8px; margin-bottom:6px;">
-        <div style="font-size:0.75rem; font-weight:600; margin-bottom:4px;">Summary — ${report.date || ''}</div>
-        <div style="font-size:0.7rem; color:#94a3b8;">${report.summary || 'No summary available.'}</div>
+    let html = `<div class="card" style="margin-bottom:3px;">
+        <div class="card-title">${report.date || '--'}</div>
+        <div style="color:var(--text-1);">${report.summary || '--'}</div>
     </div>`;
 
-    html += `<div style="display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-bottom:6px;">
-        <div style="background:#1e293b; border:1px solid #334155; border-radius:4px; padding:6px;">
-            <div style="font-size:0.6rem; color:#475569;">Total Detections</div>
-            <div style="font-size:1rem; font-weight:700; color:#60a5fa;">${stats.total_detections || 0}</div>
-        </div>
-        <div style="background:#1e293b; border:1px solid #334155; border-radius:4px; padding:6px;">
-            <div style="font-size:0.6rem; color:#475569;">Predator Detections</div>
-            <div style="font-size:1rem; font-weight:700; color:#f87171;">${stats.predator_detections || 0}</div>
-        </div>
-        <div style="background:#1e293b; border:1px solid #334155; border-radius:4px; padding:6px;">
-            <div style="font-size:0.6rem; color:#475569;">Alerts Sent</div>
-            <div style="font-size:1rem; font-weight:700; color:#fbbf24;">${stats.alerts_sent || 0}</div>
-        </div>
-        <div style="background:#1e293b; border:1px solid #334155; border-radius:4px; padding:6px;">
-            <div style="font-size:0.6rem; color:#475569;">Deterrent Success</div>
-            <div style="font-size:1rem; font-weight:700; color:#4ade80;">${((stats.deterrent_success_rate || 0) * 100).toFixed(0)}%</div>
-        </div>
+    html += `<div style="display:grid; grid-template-columns:repeat(4,1fr); gap:3px; margin-bottom:3px;">
+        <div class="card"><div class="card-title">DETECTIONS</div><div style="font-size:16px; font-weight:700; color:var(--blue);">${stats.total_detections || 0}</div></div>
+        <div class="card"><div class="card-title">PREDATORS</div><div style="font-size:16px; font-weight:700; color:var(--red);">${stats.predator_detections || 0}</div></div>
+        <div class="card"><div class="card-title">ALERTS</div><div style="font-size:16px; font-weight:700; color:var(--amber);">${stats.alerts_sent || 0}</div></div>
+        <div class="card"><div class="card-title">DETERRENT %</div><div style="font-size:16px; font-weight:700; color:var(--green);">${((stats.deterrent_success_rate || 0) * 100).toFixed(0)}%</div></div>
     </div>`;
 
     const species = stats.species_counts || {};
     if (Object.keys(species).length) {
-        html += `<div style="background:#1e293b; border:1px solid #334155; border-radius:4px; padding:8px; margin-bottom:6px;">
-            <div style="font-size:0.7rem; font-weight:600; margin-bottom:4px;">Species Breakdown</div>
+        const maxCount = Math.max(...Object.values(species));
+        const predSet = new Set(['hawk','bobcat','coyote','fox','raccoon','possum','wild_cat']);
+        html += `<div class="card" style="margin-bottom:3px;">
+            <div class="card-title">SPECIES</div>
             ${Object.entries(species).sort((a, b) => b[1] - a[1]).map(([name, count]) => {
-                const maxCount = Math.max(...Object.values(species));
                 const pct = maxCount > 0 ? (count / maxCount * 100) : 0;
-                const isPred = new Set(['hawk','bobcat','coyote','fox','raccoon','possum','wild_cat']).has(name);
-                return `<div style="display:flex; align-items:center; gap:6px; margin-bottom:2px;">
-                    <span style="width:80px; font-size:0.65rem; text-align:right; color:#94a3b8;">${name}</span>
-                    <div style="flex:1; background:#0f172a; border-radius:2px; height:8px;">
-                        <div style="background:${isPred ? '#ef4444' : '#3b82f6'}; height:8px; border-radius:2px; width:${pct}%;"></div>
-                    </div>
-                    <span style="font-size:0.65rem; color:#475569; width:24px;">${count}</span>
+                const color = predSet.has(name) ? 'var(--red)' : 'var(--blue)';
+                return `<div style="display:flex; align-items:center; gap:4px; margin-bottom:1px;">
+                    <span style="width:70px; text-align:right; color:var(--text-1);">${name}</span>
+                    <div style="flex:1; background:var(--bg-0); height:6px;"><div style="background:${color}; height:6px; width:${pct}%;"></div></div>
+                    <span style="color:var(--text-2); width:20px;">${count}</span>
                 </div>`;
             }).join('')}
         </div>`;
     }
 
     if (visits.length) {
-        html += `<div style="background:#1e293b; border:1px solid #334155; border-radius:4px; padding:8px; margin-bottom:6px;">
-            <div style="font-size:0.7rem; font-weight:600; margin-bottom:4px;">Predator Visits</div>
-            <table style="width:100%; border-collapse:collapse;">
-                <thead><tr style="background:#0f172a;">
-                    <th style="text-align:left; padding:2px 6px; font-size:0.65rem; color:#475569; font-weight:500;">Time</th>
-                    <th style="text-align:left; padding:2px 6px; font-size:0.65rem; color:#475569; font-weight:500;">Species</th>
-                    <th style="text-align:left; padding:2px 6px; font-size:0.65rem; color:#475569; font-weight:500;">Duration</th>
-                    <th style="text-align:left; padding:2px 6px; font-size:0.65rem; color:#475569; font-weight:500;">Conf</th>
-                    <th style="text-align:left; padding:2px 6px; font-size:0.65rem; color:#475569; font-weight:500;">Deterrent</th>
-                    <th style="text-align:left; padding:2px 6px; font-size:0.65rem; color:#475569; font-weight:500;">Outcome</th>
-                </tr></thead>
-                <tbody>${visits.map(v => {
-                    const dur = v.duration_seconds || 0;
-                    const durStr = dur < 60 ? `${dur.toFixed(0)}s` : `${(dur/60).toFixed(1)}m`;
-                    return `<tr style="border-top:1px solid #1e293b;">
-                        <td style="padding:2px 6px; font-size:0.7rem; color:#94a3b8;">${v.time}</td>
-                        <td style="padding:2px 6px; font-size:0.7rem; color:#f87171;">${v.species}</td>
-                        <td style="padding:2px 6px; font-size:0.7rem; color:#64748b;">${durStr}</td>
-                        <td style="padding:2px 6px; font-size:0.7rem; color:#64748b;">${((v.max_confidence || 0) * 100).toFixed(0)}%</td>
-                        <td style="padding:2px 6px; font-size:0.7rem; color:#64748b;">${(v.deterrent || []).join(', ') || '--'}</td>
-                        <td style="padding:2px 6px; font-size:0.7rem; color:${v.outcome === 'deterred' ? '#4ade80' : '#475569'};">${v.outcome}</td>
-                    </tr>`;
-                }).join('')}</tbody>
-            </table>
+        html += `<div class="card" style="margin-bottom:3px;">
+            <div class="card-title">PREDATOR VISITS</div>
+            <table class="tbl"><thead><tr>
+                <th>TIME</th><th>SPECIES</th><th>DUR</th><th>CONF</th><th>ACTION</th><th>RESULT</th>
+            </tr></thead><tbody>${visits.map(v => {
+                const dur = v.duration_seconds || 0;
+                const durStr = dur < 60 ? `${dur.toFixed(0)}s` : `${(dur/60).toFixed(1)}m`;
+                return `<tr>
+                    <td>${v.time}</td>
+                    <td style="color:var(--red);">${v.species}</td>
+                    <td>${durStr}</td>
+                    <td>${((v.max_confidence || 0) * 100).toFixed(0)}%</td>
+                    <td>${(v.deterrent || []).join(', ') || '--'}</td>
+                    <td style="color:${v.outcome === 'deterred' ? 'var(--green)' : 'var(--text-2)'};">${v.outcome}</td>
+                </tr>`;
+            }).join('')}</tbody></table>
         </div>`;
     }
 
     const hourly = stats.activity_by_hour || {};
     if (Object.keys(hourly).length) {
         const maxH = Math.max(...Object.values(hourly));
-        html += `<div style="background:#1e293b; border:1px solid #334155; border-radius:4px; padding:8px;">
-            <div style="font-size:0.7rem; font-weight:600; margin-bottom:4px;">Activity by Hour</div>
-            <div style="display:flex; align-items:flex-end; gap:1px; height:60px;">
+        html += `<div class="card">
+            <div class="card-title">HOURLY ACTIVITY</div>
+            <div style="display:flex; align-items:flex-end; gap:1px; height:50px;">
                 ${Array.from({length: 24}, (_, h) => {
                     const count = hourly[String(h)] || 0;
                     const pct = maxH > 0 ? (count / maxH * 100) : 0;
                     return `<div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; height:100%;">
-                        <div style="width:100%; background:rgba(59,130,246,0.6); border-radius:1px 1px 0 0;" title="${h}:00 — ${count}" style="height:${pct}%;"></div>
-                        <span style="font-size:0.5rem; color:#334155; margin-top:1px;">${h}</span>
+                        <div style="width:100%; background:rgba(88,166,255,0.5); height:${pct}%;" title="${h}:00 — ${count}"></div>
+                        <span style="font-size:8px; color:var(--text-2); margin-top:1px;">${h}</span>
                     </div>`;
                 }).join('')}
             </div>
@@ -829,7 +749,7 @@ function populateSettingsForm(config) {
         const classes = [...new Set([...(det.predator_classes || []), ...Object.keys(thresholds)])];
         container.innerHTML = classes.map(cls => `
             <div>
-                <label style="display:block; font-size:0.6rem; color:#475569; margin-bottom:1px;">${cls}</label>
+                <label style="display:block; font-size:9px; color:var(--text-2); margin-bottom:1px;">${cls}</label>
                 <input type="number" id="cfg-thresh-${cls}" min="0" max="1" step="0.05"
                     value="${thresholds[cls] ?? det.confidence_threshold ?? 0.45}">
             </div>
@@ -858,7 +778,7 @@ async function saveDetectionConfig() {
         const zoneStr = g('cfg-zone').trim();
         if (zoneStr) zone = JSON.parse(zoneStr);
     } catch {
-        showToast('Invalid JSON for no-alert zone', 'error');
+        showToast('Invalid zone JSON', 'error');
         return;
     }
 
@@ -901,8 +821,8 @@ async function saveAlertConfig() {
 function showSaveResult(elementId, success, message) {
     const el = document.getElementById(elementId);
     if (!el) return;
-    el.style.display = 'block';
-    el.style.color = success ? '#4ade80' : '#f87171';
+    el.style.display = 'inline';
+    el.style.color = success ? 'var(--green)' : 'var(--red)';
     el.textContent = message;
     setTimeout(() => { el.style.display = 'none'; }, 4000);
 }
@@ -915,8 +835,8 @@ function formatUptime(seconds) {
     const h = Math.floor(seconds / 3600);
     const m = Math.floor((seconds % 3600) / 60);
     const s = Math.floor(seconds % 60);
-    if (h > 0) return `${h}h ${m}m`;
-    if (m > 0) return `${m}m ${s}s`;
+    if (h > 0) return `${h}h${m}m`;
+    if (m > 0) return `${m}m${s}s`;
     return `${s}s`;
 }
 
@@ -924,7 +844,7 @@ function formatTime(timestamp) {
     if (!timestamp) return '--';
     try {
         const d = new Date(timestamp);
-        return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
     } catch {
         return timestamp;
     }
@@ -932,38 +852,24 @@ function formatTime(timestamp) {
 
 function showToast(message, type = 'info') {
     const toast = document.createElement('div');
-    const bg = type === 'error' ? '#dc2626' : '#059669';
-    toast.style.cssText = `position:fixed; bottom:12px; right:12px; background:${bg}; color:white; padding:4px 10px; border-radius:4px; font-size:0.7rem; z-index:100; opacity:1; transition:opacity 0.3s;`;
+    const bg = type === 'error' ? 'var(--red)' : 'var(--green)';
+    toast.style.cssText = `position:fixed; bottom:8px; right:8px; background:${bg}; color:#000; padding:3px 8px; font-size:10px; font-family:var(--mono); z-index:100; opacity:1; transition:opacity 0.3s;`;
     toast.textContent = message;
     document.body.appendChild(toast);
-    setTimeout(() => { toast.style.opacity = '0'; }, 2500);
-    setTimeout(() => toast.remove(), 3000);
+    setTimeout(() => { toast.style.opacity = '0'; }, 2000);
+    setTimeout(() => toast.remove(), 2500);
 }
 
 // ─────────────────────────────────────────
-// Dashboard resize handler — keep layout tight
+// Layout — adapt detection panel height
 // ─────────────────────────────────────────
 function adjustDashboardLayout() {
-    const dashPage = document.getElementById('page-dashboard');
-    if (!dashPage || currentPage !== 'dashboard') return;
-
-    const totalH = window.innerHeight;
-    const statusBarH = document.getElementById('status-bar')?.offsetHeight || 22;
-    const availH = totalH - statusBarH - 8; // 8px padding
-
-    const mainArea = document.getElementById('dashboard-main-area');
+    if (currentPage !== 'dashboard') return;
     const detPanel = document.getElementById('det-panel');
-
-    if (!mainArea || !detPanel) return;
-
-    // Detection table gets ~100px (enough for ~8-10 rows at 0.7rem)
-    const detH = 100;
-    const mainH = availH - detH - 4; // 4px gap between areas
-
-    mainArea.style.height = mainH + 'px';
-    mainArea.style.flex = 'none';
-    detPanel.style.maxHeight = detH + 'px';
-    detPanel.style.overflowY = 'auto';
+    if (detPanel) {
+        detPanel.style.maxHeight = '110px';
+        detPanel.style.overflowY = 'auto';
+    }
 }
 
 // ─────────────────────────────────────────
