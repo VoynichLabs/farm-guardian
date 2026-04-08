@@ -101,68 +101,24 @@ No test suite yet. This is a v2 production system (Phases 1-4 complete).
 
 **Cloudflare tunnel live:** Guardian dashboard exposed at `https://guardian.markbarney.net` via Cloudflare tunnel from the Mac Mini. No port forwarding needed.
 
+**Preset save/recall API (v2.8.0):** Three new endpoints — list presets, save current position as preset, recall preset. Camera moves autonomously to saved position with no polling or overshoot. Bypasses reolink_aio validation to send raw `setPos` command.
+
 **TODO:**
-- Implement preset save/recall API endpoints (see "Camera Control" section below)
+- **Save camera presets** — no presets exist yet. See "Preset Map" below for the positions to save.
 - Front camera mirror mode for hatched chick — switch RTSP Camera Server to front camera on the S7 screen so the chick can see herself (enrichment)
 
 ---
 
-## Camera Control — Critical Knowledge
+## Camera Control — Principles
 
-**READ THIS BEFORE TOUCHING PTZ CODE.** Previous assistants have gotten this wrong multiple times.
+**For all camera-specific technical details, API shapes, endpoints, and procedures, read `AGENTS_CAMERA.md`.** That file is the single source of truth for camera operations.
 
-### The Reolink E1 Outdoor Pro does NOT support absolute pan/tilt positioning
-
-There is no "go to pan=3600, tilt=28" command. The Reolink HTTP API only supports:
-- **Directional move/stop** — start moving in a direction, poll position, send stop. Unreliable over the internet.
-- **Preset recall** — `PtzCtrl` with `op: "ToPos"` + `id: N` jumps to a saved preset. Instant and precise.
-- **Preset save** — `PtzCtrl` with `op: "setPos"` + `id: N` + `name: "house"` saves the current position as a preset.
-
-This is a firmware limitation confirmed by the `reolink_aio` library maintainer ([issue #147](https://github.com/starkillerOG/reolink_aio/issues/147)). Do not waste time trying to send absolute coordinates.
-
-### The reolink_aio library is a partial wrapper, not the full API
-
-The library validates PTZ commands against `PtzEnum` which only has directional commands. It blocks commands like `"setPos"` for saving presets. **To access the full camera API, bypass the library and call `host.send_setting()` directly with raw JSON bodies.** The camera accepts anything its firmware supports — the library is just a middleman with incomplete coverage.
-
-**Key principle:** Anything the Reolink phone app can do, we can do. The app is just an HTTP client hitting the same API. If the library doesn't expose a feature, send the raw command.
-
-### Preset-based positioning (the correct approach)
-
-Save named presets at key positions, then recall them instantly:
-
-```python
-# Save current position as preset (bypasses library validation)
-body = [{"cmd": "PtzCtrl", "action": 0, "param": {"channel": 0, "op": "setPos", "id": 0, "name": "house"}}]
-await host.send_setting(body)
-
-# Recall preset (library supports this)
-ctrl.ptz_goto_preset(camera_id, preset_index=0)
-```
-
-### Remote PTZ speed warning
-
-Even speed 5 moves at ~85°/second. Over the Cloudflare tunnel, network latency makes move/stop cycles unreliable — you will overshoot. For remote sessions, use presets whenever possible. If you must nudge manually, use very short bursts (0.3s move, stop, check position, repeat).
-
-### Autofocus
-
-After any movement, trigger autofocus and wait 2-3 seconds before taking a snapshot. Without this wait, images are blurry. This is non-negotiable.
-
-### Zoom is out of scope
-
-Do not add zoom features. The camera is always at zoom 0 (widest). Autofocus handles everything at that setting. Zoom adds complexity for zero benefit right now.
-
-### World model (what the camera sees)
-
-| Pan (degrees) | Pan (raw) | Location | Notes |
-|---------------|-----------|----------|-------|
-| 0° / 360° | 0 / 7200 | DEAD ZONE — mounting post | Post blocks 40% of frame. Skip. |
-| ~90° | ~1800 | Yard / hillside | Green slope, fire pit, treeline |
-| ~180° | ~3600 | **THE HOUSE** | Chickens, coop, truck, primary monitoring view |
-| ~270° | ~5400 | Old stable foundation | Property edge, Rose of Sharon bushes, corn field neighbor |
-
-Coordinate system: Pan 0–7200 (20 units per degree). Pan right = increasing values. Tilt readback is broken at many angles.
-
-See `docs/08-Apr-2026-absolute-ptz-investigation.md` for full investigation details and `docs/08-Apr-2026-camera-setup-handoff.md` for operational procedures.
+Durable rules:
+- **Never suggest using the Reolink phone app.** We ARE the Reolink app. The camera is an HTTP server. Anything the app can do, we can do with raw JSON commands. If the `reolink_aio` library doesn't expose a feature, bypass it and call `host.send_setting()` directly.
+- **Never declare something impossible without reading the full library source.** The `reolink_aio` library is ~5000 lines (`venv/lib/python3.11/site-packages/reolink_aio/api.py`). Skimming it will miss critical capabilities. Read the actual methods, the enums, the body construction. Check both the HTTP API and the Baichuan protocol module.
+- **Never trust a GitHub issue as the final word.** An open issue saying "not supported" might mean the library hasn't wired it up, not that the camera can't do it. Verify against the actual firmware behavior.
+- **Autofocus wait is non-negotiable.** After any camera movement, trigger autofocus and wait 3 seconds before taking a snapshot. Every blurry image in this project's history was caused by skipping this.
+- **Zoom is out of scope.** Camera stays at zoom 0 (widest). Do not add zoom features.
 
 ## Architecture
 
@@ -326,102 +282,6 @@ These standards apply to ALL code in this repository. Non-negotiable.
 
 ---
 
-## Remote Camera Assistant Playbook
+## Remote Camera Operations
 
-**This section is for assistants running remotely (via Claude Code web, Railway, or any session NOT on the Mac Mini).** If you are running locally on the Mac Mini, you can use direct Python instead — see `docs/08-Apr-2026-camera-setup-handoff.md`.
-
-### Prerequisites
-
-- Guardian must be running on the Mac Mini (`python guardian.py --debug`)
-- The Cloudflare tunnel must be active (it runs as a LaunchAgent, should be automatic)
-- Base URL: `https://guardian.markbarney.net/api/v1`
-
-### How to take a clean snapshot
-
-This is the single most common operation. Do it exactly this way every time:
-
-```bash
-# 1. Trigger autofocus
-curl -s -X POST https://guardian.markbarney.net/api/v1/cameras/house-yard/autofocus
-
-# 2. WAIT 3 seconds — non-negotiable, the lens needs time to settle
-sleep 3
-
-# 3. Take the snapshot
-curl -s https://guardian.markbarney.net/api/v1/cameras/house-yard/snapshot \
-  --output /tmp/snap_descriptive_name.jpg
-
-# 4. Read the image (you'll see it, the user won't)
-# Use the Read tool on the .jpg file
-
-# 5. Describe what you see to the user in detail
-```
-
-**You cannot display images to the user in chat.** You can only describe what you see. Be specific — mention landmarks, objects, animals, changes from previous snapshots.
-
-### How to read camera position
-
-```bash
-curl -s https://guardian.markbarney.net/api/v1/cameras/house-yard/position
-# Returns: {"camera_id":"house-yard","pan":3600,"pan_degrees":180.0,"tilt":28,"zoom":0}
-```
-
-Use the world model table (in "Camera Control" section above) to understand what the camera is looking at based on pan degrees.
-
-### How to move the camera (once presets are implemented)
-
-**Preferred — use presets:**
-```bash
-# Go to a named position (instant, reliable, no overshooting)
-curl -s -X POST https://guardian.markbarney.net/api/v1/cameras/house-yard/preset/goto \
-  -H "Content-Type: application/json" -d '{"preset": "house"}'
-```
-
-**Fallback — manual nudge (use only if presets aren't available):**
-```bash
-# Short burst: move, wait 0.3-0.5s, stop, check position, repeat
-curl -s -X POST https://guardian.markbarney.net/api/v1/cameras/house-yard/ptz \
-  -H "Content-Type: application/json" -d '{"action":"move","pan":-1,"tilt":0,"speed":5}'
-sleep 0.4
-curl -s -X POST https://guardian.markbarney.net/api/v1/cameras/house-yard/ptz \
-  -H "Content-Type: application/json" -d '{"action":"stop"}'
-curl -s https://guardian.markbarney.net/api/v1/cameras/house-yard/position
-# Check position, repeat if needed
-```
-
-**WARNING:** Each 0.5s burst at speed 5 moves ~43°. Do NOT sleep longer than 0.5s before stopping — you will overshoot. Always stop, check, then move again.
-
-### How to respond to Mark's commands
-
-Mark will message from his phone while outside. He expects immediate action, not questions.
-
-| Mark says | You do |
-|-----------|--------|
-| "pan left" / "pan right" | Short PTZ burst in that direction, report new position |
-| "look at the house" | Go to preset "house" (~180°) or nudge to ~3600 pan |
-| "what do you see?" | Take snapshot (with autofocus wait), describe in detail |
-| "tilt up" / "tilt down" | Short tilt burst, report new position |
-| "is it in focus?" | Take snapshot, evaluate sharpness, report honestly |
-| "stop" | Send PTZ stop command immediately |
-
-### Monitoring task (if requested)
-
-Mark may ask you to check the camera periodically. Since remote sessions cannot schedule cron jobs, do a check with every message he sends:
-
-1. Read position
-2. Trigger autofocus, wait 3 seconds
-3. Take snapshot with descriptive filename: `snap_NNN_HHMM_panXXXdeg_tiltYY.jpg`
-4. Read and describe the image
-5. Note changes from previous check
-6. Append observations to `/tmp/camera_observations.md`
-
-### Patrol conflict
-
-If Guardian's step-and-dwell patrol is running, it will override your manual PTZ commands every ~8 seconds. You cannot win this fight. If Mark wants manual control, Guardian's patrol must be stopped first (Mark or Bubba needs to do this on the Mac Mini).
-
-### Lessons learned (from 08-Apr-2026 session)
-
-- **Don't declare things impossible without reading the full source.** The reolink_aio library is ~5000 lines. Skimming it and trusting a GitHub issue led to a wrong conclusion about preset saving.
-- **The Reolink camera is just an HTTP server.** Anything the Reolink phone app can do, we can do with raw JSON commands via `send_setting()`. The library is a convenience wrapper, not a capability boundary.
-- **Speed 5 is not slow.** It moves at ~85°/second. The handoff doc's advice was calibrated for local 0.3s polling, not remote control over Cloudflare.
-- **Always wait for autofocus.** 3 seconds minimum. Every blurry snapshot in this project's history was caused by skipping this wait.
+**All camera-specific procedures, API endpoints, shapes, and operational knowledge live in `AGENTS_CAMERA.md`.** Read that file before any camera work. It contains everything a remote assistant needs to operate the camera correctly — learned from real mistakes, not guesses.
