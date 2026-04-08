@@ -236,6 +236,7 @@ class CameraController:
         """Move camera to a saved PTZ preset by index (0-based).
 
         reolink_aio expects preset as an int index into the ptz_presets dict.
+        The camera moves autonomously to the saved position — no polling needed.
         """
         host = self._get_host(camera_id)
         if not host:
@@ -248,6 +249,63 @@ class CameraController:
         except Exception as exc:
             log.error("PTZ goto preset failed for '%s': %s", camera_id, exc)
             return False
+
+    def ptz_save_preset(self, camera_id: str, preset_id: int, name: str = "") -> bool:
+        """Save the camera's current position as a named preset.
+
+        Bypasses reolink_aio's set_ptz_command() validation which rejects
+        the "setPos" op (it only allows PtzEnum values like Left/Right/Stop).
+        Calls host.send_setting() directly with the raw PtzCtrl body.
+
+        The Reolink E1 supports up to 64 presets. Once saved, any client can
+        recall the preset with ptz_goto_preset(id) — the camera moves there
+        autonomously with no polling or overshoot issues.
+        """
+        host = self._get_host(camera_id)
+        if not host:
+            log.warning("ptz_save_preset: camera '%s' not connected", camera_id)
+            return False
+        ch = self._get_channel(camera_id)
+
+        body = [
+            {
+                "cmd": "PtzCtrl",
+                "action": 0,
+                "param": {
+                    "channel": ch,
+                    "op": "setPos",
+                    "id": preset_id,
+                    "name": name or f"preset_{preset_id}",
+                },
+            }
+        ]
+
+        try:
+            self._run_async(host.send_setting(body))
+            pos = self.get_position(camera_id)
+            if pos:
+                log.info(
+                    "Saved preset %d '%s' for '%s' at pan=%d (%.1f°) tilt=%d",
+                    preset_id, name, camera_id, pos[0], pos[0] / 20.0, pos[1],
+                )
+            else:
+                log.info("Saved preset %d '%s' for '%s'", preset_id, name, camera_id)
+            return True
+        except Exception as exc:
+            log.error("Failed to save preset %d for '%s': %s", preset_id, camera_id, exc)
+            return False
+
+    def get_presets(self, camera_id: str) -> dict:
+        """List saved PTZ presets on the camera."""
+        host = self._get_host(camera_id)
+        if not host:
+            return {}
+        ch = self._get_channel(camera_id)
+        try:
+            return host.ptz_presets(ch)
+        except Exception as exc:
+            log.error("Failed to read presets for '%s': %s", camera_id, exc)
+            return {}
 
     # ------------------------------------------------------------------
     # Autofocus

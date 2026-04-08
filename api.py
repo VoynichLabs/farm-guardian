@@ -219,6 +219,39 @@ def create_api_router() -> APIRouter:
 
         return {"ok": ok, "action": action}
 
+    @router.get("/cameras/{camera_id}/presets")
+    async def camera_presets(camera_id: str):
+        """List saved PTZ presets on the camera."""
+        if not _service or not hasattr(_service, '_camera_ctrl'):
+            raise HTTPException(503, "Camera control not available")
+        ctrl = _service._camera_ctrl
+        presets = ctrl.get_presets(camera_id)
+        return {"camera_id": camera_id, "presets": presets}
+
+    @router.post("/cameras/{camera_id}/preset/save")
+    async def camera_preset_save(camera_id: str, request: Request):
+        """Save current camera position as a named preset.
+        Body: {id: 0-63, name: "house"}. Saves whatever the camera is looking at right now."""
+        if not _service or not hasattr(_service, '_camera_ctrl'):
+            raise HTTPException(503, "Camera control not available")
+        body = await request.json()
+        ctrl = _service._camera_ctrl
+        preset_id = body.get("id", 0)
+        name = body.get("name", "")
+        ok = ctrl.ptz_save_preset(camera_id, preset_id, name)
+        return {"ok": ok, "preset_id": preset_id, "name": name}
+
+    @router.post("/cameras/{camera_id}/preset/goto")
+    async def camera_preset_goto(camera_id: str, request: Request):
+        """Move camera to a saved preset. Body: {id: 0}. Camera moves autonomously."""
+        if not _service or not hasattr(_service, '_camera_ctrl'):
+            raise HTTPException(503, "Camera control not available")
+        body = await request.json()
+        ctrl = _service._camera_ctrl
+        preset_id = body.get("id", 0)
+        ok = ctrl.ptz_goto_preset(camera_id, preset_id)
+        return {"ok": ok, "preset_id": preset_id}
+
     @router.post("/cameras/{camera_id}/spotlight")
     async def camera_spotlight(camera_id: str, request: Request):
         """Toggle spotlight. Body: {on: true/false, brightness: 0-100}."""

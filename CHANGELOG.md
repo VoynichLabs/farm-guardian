@@ -2,6 +2,19 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.8.0] - 2026-04-08
+
+### Added — PTZ preset save/recall via API (Claude Opus 4.6)
+
+- **`camera_control.py`** — Added `ptz_save_preset(camera_id, preset_id, name)` that bypasses reolink_aio's `set_ptz_command()` validation (which rejects the `"setPos"` op) and calls `host.send_setting()` directly with the raw `PtzCtrl` body. Added `get_presets(camera_id)` to list saved presets. The Reolink E1 supports up to 64 presets — once saved, recall is instant and autonomous (no polling/overshooting).
+
+- **`api.py`** — Three new endpoints:
+  - `GET /cameras/{id}/presets` — list saved presets
+  - `POST /cameras/{id}/preset/save` — save current position as preset: `{"id": 0, "name": "house"}`
+  - `POST /cameras/{id}/preset/goto` — recall preset: `{"id": 0}` — camera moves autonomously
+
+**Why:** Remote camera control via move/stop commands is unreliable over the internet (latency causes overshoot). Investigation by remote session confirmed absolute pan/tilt positioning is a Reolink firmware limitation (reolink_aio issue #147). Presets are the correct solution — save a position once, recall it instantly from anywhere. The old `ptz_save_preset` stub was removed in v2.5.0 because it failed validation; this version bypasses that validation layer.
+
 ## [2.7.0] - 2026-04-08
 
 ### Added — Remote camera control API endpoints (Claude Opus 4.6)
