@@ -323,3 +323,105 @@ These standards apply to ALL code in this repository. Non-negotiable.
 - Never add headers to JSON or other non-comment formats
 - Never guess at library behavior — check documentation first
 - Never ship placeholder or stub code
+
+---
+
+## Remote Camera Assistant Playbook
+
+**This section is for assistants running remotely (via Claude Code web, Railway, or any session NOT on the Mac Mini).** If you are running locally on the Mac Mini, you can use direct Python instead — see `docs/08-Apr-2026-camera-setup-handoff.md`.
+
+### Prerequisites
+
+- Guardian must be running on the Mac Mini (`python guardian.py --debug`)
+- The Cloudflare tunnel must be active (it runs as a LaunchAgent, should be automatic)
+- Base URL: `https://guardian.markbarney.net/api/v1`
+
+### How to take a clean snapshot
+
+This is the single most common operation. Do it exactly this way every time:
+
+```bash
+# 1. Trigger autofocus
+curl -s -X POST https://guardian.markbarney.net/api/v1/cameras/house-yard/autofocus
+
+# 2. WAIT 3 seconds — non-negotiable, the lens needs time to settle
+sleep 3
+
+# 3. Take the snapshot
+curl -s https://guardian.markbarney.net/api/v1/cameras/house-yard/snapshot \
+  --output /tmp/snap_descriptive_name.jpg
+
+# 4. Read the image (you'll see it, the user won't)
+# Use the Read tool on the .jpg file
+
+# 5. Describe what you see to the user in detail
+```
+
+**You cannot display images to the user in chat.** You can only describe what you see. Be specific — mention landmarks, objects, animals, changes from previous snapshots.
+
+### How to read camera position
+
+```bash
+curl -s https://guardian.markbarney.net/api/v1/cameras/house-yard/position
+# Returns: {"camera_id":"house-yard","pan":3600,"pan_degrees":180.0,"tilt":28,"zoom":0}
+```
+
+Use the world model table (in "Camera Control" section above) to understand what the camera is looking at based on pan degrees.
+
+### How to move the camera (once presets are implemented)
+
+**Preferred — use presets:**
+```bash
+# Go to a named position (instant, reliable, no overshooting)
+curl -s -X POST https://guardian.markbarney.net/api/v1/cameras/house-yard/preset/goto \
+  -H "Content-Type: application/json" -d '{"preset": "house"}'
+```
+
+**Fallback — manual nudge (use only if presets aren't available):**
+```bash
+# Short burst: move, wait 0.3-0.5s, stop, check position, repeat
+curl -s -X POST https://guardian.markbarney.net/api/v1/cameras/house-yard/ptz \
+  -H "Content-Type: application/json" -d '{"action":"move","pan":-1,"tilt":0,"speed":5}'
+sleep 0.4
+curl -s -X POST https://guardian.markbarney.net/api/v1/cameras/house-yard/ptz \
+  -H "Content-Type: application/json" -d '{"action":"stop"}'
+curl -s https://guardian.markbarney.net/api/v1/cameras/house-yard/position
+# Check position, repeat if needed
+```
+
+**WARNING:** Each 0.5s burst at speed 5 moves ~43°. Do NOT sleep longer than 0.5s before stopping — you will overshoot. Always stop, check, then move again.
+
+### How to respond to Mark's commands
+
+Mark will message from his phone while outside. He expects immediate action, not questions.
+
+| Mark says | You do |
+|-----------|--------|
+| "pan left" / "pan right" | Short PTZ burst in that direction, report new position |
+| "look at the house" | Go to preset "house" (~180°) or nudge to ~3600 pan |
+| "what do you see?" | Take snapshot (with autofocus wait), describe in detail |
+| "tilt up" / "tilt down" | Short tilt burst, report new position |
+| "is it in focus?" | Take snapshot, evaluate sharpness, report honestly |
+| "stop" | Send PTZ stop command immediately |
+
+### Monitoring task (if requested)
+
+Mark may ask you to check the camera periodically. Since remote sessions cannot schedule cron jobs, do a check with every message he sends:
+
+1. Read position
+2. Trigger autofocus, wait 3 seconds
+3. Take snapshot with descriptive filename: `snap_NNN_HHMM_panXXXdeg_tiltYY.jpg`
+4. Read and describe the image
+5. Note changes from previous check
+6. Append observations to `/tmp/camera_observations.md`
+
+### Patrol conflict
+
+If Guardian's step-and-dwell patrol is running, it will override your manual PTZ commands every ~8 seconds. You cannot win this fight. If Mark wants manual control, Guardian's patrol must be stopped first (Mark or Bubba needs to do this on the Mac Mini).
+
+### Lessons learned (from 08-Apr-2026 session)
+
+- **Don't declare things impossible without reading the full source.** The reolink_aio library is ~5000 lines. Skimming it and trusting a GitHub issue led to a wrong conclusion about preset saving.
+- **The Reolink camera is just an HTTP server.** Anything the Reolink phone app can do, we can do with raw JSON commands via `send_setting()`. The library is a convenience wrapper, not a capability boundary.
+- **Speed 5 is not slow.** It moves at ~85°/second. The handoff doc's advice was calibrated for local 0.3s polling, not remote control over Cloudflare.
+- **Always wait for autofocus.** 3 seconds minimum. Every blurry snapshot in this project's history was caused by skipping this wait.
