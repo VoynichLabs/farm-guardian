@@ -93,12 +93,76 @@ python guardian.py --debug
 
 No test suite yet. This is a v2 production system (Phases 1-4 complete).
 
-## Recent Changes (06-Apr-2026)
+## Recent Changes (08-Apr-2026)
 
-**Per-camera RTSP transport (v2.3.0):** Resolved the TCP/UDP transport mismatch. Each camera now has an `rtsp_transport` field in config (`"tcp"` for Reolink, `"udp"` for S7). `capture.py` sets the transport env var per-camera with a thread lock before each `VideoCapture()` call. Both cameras should now connect simultaneously.
+**Remote camera control API (v2.7.0):** Five new endpoints in `api.py` for full remote camera control over the Cloudflare tunnel: snapshot, position readback, zoom, autofocus, guard control. A remote Claude session can now control the camera from anywhere.
+
+**Step-and-dwell patrol (v2.6.0):** Patrol rewritten. Camera steps through 11 positions at 30° intervals, dwells 8 seconds at each for clean stationary frames. Replaces continuous sweep that produced motion-blurred garbage.
+
+**Cloudflare tunnel live:** Guardian dashboard exposed at `https://guardian.markbarney.net` via Cloudflare tunnel from the Mac Mini. No port forwarding needed.
 
 **TODO:**
-- Front camera mirror mode for hatched chick — switch RTSP Camera Server to front camera on the S7 screen so the chick can see herself (enrichment). This is just an app toggle on the phone, separate from Guardian's rear camera monitoring.
+- Implement preset save/recall API endpoints (see "Camera Control" section below)
+- Front camera mirror mode for hatched chick — switch RTSP Camera Server to front camera on the S7 screen so the chick can see herself (enrichment)
+
+---
+
+## Camera Control — Critical Knowledge
+
+**READ THIS BEFORE TOUCHING PTZ CODE.** Previous assistants have gotten this wrong multiple times.
+
+### The Reolink E1 Outdoor Pro does NOT support absolute pan/tilt positioning
+
+There is no "go to pan=3600, tilt=28" command. The Reolink HTTP API only supports:
+- **Directional move/stop** — start moving in a direction, poll position, send stop. Unreliable over the internet.
+- **Preset recall** — `PtzCtrl` with `op: "ToPos"` + `id: N` jumps to a saved preset. Instant and precise.
+- **Preset save** — `PtzCtrl` with `op: "setPos"` + `id: N` + `name: "house"` saves the current position as a preset.
+
+This is a firmware limitation confirmed by the `reolink_aio` library maintainer ([issue #147](https://github.com/starkillerOG/reolink_aio/issues/147)). Do not waste time trying to send absolute coordinates.
+
+### The reolink_aio library is a partial wrapper, not the full API
+
+The library validates PTZ commands against `PtzEnum` which only has directional commands. It blocks commands like `"setPos"` for saving presets. **To access the full camera API, bypass the library and call `host.send_setting()` directly with raw JSON bodies.** The camera accepts anything its firmware supports — the library is just a middleman with incomplete coverage.
+
+**Key principle:** Anything the Reolink phone app can do, we can do. The app is just an HTTP client hitting the same API. If the library doesn't expose a feature, send the raw command.
+
+### Preset-based positioning (the correct approach)
+
+Save named presets at key positions, then recall them instantly:
+
+```python
+# Save current position as preset (bypasses library validation)
+body = [{"cmd": "PtzCtrl", "action": 0, "param": {"channel": 0, "op": "setPos", "id": 0, "name": "house"}}]
+await host.send_setting(body)
+
+# Recall preset (library supports this)
+ctrl.ptz_goto_preset(camera_id, preset_index=0)
+```
+
+### Remote PTZ speed warning
+
+Even speed 5 moves at ~85°/second. Over the Cloudflare tunnel, network latency makes move/stop cycles unreliable — you will overshoot. For remote sessions, use presets whenever possible. If you must nudge manually, use very short bursts (0.3s move, stop, check position, repeat).
+
+### Autofocus
+
+After any movement, trigger autofocus and wait 2-3 seconds before taking a snapshot. Without this wait, images are blurry. This is non-negotiable.
+
+### Zoom is out of scope
+
+Do not add zoom features. The camera is always at zoom 0 (widest). Autofocus handles everything at that setting. Zoom adds complexity for zero benefit right now.
+
+### World model (what the camera sees)
+
+| Pan (degrees) | Pan (raw) | Location | Notes |
+|---------------|-----------|----------|-------|
+| 0° / 360° | 0 / 7200 | DEAD ZONE — mounting post | Post blocks 40% of frame. Skip. |
+| ~90° | ~1800 | Yard / hillside | Green slope, fire pit, treeline |
+| ~180° | ~3600 | **THE HOUSE** | Chickens, coop, truck, primary monitoring view |
+| ~270° | ~5400 | Old stable foundation | Property edge, Rose of Sharon bushes, corn field neighbor |
+
+Coordinate system: Pan 0–7200 (20 units per degree). Pan right = increasing values. Tilt readback is broken at many angles.
+
+See `docs/08-Apr-2026-absolute-ptz-investigation.md` for full investigation details and `docs/08-Apr-2026-camera-setup-handoff.md` for operational procedures.
 
 ## Architecture
 
@@ -112,6 +176,11 @@ Read `docs/02-Apr-2026-v2-system-plan.md` for the full v2 architecture document 
 - `docs/06-Apr-2026-sweep-patrol-plan.md` — Continuous sweep patrol design
 - `docs/06-Apr-2026-s7-nesting-box-camera-setup.md` — S7 phone camera setup plan & findings
 - `docs/06-Apr-2026-per-camera-rtsp-transport-plan.md` — Per-camera RTSP transport fix (TCP/UDP)
+- `docs/08-Apr-2026-camera-setup-handoff.md` — Camera control handoff (API reference, world model, operational state)
+- `docs/08-Apr-2026-absolute-ptz-investigation.md` — **READ THIS** — why absolute PTZ doesn't work, preset approach, speed calibration
+- `docs/08-Apr-2026-remote-camera-api-plan.md` — Remote camera control API design (v2.7.0)
+- `docs/08-Apr-2026-rtsp-substream-plan.md` — RTSP substream investigation
+- `docs/08-Apr-2026-gwtc-webcam-stream-plan.md` — GWTC webcam stream plan
 
 **Entry point:** `guardian.py` — orchestrates all modules, runs as a foreground process.
 
@@ -132,14 +201,14 @@ Read `docs/02-Apr-2026-v2-system-plan.md` for the full v2 architecture document 
 - `tracker.py` — Groups individual detections into animal visit tracks. Duration, confidence, outcome tracking.
 
 *Phase 3 — Deterrence:*
-- `camera_control.py` — Reolink camera hardware control via reolink_aio. PTZ, spotlight, siren, patrol with pause/resume. Position readback methods for sweep patrol.
-- `patrol.py` — Continuous serpentine sweep patrol. PTZ camera scans full pan range, shifts tilt, reverses. Replaces preset-hopping. Configurable via `ptz.sweep` in config.
+- `camera_control.py` — Reolink camera hardware control via reolink_aio. PTZ move/stop, spotlight, siren, autofocus, guard control, snapshot, position readback. **Does NOT yet support preset save — needs `send_setting()` bypass (see Camera Control section above).**
+- `patrol.py` — Step-and-dwell patrol (v2.6.0). 11 positions at 30° intervals, 8-second dwell at each. Replaces continuous sweep. Configurable via `ptz.sweep` in config.
 - `deterrent.py` — Automated response engine. 4 escalation levels, per-species rules, cooldowns, effectiveness tracking.
 - `ebird.py` — eBird API polling for regional raptor early warning. 30-min intervals during hawk hours.
 
 *Phase 4 — Reporting:*
 - `reports.py` — Daily intelligence reports. Species breakdown, deterrent stats, hourly heatmaps, 7-day trends. Exports JSON + Markdown.
-- `api.py` — REST API at `/api/v1/` for LLM tool queries. 14 endpoints for detections, patterns, camera control.
+- `api.py` — REST API at `/api/v1/`. Endpoints for detections, patterns, camera control, snapshot, position, zoom, autofocus, guard. Exposed via Cloudflare tunnel at `https://guardian.markbarney.net`.
 
 **Config:** `config.json` (copied from `config.example.json`). Contains camera IPs, per-camera RTSP transport (`"tcp"`/`"udp"`), Discord webhook, detection thresholds, deterrent rules, PTZ presets, eBird API key, report settings.
 
