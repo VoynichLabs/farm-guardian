@@ -2,6 +2,20 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.7.0] - 2026-04-08
+
+### Added — Remote camera control API endpoints (Claude Opus 4.6)
+
+- **`api.py`** — Five new endpoints for full remote camera control:
+  - `GET /api/v1/cameras/{id}/snapshot` — take JPEG snapshot, returns image bytes
+  - `GET /api/v1/cameras/{id}/position` — read current pan (with degrees), tilt, zoom
+  - `POST /api/v1/cameras/{id}/zoom` — set absolute zoom level (0–33)
+  - `POST /api/v1/cameras/{id}/autofocus` — trigger autofocus cycle
+  - `POST /api/v1/cameras/{id}/guard` — enable/disable PTZ guard (auto-return-to-home)
+  - Removed dead `save_preset` action from PTZ endpoint (called non-existent method)
+
+**Why:** A remote Claude session (via Railway/Cloudflare) needs to control the camera over the internet for setup and monitoring. The existing API had PTZ move/stop but was missing snapshot, position readback, zoom, autofocus, and guard control — the exact operations needed for remote camera setup.
+
 ## [2.6.0] - 2026-04-08
 
 ### Changed — Step-and-dwell patrol replaces continuous sweep (Claude Opus 4.6)

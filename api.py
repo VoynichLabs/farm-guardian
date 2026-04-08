@@ -1,9 +1,12 @@
 # Author: Claude Opus 4.6
-# Date: 03-April-2026
+# Date: 08-April-2026
 # PURPOSE: REST API for Farm Guardian v2 (Phase 4). Provides structured JSON endpoints
-#          that local LLM assistants can query for detection history, animal patterns,
-#          deterrent effectiveness, and camera control. Mounted on the same FastAPI app
-#          as the dashboard under /api/v1/. All endpoints return structured JSON.
+#          for detection history, animal patterns, deterrent effectiveness, and full
+#          camera hardware control (PTZ, snapshot, zoom, autofocus, guard). Mounted on
+#          the same FastAPI app as the dashboard under /api/v1/. All endpoints return
+#          structured JSON except /snapshot which returns JPEG. Designed so a remote
+#          Claude session can fully control cameras over the internet when exposed
+#          via Railway/Cloudflare.
 #          Authentication via optional API key header for future hosted mode.
 # SRP/DRY check: Pass — single responsibility is structured API for LLM tool access.
 
@@ -12,6 +15,7 @@ from datetime import date, datetime
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import Response
 
 from database import GuardianDB
 from reports import ReportGenerator
@@ -210,10 +214,6 @@ def create_api_router() -> APIRouter:
             )
         elif action == "stop":
             ok = ctrl.ptz_stop(camera_id)
-        elif action == "save_preset":
-            idx = body.get("preset_index", 0)
-            name = body.get("name", "")
-            ok = ctrl.ptz_save_preset(camera_id, idx, name)
         else:
             raise HTTPException(400, f"Unknown PTZ action: {action}")
 
@@ -245,6 +245,91 @@ def create_api_router() -> APIRouter:
         duration = body.get("duration", 10)
         ok = ctrl.siren_timed(camera_id, duration)
         return {"ok": ok, "duration": duration}
+
+    # ------------------------------------------------------------------
+    # Camera snapshot
+    # ------------------------------------------------------------------
+
+    @router.get("/cameras/{camera_id}/snapshot")
+    async def camera_snapshot(camera_id: str):
+        """Take a JPEG snapshot from the camera. Returns image/jpeg bytes."""
+        if not _service or not hasattr(_service, '_camera_ctrl'):
+            raise HTTPException(503, "Camera control not available")
+        ctrl = _service._camera_ctrl
+        img_bytes = ctrl.take_snapshot(camera_id)
+        if not img_bytes:
+            raise HTTPException(500, f"Snapshot failed for camera '{camera_id}'")
+        return Response(content=img_bytes, media_type="image/jpeg")
+
+    # ------------------------------------------------------------------
+    # Camera position readback
+    # ------------------------------------------------------------------
+
+    @router.get("/cameras/{camera_id}/position")
+    async def camera_position(camera_id: str):
+        """Read current pan/tilt/zoom position."""
+        if not _service or not hasattr(_service, '_camera_ctrl'):
+            raise HTTPException(503, "Camera control not available")
+        ctrl = _service._camera_ctrl
+        pos = ctrl.get_position(camera_id)
+        zoom = ctrl.get_zoom(camera_id)
+        if pos is None:
+            raise HTTPException(500, f"Position read failed for camera '{camera_id}'")
+        pan, tilt = pos
+        return {
+            "camera_id": camera_id,
+            "pan": pan,
+            "pan_degrees": round(pan / 20.0, 1),
+            "tilt": tilt,
+            "zoom": zoom,
+        }
+
+    # ------------------------------------------------------------------
+    # Camera zoom
+    # ------------------------------------------------------------------
+
+    @router.post("/cameras/{camera_id}/zoom")
+    async def camera_zoom(camera_id: str, request: Request):
+        """Set absolute zoom level. Body: {level: 0-33}. 0=widest, 33=max telephoto."""
+        if not _service or not hasattr(_service, '_camera_ctrl'):
+            raise HTTPException(503, "Camera control not available")
+        body = await request.json()
+        ctrl = _service._camera_ctrl
+        level = body.get("level", 0)
+        ok = ctrl.set_zoom(camera_id, level)
+        return {"ok": ok, "zoom": level}
+
+    # ------------------------------------------------------------------
+    # Camera autofocus
+    # ------------------------------------------------------------------
+
+    @router.post("/cameras/{camera_id}/autofocus")
+    async def camera_autofocus(camera_id: str):
+        """Trigger autofocus cycle. Call after zoom changes or significant movement."""
+        if not _service or not hasattr(_service, '_camera_ctrl'):
+            raise HTTPException(503, "Camera control not available")
+        ctrl = _service._camera_ctrl
+        ctrl.ensure_autofocus(camera_id)
+        ok = ctrl.trigger_autofocus(camera_id)
+        return {"ok": ok}
+
+    # ------------------------------------------------------------------
+    # PTZ guard control
+    # ------------------------------------------------------------------
+
+    @router.post("/cameras/{camera_id}/guard")
+    async def camera_guard(camera_id: str, request: Request):
+        """Control PTZ guard (auto-return-to-home). Body: {enabled: true/false}."""
+        if not _service or not hasattr(_service, '_camera_ctrl'):
+            raise HTTPException(503, "Camera control not available")
+        body = await request.json()
+        ctrl = _service._camera_ctrl
+        enabled = body.get("enabled", False)
+        if enabled:
+            ok = ctrl.set_guard_position(camera_id)
+        else:
+            ok = ctrl.disable_guard(camera_id)
+        return {"ok": ok, "guard_enabled": enabled}
 
     # ------------------------------------------------------------------
     # Reports export

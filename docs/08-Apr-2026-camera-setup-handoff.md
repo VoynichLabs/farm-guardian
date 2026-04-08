@@ -14,6 +14,39 @@ Mark is going outside to physically fix the camera to its mounting post (it's wo
 
 ## How to Control the Camera
 
+### Option A: REST API (remote — works from any Claude session if Guardian is running)
+
+If Guardian is running, the API at `http://macmini:6530/api/v1/` has full camera control:
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/cameras/house-yard/position` | GET | Read current pan (degrees), tilt, zoom |
+| `/cameras/house-yard/snapshot` | GET | Take JPEG snapshot — returns image bytes |
+| `/cameras/house-yard/ptz` | POST | Move camera: `{"action":"move","pan":1,"tilt":0,"speed":5}` or `{"action":"stop"}` |
+| `/cameras/house-yard/zoom` | POST | Set zoom: `{"level": 0}` (0=wide, 33=max) |
+| `/cameras/house-yard/autofocus` | POST | Trigger autofocus cycle |
+| `/cameras/house-yard/guard` | POST | Disable guard: `{"enabled": false}` |
+| `/cameras/house-yard/spotlight` | POST | Toggle: `{"on": true, "brightness": 100}` |
+| `/cameras/house-yard/siren` | POST | Fire siren: `{"duration": 10}` |
+
+Example — take a snapshot and save it:
+```bash
+curl http://macmini:6530/api/v1/cameras/house-yard/snapshot --output /tmp/snap.jpg
+```
+
+Example — move camera right slowly then stop:
+```bash
+curl -X POST http://macmini:6530/api/v1/cameras/house-yard/ptz \
+  -H "Content-Type: application/json" \
+  -d '{"action":"move","pan":1,"tilt":0,"speed":5}'
+sleep 2
+curl -X POST http://macmini:6530/api/v1/cameras/house-yard/ptz \
+  -H "Content-Type: application/json" \
+  -d '{"action":"stop"}'
+```
+
+### Option B: Direct Python (local only — requires Claude Code on Mac Mini)
+
 The camera is controlled via `camera_control.py` using the `CameraController` class. You need to connect first, then issue commands. Here's the boilerplate:
 
 ```python
