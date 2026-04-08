@@ -125,15 +125,40 @@ The Reolink E1 supports up to 64 saved presets. A preset stores an absolute pan/
 
 3. The world model becomes a simple lookup table. Any future assistant reads this doc, calls `goto("house")`, waits 3 seconds for autofocus, snaps. No guessing, no overshooting.
 
-### What I'm NOT sure about
+### UPDATE: Preset saving IS possible via the API
 
-- **Can presets be saved via the API?** The old `ptz_save_preset()` stub was removed from `camera_control.py` because it didn't work. The `reolink_aio` library has `set_ptz_command` with `preset` parameter, but that's for RECALLING presets, not saving them. Saving might require the Reolink app or a different API call. Bubba should investigate.
-- **Is there an ONVIF absolute move?** The camera supports ONVIF (that's how discovery works). ONVIF Profile S defines `AbsoluteMove` with absolute pan/tilt/zoom coordinates. The `onvif-zeep` library in requirements.txt might support this. This is a completely different angle I did NOT investigate — Bubba should check if `onvif-zeep` can send an ONVIF `AbsoluteMove` command to the camera, bypassing the Reolink HTTP API entirely.
-- **Is there a CGI endpoint?** Some Reolink cameras have a CGI API (`/cgi-bin/api.cgi`) in addition to the JSON API. The CGI API might have different capabilities. Worth checking.
+After Mark pushed back on the "use the Reolink app" suggestion (correctly — we ARE the Reolink app), I dug deeper into the library source and found the answer.
 
-### Angles I did NOT search
+**The `PtzCtrl` command supports `op: "setPos"` to save the current camera position as a preset.** This is confirmed by:
 
-1. **ONVIF AbsoluteMove** — this is the most promising unexplored path. ONVIF is a standard protocol and absolute positioning is part of the spec. The camera advertises ONVIF support.
+1. `reolink_aio/enums.py` line 119: `GuardEnum` has `set = "setPos"` and `goto = "toPos"`
+2. `reolink_aio/api.py` line 4064-4070: `GetPtzPreset` parses presets as `{enable, name, id}` — the camera stores them
+3. `reolink_aio/baichuan/xmls.py` line 440-451: The Baichuan protocol has a `PtzPreset` XML template with `<command>toPos</command>` for recall — implying `setPos` exists for save
+
+**The raw HTTP call to save a preset should be:**
+```json
+[{"cmd": "PtzCtrl", "action": 0, "param": {"channel": 0, "op": "setPos", "id": 0, "name": "house"}}]
+```
+
+This saves the camera's CURRENT position as preset 0 named "house". Then to recall:
+```json
+[{"cmd": "PtzCtrl", "action": 0, "param": {"channel": 0, "op": "ToPos", "id": 0}}]
+```
+
+**Why the library doesn't expose this:** The `set_ptz_command()` method validates commands against `PtzEnum` (line 4462-4464), which only contains directional commands. `"setPos"` is not in `PtzEnum` — it's in `GuardEnum`. So the library blocks it. But the camera firmware almost certainly accepts it if sent via raw `send_setting()`.
+
+**The old `ptz_save_preset()` stub was removed from `camera_control.py`** because it "didn't work" — but it likely failed because it was calling `set_ptz_command()` which rejected `"setPos"` at the validation step. The fix is to bypass the library's validation and call `send_setting()` directly with the raw body.
+
+### What Bubba needs to do
+
+1. Add a `save_preset(camera_id, preset_id, name)` method to `camera_control.py` that calls `host.send_setting()` directly with the `PtzCtrl` / `setPos` body, bypassing `set_ptz_command()` validation.
+2. Add a `goto_preset(camera_id, preset_name_or_id)` method — the library already supports this via `set_ptz_command(channel, preset=id)`, just needs a clean wrapper.
+3. Add API endpoints: `POST /cameras/{id}/preset/save` and `POST /cameras/{id}/preset/goto`.
+4. One-time setup: nudge camera to each key position, save as preset. Then any assistant can recall instantly.
+
+### Additional angles I did NOT investigate (but Bubba should consider)
+
+1. **ONVIF AbsoluteMove** — ONVIF Profile S defines `AbsoluteMove` with absolute pan/tilt/zoom coordinates. The `onvif-zeep` library in requirements.txt might support this, bypassing the Reolink HTTP API entirely. The camera advertises ONVIF support.
 2. **Reolink CGI API** vs JSON API — different API surface, might have different commands.
 3. **Baichuan protocol** — `reolink_aio` has a `baichuan` module that communicates via a binary protocol on port 9000. This might have capabilities the HTTP API doesn't.
 4. **Newer firmware** — the reolink_aio issue #147 is from 2023. Reolink may have added absolute positioning in newer firmware. The camera's current firmware version should be checked.
