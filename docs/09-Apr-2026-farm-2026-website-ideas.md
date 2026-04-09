@@ -134,15 +134,22 @@
 
 ---
 
+## Mark's Direction (09-Apr update)
+
+**"Don't focus on detection and deterrent — we haven't built that out yet. Don't oversell it."**
+
+The detection pipeline and deterrent system exist in code but haven't been battle-tested. The system is primarily streaming cameras right now. Lead with what's real: live camera feeds, PTZ control, the story, the photos, the flock. Detection/deterrent is "in progress," not "working."
+
 ## Implementation Priority for This Weekend
 
 If the goal is "Twitter-ready by Saturday":
 
-1. **OG/Twitter meta tags** — 30 minutes, massive ROI for social sharing
-2. **Detection timeline** — the proof that the system works
-3. **Birdadette field note** — the emotional hook for the thread
-4. **Daily report viewer** — shows intelligence depth
-5. Everything else is bonus
+1. **OG/Twitter meta tags** — DONE (added to layout.tsx, field notes, project pages)
+2. **Guardian project page** — DONE (rewritten to be honest about current state)
+3. **Birdadette field note** — already exists (`2026-04-08-a-hard-week-for-the-flock.mdx`)
+4. **eBird raptor radar** — this works and is genuinely cool, not overselling
+5. **Camera snapshot grid** — show what's actually streaming
+6. Everything else is bonus — detection timeline and report viewer can wait until the pipeline is solid
 
 ---
 
@@ -160,11 +167,11 @@ If the goal is "Twitter-ready by Saturday":
 
 The story arc for Mark's showcase:
 
-1. **Hook:** Photo of the command center — Mac Mini, monitors, camera looking down at baby chicks in a brooder. "This is my farm's AI security system."
-2. **The problem:** Hawks, coyotes, bobcats. Lost a hen (Birdadette) to a hawk on April 8.
-3. **The solution:** Farm Guardian — Python, YOLOv8, 3 cameras, automated deterrents. Built entirely by Claude.
-4. **The proof:** Detection timeline showing real hawk visits, deterrent actions, 4K snapshots.
-5. **The depth:** Daily intelligence reports, eBird early warning, step-and-dwell patrol patterns.
-6. **The website:** farm-2026 site showing it all — live feeds, flock roster, field notes.
-7. **The meta:** An actual farmer using AI agents to protect actual chickens. Not a demo, not a hackathon project. Production, running 24/7.
-8. **The ask:** Tag @AnthropicAI — "this is what your AI does in the wild."
+1. **Hook:** Photo of the command center — Mac Mini, monitors, camera looking down at baby chicks in a brooder. "This is my farm's AI monitoring system."
+2. **The problem:** Hawks, coyotes, bobcats. Lost four birds in one week, including Birdgit to a hawk.
+3. **What we built:** Farm Guardian — three cameras streaming to a local dashboard, PTZ control, sky-watch mode. All running on a Mac Mini under the desk. Built entirely by Claude.
+4. **What's working:** Live camera feeds, preset positions, 4K snapshots, Discord alerts, eBird raptor early warning. The camera system is solid.
+5. **What's coming:** AI detection pipeline (YOLOv8 + vision model) for automated predator response. In development, not there yet — being honest.
+6. **The website:** farm-2026 site with live feeds, flock roster, field notes from the trenches.
+7. **The meta:** An actual farmer using AI to protect actual chickens. Not a hackathon project. Running 24/7 on local hardware.
+8. **The ask:** Tag @AnthropicAI — "this is what your AI builds in the real world."
