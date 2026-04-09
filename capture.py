@@ -1,11 +1,12 @@
 # Author: Claude Opus 4.6
-# Date: 06-April-2026
-# PURPOSE: RTSP frame capture for Farm Guardian. Connects to camera RTSP streams via
-#          OpenCV, grabs frames at a configurable interval (default 1 fps), and downscales
+# Date: 08-April-2026
+# PURPOSE: Frame capture for Farm Guardian. Connects to camera streams (RTSP or local USB)
+#          via OpenCV, grabs frames at a configurable interval (default 1 fps), and downscales
 #          4K frames to 1080p before passing them to detection. Maintains a small ring buffer
 #          of recent frames for event context. Handles stream disconnection with exponential
-#          backoff reconnection. Each camera gets its own capture thread.
-# SRP/DRY check: Pass — single responsibility is frame acquisition from RTSP streams.
+#          backoff reconnection. Each camera gets its own capture thread. USB cameras are
+#          opened via AVFoundation device index (no RTSP/FFMPEG).
+# SRP/DRY check: Pass — single responsibility is frame acquisition from camera streams.
 
 import logging
 import os
@@ -50,17 +51,19 @@ class CameraCapture:
     def __init__(
         self,
         camera_name: str,
-        rtsp_url: str,
+        rtsp_url: Optional[str] = None,
         frame_interval: float = 1.0,
         buffer_size: int = 10,
         on_frame: Optional[Callable[[FrameResult], None]] = None,
         rtsp_transport: Optional[str] = None,
+        device_index: Optional[int] = None,
     ):
         self._camera_name = camera_name
         self._rtsp_url = rtsp_url
         self._frame_interval = frame_interval
         self._on_frame = on_frame
         self._rtsp_transport = rtsp_transport  # "tcp", "udp", or None (auto)
+        self._device_index = device_index  # AVFoundation index for local USB cameras
 
         self._buffer: deque[FrameResult] = deque(maxlen=buffer_size)
         self._cap: Optional[cv2.VideoCapture] = None
@@ -183,17 +186,31 @@ class CameraCapture:
             self._stop_event.wait(self._frame_interval)
 
     def _ensure_connected(self) -> bool:
-        """Open the RTSP stream if not already connected. Returns True if ready."""
+        """Open the camera stream (RTSP or USB) if not already connected. Returns True if ready."""
         if self._cap is not None and self._cap.isOpened():
             return True
 
         self._release_capture()
-        log.debug("Connecting to RTSP stream for '%s'", self._camera_name)
 
         try:
-            # Set per-camera RTSP transport before creating VideoCapture.
+            # USB camera: open by AVFoundation device index, no RTSP/FFMPEG involved
+            if self._device_index is not None:
+                log.debug("Opening USB device %d for '%s'", self._device_index, self._camera_name)
+                cap = cv2.VideoCapture(self._device_index)
+
+                if not cap.isOpened():
+                    cap.release()
+                    return False
+
+                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                self._cap = cap
+                log.info("Connected to USB camera for '%s' (device %d)", self._camera_name, self._device_index)
+                return True
+
+            # RTSP camera: set per-camera transport before creating VideoCapture.
             # The env var is process-global, so we hold a lock to prevent
             # concurrent capture threads from clobbering each other's transport.
+            log.debug("Connecting to RTSP stream for '%s'", self._camera_name)
             with _env_lock:
                 env_key = "OPENCV_FFMPEG_CAPTURE_OPTIONS"
                 saved = os.environ.get(env_key, "")
@@ -219,7 +236,7 @@ class CameraCapture:
             return True
 
         except Exception as exc:
-            log.error("Failed to open RTSP for '%s': %s", self._camera_name, exc)
+            log.error("Failed to open camera '%s': %s", self._camera_name, exc)
             return False
 
     def _release_capture(self) -> None:
@@ -261,8 +278,14 @@ class FrameCaptureManager:
         self._on_frame = on_frame
         self._captures: dict[str, CameraCapture] = {}
 
-    def add_camera(self, camera_name: str, rtsp_url: str, rtsp_transport: Optional[str] = None) -> None:
-        """Register and start capturing from a camera."""
+    def add_camera(
+        self,
+        camera_name: str,
+        rtsp_url: Optional[str] = None,
+        rtsp_transport: Optional[str] = None,
+        device_index: Optional[int] = None,
+    ) -> None:
+        """Register and start capturing from a camera (RTSP or USB)."""
         if camera_name in self._captures:
             log.warning("Camera '%s' already registered — skipping", camera_name)
             return
@@ -273,6 +296,7 @@ class FrameCaptureManager:
             frame_interval=self._frame_interval,
             on_frame=self._on_frame,
             rtsp_transport=rtsp_transport,
+            device_index=device_index,
         )
         self._captures[camera_name] = cap
         cap.start()

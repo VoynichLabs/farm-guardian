@@ -1,10 +1,10 @@
 # Author: Claude Opus 4.6
-# Date: 06-April-2026
-# PURPOSE: ONVIF camera discovery for Farm Guardian. Connects to cameras defined in
-#          config.json, validates ONVIF connectivity, retrieves RTSP stream URIs, and
-#          subscribes to motion alarm events. Supports periodic re-scanning to handle
-#          cameras that reconnect after power loss or network changes. Falls back to
-#          config-defined RTSP URLs if ONVIF profile retrieval fails.
+# Date: 08-April-2026
+# PURPOSE: Camera discovery for Farm Guardian. Connects to cameras defined in config.json,
+#          validates ONVIF connectivity, retrieves RTSP stream URIs, and subscribes to
+#          motion alarm events. Supports three source types: ONVIF (auto-discovered),
+#          manual RTSP override, and local USB cameras (AVFoundation device index).
+#          Periodic re-scanning handles cameras that reconnect after power loss.
 # SRP/DRY check: Pass — single responsibility is camera discovery and stream URL resolution.
 
 import logging
@@ -45,6 +45,8 @@ class CameraInfo:
     supports_motion_events: bool = False
     last_seen: float = field(default_factory=time.time)
     online: bool = False
+    source: str = "onvif"  # "onvif", "rtsp_override", or "usb"
+    device_index: Optional[int] = None  # AVFoundation device index for USB cameras
 
 
 class CameraDiscovery:
@@ -72,6 +74,31 @@ class CameraDiscovery:
         for cam_cfg in self._camera_configs:
             name = cam_cfg.get("name", "unnamed")
             try:
+                # USB cameras attached directly to this machine (AVFoundation).
+                # No network discovery needed — just validate the device index.
+                if cam_cfg.get("source") == "usb":
+                    device_index = cam_cfg.get("device_index", 0)
+                    info = CameraInfo(
+                        name=name,
+                        ip="localhost",
+                        port=0,
+                        username="",
+                        password="",
+                        onvif_port=0,
+                        camera_type=cam_cfg.get("type", "fixed"),
+                        rtsp_url=None,
+                        onvif_camera=None,
+                        supports_motion_events=False,
+                        last_seen=time.time(),
+                        online=True,
+                        source="usb",
+                        device_index=device_index,
+                    )
+                    with self._lock:
+                        self._cameras[name] = info
+                    log.info("Camera '%s' online (USB device index %d)", name, device_index)
+                    continue
+
                 # If config provides an explicit RTSP URL, skip ONVIF entirely.
                 # Used for non-ONVIF cameras like phones running IP Webcam.
                 rtsp_override = cam_cfg.get("rtsp_url_override")

@@ -103,9 +103,10 @@ No test suite yet. This is a v2 production system (Phases 1-4 complete).
 
 **Preset save/recall API (v2.8.0):** Three new endpoints — list presets, save current position as preset, recall preset. Camera moves autonomously to saved position with no polling or overshoot. Bypasses reolink_aio validation to send raw `setPos` command.
 
+**Nesting box camera switch (v2.9.0):** S7 phone died. Replaced with a USB camera connected directly to the Mac Mini. Config uses `"source": "usb"`, `"device_index": 0`. Capture, discovery, and guardian.py updated to handle USB cameras via AVFoundation. 1920x1080, no network latency.
+
 **TODO:**
 - **Save camera presets** — no presets exist yet. See "Preset Map" below for the positions to save.
-- Front camera mirror mode for hatched chick — switch RTSP Camera Server to front camera on the S7 screen so the chick can see herself (enrichment)
 
 ---
 
@@ -173,7 +174,7 @@ Read `docs/02-Apr-2026-v2-system-plan.md` for the full v2 architecture document 
 - **Machine:** Mac Mini M4 Pro, 14-core, 64GB RAM, macOS 26.3
 - **Python:** 3.13 (Homebrew)
 - **Camera 1 (house-yard):** Reolink E1 Outdoor Pro — ONVIF, RTSP, 4K, PTZ, WiFi. IP `192.168.0.88`. Needs TCP RTSP transport (HEVC over WiFi/UDP drops packets).
-- **Camera 2 (nesting-box):** Samsung Galaxy S7 (SM-G930F, Android 8.0.0, arm64-v8a) running RTSP Camera Server (com.miv.rtspcamera). IP `192.168.0.249`, RTSP port 5554. Needs UDP RTSP transport (only transport this app supports). Phone is factory-reset, bloatware disabled, kiosk mode (always-on, max brightness, no screen timeout). Connected via USB and WiFi.
+- **Camera 2 (nesting-box):** USB camera connected directly to the Mac Mini. AVFoundation device index 0. 1920x1080. Points into the chick brooder box. No network dependency — captured locally via OpenCV. Detection disabled (chicks trigger false positives on YOLO).
 - **Network:** All devices on same local WiFi network
 
 ## Key Dependencies

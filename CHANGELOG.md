@@ -2,6 +2,20 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.9.0] - 2026-04-08
+
+### Changed — Nesting box camera: USB replaces dead S7 phone (Claude Opus 4.6)
+
+- **`config.json`** — Nesting box camera switched from Samsung Galaxy S7 RTSP stream (`192.168.0.249:5554`) to a local USB camera attached to the Mac Mini (`"source": "usb"`, `"device_index": 0`). The S7 died and will not come back.
+
+- **`capture.py`** — Added USB camera support alongside RTSP. When `device_index` is provided, opens the camera via `cv2.VideoCapture(index)` using the native AVFoundation backend instead of RTSP/FFMPEG. Same frame processing pipeline (downscale, ring buffer, callbacks).
+
+- **`discovery.py`** — Added USB source type. Cameras with `"source": "usb"` are marked online immediately during scan — no ONVIF probe or network check needed. New `source` and `device_index` fields on `CameraInfo`.
+
+- **`guardian.py`** — Startup and re-scan loops now handle USB cameras: pass `device_index` to capture manager instead of RTSP URL.
+
+**Why:** The Samsung Galaxy S7 used as the nesting box camera died. A USB camera is now physically connected to the Mac Mini pointing into the brooder box. The USB camera captures at 1920x1080 via AVFoundation — no network latency, no RTSP flakiness.
+
 ## [2.8.0] - 2026-04-08
 
 ### Added — PTZ preset save/recall via API (Claude Opus 4.6)

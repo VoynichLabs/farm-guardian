@@ -1,5 +1,5 @@
 # Author: Claude Opus 4.6 (updated), Cascade (Claude Sonnet 4) (original)
-# Date: 08-April-2026 (fix basicConfig double-call, debug logging broken)
+# Date: 08-April-2026 (USB camera support for nesting box)
 # PURPOSE: Main service entry point for Farm Guardian v2 (Phases 1-4). Orchestrates camera
 #          discovery, frame capture, YOLO animal detection, GLM vision refinement, animal
 #          visit tracking, automated deterrence (spotlight/siren/audio), PTZ patrol with
@@ -180,12 +180,17 @@ class GuardianService:
                     cam_type=cam_cfg.get("type", "ptz") if cam_cfg else "ptz",
                 )
 
-                if cam.rtsp_url:
+                if cam.source == "usb" and cam.device_index is not None:
+                    # Local USB camera — pass device index, no RTSP URL
+                    self._capture_manager.add_camera(
+                        cam.name, device_index=cam.device_index
+                    )
+                elif cam.rtsp_url:
                     transport = cam_cfg.get("rtsp_transport") if cam_cfg else None
                     self._capture_manager.add_camera(cam.name, cam.rtsp_url, rtsp_transport=transport)
                 else:
                     log.warning(
-                        "Camera '%s' online but no RTSP URL resolved — skipping capture", cam.name
+                        "Camera '%s' online but no RTSP URL or USB device — skipping capture", cam.name
                     )
 
         # Connect camera hardware control (Phase 3)
@@ -452,11 +457,17 @@ class GuardianService:
 
                 # Start capture for newly-online cameras
                 for cam in online:
-                    if cam.name not in active and cam.rtsp_url:
-                        log.info("New/reconnected camera '%s' — starting capture", cam.name)
-                        cam_cfg = self._get_camera_config(cam.name)
-                        transport = cam_cfg.get("rtsp_transport") if cam_cfg else None
-                        self._capture_manager.add_camera(cam.name, cam.rtsp_url, rtsp_transport=transport)
+                    if cam.name not in active:
+                        if cam.source == "usb" and cam.device_index is not None:
+                            log.info("New/reconnected USB camera '%s' — starting capture", cam.name)
+                            self._capture_manager.add_camera(
+                                cam.name, device_index=cam.device_index
+                            )
+                        elif cam.rtsp_url:
+                            log.info("New/reconnected camera '%s' — starting capture", cam.name)
+                            cam_cfg = self._get_camera_config(cam.name)
+                            transport = cam_cfg.get("rtsp_transport") if cam_cfg else None
+                            self._capture_manager.add_camera(cam.name, cam.rtsp_url, rtsp_transport=transport)
 
                         # Connect camera hardware control if PTZ
                         if cam_cfg and cam_cfg.get("type") == "ptz":
