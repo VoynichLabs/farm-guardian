@@ -1,12 +1,13 @@
 # Author: Claude Opus 4.6 (updated), Cascade (Claude Sonnet 4) (original)
-# Date: 08-April-2026 (USB camera support for nesting box)
+# Date: 09-April-2026 (4K alert snapshots + sky-watch startup)
 # PURPOSE: Main service entry point for Farm Guardian v2 (Phases 1-4). Orchestrates camera
 #          discovery, frame capture, YOLO animal detection, GLM vision refinement, animal
 #          visit tracking, automated deterrence (spotlight/siren/audio), PTZ patrol with
 #          pause-on-predator, eBird raptor early warning, Discord alerting, event logging
 #          (DB + JSONL), daily intelligence reports, REST API for LLM tools, and the local
 #          web dashboard. Runs as a foreground process on the Mac Mini. Handles graceful
-#          shutdown via SIGINT/SIGTERM.
+#          shutdown via SIGINT/SIGTERM. Supports sky-watch mode: parks camera at a fixed
+#          preset on startup for optimal hawk detection coverage.
 # SRP/DRY check: Pass — single responsibility is service lifecycle and module coordination.
 
 import os
@@ -80,15 +81,16 @@ class GuardianService:
         # Phase 1: Core pipeline
         self._discovery = CameraDiscovery(config)
         self._detector = None  # Deferred to start() — YOLO import is slow (~60s PyTorch load)
-        self._alert_manager = AlertManager(config)
+        # CameraController created early — AlertManager needs it for 4K HTTP snapshots
+        self._camera_ctrl = CameraController(config)
+        self._alert_manager = AlertManager(config, camera_controller=self._camera_ctrl)
         self._event_logger = EventLogger(config, db=self._db)
 
         # Phase 2: Vision + Tracking
         self._vision = VisionRefiner(config)
         self._tracker = AnimalTracker(config, db=self._db)
 
-        # Phase 3: Camera control + Deterrence
-        self._camera_ctrl = CameraController(config)
+        # Phase 3: Deterrence (camera_ctrl already created above)
         self._patrol_pause_event = threading.Event()  # set = patrol paused
         self._deterrent = DeterrentEngine(
             config, self._camera_ctrl, self._db,
@@ -203,6 +205,28 @@ class GuardianService:
                     username=cam_cfg.get("username", "admin"),
                     password=cam_cfg.get("password", ""),
                     port=cam_cfg.get("port", 80),
+                )
+
+        # Sky-watch mode: park camera at a fixed preset on startup.
+        # Used instead of patrol — camera stays in one position optimized for
+        # yard + sky coverage to catch hawks before they dive.
+        sky_watch_cfg = self._config.get("sky_watch", {})
+        if sky_watch_cfg.get("enabled", False):
+            sw_camera = sky_watch_cfg.get("camera", "")
+            sw_preset = sky_watch_cfg.get("preset_id", 0)
+            if sw_camera and self._camera_ctrl._get_host(sw_camera):
+                log.info(
+                    "Sky-watch mode: moving '%s' to preset %d and holding position",
+                    sw_camera, sw_preset,
+                )
+                self._camera_ctrl.ptz_goto_preset(sw_camera, sw_preset)
+                # Wait for camera to reach position + autofocus settle
+                time.sleep(3)
+                self._camera_ctrl.trigger_autofocus(sw_camera)
+            else:
+                log.warning(
+                    "Sky-watch enabled but camera '%s' not connected — skipping",
+                    sw_camera,
                 )
 
         # Start background tasks

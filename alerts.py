@@ -1,11 +1,14 @@
-# Author: Cascade (Claude Sonnet 4)
-# Date: 01-April-2026
+# Author: Claude Opus 4.6 (updated), Cascade (Claude Sonnet 4) (original)
+# Date: 09-April-2026
 # PURPOSE: Discord alert manager for Farm Guardian. Posts webhook messages to the
 #          #farm-2026 Discord channel when predator-class animals are detected. Each alert
 #          includes an embedded snapshot image, detection class, confidence score, timestamp,
 #          and camera name. Implements rate limiting (cooldown per animal class, default 5 min)
 #          to avoid spamming. Buffers failed alerts and retries them on subsequent calls.
-#          Standalone — no dependency on any bot framework, just raw webhook HTTP posts.
+#          Alert images prefer the camera's HTTP snapshot API (4K, sharp) over RTSP buffer
+#          frames (1080p, often blurry due to autofocus lag). Bounding box coordinates are
+#          scaled from detection resolution to snapshot resolution. Falls back to RTSP frame
+#          if the HTTP snapshot is unavailable.
 # SRP/DRY check: Pass — single responsibility is alert delivery via Discord webhook.
 
 import io
@@ -37,9 +40,13 @@ _WEBHOOK_TIMEOUT = 15
 class AlertManager:
     """Sends Discord alerts when predator detections meet alert criteria."""
 
-    def __init__(self, config: dict):
+    def __init__(self, config: dict, camera_controller=None):
         alerts_cfg = config.get("alerts", {})
         detection_cfg = config.get("detection", {})
+
+        # Optional camera controller for sharp HTTP snapshots (4K) instead of
+        # blurry RTSP buffer frames. Set via constructor or set_camera_controller().
+        self._camera_ctrl = camera_controller
 
         self._webhook_url = alerts_cfg.get("discord_webhook_url", "")
         self._include_snapshot = alerts_cfg.get("include_snapshot", True)
@@ -107,10 +114,17 @@ class AlertManager:
             "footer": {"text": f"Farm Guardian | {camera_name}"},
         }
 
-        # Encode snapshot as JPEG bytes for upload
+        # Encode snapshot as JPEG bytes for upload.
+        # Prefer the camera's HTTP snapshot API (sharp 4K) over the RTSP buffer
+        # frame (1080p, often blurry from autofocus lag or HEVC decode artifacts).
         snapshot_bytes: Optional[bytes] = None
-        if self._include_snapshot and frame is not None:
-            snapshot_bytes = self._encode_snapshot(frame, alertable)
+        if self._include_snapshot:
+            if self._camera_ctrl is not None:
+                snapshot_bytes = self._capture_http_snapshot(
+                    camera_name, frame, alertable
+                )
+            if snapshot_bytes is None and frame is not None:
+                snapshot_bytes = self._encode_snapshot(frame, alertable)
 
         # Set the embed image to reference the attached file
         if snapshot_bytes:
@@ -184,6 +198,84 @@ class AlertManager:
             return buf.tobytes()
         except Exception as exc:
             log.error("Failed to encode snapshot: %s", exc)
+            return None
+
+    def _capture_http_snapshot(
+        self,
+        camera_name: str,
+        det_frame: Optional[np.ndarray],
+        detections: list[Detection],
+    ) -> Optional[bytes]:
+        """Fetch a sharp snapshot via the camera's HTTP API and annotate with bboxes.
+
+        The HTTP snapshot API (/cgi-bin/api.cgi?cmd=Snap) returns a focused 4K JPEG
+        regardless of RTSP stream state. Detection bounding boxes are in the detection
+        frame's coordinate space (typically 1080p) and must be scaled to the snapshot
+        resolution (typically 4K = 2x).
+
+        Returns annotated JPEG bytes, or None on any failure (caller falls back to
+        the RTSP frame).
+        """
+        try:
+            jpeg_bytes = self._camera_ctrl.take_snapshot(camera_name)
+            if jpeg_bytes is None:
+                log.debug("HTTP snapshot returned None for '%s'", camera_name)
+                return None
+
+            # Decode the camera's JPEG to a numpy array for annotation
+            snapshot = cv2.imdecode(
+                np.frombuffer(jpeg_bytes, np.uint8), cv2.IMREAD_COLOR
+            )
+            if snapshot is None:
+                log.warning("Failed to decode HTTP snapshot for '%s'", camera_name)
+                return None
+
+            snap_h, snap_w = snapshot.shape[:2]
+
+            # Compute scale factors from detection frame to snapshot resolution.
+            # Detection typically runs on 1080p (1920x1080), snapshot is 4K (3840x2160).
+            scale_x, scale_y = 1.0, 1.0
+            if det_frame is not None:
+                det_h, det_w = det_frame.shape[:2]
+                scale_x = snap_w / det_w
+                scale_y = snap_h / det_h
+
+            # Draw bounding boxes scaled to 4K — thicker lines and larger text
+            # than the 1080p path since the image has 4x the pixels.
+            annotated = snapshot.copy()
+            for d in detections:
+                x1 = int(d.bbox[0] * scale_x)
+                y1 = int(d.bbox[1] * scale_y)
+                x2 = int(d.bbox[2] * scale_x)
+                y2 = int(d.bbox[3] * scale_y)
+                color = (0, 0, 255)  # Red in BGR
+                cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 3)
+                label = f"{d.class_name} {d.confidence:.0%}"
+                (tw, th), _ = cv2.getTextSize(
+                    label, cv2.FONT_HERSHEY_SIMPLEX, 1.0, 2
+                )
+                cv2.rectangle(
+                    annotated, (x1, y1 - th - 12), (x1 + tw + 6, y1), color, -1
+                )
+                cv2.putText(
+                    annotated, label, (x1 + 3, y1 - 6),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2, cv2.LINE_AA,
+                )
+
+            _, buf = cv2.imencode(
+                ".jpg", annotated, [cv2.IMWRITE_JPEG_QUALITY, 90]
+            )
+            log.info(
+                "Alert using 4K HTTP snapshot for '%s' (%dx%d, scale=%.1fx)",
+                camera_name, snap_w, snap_h, scale_x,
+            )
+            return buf.tobytes()
+
+        except Exception as exc:
+            log.warning(
+                "HTTP snapshot failed for alert on '%s': %s — will use RTSP frame",
+                camera_name, exc,
+            )
             return None
 
     def _post_webhook(self, embed: dict, snapshot_bytes: Optional[bytes] = None) -> bool:

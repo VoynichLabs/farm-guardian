@@ -2,6 +2,18 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.10.0] - 2026-04-09
+
+### Changed — 4K alert snapshots + sky-watch startup mode (Claude Opus 4.6)
+
+- **`alerts.py`** — Alert images now prefer the camera's HTTP snapshot API (4K, sharp, focused) over RTSP buffer frames (1080p, often blurry from autofocus lag or HEVC decode artifacts). New `_capture_http_snapshot()` method fetches a JPEG via `camera_control.take_snapshot()`, scales detection bounding boxes from 1080p to 4K resolution (dynamic scale factor based on actual dimensions), and annotates with thicker lines/text for the higher resolution. Falls back to the existing RTSP frame path if the HTTP snapshot is unavailable. `AlertManager` now accepts an optional `camera_controller` parameter.
+
+- **`guardian.py`** — `CameraController` initialization moved before `AlertManager` so it can be passed in for HTTP snapshot support. Added sky-watch startup: when `sky_watch.enabled` is true in config, the camera moves to a saved preset on startup and holds position (no patrol). Designed for fixed-position hawk surveillance — camera covers both yard and sky from one angle.
+
+- **`config.json`** — Added `sky_watch` config section with `enabled`, `camera`, and `preset_id` fields. Disabled by default — requires a preset to be saved on the camera first via the preset API.
+
+**Why:** Birdadette (Speckled Sussex hen) was taken by a hawk on 08-April. Alert images posted to Discord were consistently blurry — the RTSP stream delivers whatever the sensor sees, including out-of-focus frames during/after PTZ movement. The camera's HTTP snapshot API produces sharp 4K images every time. Patrol mode is excessive for a fixed homestead — a single well-aimed position gives continuous sky coverage for hawk detection.
+
 ## [2.9.0] - 2026-04-08
 
 ### Changed — Nesting box camera: USB replaces dead S7 phone (Claude Opus 4.6)
