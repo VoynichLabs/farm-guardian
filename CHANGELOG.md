@@ -2,6 +2,18 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.11.0] - 2026-04-09
+
+### Changed — Three-camera config: S7 restored, USB kept, cameras named by device (Claude Opus 4.6)
+
+- **`config.json`** — Three cameras: house-yard (Reolink PTZ, ONVIF), s7-cam (Samsung S7 via IP Webcam RTSP override, UDP), usb-cam (local USB, AVFoundation device index 0). The S7 was not dead — it just needed charging. Cameras renamed from location-based names (nesting-box) to device-based names (s7-cam, usb-cam) so configs don't break when cameras move.
+
+- **`config.example.json`** — Updated to show all three camera types with the new naming convention.
+
+- **`CLAUDE.md`** — Environment section updated to reflect three cameras. Recent changes updated.
+
+**Why:** The v2.9.0 release incorrectly assumed the S7 was dead and replaced it. It was only discharged. All cameras should be available — more cameras means more coverage. Device-based naming prevents config churn when cameras are repositioned.
+
 ## [2.10.0] - 2026-04-09
 
 ### Changed — 4K alert snapshots + sky-watch startup mode (Claude Opus 4.6)

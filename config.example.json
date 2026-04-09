@@ -8,18 +8,25 @@
       "password": "your_camera_password",
       "onvif_port": 8000,
       "type": "ptz",
-      "rtsp_transport": "tcp"
+      "rtsp_transport": "tcp",
+      "detection_enabled": false
     },
     {
-      "name": "nesting-box",
+      "name": "s7-cam",
       "ip": "192.168.0.YYY",
-      "port": 5554,
-      "username": "",
-      "password": "",
-      "onvif_port": 0,
+      "port": 8080,
+      "username": "admin",
+      "password": "your_camera_password",
       "type": "fixed",
       "rtsp_transport": "udp",
-      "rtsp_url_override": "rtsp://192.168.0.YYY:5554/camera",
+      "rtsp_url_override": "rtsp://admin:your_password@192.168.0.YYY:8080/h264_ulaw.sdp",
+      "detection_enabled": false
+    },
+    {
+      "name": "usb-cam",
+      "source": "usb",
+      "device_index": 0,
+      "type": "fixed",
       "detection_enabled": false
     }
   ],
