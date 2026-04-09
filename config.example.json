@@ -14,12 +14,12 @@
     {
       "name": "s7-cam",
       "ip": "192.168.0.YYY",
-      "port": 8080,
-      "username": "admin",
-      "password": "your_camera_password",
+      "port": 5554,
+      "username": "",
+      "password": "",
       "type": "fixed",
       "rtsp_transport": "udp",
-      "rtsp_url_override": "rtsp://admin:your_password@192.168.0.YYY:8080/h264_ulaw.sdp",
+      "rtsp_url_override": "rtsp://192.168.0.YYY:5554/camera",
       "detection_enabled": false
     },
     {

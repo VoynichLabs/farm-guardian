@@ -176,7 +176,7 @@ Read `docs/02-Apr-2026-v2-system-plan.md` for the full v2 architecture document 
 - **Machine:** Mac Mini M4 Pro, 14-core, 64GB RAM, macOS 26.3
 - **Python:** 3.13 (Homebrew)
 - **Camera 1 (house-yard):** Reolink E1 Outdoor Pro — ONVIF, RTSP, 4K, PTZ, WiFi. IP `192.168.0.88`. Needs TCP RTSP transport (HEVC over WiFi/UDP drops packets).
-- **Camera 2 (s7-cam):** Samsung Galaxy S7 phone running IP Webcam app. RTSP over WiFi (UDP). IP `192.168.0.50`, port 8080. Fixed camera, no PTZ. Uses `rtsp_url_override` — no ONVIF. Detection disabled.
+- **Camera 2 (s7-cam):** Samsung Galaxy S7 phone running IP Webcam app (RTSP Camera Server). RTSP over WiFi (UDP). IP `192.168.0.249`, port 5554. Stream URL: `rtsp://192.168.0.249:5554/camera`. No auth required. Fixed camera, no PTZ. Uses `rtsp_url_override` — no ONVIF. Detection disabled.
 - **Camera 3 (usb-cam):** USB camera connected directly to the Mac Mini. AVFoundation device index 0. 1920x1080. No network dependency — captured locally via OpenCV. Detection disabled.
 - **Network:** All devices on same local WiFi network
 
