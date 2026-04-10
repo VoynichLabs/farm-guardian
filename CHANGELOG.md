@@ -2,6 +2,18 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.12.0] - 2026-04-10
+
+### Added — GWTC laptop camera (4th camera) (Claude Opus 4.6)
+
+- **`config.json`** — Added `gwtc` camera entry: the Gateway laptop (192.168.0.68) streams its built-in webcam over RTSP via ffmpeg + MediaMTX on port 8554. Config uses `rtsp_url_override` to connect to `rtsp://192.168.0.68:8554/nestbox`. Named `gwtc` (device name, not location) per project naming convention — this laptop will physically move to the chicken coop but may be repositioned later. Detection disabled initially. The S7 phone camera remains as a separate camera — both are active.
+
+- **`config.example.json`** — Added example `gwtc` camera entry showing the RTSP-override pattern for MediaMTX-served webcam streams.
+
+- **`CLAUDE.md`** — Environment section updated to document Camera 4 (GWTC). Architecture note updated for four-camera config.
+
+**Why:** The GWTC (Gateway laptop) is being repurposed as a dedicated coop camera. Its built-in webcam streams 1280x720 @ 15fps H.264 (~1 Mbps) via ffmpeg → MediaMTX → RTSP. No code changes were needed — the existing `discovery.py` RTSP-override path, `capture.py` frame pipeline, and `guardian.py` dynamic camera iteration already support adding cameras purely via config. The dashboard frontend (`app.js`) dynamically renders any number of cameras from the `/api/cameras` endpoint.
+
 ## [2.11.0] - 2026-04-09
 
 ### Changed — Three-camera config: S7 restored, USB kept, cameras named by device (Claude Opus 4.6)

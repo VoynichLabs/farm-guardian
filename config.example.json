@@ -28,6 +28,17 @@
       "device_index": 0,
       "type": "fixed",
       "detection_enabled": false
+    },
+    {
+      "name": "gwtc",
+      "ip": "192.168.0.ZZZ",
+      "port": 8554,
+      "username": "",
+      "password": "",
+      "type": "fixed",
+      "rtsp_transport": "tcp",
+      "rtsp_url_override": "rtsp://192.168.0.ZZZ:8554/nestbox",
+      "detection_enabled": false
     }
   ],
   "discovery": {

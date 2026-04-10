@@ -103,7 +103,9 @@ No test suite yet. This is a v2 production system (Phases 1-4 complete).
 
 **Preset save/recall API (v2.8.0):** Three new endpoints — list presets, save current position as preset, recall preset. Camera moves autonomously to saved position with no polling or overshoot. Bypasses reolink_aio validation to send raw `setPos` command.
 
-**Three-camera config (v2.11.0):** S7 phone restored (was only discharged, not dead). Now three cameras: house-yard (Reolink PTZ), s7-cam (Samsung S7 via IP Webcam RTSP), usb-cam (USB on Mac Mini). Cameras named by device, not location — locations change. All detection disabled; focus is getting streams up.
+**Four-camera config (v2.12.0):** GWTC laptop added as 4th camera. Gateway laptop (192.168.0.68) streams its built-in webcam at 1280x720@15fps H.264 via ffmpeg + MediaMTX on port 8554. Uses `rtsp_url_override` — same pattern as the S7. Named `gwtc` (device name, not location). No code changes needed — config-only addition. All four cameras: house-yard (Reolink PTZ), s7-cam (Samsung S7 via IP Webcam RTSP), usb-cam (USB on Mac Mini), gwtc (Gateway laptop webcam via MediaMTX RTSP). Detection disabled on all except house-yard.
+
+**Three-camera config (v2.11.0):** S7 phone restored (was only discharged, not dead). Cameras named by device, not location — locations change.
 
 **USB camera support (v2.9.0):** USB camera added to Mac Mini. Config uses `"source": "usb"`, `"device_index": 0`. Capture, discovery, and guardian.py handle USB cameras via AVFoundation. 1920x1080, no network latency.
 
@@ -178,6 +180,7 @@ Read `docs/02-Apr-2026-v2-system-plan.md` for the full v2 architecture document 
 - **Camera 1 (house-yard):** Reolink E1 Outdoor Pro — ONVIF, RTSP, 4K, PTZ, WiFi. IP `192.168.0.88`. Needs TCP RTSP transport (HEVC over WiFi/UDP drops packets).
 - **Camera 2 (s7-cam):** Samsung Galaxy S7 phone running IP Webcam app (RTSP Camera Server). RTSP over WiFi (UDP). IP `192.168.0.249`, port 5554. Stream URL: `rtsp://192.168.0.249:5554/camera`. No auth required. Fixed camera, no PTZ. Uses `rtsp_url_override` — no ONVIF. Detection disabled.
 - **Camera 3 (usb-cam):** USB camera connected directly to the Mac Mini. AVFoundation device index 0. 1920x1080. No network dependency — captured locally via OpenCV. Detection disabled.
+- **Camera 4 (gwtc):** Gateway laptop built-in webcam. Streams via ffmpeg → MediaMTX at `rtsp://192.168.0.68:8554/nestbox`. 1280x720, 15fps, H.264, ~1 Mbps. Windows 11, services auto-start via Shawl. Uses `rtsp_url_override` in config. Detection disabled. Destined for the chicken coop.
 - **Network:** All devices on same local WiFi network
 
 ## Key Dependencies

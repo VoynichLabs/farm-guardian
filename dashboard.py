@@ -1,5 +1,5 @@
 # Author: Claude Opus 4.6 (updated), Cascade (Claude Sonnet 4) (original)
-# Date: 03-April-2026
+# Date: 09-April-2026
 # PURPOSE: Local web dashboard for Farm Guardian. Serves a FastAPI app on the Mac Mini
 #          that provides real-time monitoring and full control of the guardian service.
 #          Features: live MJPEG camera feeds, detection timeline, alert history, PTZ
@@ -163,7 +163,7 @@ def create_app() -> FastAPI:
                 if frame_result and frame_result.timestamp != last_ts:
                     last_ts = frame_result.timestamp
                     _, jpeg = cv2.imencode(
-                        ".jpg", frame_result.frame, [cv2.IMWRITE_JPEG_QUALITY, 70]
+                        ".jpg", frame_result.frame, [cv2.IMWRITE_JPEG_QUALITY, 100]
                     )
                     yield (
                         b"--frame\r\n"
