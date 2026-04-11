@@ -2,6 +2,42 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.13.1] - 2026-04-11
+
+### Known Issue — USB camera ffmpeg AVFoundation capture fails (Claude Opus 4.6)
+
+The USB camera cannot be captured by ffmpeg's AVFoundation input on this Mac Mini. Three RTSP cameras (house-yard, s7-cam, gwtc) stream via HLS successfully. The USB camera is blocked.
+
+**What was tried:**
+1. `-framerate 15` at 1080p → camera doesn't support 15fps at 1080p (only 30fps or 5fps)
+2. `-framerate 30` at 1080p → prints "Configuration of video device failed, falling back to default" then **hangs indefinitely** producing no output
+3. `-framerate 30` at 720p with various pixel formats (`uyvy422`, `nv12`, `yuyv422`) → same hang
+4. No framerate specified → ffmpeg tries 29.97fps (NTSC), camera rejects it as unsupported. Camera reports `30.000030` fps which doesn't match.
+5. `-framerate 30.000030` → same hang as option 2
+6. Device by name (`"USB CAMERA"`) instead of index → same hang
+7. Minimal command with zero options (`-f avfoundation -i "0"`) → framerate mismatch error
+8. macOS Camera permissions verified: Terminal and python3.13 both have Camera access in System Settings > Privacy & Security > Camera
+9. USB camera unplugged and replugged — no change
+10. All stale ffmpeg processes killed between attempts — no change
+11. OpenCV `cv2.VideoCapture(0)` also fails after the ffmpeg attempts with "not authorized to capture video (status 0)" — likely macOS TCC state corruption from repeated failed AVFoundation opens
+
+**Root cause hypothesis:** ffmpeg 8.0.1's AVFoundation input has a framerate negotiation bug with this USB camera. The camera reports `30.000030` fps. ffmpeg's `-framerate 30` internally converts to a rational `30/1` which doesn't match the camera's `30000030/1000000`. The device configuration fails, ffmpeg falls back to "default" mode, but the fallback also fails silently and hangs.
+
+**What works:** OpenCV `cv2.VideoCapture(0)` was previously capturing from this camera successfully (before the ffmpeg attempts corrupted the TCC state). A system restart or TCC database reset may restore OpenCV access.
+
+**Suggested next steps for the next developer:**
+- Try a system restart to clear the macOS TCC/Camera permission state
+- After restart, test: `python3 -c "import cv2; c=cv2.VideoCapture(0); print(c.isOpened()); c.release()"`
+- If OpenCV works again, keep USB camera on MJPEG (OpenCV capture) — it's directly connected, no network quality issues
+- If ffmpeg is required (for audio capture from USB mic), investigate ffmpeg AVFoundation framerate matching or try an older ffmpeg version
+- The `audio_device_index` config field and audio encoding code is already in `stream.py` and `guardian.py` — ready to use once ffmpeg can open the device
+- Config: `config.json` has `"audio_device_index": 1` for the USB camera (audio device "USB CAMERA" is index 1)
+
+**Changes in this version:**
+- **`stream.py`** — Added `audio_device_index` parameter. USB cameras capture video+audio via `-i "video:audio"`. Audio encoded as AAC 128kbps. RTSP cameras still strip audio (`-an`).
+- **`guardian.py`** — USB cameras route to HLS manager with audio device index from config. Falls through to OpenCV if ffmpeg fails.
+- **`config.json`** — Added `audio_device_index: 1` to usb-cam config.
+
 ## [2.13.0] - 2026-04-11
 
 ### Added — HLS buffered streaming for non-detection cameras (Claude Opus 4.6)

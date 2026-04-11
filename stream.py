@@ -31,6 +31,7 @@ class HLSStream:
         output_dir: str,
         rtsp_url: Optional[str] = None,
         device_index: Optional[int] = None,
+        audio_device_index: Optional[int] = None,
         rtsp_transport: Optional[str] = None,
         segment_duration: int = 3,
         buffer_segments: int = 5,
@@ -42,6 +43,7 @@ class HLSStream:
         self._camera_name = camera_name
         self._rtsp_url = rtsp_url
         self._device_index = device_index
+        self._audio_device_index = audio_device_index
         self._rtsp_transport = rtsp_transport or "tcp"
         self._segment_duration = segment_duration
         self._buffer_segments = buffer_segments
@@ -135,14 +137,18 @@ class HLSStream:
 
         # Input source
         if self._device_index is not None:
-            # USB camera via AVFoundation — use the camera's native framerate
-            # (many USB cameras only support specific rates like 30fps at 1080p).
-            # ffmpeg's output -r flag handles framerate conversion.
+            # USB camera via AVFoundation — capture video + audio.
+            # Format: -i "video_device:audio_device". The USB camera is
+            # video device 0 and audio device 1 (named "USB CAMERA" in both).
+            # Uses the camera's native 30fps (only supported rate at 1080p).
+            # Requires macOS Camera permission for Terminal in System Settings.
+            audio_idx = self._audio_device_index
+            device_str = f"{self._device_index}:{audio_idx}" if audio_idx is not None else str(self._device_index)
             cmd.extend([
                 "-f", "avfoundation",
                 "-framerate", "30",
                 "-video_size", "1920x1080",
-                "-i", str(self._device_index),
+                "-i", device_str,
             ])
         elif self._rtsp_url:
             # RTSP stream
@@ -170,8 +176,8 @@ class HLSStream:
             "-r", str(self._framerate),
             "-g", str(self._framerate * self._segment_duration),  # keyframe every segment
             "-sc_threshold", "0",
-            # Strip audio — we don't need it for monitoring
-            "-an",
+            # Include audio for USB cameras with mic, strip for RTSP cameras
+            *(["-c:a", "aac", "-b:a", "128k"] if self._audio_device_index is not None else ["-an"]),
             # HLS muxer
             "-f", "hls",
             "-hls_time", str(self._segment_duration),
@@ -249,6 +255,7 @@ class HLSStreamManager:
         camera_name: str,
         rtsp_url: Optional[str] = None,
         device_index: Optional[int] = None,
+        audio_device_index: Optional[int] = None,
         rtsp_transport: Optional[str] = None,
     ) -> None:
         """Start an HLS stream for a camera."""
@@ -261,6 +268,7 @@ class HLSStreamManager:
             output_dir=self._output_dir,
             rtsp_url=rtsp_url,
             device_index=device_index,
+            audio_device_index=audio_device_index,
             rtsp_transport=rtsp_transport,
             segment_duration=self._segment_duration,
             buffer_segments=self._buffer_segments,

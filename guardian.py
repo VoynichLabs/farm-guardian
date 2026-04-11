@@ -194,11 +194,12 @@ class GuardianService:
                     # HLS stream — ffmpeg handles capture and re-encoding
                     transport = cam_cfg.get("rtsp_transport") if cam_cfg else None
                     if cam.source == "usb" and cam.device_index is not None:
-                        # USB cameras use OpenCV capture — no network quality issues,
-                        # and ffmpeg AVFoundation needs macOS Camera permission that
-                        # the standalone binary doesn't have.
-                        self._capture_manager.add_camera(
-                            cam.name, device_index=cam.device_index
+                        # USB cameras use ffmpeg HLS with audio capture.
+                        # Requires macOS Camera permission for Terminal.
+                        audio_idx = cam_cfg.get("audio_device_index") if cam_cfg else None
+                        self._hls_manager.add_camera(
+                            cam.name, device_index=cam.device_index,
+                            audio_device_index=audio_idx,
                         )
                     elif cam.rtsp_url:
                         self._hls_manager.add_camera(
@@ -515,8 +516,9 @@ class GuardianService:
 
                         if not detection_on:
                             if cam.source == "usb" and cam.device_index is not None:
-                                log.info("New/reconnected USB camera '%s' — starting capture", cam.name)
-                                self._capture_manager.add_camera(cam.name, device_index=cam.device_index)
+                                log.info("New/reconnected USB camera '%s' — starting HLS stream", cam.name)
+                                audio_idx = cam_cfg.get("audio_device_index") if cam_cfg else None
+                                self._hls_manager.add_camera(cam.name, device_index=cam.device_index, audio_device_index=audio_idx)
                             elif cam.rtsp_url:
                                 self._hls_manager.add_camera(cam.name, rtsp_url=cam.rtsp_url, rtsp_transport=transport)
                         elif cam.source == "usb" and cam.device_index is not None:
