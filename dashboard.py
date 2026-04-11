@@ -1,5 +1,5 @@
 # Author: Claude Opus 4.6 (updated), Cascade (Claude Sonnet 4) (original)
-# Date: 09-April-2026
+# Date: 11-April-2026
 # PURPOSE: Local web dashboard for Farm Guardian. Serves a FastAPI app on the Mac Mini
 #          that provides real-time monitoring and full control of the guardian service.
 #          Features: live MJPEG camera feeds, detection timeline, alert history, PTZ
@@ -31,6 +31,7 @@ log = logging.getLogger("guardian.dashboard")
 _service = None
 _config = {}
 _config_path = "config.json"
+_hls_manager = None  # HLSStreamManager — set by start_dashboard()
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -137,16 +138,21 @@ def create_app() -> FastAPI:
             return []
         cameras = _service._discovery.cameras
         active = set(_service._capture_manager.active_cameras)
+        hls_active = set(_hls_manager.active_streams) if _hls_manager else set()
         result = []
         for name, cam in cameras.items():
+            # HLS cameras are "capturing" via ffmpeg, not OpenCV
+            is_capturing = name in active or name in hls_active
+            stream_mode = "hls" if name in hls_active else "mjpeg"
             result.append({
                 "name": cam.name,
                 "ip": cam.ip,
                 "type": cam.camera_type,
                 "online": cam.online,
-                "capturing": name in active,
+                "capturing": is_capturing,
                 "rtsp_url": cam.rtsp_url or "",
                 "supports_motion": cam.supports_motion_events,
+                "stream_mode": stream_mode,
             })
         return result
 
@@ -188,6 +194,29 @@ def create_app() -> FastAPI:
         _, jpeg = cv2.imencode(".jpg", frame_result.frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
         return StreamingResponse(
             iter([jpeg.tobytes()]), media_type="image/jpeg"
+        )
+
+    @app.get("/api/cameras/{name}/hls/{filename}")
+    async def hls_file(name: str, filename: str):
+        """Serve HLS playlist (.m3u8) or segment (.ts) files."""
+        if not _hls_manager:
+            raise HTTPException(404, "HLS streaming not configured")
+        path = _hls_manager.get_hls_file_path(name, filename)
+        if not path:
+            raise HTTPException(404, f"HLS file not found: {filename}")
+        # .m3u8 playlists must not be cached — browser needs fresh version each time
+        if filename.endswith(".m3u8"):
+            content = path.read_bytes()
+            return StreamingResponse(
+                iter([content]),
+                media_type="application/vnd.apple.mpegurl",
+                headers={"Cache-Control": "no-cache, no-store"},
+            )
+        # .ts segments can be cached briefly — they're immutable once written
+        return FileResponse(
+            str(path),
+            media_type="video/mp2t",
+            headers={"Cache-Control": "max-age=30"},
         )
 
     @app.post("/api/cameras/rescan")
@@ -576,12 +605,13 @@ def _save_config():
 
 
 def start_dashboard(service, config: dict, config_path: str = "config.json",
-                    db=None, reports=None) -> threading.Thread:
+                    db=None, reports=None, hls_manager=None) -> threading.Thread:
     """Start the dashboard in a daemon thread. Called from guardian.py."""
-    global _service, _config, _config_path
+    global _service, _config, _config_path, _hls_manager
     _service = service
     _config = config
     _config_path = config_path
+    _hls_manager = hls_manager
 
     dashboard_cfg = config.get("dashboard", {})
     host = dashboard_cfg.get("host", "0.0.0.0")

@@ -35,6 +35,53 @@ const api = {
 };
 
 // ─────────────────────────────────────────
+// HLS Player Setup
+// ─────────────────────────────────────────
+function initHLSPlayers(container) {
+    container.querySelectorAll('video[data-hls]').forEach(video => {
+        const camName = video.dataset.hls;
+        const hlsUrl = `/api/cameras/${camName}/hls/stream.m3u8`;
+        const offlineEl = video.nextElementSibling;
+
+        if (typeof Hls !== 'undefined' && Hls.isSupported()) {
+            const hls = new Hls({
+                liveDurationInfinity: true,
+                liveBackBufferLength: 0,
+                maxBufferLength: 10,
+                enableWorker: true,
+            });
+            hls.loadSource(hlsUrl);
+            hls.attachMedia(video);
+            hls.on(Hls.Events.ERROR, (_event, data) => {
+                if (data.fatal) {
+                    video.style.display = 'none';
+                    if (offlineEl) offlineEl.style.display = 'flex';
+                    // Retry after 5 seconds — stream might not be ready yet
+                    setTimeout(() => {
+                        video.style.display = 'block';
+                        if (offlineEl) offlineEl.style.display = 'none';
+                        hls.loadSource(hlsUrl);
+                    }, 5000);
+                }
+            });
+            video._hls = hls;
+        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+            // Native HLS support (Safari)
+            video.src = hlsUrl;
+            video.addEventListener('error', () => {
+                video.style.display = 'none';
+                if (offlineEl) offlineEl.style.display = 'flex';
+                setTimeout(() => {
+                    video.style.display = 'block';
+                    if (offlineEl) offlineEl.style.display = 'none';
+                    video.src = hlsUrl;
+                }, 5000);
+            });
+        }
+    });
+}
+
+// ─────────────────────────────────────────
 // Router
 // ─────────────────────────────────────────
 function navigate(page) {
@@ -150,9 +197,24 @@ function renderCameraGrid(cameras) {
     const structureChanged = currentNames.length !== newNames.length || currentNames.some((n, i) => n !== newNames[i]);
 
     if (structureChanged) {
+        // Destroy existing HLS instances before replacing DOM
+        grid.querySelectorAll('video[data-hls]').forEach(v => {
+            if (v._hls) { v._hls.destroy(); v._hls = null; }
+        });
+
         grid.innerHTML = cameras.map(cam => {
             const dotClass = cam.online ? 'dot-green' : 'dot-red';
             if (cam.capturing && cam.online) {
+                if (cam.stream_mode === 'hls') {
+                    // HLS camera — <video> tag, initialized after DOM insert
+                    return `<div class="cam-cell" data-cam="${cam.name}">
+                        <video data-hls="${cam.name}" autoplay muted playsinline
+                               style="width:100%; height:100%; object-fit:contain; display:block; background:#000;"></video>
+                        <div class="cam-offline" style="display:none; position:absolute; inset:0;">FEED LOST</div>
+                        <div class="cam-label"><span class="status-dot ${dotClass}"></span>${cam.name}</div>
+                    </div>`;
+                }
+                // MJPEG camera — original <img> tag
                 return `<div class="cam-cell" data-cam="${cam.name}">
                     <img src="/api/cameras/${cam.name}/stream" alt="${cam.name}" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
                     <div class="cam-offline" style="display:none; position:absolute; inset:0;">FEED LOST</div>
@@ -165,6 +227,9 @@ function renderCameraGrid(cameras) {
                 </div>`;
             }
         }).join('');
+
+        // Initialize hls.js for HLS cameras
+        initHLSPlayers(grid);
     } else {
         // Structure same — just update status dots
         cameras.forEach(cam => {
@@ -264,13 +329,24 @@ function renderCamerasGrid(cameras) {
         container.innerHTML = '<div class="card" style="text-align:center; color:var(--text-2);">NO CAMERAS — RESCAN</div>';
         return;
     }
-    container.innerHTML = cameras.map(cam => `
+    // Destroy existing HLS instances on cameras page
+    container.querySelectorAll('video[data-hls]').forEach(v => {
+        if (v._hls) { v._hls.destroy(); v._hls = null; }
+    });
+
+    container.innerHTML = cameras.map(cam => {
+        let feedHtml;
+        if (!cam.capturing) {
+            feedHtml = `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; color:var(--text-2);">IDLE</div>`;
+        } else if (cam.stream_mode === 'hls') {
+            feedHtml = `<video data-hls="${cam.name}" autoplay muted playsinline style="width:100%; height:100%; object-fit:contain; display:block; background:#000;"></video>`;
+        } else {
+            feedHtml = `<img src="/api/cameras/${cam.name}/stream" style="width:100%; height:100%; object-fit:contain; display:block;" alt="${cam.name}">`;
+        }
+        return `
         <div style="border: 1px solid var(--border); overflow: hidden;">
             <div style="height: 180px; background: var(--bg-0); position: relative;">
-                ${cam.capturing
-                    ? `<img src="/api/cameras/${cam.name}/stream" style="width:100%; height:100%; object-fit:contain; display:block;" alt="${cam.name}">`
-                    : `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; color:var(--text-2);">IDLE</div>`
-                }
+                ${feedHtml}
                 <div style="position:absolute; top:0; left:0; background:rgba(0,0,0,0.75); padding:1px 6px; font-size:10px; display:flex; align-items:center; gap:4px;">
                     <span class="status-dot ${cam.online ? 'dot-green' : 'dot-red'}"></span>
                     ${cam.online ? 'ONLINE' : 'OFFLINE'}
@@ -289,7 +365,10 @@ function renderCamerasGrid(cameras) {
                 </div>
             </div>
         </div>
-    `).join('');
+    `; }).join('');
+
+    // Initialize HLS players on cameras page
+    initHLSPlayers(container);
 }
 
 async function rescanCameras() {

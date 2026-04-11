@@ -2,6 +2,24 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.13.0] - 2026-04-11
+
+### Added — HLS buffered streaming for non-detection cameras (Claude Opus 4.6)
+
+- **`stream.py`** (new) — HLS stream manager. Runs ffmpeg subprocesses that capture RTSP/USB input, re-encode via VideoToolbox hardware H.264, and output HLS segments to `/tmp/guardian_hls/`. Each camera gets its own ffmpeg process monitored by a watchdog thread with exponential backoff. Segments auto-delete (only last 5 kept = ~15s buffer). Zero disk bloat.
+
+- **`dashboard.py`** — Added `/api/cameras/{name}/hls/{filename}` endpoint to serve HLS playlists (.m3u8) and segments (.ts). Camera list now includes `stream_mode` field (`"hls"` or `"mjpeg"`) so the frontend knows which player to use.
+
+- **`static/index.html`** — Added hls.js CDN script tag for browser HLS playback.
+
+- **`static/app.js`** — Camera grids (dashboard and cameras page) now render `<video>` tags with hls.js for HLS cameras and `<img>` tags with MJPEG for detection cameras. HLS player auto-retries on connection failure. Cleans up hls.js instances on grid rebuild.
+
+- **`guardian.py`** — Non-detection cameras (`detection_enabled: false`) now route to `HLSStreamManager` instead of OpenCV `FrameCaptureManager`. No double-connection — each camera uses one path. HLS manager cleaned up on shutdown.
+
+- **`config.json`** — Added `streaming` section: `hls_output_dir`, `segment_duration`, `buffer_segments`, `video_bitrate`, `framerate`, `prefer_hw_encode`.
+
+**Why:** The S7, USB, and GWTC camera live feeds had poor quality — frame loss, packet drops, artifacts from raw RTSP over WiFi. These cameras don't run detection, so latency doesn't matter. ffmpeg re-encodes into clean H.264 HLS segments with ~10s delay, producing smooth video. VideoToolbox hardware encoding on the M4 Pro means near-zero CPU cost. The Reolink (house-yard) keeps its existing MJPEG stream since it runs detection and needs low latency.
+
 ## [2.12.0] - 2026-04-10
 
 ### Added — GWTC laptop camera (4th camera) (Claude Opus 4.6)
