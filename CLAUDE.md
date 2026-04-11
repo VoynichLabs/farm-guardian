@@ -1,6 +1,15 @@
 # CLAUDE.md — Farm Guardian
 
 This file provides guidance to AI coding agents working in this repository.
+
+## Related Repositories
+
+This project is part of a two-repo system:
+
+- **[farm-guardian](https://github.com/VoynichLabs/farm-guardian)** (this repo) — Python backend: camera discovery, YOLO detection, vision refinement, deterrence, tracking, alerts, REST API, local dashboard. Runs on the Mac Mini.
+- **[farm-2026](https://github.com/VoynichLabs/farm-2026)** — Next.js public website at [farm.markbarney.net](https://farm.markbarney.net). Embeds live Guardian camera feeds and detection data via the Cloudflare tunnel at `guardian.markbarney.net`. Deployed on Railway.
+
+The website's Guardian components (`app/components/guardian/`) consume this repo's REST API. Changes to API response shapes in `api.py` or `dashboard.py` must be coordinated with the TypeScript types in `farm-2026/app/components/guardian/types.ts`.
 # Mark's Coding Standards
 These should be present in the CLAUDE.md file and the agents.md file. 
 
