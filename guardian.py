@@ -194,7 +194,10 @@ class GuardianService:
                     # HLS stream — ffmpeg handles capture and re-encoding
                     transport = cam_cfg.get("rtsp_transport") if cam_cfg else None
                     if cam.source == "usb" and cam.device_index is not None:
-                        self._hls_manager.add_camera(
+                        # USB cameras use OpenCV capture — no network quality issues,
+                        # and ffmpeg AVFoundation needs macOS Camera permission that
+                        # the standalone binary doesn't have.
+                        self._capture_manager.add_camera(
                             cam.name, device_index=cam.device_index
                         )
                     elif cam.rtsp_url:
@@ -511,9 +514,9 @@ class GuardianService:
                         transport = cam_cfg.get("rtsp_transport") if cam_cfg else None
 
                         if not detection_on:
-                            log.info("New/reconnected camera '%s' — starting HLS stream", cam.name)
                             if cam.source == "usb" and cam.device_index is not None:
-                                self._hls_manager.add_camera(cam.name, device_index=cam.device_index)
+                                log.info("New/reconnected USB camera '%s' — starting capture", cam.name)
+                                self._capture_manager.add_camera(cam.name, device_index=cam.device_index)
                             elif cam.rtsp_url:
                                 self._hls_manager.add_camera(cam.name, rtsp_url=cam.rtsp_url, rtsp_transport=transport)
                         elif cam.source == "usb" and cam.device_index is not None:

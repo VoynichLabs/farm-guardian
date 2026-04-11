@@ -135,10 +135,12 @@ class HLSStream:
 
         # Input source
         if self._device_index is not None:
-            # USB camera via AVFoundation
+            # USB camera via AVFoundation — use the camera's native framerate
+            # (many USB cameras only support specific rates like 30fps at 1080p).
+            # ffmpeg's output -r flag handles framerate conversion.
             cmd.extend([
                 "-f", "avfoundation",
-                "-framerate", str(self._framerate),
+                "-framerate", "30",
                 "-video_size", "1920x1080",
                 "-i", str(self._device_index),
             ])
