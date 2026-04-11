@@ -2,6 +2,25 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.14.0] - 2026-04-11
+
+### Fixed — USB camera HLS streaming now works (Claude Opus 4.6)
+
+The USB camera is now streaming via HLS. All four cameras operational.
+
+**Root cause:** ffmpeg 8.0.1's AVFoundation demuxer cannot negotiate the USB camera's non-standard framerate (`30.000030` fps) when `-video_size` is explicitly set. The device configuration fails and ffmpeg hangs indefinitely. Without `-video_size`, ffmpeg's fallback mode captures at native 1920x1080 successfully.
+
+**What was changed:**
+- **`stream.py`** — Removed `-video_size` from the ffmpeg command for USB cameras. The AVFoundation fallback mode captures at the camera's native resolution (1920x1080) without needing the explicit size parameter. Also disabled audio capture for now — USB audio device indices shift when the iPhone connects/disconnects, making hardcoded indices unreliable. Audio AAC plumbing retained in code for future name-based device resolution.
+- **`config.json`** — Removed `audio_device_index` from usb-cam (was `1`, which is only correct when Mark's iPhone is connected — breaks when it's not).
+
+**What was NOT changed (TCC issue resolved):**
+The macOS TCC camera permission issue documented in v2.13.1 is resolved — `cv2.VideoCapture(0)` and ffmpeg AVFoundation both work from the current process context. The TCC permission was re-granted (likely via Terminal.app camera access).
+
+**Remaining follow-up:**
+- USB audio: Implement name-based AVFoundation device lookup (find "USB CAMERA" audio device by name instead of hardcoded index) to make audio capture reliable regardless of which other devices are connected.
+- ffmpeg `-sc_threshold 0` produces a cosmetic warning with `h264_videotoolbox` (not a real issue).
+
 ## [2.13.1] - 2026-04-11
 
 ### Known Issue — USB camera capture blocked by TWO separate problems (Claude Opus 4.6)

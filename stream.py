@@ -1,5 +1,5 @@
 # Author: Claude Opus 4.6
-# Date: 11-April-2026
+# Date: 11-April-2026 (USB camera fix — removed -video_size for AVFoundation fallback)
 # PURPOSE: HLS stream manager for non-detection cameras. Runs ffmpeg subprocesses that
 #          capture RTSP or USB input, re-encode via VideoToolbox H.264 (hardware), and
 #          output HLS segments to /tmp. Serves quality buffered video with ~10s delay
@@ -137,18 +137,19 @@ class HLSStream:
 
         # Input source
         if self._device_index is not None:
-            # USB camera via AVFoundation — capture video + audio.
-            # Format: -i "video_device:audio_device". The USB camera is
-            # video device 0 and audio device 1 (named "USB CAMERA" in both).
-            # Uses the camera's native 30fps (only supported rate at 1080p).
-            # Requires macOS Camera permission for Terminal in System Settings.
-            audio_idx = self._audio_device_index
-            device_str = f"{self._device_index}:{audio_idx}" if audio_idx is not None else str(self._device_index)
+            # USB camera via AVFoundation — video only (audio disabled for now).
+            # Do NOT pass -video_size — ffmpeg 8.0.1's AVFoundation demuxer can't
+            # negotiate framerate 30.000030fps reported by this camera when explicit
+            # size is set. Without -video_size, ffmpeg falls back to a default mode
+            # that captures at native 1920x1080 successfully. The -framerate 30 flag
+            # triggers the initial config failure, but the fallback works.
+            # Audio device indices shift when the iPhone connects/disconnects, making
+            # hardcoded indices unreliable. Audio support deferred until name-based
+            # device resolution is implemented.
             cmd.extend([
                 "-f", "avfoundation",
                 "-framerate", "30",
-                "-video_size", "1920x1080",
-                "-i", device_str,
+                "-i", str(self._device_index),
             ])
         elif self._rtsp_url:
             # RTSP stream
@@ -176,8 +177,10 @@ class HLSStream:
             "-r", str(self._framerate),
             "-g", str(self._framerate * self._segment_duration),  # keyframe every segment
             "-sc_threshold", "0",
-            # Include audio for USB cameras with mic, strip for RTSP cameras
-            *(["-c:a", "aac", "-b:a", "128k"] if self._audio_device_index is not None else ["-an"]),
+            # Audio disabled for all streams currently — USB audio device indices
+            # are unstable (shift when iPhone connects/disconnects), and RTSP
+            # cameras don't need it. Audio plumbing retained for future use.
+            "-an",
             # HLS muxer
             "-f", "hls",
             "-hls_time", str(self._segment_duration),
