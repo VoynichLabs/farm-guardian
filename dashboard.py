@@ -1,5 +1,5 @@
 # Author: Claude Opus 4.6 (updated), Cascade (Claude Sonnet 4) (original)
-# Date: 11-April-2026
+# Date: 11-April-2026 (frame endpoint now falls back to HLS snapshots)
 # PURPOSE: Local web dashboard for Farm Guardian. Serves a FastAPI app on the Mac Mini
 #          that provides real-time monitoring and full control of the guardian service.
 #          Features: live MJPEG camera feeds, detection timeline, alert history, PTZ
@@ -185,16 +185,29 @@ def create_app() -> FastAPI:
 
     @app.get("/api/cameras/{name}/frame")
     async def camera_frame(name: str):
-        """Single latest frame as JPEG."""
+        """Single latest frame as JPEG — from capture manager or HLS snapshot."""
         if not _service:
             raise HTTPException(503, "Service not running")
+
+        # Try capture manager first (detection cameras with OpenCV frames)
         frame_result = _service._capture_manager.get_latest_frame(name)
-        if not frame_result:
-            raise HTTPException(404, f"No frame available for '{name}'")
-        _, jpeg = cv2.imencode(".jpg", frame_result.frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
-        return StreamingResponse(
-            iter([jpeg.tobytes()]), media_type="image/jpeg"
-        )
+        if frame_result:
+            _, jpeg = cv2.imencode(".jpg", frame_result.frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+            return StreamingResponse(
+                iter([jpeg.tobytes()]), media_type="image/jpeg"
+            )
+
+        # Fall back to HLS snapshot file (non-detection cameras served by ffmpeg)
+        if _hls_manager:
+            stream = _hls_manager.get_stream(name)
+            if stream and stream.snapshot_path.exists():
+                return FileResponse(
+                    str(stream.snapshot_path),
+                    media_type="image/jpeg",
+                    headers={"Cache-Control": "no-cache"},
+                )
+
+        raise HTTPException(404, f"No frame available for '{name}'")
 
     @app.get("/api/cameras/{name}/hls/{filename}")
     async def hls_file(name: str, filename: str):

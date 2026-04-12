@@ -2,6 +2,18 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.14.1] - 2026-04-11
+
+### Fixed — Camera frames now served via HLS snapshots (Claude Opus 4.6)
+
+All four cameras were showing "offline" on the public website (`farm.markbarney.net`) because the `/api/cameras/{name}/frame` endpoint returned 404 for every camera. The endpoint only checked the OpenCV capture manager for frames, but since v2.13.0 all cameras were routed to HLS (ffmpeg) — the capture manager had zero frames.
+
+**What was changed:**
+- **`stream.py`** — Added a second ffmpeg output to each HLS stream: a JPEG snapshot overwritten every 10 seconds (`-map 0:v -vf fps=1/10 -update 1 latest.jpg`). Shares the same decoded input as HLS encoding — no extra device access or CPU overhead. Each camera now has `/tmp/guardian_hls/{name}/latest.jpg` updated continuously.
+- **`dashboard.py`** — The `/api/cameras/{name}/frame` endpoint now falls back to reading the HLS snapshot file when the capture manager has no frame (which is all non-detection cameras). Serves the file with `Cache-Control: no-cache` so the website always gets a fresh image.
+
+**Verified:** All four cameras return 200 with JPEG data through both localhost:6530 and the Cloudflare tunnel at `guardian.markbarney.net`.
+
 ## [2.14.0] - 2026-04-11
 
 ### Fixed — USB camera HLS streaming now works (Claude Opus 4.6)

@@ -166,12 +166,13 @@ class HLSStream:
         else:
             encoder = "libx264"
 
-        # HLS video output
+        # HLS video output (first output)
         segment_pattern = str(self._output_dir / "seg_%05d.ts")
         playlist = str(self.playlist_path)
+        snapshot = str(self.snapshot_path)
 
         cmd.extend([
-            # Video encoding
+            # Video encoding for HLS
             "-c:v", encoder,
             "-b:v", self._video_bitrate,
             "-r", str(self._framerate),
@@ -188,6 +189,15 @@ class HLSStream:
             "-hls_flags", "delete_segments+append_list",
             "-hls_segment_filename", segment_pattern,
             playlist,
+            # Snapshot output (second output) — one JPEG overwritten every N seconds.
+            # Shares the same decoded input as HLS, no extra device access. The website
+            # polls /api/cameras/{name}/frame which reads this file. Using fps filter
+            # to avoid re-encoding every frame — just one JPEG per snapshot_interval.
+            "-map", "0:v",
+            "-vf", f"fps=1/{self._snapshot_interval}",
+            "-update", "1",
+            "-q:v", "3",
+            snapshot,
         ])
 
         return cmd
