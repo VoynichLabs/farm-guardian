@@ -35,50 +35,30 @@ const api = {
 };
 
 // ─────────────────────────────────────────
-// HLS Player Setup
+// Snapshot Polling
 // ─────────────────────────────────────────
-function initHLSPlayers(container) {
-    container.querySelectorAll('video[data-hls]').forEach(video => {
-        const camName = video.dataset.hls;
-        const hlsUrl = `/api/cameras/${camName}/hls/stream.m3u8`;
-        const offlineEl = video.nextElementSibling;
+// All cameras serve snapshots via /api/cameras/{name}/frame. The dashboard
+// refreshes <img> tags on a timer by appending a cache-busting query param.
+// This replaced the ffmpeg HLS pipeline (v2.15.0) — simpler, more reliable,
+// and tunnel-friendly.
+let _snapshotTimer = null;
 
-        if (typeof Hls !== 'undefined' && Hls.isSupported()) {
-            const hls = new Hls({
-                liveDurationInfinity: true,
-                liveBackBufferLength: 0,
-                maxBufferLength: 10,
-                enableWorker: true,
-            });
-            hls.loadSource(hlsUrl);
-            hls.attachMedia(video);
-            hls.on(Hls.Events.ERROR, (_event, data) => {
-                if (data.fatal) {
-                    video.style.display = 'none';
-                    if (offlineEl) offlineEl.style.display = 'flex';
-                    // Retry after 5 seconds — stream might not be ready yet
-                    setTimeout(() => {
-                        video.style.display = 'block';
-                        if (offlineEl) offlineEl.style.display = 'none';
-                        hls.loadSource(hlsUrl);
-                    }, 5000);
-                }
-            });
-            video._hls = hls;
-        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-            // Native HLS support (Safari)
-            video.src = hlsUrl;
-            video.addEventListener('error', () => {
-                video.style.display = 'none';
-                if (offlineEl) offlineEl.style.display = 'flex';
-                setTimeout(() => {
-                    video.style.display = 'block';
-                    if (offlineEl) offlineEl.style.display = 'none';
-                    video.src = hlsUrl;
-                }, 5000);
-            });
-        }
-    });
+function startSnapshotPolling(intervalMs = 10000) {
+    stopSnapshotPolling();
+    _snapshotTimer = setInterval(() => {
+        const ts = Date.now();
+        document.querySelectorAll('img[data-snapshot]').forEach(img => {
+            const cam = img.dataset.snapshot;
+            img.src = `/api/cameras/${cam}/frame?t=${ts}`;
+        });
+    }, intervalMs);
+}
+
+function stopSnapshotPolling() {
+    if (_snapshotTimer) {
+        clearInterval(_snapshotTimer);
+        _snapshotTimer = null;
+    }
 }
 
 // ─────────────────────────────────────────
@@ -197,26 +177,14 @@ function renderCameraGrid(cameras) {
     const structureChanged = currentNames.length !== newNames.length || currentNames.some((n, i) => n !== newNames[i]);
 
     if (structureChanged) {
-        // Destroy existing HLS instances before replacing DOM
-        grid.querySelectorAll('video[data-hls]').forEach(v => {
-            if (v._hls) { v._hls.destroy(); v._hls = null; }
-        });
-
         grid.innerHTML = cameras.map(cam => {
             const dotClass = cam.online ? 'dot-green' : 'dot-red';
             if (cam.capturing && cam.online) {
-                if (cam.stream_mode === 'hls') {
-                    // HLS camera — <video> tag, initialized after DOM insert
-                    return `<div class="cam-cell" data-cam="${cam.name}">
-                        <video data-hls="${cam.name}" autoplay muted playsinline
-                               style="width:100%; height:100%; object-fit:contain; display:block; background:#000;"></video>
-                        <div class="cam-offline" style="display:none; position:absolute; inset:0;">FEED LOST</div>
-                        <div class="cam-label"><span class="status-dot ${dotClass}"></span>${cam.name}</div>
-                    </div>`;
-                }
-                // MJPEG camera — original <img> tag
+                // Snapshot-polled <img> — refreshed on a timer via data-snapshot attribute
                 return `<div class="cam-cell" data-cam="${cam.name}">
-                    <img src="/api/cameras/${cam.name}/stream" alt="${cam.name}" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                    <img data-snapshot="${cam.name}" src="/api/cameras/${cam.name}/frame?t=${Date.now()}" alt="${cam.name}"
+                         onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"
+                         onload="this.style.display='block'; this.nextElementSibling.style.display='none';">
                     <div class="cam-offline" style="display:none; position:absolute; inset:0;">FEED LOST</div>
                     <div class="cam-label"><span class="status-dot ${dotClass}"></span>${cam.name}</div>
                 </div>`;
@@ -228,8 +196,8 @@ function renderCameraGrid(cameras) {
             }
         }).join('');
 
-        // Initialize hls.js for HLS cameras
-        initHLSPlayers(grid);
+        // Start polling for snapshot refresh
+        startSnapshotPolling();
     } else {
         // Structure same — just update status dots
         cameras.forEach(cam => {
@@ -329,19 +297,12 @@ function renderCamerasGrid(cameras) {
         container.innerHTML = '<div class="card" style="text-align:center; color:var(--text-2);">NO CAMERAS — RESCAN</div>';
         return;
     }
-    // Destroy existing HLS instances on cameras page
-    container.querySelectorAll('video[data-hls]').forEach(v => {
-        if (v._hls) { v._hls.destroy(); v._hls = null; }
-    });
-
     container.innerHTML = cameras.map(cam => {
         let feedHtml;
         if (!cam.capturing) {
             feedHtml = `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; color:var(--text-2);">IDLE</div>`;
-        } else if (cam.stream_mode === 'hls') {
-            feedHtml = `<video data-hls="${cam.name}" autoplay muted playsinline style="width:100%; height:100%; object-fit:contain; display:block; background:#000;"></video>`;
         } else {
-            feedHtml = `<img src="/api/cameras/${cam.name}/stream" style="width:100%; height:100%; object-fit:contain; display:block;" alt="${cam.name}">`;
+            feedHtml = `<img data-snapshot="${cam.name}" src="/api/cameras/${cam.name}/frame?t=${Date.now()}" style="width:100%; height:100%; object-fit:contain; display:block;" alt="${cam.name}">`;
         }
         return `
         <div style="border: 1px solid var(--border); overflow: hidden;">
@@ -367,8 +328,8 @@ function renderCamerasGrid(cameras) {
         </div>
     `; }).join('');
 
-    // Initialize HLS players on cameras page
-    initHLSPlayers(container);
+    // Ensure snapshot polling is running for camera images
+    startSnapshotPolling();
 }
 
 async function rescanCameras() {

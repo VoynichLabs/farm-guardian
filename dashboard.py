@@ -1,8 +1,8 @@
 # Author: Claude Opus 4.6 (updated), Cascade (Claude Sonnet 4) (original)
-# Date: 11-April-2026 (frame endpoint now falls back to HLS snapshots)
+# Date: 12-April-2026 (v2.15.0 — HLS removed, all cameras served via capture manager)
 # PURPOSE: Local web dashboard for Farm Guardian. Serves a FastAPI app on the Mac Mini
 #          that provides real-time monitoring and full control of the guardian service.
-#          Features: live MJPEG camera feeds, detection timeline, alert history, PTZ
+#          Features: camera snapshot feeds (polled), detection timeline, alert history, PTZ
 #          controls, deterrent status, daily reports, camera start/stop/rescan controls,
 #          detection threshold tuning, zone masking config, and Discord alert testing.
 #          Also mounts the /api/v1/ REST API router for LLM tool access.
@@ -31,7 +31,6 @@ log = logging.getLogger("guardian.dashboard")
 _service = None
 _config = {}
 _config_path = "config.json"
-_hls_manager = None  # HLSStreamManager — set by start_dashboard()
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -138,21 +137,16 @@ def create_app() -> FastAPI:
             return []
         cameras = _service._discovery.cameras
         active = set(_service._capture_manager.active_cameras)
-        hls_active = set(_hls_manager.active_streams) if _hls_manager else set()
         result = []
         for name, cam in cameras.items():
-            # HLS cameras are "capturing" via ffmpeg, not OpenCV
-            is_capturing = name in active or name in hls_active
-            stream_mode = "hls" if name in hls_active else "mjpeg"
             result.append({
                 "name": cam.name,
                 "ip": cam.ip,
                 "type": cam.camera_type,
                 "online": cam.online,
-                "capturing": is_capturing,
+                "capturing": name in active,
                 "rtsp_url": cam.rtsp_url or "",
                 "supports_motion": cam.supports_motion_events,
-                "stream_mode": stream_mode,
             })
         return result
 
@@ -185,52 +179,20 @@ def create_app() -> FastAPI:
 
     @app.get("/api/cameras/{name}/frame")
     async def camera_frame(name: str):
-        """Single latest frame as JPEG — from capture manager or HLS snapshot."""
+        """Single latest frame as JPEG from the capture manager."""
         if not _service:
             raise HTTPException(503, "Service not running")
 
-        # Try capture manager first (detection cameras with OpenCV frames)
         frame_result = _service._capture_manager.get_latest_frame(name)
         if frame_result:
             _, jpeg = cv2.imencode(".jpg", frame_result.frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
             return StreamingResponse(
-                iter([jpeg.tobytes()]), media_type="image/jpeg"
-            )
-
-        # Fall back to HLS snapshot file (non-detection cameras served by ffmpeg)
-        if _hls_manager:
-            stream = _hls_manager.get_stream(name)
-            if stream and stream.snapshot_path.exists():
-                return FileResponse(
-                    str(stream.snapshot_path),
-                    media_type="image/jpeg",
-                    headers={"Cache-Control": "no-cache"},
-                )
-
-        raise HTTPException(404, f"No frame available for '{name}'")
-
-    @app.get("/api/cameras/{name}/hls/{filename}")
-    async def hls_file(name: str, filename: str):
-        """Serve HLS playlist (.m3u8) or segment (.ts) files."""
-        if not _hls_manager:
-            raise HTTPException(404, "HLS streaming not configured")
-        path = _hls_manager.get_hls_file_path(name, filename)
-        if not path:
-            raise HTTPException(404, f"HLS file not found: {filename}")
-        # .m3u8 playlists must not be cached — browser needs fresh version each time
-        if filename.endswith(".m3u8"):
-            content = path.read_bytes()
-            return StreamingResponse(
-                iter([content]),
-                media_type="application/vnd.apple.mpegurl",
+                iter([jpeg.tobytes()]),
+                media_type="image/jpeg",
                 headers={"Cache-Control": "no-cache, no-store"},
             )
-        # .ts segments can be cached briefly — they're immutable once written
-        return FileResponse(
-            str(path),
-            media_type="video/mp2t",
-            headers={"Cache-Control": "max-age=30"},
-        )
+
+        raise HTTPException(404, f"No frame available for '{name}'")
 
     @app.post("/api/cameras/rescan")
     async def rescan_cameras():
@@ -618,13 +580,12 @@ def _save_config():
 
 
 def start_dashboard(service, config: dict, config_path: str = "config.json",
-                    db=None, reports=None, hls_manager=None) -> threading.Thread:
+                    db=None, reports=None) -> threading.Thread:
     """Start the dashboard in a daemon thread. Called from guardian.py."""
-    global _service, _config, _config_path, _hls_manager
+    global _service, _config, _config_path
     _service = service
     _config = config
     _config_path = config_path
-    _hls_manager = hls_manager
 
     dashboard_cfg = config.get("dashboard", {})
     host = dashboard_cfg.get("host", "0.0.0.0")
