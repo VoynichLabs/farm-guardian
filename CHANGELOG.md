@@ -2,6 +2,25 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.15.0] - 2026-04-12
+
+### Changed — Snapshot polling replaces HLS video pipeline (Claude Opus 4.6)
+
+Replaced the entire ffmpeg HLS video streaming system with simple periodic JPEG snapshots via OpenCV. The old approach ran continuous ffmpeg processes (one per non-detection camera) that hardware-encoded 15fps H.264 into HLS segments. These processes crashed, hung, ignored SIGTERM, consumed memory, and overwhelmed the Cloudflare tunnel with 42,000+ errors.
+
+**Why:** Nobody needs live video. A snapshot refreshed every 10 seconds serves the same farm monitoring purpose with dramatically less complexity and far better reliability through the Cloudflare tunnel.
+
+**What changed:**
+- **`stream.py`** — **Deleted.** 340 lines of ffmpeg process management, watchdog threads, HLS segment cleanup gone.
+- **`guardian.py`** — All cameras now route through `FrameCaptureManager` (OpenCV). Detection cameras run at ~1fps; non-detection cameras run at configurable `snapshot_interval` (default 10s). Removed all `HLSStreamManager` references.
+- **`dashboard.py`** — Removed `/api/cameras/{name}/hls/{filename}` endpoint. Simplified `/api/cameras/{name}/frame` to read directly from capture manager. Removed `hls_manager` parameter and `stream_mode` field from camera list.
+- **`capture.py`** — `add_camera()` now accepts per-camera `frame_interval` override so non-detection cameras can poll at 10s while detection cameras stay at 1fps.
+- **`static/app.js`** — Replaced hls.js `<video>` player with `<img>` tags polled every 10 seconds via `data-snapshot` attribute and cache-busting query param. ~40 lines of HLS player code replaced with ~20 lines of snapshot polling.
+- **`static/index.html`** — Removed hls.js CDN script tag.
+- **`config.example.json`** — Added `snapshot_interval` per-camera field (default 10s).
+
+**Net result:** ~430 lines deleted, ~80 lines changed. Zero ffmpeg processes. Dashboard and website both see fresh camera images. Tunnel serves small JPEGs instead of HLS segments.
+
 ## [2.14.1] - 2026-04-11
 
 ### Fixed — Camera frames now served via HLS snapshots (Claude Opus 4.6)

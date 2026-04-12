@@ -1,11 +1,13 @@
 # Author: Claude Opus 4.6
-# Date: 08-April-2026
+# Date: 12-April-2026 (v2.15.0 — per-camera frame_interval for snapshot polling)
 # PURPOSE: Frame capture for Farm Guardian. Connects to camera streams (RTSP or local USB)
-#          via OpenCV, grabs frames at a configurable interval (default 1 fps), and downscales
-#          4K frames to 1080p before passing them to detection. Maintains a small ring buffer
-#          of recent frames for event context. Handles stream disconnection with exponential
-#          backoff reconnection. Each camera gets its own capture thread. USB cameras are
-#          opened via AVFoundation device index (no RTSP/FFMPEG).
+#          via OpenCV, grabs frames at a configurable interval, and downscales 4K frames to
+#          1080p before passing them to detection. Used for ALL cameras: detection cameras
+#          run at ~1fps for real-time inference, non-detection cameras run at longer intervals
+#          (e.g. 10s) for snapshot polling — replacing the old ffmpeg HLS pipeline.
+#          Maintains a small ring buffer of recent frames for event context. Handles stream
+#          disconnection with exponential backoff reconnection. Each camera gets its own
+#          capture thread. USB cameras are opened via AVFoundation device index (no RTSP/FFMPEG).
 # SRP/DRY check: Pass — single responsibility is frame acquisition from camera streams.
 
 import logging
@@ -284,16 +286,25 @@ class FrameCaptureManager:
         rtsp_url: Optional[str] = None,
         rtsp_transport: Optional[str] = None,
         device_index: Optional[int] = None,
+        frame_interval: Optional[float] = None,
     ) -> None:
-        """Register and start capturing from a camera (RTSP or USB)."""
+        """Register and start capturing from a camera (RTSP or USB).
+
+        Args:
+            frame_interval: Override the global detection interval for this camera.
+                            Non-detection cameras use longer intervals (e.g. 10s) for
+                            snapshot polling instead of the default ~1fps detection rate.
+        """
         if camera_name in self._captures:
             log.warning("Camera '%s' already registered — skipping", camera_name)
             return
 
+        interval = frame_interval if frame_interval is not None else self._frame_interval
+
         cap = CameraCapture(
             camera_name=camera_name,
             rtsp_url=rtsp_url,
-            frame_interval=self._frame_interval,
+            frame_interval=interval,
             on_frame=self._on_frame,
             rtsp_transport=rtsp_transport,
             device_index=device_index,
