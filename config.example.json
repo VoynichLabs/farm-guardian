@@ -54,7 +54,7 @@
       "dog": 0.50,
       "bear": 0.40
     },
-    "frame_interval_seconds": 1.0,
+    "frame_interval_seconds": 0.25,
     "night_window_enabled": true,
     "night_window_start": "20:00",
     "night_window_end": "09:00",

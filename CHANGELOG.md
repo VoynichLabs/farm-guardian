@@ -2,6 +2,27 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.16.0] - 2026-04-13
+
+### Fixed — Gray decode-garbage frames + choppy live view (Claude Opus 4.6)
+
+After the Mac Mini lost power and Guardian was restarted, the dashboard's live MJPEG feed was showing two distinct symptoms: (1) intermittent uniform-gray "washed out" frames of nothing, and (2) very choppy playback. Root-caused both and fixed.
+
+**What was wrong:**
+
+1. **Decode-garbage frames being served.** When the Reolink E1 Outdoor Pro on WiFi loses an HEVC reference packet, FFMPEG still returns `ret=True` from `cap.read()` — but the decoded frame is a low-variance mid-gray smear because the P/B-frame references are missing. `capture.py` accepted any non-null frame and pushed it straight into the ring buffer. The dashboard then served that garbage frame as "latest" until the next clean keyframe arrived.
+2. **Stale frames after disconnect.** When `_release_capture()` ran (or the read-hang branch fired), the ring buffer was not flushed. The dashboard kept yielding the last (often already-corrupted) frame from the dead RTSP session for the entire reconnect window — that's how a single bad frame became a sticky gray image for tens of seconds.
+3. **Capture rate too low for live view.** Detection cameras captured at 1fps (`detection.frame_interval_seconds = 1.0`). The MJPEG stream can never deliver more than the capture rate, so the live view was inherently 1fps even on a healthy link. Combined with garbage rejection, effective fps was sometimes <0.5.
+4. **Dashboard MJPEG poll cadence too slow.** The `/api/cameras/{name}/stream` generator slept 300ms between buffer checks. With faster capture, frames would sit in the buffer for up to 300ms before being yielded.
+
+**What changed:**
+
+- **`capture.py`** — Added `_is_decode_garbage()` static method that checks subsampled stdev (<4) and mean (>30). The mean check excludes legitimately dark night frames. Decode-garbage frames are dropped before they enter the buffer or trigger detection; consecutive rejections are logged every 10. `_release_capture()` and the read-hang branch now flush the ring buffer so post-disconnect garbage cannot persist. Header bumped to v2.16.0.
+- **`dashboard.py`** — MJPEG generator poll sleep dropped from 300ms to 100ms so each new captured frame is yielded within ~25% of its lifetime. Header bumped.
+- **`config.json`** + **`config.example.json`** — `detection.frame_interval_seconds` lowered from 1.0 to 0.25 (4fps). YOLOv8n on the M4 Pro at 1080p handles 4fps trivially. Live view of `house-yard` is now ~4fps cleanly.
+
+**Validation:** Restarted Guardian. The decode-garbage filter engages live: on the current lossy WiFi link the log shows roughly one rejected smear-frame every 1–2s on `house-yard`, each followed by a "clean frames resumed" line. Sampling the `house-yard` MJPEG endpoint over 8s yielded 21 clean JPEGs (≈2.6 fps actual delivery — capture is 4fps, the gap is exactly the rejected garbage frames, which is the desired behaviour). `house-yard`, `gwtc`, and `usb-cam` all return live frames via `/api/cameras/{name}/frame`. `s7-cam` (Samsung phone over WiFi) is currently failing to connect to RTSP — that is a phone-side issue, unrelated to this change.
+
 ## [2.15.1] - 2026-04-12
 
 ### Fixed — Night-only detection gate for enabled cameras (OpenAI Codex GPT-5.4)

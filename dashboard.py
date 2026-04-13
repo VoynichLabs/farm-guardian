@@ -1,5 +1,5 @@
 # Author: Claude Opus 4.6 (updated), Cascade (Claude Sonnet 4) (original)
-# Date: 12-April-2026 (v2.15.0 — HLS removed, all cameras served via capture manager)
+# Date: 13-April-2026 (v2.16.0 — MJPEG poll cadence dropped to 100ms for smooth live view)
 # PURPOSE: Local web dashboard for Farm Guardian. Serves a FastAPI app on the Mac Mini
 #          that provides real-time monitoring and full control of the guardian service.
 #          Features: camera snapshot feeds (polled), detection timeline, alert history, PTZ
@@ -171,7 +171,10 @@ def create_app() -> FastAPI:
                         + jpeg.tobytes()
                         + b"\r\n"
                     )
-                await asyncio.sleep(0.3)
+                # Poll faster than the capture rate so each new frame is yielded
+                # promptly. Capture is ~4fps on the detection camera, so 100ms
+                # polling forwards every new frame within ~25% of its lifetime.
+                await asyncio.sleep(0.1)
 
         return StreamingResponse(
             generate(), media_type="multipart/x-mixed-replace; boundary=frame"

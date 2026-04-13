@@ -1,5 +1,5 @@
 # Author: Claude Opus 4.6
-# Date: 12-April-2026 (v2.15.0 — per-camera frame_interval for snapshot polling)
+# Date: 13-April-2026 (v2.16.0 — decode-garbage rejection + buffer flush on disconnect)
 # PURPOSE: Frame capture for Farm Guardian. Connects to camera streams (RTSP or local USB)
 #          via OpenCV, grabs frames at a configurable interval, and downscales 4K frames to
 #          1080p before passing them to detection. Used for ALL cameras: detection cameras
@@ -8,6 +8,9 @@
 #          Maintains a small ring buffer of recent frames for event context. Handles stream
 #          disconnection with exponential backoff reconnection. Each camera gets its own
 #          capture thread. USB cameras are opened via AVFoundation device index (no RTSP/FFMPEG).
+#          v2.16.0: Rejects HEVC decode-garbage frames (the "gray washed-out frame of nothing"
+#          that FFMPEG returns when reference packets are lost on lossy WiFi). Flushes the ring
+#          buffer on disconnect so the dashboard never serves a stale post-disconnect frame.
 # SRP/DRY check: Pass — single responsibility is frame acquisition from camera streams.
 
 import logging
@@ -30,6 +33,17 @@ _TARGET_WIDTH = 1920
 _BACKOFF_BASE = 2.0
 _BACKOFF_MAX = 60.0
 _BACKOFF_MULTIPLIER = 2.0
+
+# Decode-garbage rejection thresholds.
+# When HEVC reference packets are lost on a lossy link, FFMPEG still hands back
+# a frame from cap.read() with ret=True, but it's a uniform mid-gray smear with
+# almost no pixel variance. We reject those before they enter the buffer.
+# A legitimately dark night frame has low stdev too, but ALSO low mean — those
+# are accepted. The garbage frames sit at mean ~80–180 with stdev <4.
+_DECODE_GARBAGE_STDEV_MAX = 4.0
+_DECODE_GARBAGE_MEAN_MIN = 30.0
+# Log every Nth consecutive rejection so we don't spam the log.
+_GARBAGE_LOG_EVERY = 10
 
 # Lock protecting OPENCV_FFMPEG_CAPTURE_OPTIONS env var during VideoCapture creation.
 # Each camera may need a different rtsp_transport (tcp vs udp), but the env var is
@@ -73,6 +87,7 @@ class CameraCapture:
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
         self._consecutive_failures = 0
+        self._consecutive_garbage = 0
 
     @property
     def camera_name(self) -> str:
@@ -154,8 +169,12 @@ class CameraCapture:
                     # blocking inside cap.read() in native code, and releasing
                     # the cap while read() is active causes a segfault.
                     # The old cap + daemon thread will be garbage collected.
+                    # Flush the buffer so the dashboard doesn't keep serving the
+                    # last (likely already-corrupted) frame from this dead session.
                     log.warning("Camera '%s' — frame read hung >10s, reconnecting", self._camera_name)
                     self._cap = None
+                    with self._lock:
+                        self._buffer.clear()
                     continue
 
                 ret, raw_frame = read_result
@@ -163,6 +182,26 @@ class CameraCapture:
                     log.warning("Camera '%s' — frame read failed, reconnecting", self._camera_name)
                     self._release_capture()
                     continue
+
+                # HEVC decode-failure rejection. On lossy WiFi the decoder will
+                # happily return a uniform-gray smear when reference packets were
+                # dropped. Skip these — don't push to buffer, don't run detection
+                # on them. The next keyframe will deliver a clean frame.
+                if self._is_decode_garbage(raw_frame):
+                    self._consecutive_garbage += 1
+                    if self._consecutive_garbage == 1 or self._consecutive_garbage % _GARBAGE_LOG_EVERY == 0:
+                        log.warning(
+                            "Camera '%s' — rejected decode-garbage frame (consecutive=%d)",
+                            self._camera_name, self._consecutive_garbage,
+                        )
+                    continue
+
+                if self._consecutive_garbage:
+                    log.info(
+                        "Camera '%s' — clean frames resumed after %d garbage frames",
+                        self._camera_name, self._consecutive_garbage,
+                    )
+                    self._consecutive_garbage = 0
 
                 self._consecutive_failures = 0
                 result = self._process_frame(raw_frame)
@@ -242,13 +281,38 @@ class CameraCapture:
             return False
 
     def _release_capture(self) -> None:
-        """Safely release the OpenCV capture."""
+        """Safely release the OpenCV capture and flush the frame buffer.
+
+        Buffer flush matters: without it, the dashboard would keep serving the
+        last (often corrupted) frame from a dead RTSP session for the entire
+        reconnect window — that's how a single bad frame becomes a sticky gray
+        image in the UI for tens of seconds.
+        """
         if self._cap is not None:
             try:
                 self._cap.release()
             except Exception:
                 pass
             self._cap = None
+        with self._lock:
+            self._buffer.clear()
+        self._consecutive_garbage = 0
+
+    @staticmethod
+    def _is_decode_garbage(raw_frame: np.ndarray) -> bool:
+        """True if the frame looks like an HEVC decode-failure smear.
+
+        Subsamples by 8 in each axis (cheap: ~256x144 stats on a 4K frame)
+        and checks two things:
+          - stdev < 4: pixel values are nearly uniform (no real scene texture)
+          - mean   > 30: it's NOT a legitimate dark night frame
+
+        A real outdoor scene — even foggy or snow-covered — has stdev > 10
+        once you include any structural edges. A decode-failure frame with a
+        missing reference is a true monochromatic blob.
+        """
+        sub = raw_frame[::8, ::8]
+        return float(sub.std()) < _DECODE_GARBAGE_STDEV_MAX and float(sub.mean()) > _DECODE_GARBAGE_MEAN_MIN
 
     def _process_frame(self, raw_frame: np.ndarray) -> FrameResult:
         """Downscale 4K frame to 1080p width for efficient inference."""
