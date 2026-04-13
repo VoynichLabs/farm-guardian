@@ -37,6 +37,10 @@
       "snapshot_resolution": [1920, 1080],
       "snapshot_jpeg_quality": 95,
       "snapshot_interval": 5.0,
+      "snapshot_auto_wb": true,
+      "snapshot_wb_strength": 0.8,
+      "snapshot_autofocus": true,
+      "snapshot_warmup_frames": 3,
       "detection_enabled": false
     },
     {

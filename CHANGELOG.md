@@ -2,6 +2,33 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.21.0] - 2026-04-13
+
+### Added — usb-cam heat-lamp white balance, autofocus, and warmup frames; network troubleshooting pointer (Claude Opus 4.6)
+
+Boss: "The quality looks better, but you might want to account for the heat lamp. It makes everything this red-orange color." And: "Can it autofocus before it takes a picture so we don't have a bunch of blurry, fluffy bird butts?" Both are the right asks — the pre-v2.21 usb-cam path took a single frame with no AF settle time and no color correction, so every shot was heat-lamp orange + occasionally blurry when chicks moved.
+
+Plus: documenting the network reality so future agents stop inventing turkey-flipped-firewall theories.
+
+**What changed:**
+
+- **`capture.py:UsbSnapshotSource`** — Four new constructor kwargs:
+    - `auto_white_balance` (bool, default False) — toggles gray-world correction applied before JPEG encode.
+    - `wb_strength` (float 0.0–1.0, default 0.8) — interpolates between identity and full gray-world. 0.7–0.9 usually looks natural.
+    - `autofocus` (bool, default True) — sets `CAP_PROP_AUTOFOCUS=1` on open. cv2 on macOS often silently ignores this, but DSHOW/V4L2 backends honor it. Harmless when ignored.
+    - `warmup_frames` (int, default 3) — number of reads to discard before the real capture, giving continuous AF and auto-exposure time to catch up to a moving subject. ~33ms per frame at 30fps, so 3 = ~100ms of catch-up.
+  New `_apply_gray_world_wb()` static method. Open log now shows all four settings so operators can see what's active. Header bumped.
+- **`guardian.py`** — `_register_camera_capture()` wires the four new kwargs from config (`snapshot_auto_wb`, `snapshot_wb_strength`, `snapshot_autofocus`, `snapshot_warmup_frames`). Header bumped.
+- **`config.json`** + **`config.example.json`** — `usb-cam` gains `snapshot_auto_wb: true`, `snapshot_wb_strength: 0.8`, `snapshot_autofocus: true`, `snapshot_warmup_frames: 3`.
+- **`CLAUDE.md`** — New "Network & Machine Access — READ BEFORE TROUBLESHOOTING REACHABILITY" section near the top. Points at `~/bubba-workspace/memory/reference/network.md` (the authoritative copy on this Mac Mini) for IPs, SSH keys, user accounts, the router's admin creds, and every known quirk. Also calls out the facts that trip up agents who don't read the docs first: (1) ICMP is blocked cross-medium on this router — ping between wired and wireless will always fail regardless of host state; (2) Windows Firewall is DISABLED on the Gateway laptop — stop inventing firewall theories; (3) there's a known WSL2 virtual-adapter routing-poisoning bug that breaks SSH to the Gateway, fixed only at the laptop's console with `netsh winsock reset; netsh int ip reset` + reboot; (4) DHCP IPs drift after reboots, here's the documented subnet-scan recipe for finding a camera that moved.
+
+**Validation:**
+
+- Open log: `UsbSnapshotSource 'usb:usb-cam' opened at 1920x1080 (quality=95, warmup=3, autofocus=True, auto_wb=True)`.
+- Pre-WB frame: everything uniform orange from the heat lamp.
+- Post-WB frame: chicks render correctly yellow, back wall shows actual color variation (lit cream / shadowed lavender — the mild cool tint is gray-world's overshoot when the dominant light is warm, tunable via `snapshot_wb_strength`).
+- File size ~438KB (vs 329KB pre-WB). The extra bytes are because a corrected scene has more color variety to encode — trading a bit of bandwidth for a scene that actually looks like chicks instead of a pumpkin wash.
+
 ## [2.20.0] - 2026-04-13
 
 ### Added — Phase C2: motion-event-triggered snapshot bursts (Claude Opus 4.6)

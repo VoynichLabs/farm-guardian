@@ -185,6 +185,22 @@ Read `docs/02-Apr-2026-v2-system-plan.md` for the full v2 architecture document 
 
 **Config:** `config.json` (copied from `config.example.json`). Contains camera IPs, per-camera RTSP transport (`"tcp"`/`"udp"`), Discord webhook, detection thresholds, deterrent rules, PTZ presets, eBird API key, report settings.
 
+## Network & Machine Access — READ BEFORE TROUBLESHOOTING REACHABILITY
+
+**If you think a camera or the Gateway laptop is "offline" — STOP and read `~/bubba-workspace/memory/reference/network.md` first.** Bubba (this Mac Mini) keeps a complete reference of every machine on the LAN there: IPs, MAC addresses, SSH keys, users, service ports, the router's admin creds, known quirks. Things that will save you (and everyone else) from embarrassing misdiagnoses:
+
+- **ICMP is blocked between wired and wireless on this router** (TP-Link Archer AX55). Mac Mini on Ethernet ↔ laptop on WiFi will never ping each other regardless of state. Use `nc -z -w 1 <ip> <port>` or direct `ssh`, never `ping`, to test reachability.
+- **Windows Firewall is DISABLED on the Gateway laptop.** Don't invent firewall theories to explain reachability issues — there isn't one to block you.
+- **The Gateway laptop has a known WSL2 virtual-adapter routing-poisoning bug.** If SSH to it stops working, the fix (per that doc) is: `netsh winsock reset; netsh int ip reset` then reboot, done at the console. Nothing on the Mac Mini side can cause or fix this. Not the chickens. Not port scans. Not Guardian restarts.
+- **IPs are DHCP and can change after a reboot or a long WiFi disassociation.** When GWTC isn't at `192.168.0.68` any more, do the documented subnet scan for SSH (port 22) or MediaMTX (port 8554):
+  ```bash
+  for i in $(seq 2 254); do (nc -z -w 1 192.168.0.$i 22 2>/dev/null && echo "192.168.0.$i SSH OPEN") & done; wait
+  ```
+- **SSH into GWTC:** `ssh -o StrictHostKeyChecking=no markb@<ip>` — Bubba's `id_ed25519` is in `C:\ProgramData\ssh\administrators_authorized_keys` on the laptop.
+- **Router admin is read-only by default.** Never change router settings without Boss approval. The Terry Kath rule: if you change something that kills connectivity to Bubba, you lose the ability to be told to undo it.
+
+`~/bubba-workspace/memory/reference/network.md` is the authoritative copy — don't duplicate it here, read it there.
+
 ## Environment
 
 - **Machine:** Mac Mini M4 Pro, 14-core, 64GB RAM, macOS 26.3

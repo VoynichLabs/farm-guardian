@@ -1,5 +1,5 @@
 # Author: Claude Opus 4.6
-# Date: 13-April-2026 (v2.20.0 — Phase C2: request_burst() on CameraSnapshotPoller)
+# Date: 13-April-2026 (v2.21.0 — usb-cam gets gray-world WB, autofocus, warmup frames)
 # PURPOSE: Frame acquisition for Farm Guardian. Two parallel acquisition modes share the
 #          same FrameResult/ring-buffer/dispatch surface so FrameCaptureManager can treat
 #          them interchangeably:
@@ -421,11 +421,22 @@ class UsbSnapshotSource:
         target_resolution: Optional[tuple] = None,
         jpeg_quality: int = 95,
         label: Optional[str] = None,
+        auto_white_balance: bool = False,
+        wb_strength: float = 0.8,
+        autofocus: bool = True,
+        warmup_frames: int = 3,
     ):
         self._device_index = device_index
         self._target_resolution = target_resolution
         self._jpeg_quality = jpeg_quality
         self._label = label or f"usb:{device_index}"
+        self._auto_wb = auto_white_balance
+        # Clamp so misconfig can't nuke the image.
+        self._wb_strength = max(0.0, min(1.0, wb_strength))
+        self._autofocus = autofocus
+        # At 30fps each warmup frame costs ~33ms. 3 frames = ~100ms, enough
+        # for continuous AF to chase a moving subject (chicks).
+        self._warmup_frames = max(0, int(warmup_frames))
         self._cap: Optional[cv2.VideoCapture] = None
         self._lock = threading.Lock()
 
@@ -446,11 +457,17 @@ class UsbSnapshotSource:
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        # AVFoundation via cv2 often ignores these silently — cv2.get() will
+        # return 0.0 afterwards either way — but setting them is harmless and
+        # UVC backends that honor them (DSHOW, V4L2) will engage continuous AF.
+        if self._autofocus:
+            cap.set(cv2.CAP_PROP_AUTOFOCUS, 1)
         actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         log.info(
-            "UsbSnapshotSource '%s' opened at %dx%d (quality=%d)",
+            "UsbSnapshotSource '%s' opened at %dx%d (quality=%d, warmup=%d, autofocus=%s, auto_wb=%s)",
             self._label, actual_w, actual_h, self._jpeg_quality,
+            self._warmup_frames, self._autofocus, self._auto_wb,
         )
         self._cap = cap
         return True
@@ -459,9 +476,13 @@ class UsbSnapshotSource:
         with self._lock:
             if self._cap is None and not self._open():
                 return None
-            # Discard one frame — AVFoundation's ring buffer often serves the
-            # driver's previous snapshot on the first read after idle.
-            self._cap.read()
+            # Warmup reads before the real capture. AVFoundation's ring buffer
+            # often serves the driver's previous snapshot on the first read
+            # after idle, AND the camera's continuous autofocus/auto-exposure
+            # need a beat to re-acquire a moving subject (chicks). Each read
+            # is ~33ms at 30fps; 3 reads is ~100ms of catch-up.
+            for _ in range(self._warmup_frames):
+                self._cap.read()
             ret, frame = self._cap.read()
             if not ret or frame is None:
                 # One reopen attempt, then give up for this tick
@@ -475,12 +496,37 @@ class UsbSnapshotSource:
                 ret, frame = self._cap.read()
                 if not ret or frame is None:
                     return None
+            if self._auto_wb:
+                frame = self._apply_gray_world_wb(frame, self._wb_strength)
             ok, buf = cv2.imencode(
                 ".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, self._jpeg_quality]
             )
             if not ok:
                 return None
             return buf.tobytes()
+
+    @staticmethod
+    def _apply_gray_world_wb(frame: np.ndarray, strength: float) -> np.ndarray:
+        """Gray-world auto white balance. Scales each BGR channel so the
+        per-channel means converge on the overall mean, removing a uniform
+        color cast (e.g. the orange from a chick-brooder heat lamp).
+
+        `strength` interpolates between identity (0.0) and full correction
+        (1.0). Values around 0.7–0.9 usually look natural — full correction
+        over a scene that legitimately has dominant warm or cool content
+        can swing the image too cool.
+        """
+        if strength <= 0.0:
+            return frame
+        avg = frame.reshape(-1, 3).mean(axis=0).astype(np.float32)  # B,G,R
+        overall = float(avg.mean())
+        if overall < 1.0:
+            return frame  # pitch-black frame, nothing meaningful to correct
+        scales = overall / np.maximum(avg, 1.0)
+        # Interpolate: identity scales are all 1.0; strength controls blend.
+        scales = 1.0 + strength * (scales - 1.0)
+        corrected = frame.astype(np.float32) * scales.reshape(1, 1, 3)
+        return np.clip(corrected, 0, 255).astype(np.uint8)
 
 
 class CameraSnapshotPoller:

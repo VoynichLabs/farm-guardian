@@ -1,5 +1,5 @@
 # Author: Claude Opus 4.6 (updated), OpenAI Codex GPT-5.4 Mini (prior)
-# Date: 13-April-2026 (v2.20.0 — Phase C2: motion-watcher triggers snapshot bursts)
+# Date: 13-April-2026 (v2.21.0 — usb-cam white balance / autofocus / warmup frames)
 # PURPOSE: Main service entry point for Farm Guardian v2. Orchestrates camera discovery,
 #          frame capture, YOLO animal detection, animal visit tracking (for alert dedup),
 #          automated deterrence (spotlight/siren/audio), PTZ patrol with pause-on-predator,
@@ -390,6 +390,10 @@ class GuardianService:
                     target_resolution=target_tuple,
                     jpeg_quality=jpeg_quality,
                     label=f"usb:{cam.name}",
+                    auto_white_balance=cam_cfg.get("snapshot_auto_wb", False),
+                    wb_strength=cam_cfg.get("snapshot_wb_strength", 0.8),
+                    autofocus=cam_cfg.get("snapshot_autofocus", True),
+                    warmup_frames=cam_cfg.get("snapshot_warmup_frames", 3),
                 )
             else:
                 log.error(
