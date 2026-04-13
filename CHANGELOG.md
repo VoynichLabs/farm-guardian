@@ -2,6 +2,40 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.22.0] - 2026-04-13
+
+### Added — `brooder-cam` (MacBook Air 2013 → RTSP) for the brooder angle (Claude Opus 4.6)
+
+Boss: "We need to incorporate the MacBook Air as a camera that's going to be looking at the brooder. Make sure the MacBook Air broadcasts its camera to the network. Also turn off the fucking screen saver on it."
+
+Mirrors the GWTC pattern from v2.12.0: a remote computer with a built-in webcam runs `ffmpeg → MediaMTX → RTSP` and Guardian consumes it via `rtsp_url_override`. The Air is an Intel Haswell on macOS Big Sur 11.7.11 — Homebrew is unsupported on Big Sur, and most current MediaMTX builds link against macOS 12 SDK symbols, so this required a non-current MediaMTX release (v1.13.1) and a static ffmpeg build (evermeet.cx 8.1-tessus).
+
+**On the Air (`markb@192.168.0.50`, key auth):**
+
+- **Screensaver disabled** — `defaults -currentHost write com.apple.screensaver idleTime -int 0` plus `askForPassword 0`/`askForPasswordDelay 0` and `killall ScreenSaverEngine`. Power settings (`pmset`) were already locked down from the Bubba 12-Apr session: `sleep=0 disksleep=0 displaysleep=0 standby=0 powernap=0 hibernatemode=0 autorestart=1`. The lid stays open per the operational requirement (clamshell sleep on this firmware can't be overridden).
+- **MediaMTX v1.13.1** at `~/.local/bin/mediamtx` (+ default `mediamtx.yml`). v1.16.3 was tried first per the original plan and failed at load with `dyld: Symbol not found: _SecTrustCopyCertificateChain` — that symbol is macOS 12+; v1.13.1 is the latest darwin_amd64 build that runs on Big Sur 11. RTSP listener on `:8554`, default unauthenticated single-path serve.
+- **ffmpeg 8.1-tessus** at `~/.local/bin/ffmpeg` (evermeet.cx static darwin-x64 build). FaceTime HD Camera is AVFoundation index `0`. Camera supports `1280x720@30fps` only (15fps was not in the supported-modes list, hence the `-framerate 30` capture with `-r 15` re-rate before encode).
+- **Two LaunchAgents** in `~/Library/LaunchAgents/`:
+    - `com.farmguardian.mediamtx.plist` — KeepAlive, ThrottleInterval 10s, logs to `~/Library/Logs/farmguardian/mediamtx.log`.
+    - `com.farmguardian.brooder-cam.plist` — KeepAlive, ThrottleInterval 15s, runs the ffmpeg capture (`avfoundation 0` → `libx264 ultrafast zerolatency` 720p15 ~1.5 Mbps → `rtsp://127.0.0.1:8554/brooder-cam` over TCP). Logs to `~/Library/Logs/farmguardian/brooder-cam.log`.
+- **Bootstrapped** with `launchctl bootstrap gui/$(id -u) <plist>`. MediaMTX is healthy: port 8554 listening, RTSP/RTMP/HLS/WebRTC/SRT all up. ffmpeg starts and probes the camera but stalls at the AVFoundation capture-open call until **TCC camera permission is granted at the Air's keyboard** (see Open Items below).
+
+**In this repo:**
+
+- **`config.json`** — Added `brooder-cam` entry to the `cameras` array. Same shape as `gwtc`: `rtsp_url_override` to `rtsp://192.168.0.50:8554/brooder-cam`, `rtsp_transport: tcp` (Air is WiFi-only), `detection_enabled: false` until placement and role are decided.
+- **`config.example.json`** — Same entry mirrored.
+
+**Cross-references:**
+
+- Plan doc: `docs/12-Apr-2026-macbook-air-camera-node-plan.md` (path renamed from generic `mba-cam` → `brooder-cam` per Boss's spec).
+- Machine ops: `~/bubba-workspace/skills/macbook-air/SKILL.md` (SSH, power settings, install recipes — already covers everything an agent needs to land on this box).
+
+**Open Items (one-time, requires Boss at the Air's keyboard):**
+
+1. **Grant Camera permission to ffmpeg.** `launchd`-spawned binaries can't surface a TCC dialog when no GUI session is foregrounded; the prompt may be queued or denied silently. To unstick: at the Air's keyboard, open Terminal and run `~/.local/bin/ffmpeg -f avfoundation -i 0 -frames:v 1 -y /tmp/tcc.jpg` — macOS will prompt "Terminal would like to access the camera" (or directly for ffmpeg). Click Allow. Then either reboot the Air or `launchctl kickstart -k gui/$(id -u)/com.farmguardian.brooder-cam`. Verify from the Mini: `ffmpeg -rtsp_transport tcp -i rtsp://192.168.0.50:8554/brooder-cam -frames:v 1 -y /tmp/test.jpg` should produce a JPEG within ~2s.
+2. **Physical placement.** Lid open, camera aimed into the brooder.
+3. **Detection enable decision** once placement is final — likely stays off (chicks are not predators).
+
 ## [Unreleased] - 2026-04-13 — docs only
 
 ### Added — GWTC laptop troubleshooting writeup; corrected MAC attribution (Claude Opus 4.6)

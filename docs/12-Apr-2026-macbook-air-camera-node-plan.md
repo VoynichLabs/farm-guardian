@@ -1,7 +1,9 @@
 # MacBook Air 2013 — Farm Guardian Camera Node Plan
 
 **Date:** 12-April-2026
-**Goal:** Bring the boss's 2013 MacBook Air (`Marks-MacBook-Air.local`, `192.168.0.50`) online as a fourth Farm Guardian camera node. The Air was brought up as a secondary Claude Code host earlier in the same session; this plan adds a camera role on the same hardware.
+**Goal:** Bring the boss's 2013 MacBook Air (`Marks-MacBook-Air.local`, `192.168.0.50`) online as a fifth Farm Guardian camera node. The Air was brought up as a secondary Claude Code host earlier in the same session; this plan adds a camera role on the same hardware.
+
+**Update 13-April-2026 (Claude Opus 4.6):** Implemented per Boss's spec — RTSP path renamed `mba-cam` → `brooder-cam` (camera will be aimed at the brooder). Screensaver disabled in addition to the original power settings. **MediaMTX v1.16.3 does not run on Big Sur** (`dyld: Symbol not found: _SecTrustCopyCertificateChain` — that symbol is macOS 12+); v1.13.1 is the latest darwin_amd64 build that runs on Big Sur 11. **FaceTime HD Camera does not support 15fps** at 720p — only 1.0fps and 30.0fps. Capture command updated to `-framerate 30 ... -r 15` (capture at 30, re-rate to 15 before encode). Built and bootstrapped both LaunchAgents successfully; ffmpeg is blocked at the AVFoundation capture-open call until **TCC Camera permission is granted at the Air's keyboard** — see CHANGELOG v2.22.0 Open Items for the unstick procedure.
 
 ---
 
@@ -37,11 +39,11 @@ Full machine skill doc: `bubba-workspace/skills/macbook-air/SKILL.md`.
 MacBook Air (192.168.0.50)
 ├── FaceTime HD Camera (built-in, AVFoundation)
 ├── ffmpeg — captures camera, encodes H.264, pushes to localhost:8554
-└── MediaMTX — RTSP server, publishes at rtsp://192.168.0.50:8554/mba-cam
+└── MediaMTX — RTSP server, publishes at rtsp://192.168.0.50:8554/brooder-cam
 
 Mac Mini (192.168.0.105)
 └── Farm Guardian
-    └── capture.py → rtsp://192.168.0.50:8554/mba-cam
+    └── capture.py → rtsp://192.168.0.50:8554/brooder-cam
 ```
 
 Same toolchain decisions as the GWTC plan (08-Apr-2026-gwtc-webcam-stream-plan.md):
@@ -56,14 +58,14 @@ Same toolchain decisions as the GWTC plan (08-Apr-2026-gwtc-webcam-stream-plan.m
 **In:**
 - Install ffmpeg (static darwin-x64 build) + MediaMTX (darwin-amd64 release) into `~/.local/bin/` on the Air.
 - Configure ffmpeg to capture the FaceTime HD Camera via AVFoundation and publish to local MediaMTX.
-- Configure MediaMTX to serve `rtsp://192.168.0.50:8554/mba-cam`.
+- Configure MediaMTX to serve `rtsp://192.168.0.50:8554/brooder-cam`.
 - launchd `LaunchAgent` plists to auto-start ffmpeg + MediaMTX on login, restart on crash.
-- Add `mba-cam` camera entry to Guardian's `config.json`.
+- Add `brooder-cam` camera entry to Guardian's `config.json`.
 - Update dashboard to render the new feed.
 - Update `CHANGELOG.md` and cross-link to `bubba-workspace/skills/macbook-air/SKILL.md`.
 
 **Out (this plan):**
-- Detection on the mba-cam (start with `detection_enabled: false`; enable after placement decision).
+- Detection on the brooder-cam (start with `detection_enabled: false`; enable after placement decision).
 - Physical placement (boss decides where the Air lives).
 - Any changes to the existing `house-yard`, `s7-cam`, `usb-cam`, or `gwtc` camera configs.
 
@@ -104,7 +106,7 @@ rm mediamtx_v1.16.3_darwin_amd64.tar.gz
 ./mediamtx -version
 ```
 
-**Default config** is sufficient: any path pushed to is served from the same path. We'll push `mba-cam` and Guardian will consume `mba-cam`.
+**Default config** is sufficient: any path pushed to is served from the same path. We'll push `brooder-cam` and Guardian will consume `brooder-cam`.
 
 ---
 
@@ -115,7 +117,7 @@ rm mediamtx_v1.16.3_darwin_amd64.tar.gz
   -f avfoundation -framerate 15 -video_size 1280x720 -i "0" \
   -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p \
   -g 30 -b:v 1500k \
-  -f rtsp rtsp://127.0.0.1:8554/mba-cam
+  -f rtsp rtsp://127.0.0.1:8554/brooder-cam
 ```
 
 Notes:
@@ -141,12 +143,12 @@ The SSH-driven install can set everything up, but the first camera-touching run 
 Two plists in `~/Library/LaunchAgents/`:
 
 - `com.farmguardian.mediamtx.plist` — runs `~/.local/bin/mediamtx ~/.local/bin/mediamtx.yml`, `KeepAlive: true`.
-- `com.farmguardian.mba-cam.plist` — runs the ffmpeg capture command above, `KeepAlive: true`, depends on mediamtx (use a short start delay).
+- `com.farmguardian.brooder-cam.plist` — runs the ffmpeg capture command above, `KeepAlive: true`, depends on mediamtx (use a short start delay).
 
 Load:
 ```bash
 launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.farmguardian.mediamtx.plist
-launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.farmguardian.mba-cam.plist
+launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.farmguardian.brooder-cam.plist
 ```
 
 **Log rotation:** both plists route stdout/stderr to `~/Library/Logs/farmguardian/*.log`. Rotate via logrotate-style cron or a tiny launchd StartCalendarInterval job — out of scope for this plan, open item.
@@ -159,14 +161,14 @@ Append to the `cameras` array (between existing entries, keep valid JSON):
 
 ```json
 {
-  "name": "mba-cam",
+  "name": "brooder-cam",
   "ip": "192.168.0.50",
   "port": 8554,
   "username": "",
   "password": "",
   "type": "fixed",
   "rtsp_transport": "tcp",
-  "rtsp_url_override": "rtsp://192.168.0.50:8554/mba-cam",
+  "rtsp_url_override": "rtsp://192.168.0.50:8554/brooder-cam",
   "detection_enabled": false
 }
 ```
@@ -185,12 +187,12 @@ From the Mac Mini after install:
 nc -z -w 5 192.168.0.50 8554 && echo "mediamtx reachable"
 
 # 2. Pull an RTSP snapshot
-ffmpeg -rtsp_transport tcp -i rtsp://192.168.0.50:8554/mba-cam -vframes 1 -y /tmp/mba-cam-test.jpg
-file /tmp/mba-cam-test.jpg   # should be JPEG data
+ffmpeg -rtsp_transport tcp -i rtsp://192.168.0.50:8554/brooder-cam -vframes 1 -y /tmp/brooder-cam-test.jpg
+file /tmp/brooder-cam-test.jpg   # should be JPEG data
 
 # 3. Guardian restart and log check
 # (via Guardian's standard restart path)
-# Look for: "Camera mba-cam connected"
+# Look for: "Camera brooder-cam connected"
 ```
 
 ---
