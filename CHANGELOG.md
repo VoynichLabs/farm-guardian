@@ -2,6 +2,20 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased] - 2026-04-13 — docs only
+
+### Added — GWTC laptop troubleshooting writeup; corrected MAC attribution (Claude Opus 4.6)
+
+After spending an hour misdiagnosing why the Gateway laptop was unreachable today (variously: theories about port-scan auto-blocking, Windows Defender, MAC mismatches, etc. — none of which fit), Boss called for the diagnostic process to be written down so this doesn't repeat.
+
+**What changed:**
+
+- **`docs/13-Apr-2026-gwtc-laptop-troubleshooting-incident.md`** — New doc. Full incident writeup. Sections: TL;DR, the 30-second diagnostic recipe (sweep /24 for port 8554/MediaMTX or 9099/LM Studio — those are GWTC's distinctive services), what "GWTC is genuinely off-network" means (three possibilities, the four-line PowerShell to disambiguate from the laptop console), the four wrong theories I explicitly ruled out so future sessions don't re-tread them, the authoritative facts Boss provided that don't need re-confirming, and today's chronology (gwtc Guardian failures started at 14:57:59, my probes weren't until ~15:02 — so my probes weren't the cause).
+- **`CLAUDE.md`** — "Network & Machine Access" section rewritten to point at both `~/bubba-workspace/memory/reference/network.md` AND the new incident writeup, with the diagnostic recipe inlined for findability. Also flags the known-wrong MAC entry in the network doc.
+- **`~/bubba-workspace/memory/reference/network.md`** (outside this repo) — Fixed two errors. The MAC `FC:6D:77:B8:E8:DB` was incorrectly attributed to GWTC; it's actually the MSI Katana's MAC (SSH-confirmed via hostname=MSI, model=Katana 15 HX B14WGK at `.3`). GWTC's actual MAC is now marked UNKNOWN pending a console reading. Added a pointer from the GWTC entry to the new incident doc and updated the IP guidance to "find by service signature, not by IP".
+
+No code changes. This is purely durable documentation so the same hour-of-misdiagnosis doesn't recur.
+
 ## [2.21.0] - 2026-04-13
 
 ### Added — usb-cam heat-lamp white balance, autofocus, and warmup frames; network troubleshooting pointer (Claude Opus 4.6)

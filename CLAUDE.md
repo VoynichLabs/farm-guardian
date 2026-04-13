@@ -183,6 +183,7 @@ Read `docs/02-Apr-2026-v2-system-plan.md` for the full v2 architecture document 
 - `docs/13-Apr-2026-phase-a-reolink-snapshot-polling-plan.md` — **DONE in v2.18.0** — house-yard switched from RTSP to HTTP snapshot polling (4K JPEG)
 - `docs/13-Apr-2026-phase-b-gwtc-snapshot-endpoint-plan.md` — Phase B: stand up an HTTP snapshot service on the Gateway laptop, switch `gwtc` over
 - `docs/13-Apr-2026-phase-c-usb-highres-and-motion-bursts-plan.md` — Phase C: `usb-cam` to high-res snapshots + ONVIF motion-event-triggered snapshot bursts on house-yard
+- `docs/13-Apr-2026-gwtc-laptop-troubleshooting-incident.md` — **READ THIS BEFORE TROUBLESHOOTING THE GATEWAY LAPTOP.** Pre-buries four wrong theories and gives the 30-second diagnostic recipe that actually works.
 - `docs/13-Apr-2026-lm-studio-reference.md` — **READ THIS** before adding any LM Studio integration. API surface, locally available models, safe model-load pattern, the 2026-04-13 watchdog incident and what we changed because of it.
 - `docs/13-Apr-2026-brooder-vlm-narrator-plan.md` — planned standalone tool: sample brooder snapshots → glm-4.6v-flash → JSONL narrative log. Awaits Boss approval. Will be revised to incorporate "find the best image" rather than blind 5-min sampling.
 
@@ -218,19 +219,25 @@ Read `docs/02-Apr-2026-v2-system-plan.md` for the full v2 architecture document 
 
 ## Network & Machine Access — READ BEFORE TROUBLESHOOTING REACHABILITY
 
-**If you think a camera or the Gateway laptop is "offline" — STOP and read `~/bubba-workspace/memory/reference/network.md` first.** Bubba (this Mac Mini) keeps a complete reference of every machine on the LAN there: IPs, MAC addresses, SSH keys, users, service ports, the router's admin creds, known quirks. Things that will save you (and everyone else) from embarrassing misdiagnoses:
+**Two docs are authoritative — read both before you theorize about why something is unreachable:**
+
+- **`~/bubba-workspace/memory/reference/network.md`** — Bubba (this Mac Mini) keeps the master inventory of every machine on the LAN: IPs, MAC addresses (with one known error — see below), SSH keys, users, service ports, the router's admin creds, known quirks.
+- **`docs/13-Apr-2026-gwtc-laptop-troubleshooting-incident.md`** in this repo — full writeup of an afternoon spent misdiagnosing the Gateway laptop. Pre-buries the four wrong theories so you don't repeat them, and gives you the diagnostic recipe that actually works in 30 seconds.
+
+The fast facts you cannot afford to be wrong about:
 
 - **ICMP is blocked between wired and wireless on this router** (TP-Link Archer AX55). Mac Mini on Ethernet ↔ laptop on WiFi will never ping each other regardless of state. Use `nc -z -w 1 <ip> <port>` or direct `ssh`, never `ping`, to test reachability.
-- **Windows Firewall is DISABLED on the Gateway laptop.** Don't invent firewall theories to explain reachability issues — there isn't one to block you.
-- **The Gateway laptop has a known WSL2 virtual-adapter routing-poisoning bug.** If SSH to it stops working, the fix (per that doc) is: `netsh winsock reset; netsh int ip reset` then reboot, done at the console. Nothing on the Mac Mini side can cause or fix this. Not the chickens. Not port scans. Not Guardian restarts.
-- **IPs are DHCP and can change after a reboot or a long WiFi disassociation.** When GWTC isn't at `192.168.0.68` any more, do the documented subnet scan for SSH (port 22) or MediaMTX (port 8554):
+- **Windows Firewall is DISABLED on the Gateway laptop.** Don't invent firewall theories — there isn't one to block you. The machine was wiped before being repurposed and has no security suite installed.
+- **GWTC has a known WSL2 virtual-adapter routing-poisoning bug** that recurs. The fix is laptop-console-only: `netsh winsock reset; netsh int ip reset` + reboot. Nothing on the Mac Mini side can cause or fix this — not chickens, not port scans, not Guardian restarts.
+- **The MAC entry for GWTC in the network doc is WRONG.** It lists `FC:6D:77:B8:E8:DB` as GWTC; that MAC actually belongs to the MSI Katana at `.3` (SSH-confirmed 2026-04-13: hostname=MSI, model=Katana 15 HX B14WGK). Don't ARP-hunt for GWTC by that MAC — it'll send you to the wrong host. We don't currently have GWTC's real MAC documented.
+- **Find GWTC by SERVICE SIGNATURE, not by IP.** Its IP drifts on DHCP. Its two distinctive services are MediaMTX on port 8554 and LM Studio on port 9099 (non-standard, NOT 1234). Sweep the /24 for either:
   ```bash
-  for i in $(seq 2 254); do (nc -z -w 1 192.168.0.$i 22 2>/dev/null && echo "192.168.0.$i SSH OPEN") & done; wait
+  for i in $(seq 2 254); do (nc -z -w 1 192.168.0.$i 8554 2>/dev/null && echo "192.168.0.$i has MediaMTX (= GWTC)") & done; wait
+  for i in $(seq 2 254); do (nc -z -w 1 192.168.0.$i 9099 2>/dev/null && echo "192.168.0.$i has LM Studio (= GWTC)") & done; wait
   ```
-- **SSH into GWTC:** `ssh -o StrictHostKeyChecking=no markb@<ip>` — Bubba's `id_ed25519` is in `C:\ProgramData\ssh\administrators_authorized_keys` on the laptop.
-- **Router admin is read-only by default.** Never change router settings without Boss approval. The Terry Kath rule: if you change something that kills connectivity to Bubba, you lose the ability to be told to undo it.
-
-`~/bubba-workspace/memory/reference/network.md` is the authoritative copy — don't duplicate it here, read it there.
+  If neither service is open anywhere on /24, GWTC is genuinely off-network — see the incident doc for the three things that means and the four PowerShell commands Boss needs to run at the laptop's console to disambiguate.
+- **SSH into GWTC** (once you've found its IP): `ssh -o StrictHostKeyChecking=no markb@<ip>` — Bubba's `id_ed25519` is in `C:\ProgramData\ssh\administrators_authorized_keys` on the laptop.
+- **Router admin is read-only by default.** Never change router settings without Boss approval. Terry Kath rule: if you change something that kills connectivity to Bubba, you lose the ability to be told to undo it.
 
 ## Environment
 
