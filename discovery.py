@@ -110,6 +110,40 @@ class CameraDiscovery:
                     log.info("Camera '%s' online (USB device index %d)", name, device_index)
                     continue
 
+                # v2.24.0 — http_url snapshot cameras (e.g. S7 running IP Webcam).
+                # No ONVIF/RTSP probe: the URL is authoritative and the first
+                # poll round-trip in CameraSnapshotPoller will reveal whether
+                # it's reachable. Mark online here so the capture manager
+                # registers the poller; HTTP failures surface as per-fetch
+                # consecutive_failures warnings rather than at discovery time.
+                is_snapshot_http = (
+                    cam_cfg.get("source") == "snapshot"
+                    and cam_cfg.get("snapshot_method") == "http_url"
+                )
+                if is_snapshot_http:
+                    info = CameraInfo(
+                        name=name,
+                        ip=cam_cfg.get("ip", ""),
+                        port=cam_cfg.get("port", 0),
+                        username=cam_cfg.get("username", ""),
+                        password=cam_cfg.get("password", ""),
+                        onvif_port=0,
+                        camera_type=cam_cfg.get("type", "fixed"),
+                        rtsp_url=None,
+                        onvif_camera=None,
+                        supports_motion_events=False,
+                        last_seen=time.time(),
+                        online=True,
+                        source="http_url",
+                    )
+                    with self._lock:
+                        self._cameras[name] = info
+                    log.info(
+                        "Camera '%s' online (http_url snapshot) — %s",
+                        name, cam_cfg.get("http_base_url", "(no URL configured)"),
+                    )
+                    continue
+
                 # If config provides an explicit RTSP URL, skip ONVIF entirely.
                 # Used for non-ONVIF cameras like phones running IP Webcam.
                 rtsp_override = cam_cfg.get("rtsp_url_override")

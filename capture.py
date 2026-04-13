@@ -1,5 +1,5 @@
 # Author: Claude Opus 4.6
-# Date: 13-April-2026 (v2.21.0 — usb-cam gets gray-world WB, autofocus, warmup frames)
+# Date: 13-April-2026 (v2.24.0 — HttpUrlSnapshotSource for generic /photo.jpg cameras, S7 battery path)
 # PURPOSE: Frame acquisition for Farm Guardian. Two parallel acquisition modes share the
 #          same FrameResult/ring-buffer/dispatch surface so FrameCaptureManager can treat
 #          them interchangeably:
@@ -13,10 +13,15 @@
 #                returns the camera's native 4K JPEG). Each tick: SnapshotSource.fetch()
 #                returns JPEG bytes, we decode + downscale for YOLO, push a FrameResult
 #                that also carries the original JPEG bytes for zero-loss display.
-#          The SnapshotSource Protocol decouples the poller from any one camera vendor;
-#          ReolinkSnapshotSource (this file) wraps CameraController for the Reolink path.
-#          Phase B will add HttpUrlSnapshotSource for the GWTC laptop's HTTP endpoint.
-#          Phase C will add UsbSnapshotSource for the Mac Mini's USB camera.
+#          The SnapshotSource Protocol decouples the poller from any one camera vendor:
+#            - ReolinkSnapshotSource wraps CameraController for the Reolink cmd=Snap path.
+#            - UsbSnapshotSource opens an AVFoundation device locally.
+#            - HttpUrlSnapshotSource (v2.24.0) pulls JPEG bytes from an arbitrary HTTP URL.
+#              Used for phone cameras running IP Webcam (`http://<phone>:8080/photo.jpg`)
+#              and for the Gateway laptop's planned HTTP snapshot endpoint (Phase B).
+#              The battery-critical reason to prefer HTTP snapshot over RTSP streaming on
+#              a phone: RTSP forces continuous H.264 encoding which cooks the SoC; HTTP
+#              photo pulls only wake the camera HAL for each shot.
 # SRP/DRY check: Pass — each class has one responsibility (RTSP capture, snapshot polling,
 #          source adapter, manager dispatch). The downscale helper is shared.
 
@@ -527,6 +532,88 @@ class UsbSnapshotSource:
         scales = 1.0 + strength * (scales - 1.0)
         corrected = frame.astype(np.float32) * scales.reshape(1, 1, 3)
         return np.clip(corrected, 0, 255).astype(np.uint8)
+
+
+class HttpUrlSnapshotSource:
+    """SnapshotSource that pulls JPEG bytes from an arbitrary HTTP endpoint.
+
+    Primary use case: phone cameras running IP Webcam (Samsung S7 in the
+    coop). IP Webcam exposes `http://<phone>:<port>/photo.jpg` which returns
+    a single JPEG from the live preview, and `http://<phone>:<port>/focus`
+    to trigger autofocus. Pulling stills at a 5–10s cadence is dramatically
+    cheaper on phone battery than holding open an RTSP stream, which forces
+    continuous H.264 encoding. Secondary use case: the planned GWTC HTTP
+    snapshot service (Phase B) — same class, different URL.
+
+    `trigger_focus=True` fires an AF request and waits `focus_wait`
+    seconds before the actual photo GET. Defaults are tuned for IP Webcam
+    on an older Android phone (S7): AF takes ~1.5s to settle after any
+    meaningful subject/lighting change. The focus endpoint is optional —
+    GET failures on it are logged and swallowed so the main /photo.jpg
+    still runs. Auth is basic-auth via `(username, password)` or None.
+    """
+
+    def __init__(
+        self,
+        base_url: str,
+        photo_path: str = "/photo.jpg",
+        focus_path: Optional[str] = "/focus",
+        trigger_focus: bool = False,
+        focus_wait: float = 1.5,
+        timeout: float = 15.0,
+        auth: Optional[tuple] = None,
+        label: Optional[str] = None,
+    ):
+        self._base_url = base_url.rstrip("/")
+        self._photo_url = self._base_url + photo_path
+        self._focus_url = (self._base_url + focus_path) if (focus_path and trigger_focus) else None
+        self._trigger_focus = trigger_focus and focus_path is not None
+        self._focus_wait = max(0.0, float(focus_wait))
+        self._timeout = float(timeout)
+        self._auth = auth
+        self._label = label or f"http:{self._photo_url}"
+
+    @property
+    def label(self) -> str:
+        return self._label
+
+    def fetch(self) -> Optional[bytes]:
+        # Deferred import — keep `requests` out of capture.py's import-time
+        # graph for cameras that don't use this source.
+        import requests
+
+        if self._trigger_focus and self._focus_url is not None:
+            try:
+                requests.get(self._focus_url, timeout=min(5.0, self._timeout), auth=self._auth)
+                if self._focus_wait > 0:
+                    time.sleep(self._focus_wait)
+            except Exception as exc:
+                # AF is best-effort; the photo may still be fine without it.
+                log.debug("AF trigger failed for %s: %s", self._label, exc)
+
+        try:
+            resp = requests.get(self._photo_url, timeout=self._timeout, auth=self._auth)
+        except Exception as exc:
+            log.warning("HTTP snapshot fetch failed for %s: %s", self._label, exc)
+            return None
+
+        if resp.status_code != 200:
+            log.warning(
+                "HTTP snapshot non-200 for %s: status=%d", self._label, resp.status_code,
+            )
+            return None
+
+        body = resp.content
+        # Sanity check: verify the JPEG SOI marker. IP Webcam will occasionally
+        # serve an HTML error page (auth redirect, server not ready) with 200 —
+        # catching it here saves a cv2.imdecode failure downstream.
+        if not body or body[:2] != b"\xff\xd8":
+            log.warning(
+                "HTTP snapshot non-JPEG response for %s (%d bytes, first_bytes=%r)",
+                self._label, len(body), body[:8] if body else b"",
+            )
+            return None
+        return body
 
 
 class CameraSnapshotPoller:

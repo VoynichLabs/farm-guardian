@@ -2,6 +2,79 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.24.0] - 2026-04-13
+
+### Added — `HttpUrlSnapshotSource`: generic HTTP `/photo.jpg` puller for S7 battery path (Claude Opus 4.6)
+
+Boss directive (paraphrased 13-Apr-2026): *"the S7 keeps running out of power — it cannot stream constantly. Just take a nice high-quality image every few seconds, send it to the Mac Mini, delete it locally. The phone's only job is to serve as a camera. You own this now."*
+
+**Root cause of the S7 going offline all afternoon:** the Samsung Galaxy S7 (`192.168.0.249`) was serving a continuous RTSP stream on port 5554 via the IP Webcam Android app. RTSP forces continuous H.264 encoding on the phone — the ISP, the hardware video encoder, and the WiFi radio all run flat out. An S7 with a worn battery bleeds charge faster than USB charging replaces it, overheats, and IP Webcam eventually dies. Port probes (`22`, `5554`, `8080`) from the Mac Mini all confirmed the phone was cold when Boss handed over the task.
+
+**The fix (Mac Mini side, shipped in this commit):** a new `HttpUrlSnapshotSource` in `capture.py` implementing the existing `SnapshotSource` Protocol. Fires `GET {base_url}/focus` first (optional, off by default), waits `focus_wait` seconds, then `GET {base_url}/photo.jpg` with a timeout and optional HTTP basic auth. Validates the JPEG SOI marker (`ff d8`) on the response — IP Webcam occasionally serves HTML error pages with 200, this catches that cleanly and returns `None` so the poller's `consecutive_failures` path handles it. Returns raw JPEG bytes which `CameraSnapshotPoller` then decodes for YOLO *and* carries through to the dashboard for zero-loss display (same behavior as the Reolink snapshot path).
+
+**Dispatch wired in two places:**
+
+- `guardian.py::_register_camera_capture` — adds an `elif method == "http_url":` branch that reads `http_base_url`, `http_photo_path`, `http_focus_path`, `http_trigger_focus`, `http_focus_wait`, `http_timeout`, and builds `auth` from `username`/`password` if present. Replaces the previous "not implemented (Phase B adds http_url)" error log.
+- `discovery.py::scan` — short-circuits `snapshot_method == "http_url"` the same way USB does. No ONVIF probe, no RTSP URL resolution — the camera is marked online and real reachability is evaluated on the first `fetch()` in the poller.
+
+**Why pull, not push:** Android 8 Doze / App Standby aggressively kills background sync services on older hardware; a reliable unattended intervalometer-and-SFTP-upload flow on an S7 is a multi-day tuning project. Pull lets the Mac Mini drive cadence and keeps the phone stateless. Full architectural rationale is in `docs/13-Apr-2026-s7-battery-http-snapshot-plan.md`.
+
+**`config.json` intentionally NOT flipped in this commit:** the phone was offline when the code was written, so no config change could be validated. The existing RTSP config fails gracefully, so leaving it alone produces no user-visible regression. Whoever re-seats the phone follows `docs/13-Apr-2026-s7-phone-setup.md`, which walks through (a) IP Webcam app settings to minimize battery load (dim screen, background mode, disable recording, stop RTSP video, keep HTTP photo server on), (b) the `/photo.jpg` smoke test, (c) the exact `config.json` block to swap in, and (d) the rollback path back to RTSP if the HTTP path is worse on this specific phone.
+
+**Reuse:** `HttpUrlSnapshotSource` is deliberately generic — the GWTC Phase B plan will use the same class against whatever HTTP snapshot service the Gateway laptop ends up hosting. No second implementation needed.
+
+**Files changed:** `capture.py`, `guardian.py`, `discovery.py`, `docs/13-Apr-2026-s7-battery-http-snapshot-plan.md` (new), `docs/13-Apr-2026-s7-phone-setup.md` (new).
+
+**Verification:** both `from capture import HttpUrlSnapshotSource, ...` and `from discovery import CameraDiscovery` import clean. End-to-end live-phone smoke test is blocked until the S7 is powered back up; the procedure is codified in the phone setup doc.
+
+## [2.23.1] - 2026-04-13
+
+### Fixed — Renamed GWTC MediaMTX path `nestbox` → `gwtc`; added repo-wide `HARDWARE_INVENTORY.md` (Claude Opus 4.6)
+
+Boss: "Please tell me nothing on the backend is still named like Nesting Boss Cam or Brooder Cam or shit like that. Everything should be named after the piece of hardware that's running it. Because my idiot front end developers found tons of errors and mismatches, just do a nice sanity check of the backend. I want to make it clear exactly what hardware device each camera is on and what hardware device is running on."
+
+The audit found one live device-name violation and several stale references. The violation was that the Gateway laptop's MediaMTX publish path was `nestbox` (a location) even though our camera identifier everywhere else has been `gwtc` (a device). That mismatch was the root of frontend confusion — the camera was named one thing in `config.json` and another in the actual stream URL. Fixed end-to-end.
+
+**On the Gateway laptop (live changes):**
+
+- `C:\farm-services\start-camera.bat` — ffmpeg push URL changed from `rtsp://localhost:8554/nestbox` → `rtsp://localhost:8554/gwtc`.
+- `C:\mediamtx\mediamtx.yml` — declared `paths:` block changed from `nestbox:` → `gwtc:`. (mediamtx had explicit-paths config that *only* allowed `nestbox`, so the path rename required a config update + service restart, not just an ffmpeg restart.)
+- `C:\farm-services\farm-watchdog.ps1` — `$RtspUrl` updated to probe `rtsp://localhost:8554/gwtc`.
+- Cutover sequence (to avoid the watchdog killing ffmpeg during the transition window): stop watchdog → push new bat + new ps1 + new yml → restart mediamtx → kill old ffmpeg PID (Shawl respawns with new push URL) → restart watchdog. All four GWTC services back to `STATE: 4 RUNNING`.
+
+**In this repo:**
+
+- **`HARDWARE_INVENTORY.md`** (NEW, repo root) — single source of truth for every camera: what hardware it is, what host machine runs it, IP, RTSP/source URL, capture method, detection state, and where it's currently aimed (the latter for context only — never a name driver). Plus a "what runs where" table for all hosts, an end-to-end "where each camera's frame lands in the stack" diagram, the device-not-location naming rules with the worked example of the Apr-13 frontend mismatch incident, and procedures for adding a new camera and moving an existing one (which is: don't rename anything). Anchored in `CLAUDE.md` as "READ THIS BEFORE TOUCHING ANY CAMERA."
+- **`config.json` / `config.example.json`** — `gwtc` camera's `rtsp_url_override` updated to `rtsp://192.168.0.68:8554/gwtc`.
+- **`deploy/gwtc/farm-watchdog.ps1`** — repo copy synced to live (probes `/gwtc`).
+- **`deploy/gwtc/install-watchdog.md`** — `nestbox` → `gwtc` throughout install/verify recipes.
+- **`deploy/gwtc/start-camera.bat`** (NEW) — canonical copy of the Gateway laptop's ffmpeg-push batch file. Was previously only on the laptop; now in version control.
+- **`deploy/gwtc/mediamtx.yml`** (NEW) — canonical copy of the Gateway laptop's MediaMTX config (declares the `gwtc` path).
+- **`docs/13-Apr-2026-gwtc-laptop-troubleshooting-incident.md`** — bulk `nestbox` → `gwtc` (operational instructions, log-line examples, ffmpeg test commands, the rule callout).
+- **`docs/12-Apr-2026-snapshot-polling-plan.md`** — gwtc-row URL updated.
+- **`docs/13-Apr-2026-phase-b-gwtc-snapshot-endpoint-plan.md`** (other agent's WIP plan, not yet implemented) — title `nesting box cam` → `(gwtc) cam`; proposed Python script `nestbox-snap.py` → `gwtc-snap.py`; proposed Shawl service `nestbox-snap` → `gwtc-snap`; URL examples + prose updated. The plan's design intent is otherwise untouched.
+- **`tools/pipeline/config.json`** (the v2.23.0 multi-camera pipeline that the other agent shipped just before this commit) — `gwtc` entry's `rtsp_url` fixed to `/gwtc`. Was hard-broken by the rename above; would have failed silently at the next pipeline cycle. Also rewrote each camera's `context` string to lead with the hardware ("Reolink E1 Outdoor Pro 4K PTZ camera (192.168.0.88); currently aimed at the yard..." instead of "PTZ overlooking the yard..." etc.) so the VLM prompts match the device-first naming convention used everywhere else.
+
+**What I deliberately did NOT touch:**
+
+- `s7-cam` internal RTSP path is `/camera` because that's what the Android IP Webcam app exposes — not configurable on the phone side. Our config name `s7-cam` is the device-first identifier we use everywhere.
+- `tools/pipeline/schema.json` scene enum (`["brooder","yard","coop","nesting-box","sky","other"]`). Those are *scene tags* (where the camera is pointing), a separate dimension from camera identity. Defensible.
+- Historical `nestbox` references in pre-v2.23.x CHANGELOG entries. Rewriting history obscures what actually happened. The v2.23.1 entry above documents the rename for anyone reading old entries.
+- Anything in `.claude/worktrees/` (stale worktree).
+
+**Cross-references outside this repo:**
+
+- `~/bubba-workspace/memory/reference/network.md` GWTC entry — RTSP stream line and dshow-zombie bullet's symptom URL updated to `/gwtc`.
+- `~/.claude` auto-memory `feedback_camera_naming.md` — already updated by Boss this session to spell out the rule applies to every UI string. Honored throughout this commit.
+- `~/.claude` auto-memory `project_gwtc_dshow_zombie.md` — updated to reference `gwtc` path instead of `nestbox`.
+
+**Validation (just now):**
+
+- All 5 cameras through Guardian's API: `house-yard` 1.4 MB, `s7-cam` 404 (phone offline — pre-existing, unrelated to this rename), `usb-cam` 417 KB, `gwtc` 123 KB, `mba-cam` 114 KB.
+- Direct RTSP from Mini: `rtsp://192.168.0.68:8554/gwtc` returns 1280×720 JPEG; old `/nestbox` correctly 404s.
+- All four GWTC services (`mediamtx`, `farmcam`, `farmcam-watchdog`, `sshd`) all `STATE: 4 RUNNING`.
+- Watchdog log shows new probe target: `target=rtsp://localhost:8554/gwtc`.
+
 ## [2.23.0] - 2026-04-13
 
 ### Added — Multi-camera image pipeline (`tools/pipeline/`) (Claude Opus 4.6)

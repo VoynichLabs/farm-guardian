@@ -1,5 +1,5 @@
 # Author: Claude Opus 4.6 (updated), OpenAI Codex GPT-5.4 Mini (prior)
-# Date: 13-April-2026 (v2.21.0 — usb-cam white balance / autofocus / warmup frames)
+# Date: 13-April-2026 (v2.24.0 — http_url snapshot method dispatch for S7 battery path)
 # PURPOSE: Main service entry point for Farm Guardian v2. Orchestrates camera discovery,
 #          frame capture, YOLO animal detection, animal visit tracking (for alert dedup),
 #          automated deterrence (spotlight/siren/audio), PTZ patrol with pause-on-predator,
@@ -36,7 +36,7 @@ from typing import Optional
 from zoneinfo import ZoneInfo
 
 from discovery import CameraDiscovery
-from capture import FrameCaptureManager, FrameResult, ReolinkSnapshotSource, UsbSnapshotSource
+from capture import FrameCaptureManager, FrameResult, HttpUrlSnapshotSource, ReolinkSnapshotSource, UsbSnapshotSource
 from detect import AnimalDetector, DetectionResult
 from alerts import AlertManager
 from logger import EventLogger
@@ -395,9 +395,32 @@ class GuardianService:
                     autofocus=cam_cfg.get("snapshot_autofocus", True),
                     warmup_frames=cam_cfg.get("snapshot_warmup_frames", 3),
                 )
+            elif method == "http_url":
+                # v2.24.0 — generic HTTP /photo.jpg puller. Primary client:
+                # S7 running IP Webcam (drop RTSP streaming to save battery).
+                base_url = cam_cfg.get("http_base_url")
+                if not base_url:
+                    log.error(
+                        "Camera '%s' snapshot_method=http_url requires 'http_base_url'; skipping",
+                        cam.name,
+                    )
+                    return False
+                username = cam_cfg.get("username") or ""
+                password = cam_cfg.get("password") or ""
+                auth = (username, password) if username else None
+                snap_src = HttpUrlSnapshotSource(
+                    base_url=base_url,
+                    photo_path=cam_cfg.get("http_photo_path", "/photo.jpg"),
+                    focus_path=cam_cfg.get("http_focus_path", "/focus"),
+                    trigger_focus=cam_cfg.get("http_trigger_focus", False),
+                    focus_wait=cam_cfg.get("http_focus_wait", 1.5),
+                    timeout=cam_cfg.get("http_timeout", 15.0),
+                    auth=auth,
+                    label=f"http:{cam.name}",
+                )
             else:
                 log.error(
-                    "Camera '%s' has snapshot_method=%r — not implemented (Phase B adds http_url); skipping",
+                    "Camera '%s' has snapshot_method=%r — not implemented; skipping",
                     cam.name, method,
                 )
                 return False
