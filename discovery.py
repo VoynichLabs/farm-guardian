@@ -80,7 +80,14 @@ class CameraDiscovery:
             try:
                 # USB cameras attached directly to this machine (AVFoundation).
                 # No network discovery needed — just validate the device index.
-                if cam_cfg.get("source") == "usb":
+                # Two config shapes trigger this: legacy {"source": "usb"} and the
+                # v2.19.0 snapshot-mode {"source": "snapshot", "snapshot_method": "usb"}.
+                is_legacy_usb = cam_cfg.get("source") == "usb"
+                is_snapshot_usb = (
+                    cam_cfg.get("source") == "snapshot"
+                    and cam_cfg.get("snapshot_method") == "usb"
+                )
+                if is_legacy_usb or is_snapshot_usb:
                     device_index = cam_cfg.get("device_index", 0)
                     info = CameraInfo(
                         name=name,

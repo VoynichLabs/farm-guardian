@@ -1,5 +1,5 @@
 # Author: Claude Opus 4.6
-# Date: 13-April-2026 (v2.18.0 — Phase A: HTTP snapshot polling alongside RTSP capture)
+# Date: 13-April-2026 (v2.19.0 — Phase C1: UsbSnapshotSource joins ReolinkSnapshotSource)
 # PURPOSE: Frame acquisition for Farm Guardian. Two parallel acquisition modes share the
 #          same FrameResult/ring-buffer/dispatch surface so FrameCaptureManager can treat
 #          them interchangeably:
@@ -399,6 +399,88 @@ class ReolinkSnapshotSource:
 
     def fetch(self) -> Optional[bytes]:
         return self._controller.take_snapshot(self._camera_id)
+
+
+class UsbSnapshotSource:
+    """SnapshotSource for a local USB camera (AVFoundation on macOS).
+
+    Holds the VideoCapture open between fetches — reopening on every tick is
+    too slow (~300ms) and can race with the system camera daemon. Each fetch
+    reads two frames (the first is often stale from the driver's ring buffer)
+    and encodes the second at a high JPEG quality so the dashboard can pass
+    it through without a lossy re-encode.
+
+    Thread safety: the snapshot poller calls fetch() from a single worker
+    thread, so no cross-poller contention. The internal lock only guards
+    against the re-open branch happening mid-read.
+    """
+
+    def __init__(
+        self,
+        device_index: int,
+        target_resolution: Optional[tuple] = None,
+        jpeg_quality: int = 95,
+        label: Optional[str] = None,
+    ):
+        self._device_index = device_index
+        self._target_resolution = target_resolution
+        self._jpeg_quality = jpeg_quality
+        self._label = label or f"usb:{device_index}"
+        self._cap: Optional[cv2.VideoCapture] = None
+        self._lock = threading.Lock()
+
+    @property
+    def label(self) -> str:
+        return self._label
+
+    def _open(self) -> bool:
+        cap = cv2.VideoCapture(self._device_index)
+        if not cap.isOpened():
+            try:
+                cap.release()
+            except Exception:
+                pass
+            return False
+        if self._target_resolution is not None:
+            w, h = self._target_resolution
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        log.info(
+            "UsbSnapshotSource '%s' opened at %dx%d (quality=%d)",
+            self._label, actual_w, actual_h, self._jpeg_quality,
+        )
+        self._cap = cap
+        return True
+
+    def fetch(self) -> Optional[bytes]:
+        with self._lock:
+            if self._cap is None and not self._open():
+                return None
+            # Discard one frame — AVFoundation's ring buffer often serves the
+            # driver's previous snapshot on the first read after idle.
+            self._cap.read()
+            ret, frame = self._cap.read()
+            if not ret or frame is None:
+                # One reopen attempt, then give up for this tick
+                try:
+                    self._cap.release()
+                except Exception:
+                    pass
+                self._cap = None
+                if not self._open():
+                    return None
+                ret, frame = self._cap.read()
+                if not ret or frame is None:
+                    return None
+            ok, buf = cv2.imencode(
+                ".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, self._jpeg_quality]
+            )
+            if not ok:
+                return None
+            return buf.tobytes()
 
 
 class CameraSnapshotPoller:

@@ -1,5 +1,5 @@
 # Author: Claude Opus 4.6 (updated), OpenAI Codex GPT-5.4 Mini (prior)
-# Date: 13-April-2026 (v2.18.0 — Phase A: house-yard switches to HTTP snapshot polling)
+# Date: 13-April-2026 (v2.19.0 — Phase C1: usb-cam switches to high-quality snapshot polling)
 # PURPOSE: Main service entry point for Farm Guardian v2. Orchestrates camera discovery,
 #          frame capture, YOLO animal detection, animal visit tracking (for alert dedup),
 #          automated deterrence (spotlight/siren/audio), PTZ patrol with pause-on-predator,
@@ -36,7 +36,7 @@ from typing import Optional
 from zoneinfo import ZoneInfo
 
 from discovery import CameraDiscovery
-from capture import FrameCaptureManager, FrameResult, ReolinkSnapshotSource
+from capture import FrameCaptureManager, FrameResult, ReolinkSnapshotSource, UsbSnapshotSource
 from detect import AnimalDetector, DetectionResult
 from alerts import AlertManager
 from logger import EventLogger
@@ -370,9 +370,20 @@ class GuardianService:
             method = cam_cfg.get("snapshot_method", "reolink")
             if method == "reolink":
                 snap_src = ReolinkSnapshotSource(self._camera_ctrl, cam.name)
+            elif method == "usb":
+                device_index = cam_cfg.get("device_index", 0)
+                target_res = cam_cfg.get("snapshot_resolution")
+                target_tuple = tuple(target_res) if target_res else None
+                jpeg_quality = cam_cfg.get("snapshot_jpeg_quality", 95)
+                snap_src = UsbSnapshotSource(
+                    device_index=device_index,
+                    target_resolution=target_tuple,
+                    jpeg_quality=jpeg_quality,
+                    label=f"usb:{cam.name}",
+                )
             else:
                 log.error(
-                    "Camera '%s' has snapshot_method=%r — not implemented yet (Phase B/C); skipping",
+                    "Camera '%s' has snapshot_method=%r — not implemented (Phase B adds http_url); skipping",
                     cam.name, method,
                 )
                 return False

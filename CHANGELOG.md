@@ -2,6 +2,27 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.19.0] - 2026-04-13
+
+### Changed — Phase C1: usb-cam switches to high-quality snapshot polling (Claude Opus 4.6)
+
+Boss checked the usb-cam (pointed at the chick brooder) and reported "really terrible" quality. Audited the path: the UVC webcam itself is a 1080p device (maxes at 1920×1080, anything higher is silently clamped by the driver), and capture was already at its native resolution — but the dashboard was re-encoding each frame at JPEG quality 85 on every request, stacking a second lossy compression pass on top of whatever the numpy pipeline lost on the way through. With the Phase A `jpeg_bytes` pass-through plumbing in place, fixing this is a single-path snapshot source that encodes once at high quality and the dashboard yields it through unchanged.
+
+**What changed:**
+
+- **`capture.py`** — New `UsbSnapshotSource` alongside `ReolinkSnapshotSource`. Holds the `cv2.VideoCapture` open between ticks (reopening AVFoundation takes ~300ms and can race with the system camera daemon). Each tick: discard one frame (AVFoundation's ring buffer often serves the driver's previous snapshot), read the real frame, encode once at JPEG quality 95 (configurable via `snapshot_jpeg_quality`), return bytes. Reopens the capture on transient failure. Header bumped to v2.19.0.
+- **`guardian.py`** — `_register_camera_capture()` dispatch extended with `snapshot_method: "usb"`. Accepts `device_index`, `snapshot_resolution` (optional `[w, h]`), `snapshot_jpeg_quality` (default 95). Header bumped.
+- **`discovery.py`** — Online-check bypass now also matches `source: "snapshot"` + `snapshot_method: "usb"` so the new-shape config doesn't fall through to the ONVIF probe path (which would fail — there's no IP to probe). Both the legacy `source: "usb"` and the new snapshot shape produce the same `CameraInfo` with `source="usb"` so downstream code is unaffected.
+- **`config.json`** + **`config.example.json`** — `usb-cam` switched to `source: "snapshot"`, `snapshot_method: "usb"`, `snapshot_resolution: [1920, 1080]`, `snapshot_jpeg_quality: 95`, `snapshot_interval: 5.0`.
+
+**Validation:**
+
+- Log: `UsbSnapshotSource 'usb:usb-cam' opened at 1920x1080 (quality=95)` and `Camera 'usb-cam' registered in snapshot mode (method=usb)`.
+- Pulled a fresh frame: 1920×1080, 329KB (vs 223KB pre-change at q=85 on a visibly compressed image). The extra 100KB bought back the sharpness — feather detail on the chicks is now preserved instead of smeared into JPEG blocks.
+- The brooder scene still looks red-orange; that's the heat lamp, not something code can fix. If later needed, AVFoundation exposes white-balance controls that cv2 doesn't expose cleanly on macOS — would need a direct AVFoundation binding or an ImageIO-based capture path. Out of scope for C1.
+
+**Note for operators:** The camera's JPEG quality is a config knob. If 95 is too large per snapshot (328KB) for sustained polling at shorter intervals, drop it to 90 — the visual difference is slight.
+
 ## [2.18.0] - 2026-04-13
 
 ### Changed — Phase A: house-yard switches from RTSP to HTTP snapshot polling (Claude Opus 4.6)

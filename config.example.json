@@ -27,9 +27,13 @@
     },
     {
       "name": "usb-cam",
-      "source": "usb",
-      "device_index": 0,
       "type": "fixed",
+      "source": "snapshot",
+      "snapshot_method": "usb",
+      "device_index": 0,
+      "snapshot_resolution": [1920, 1080],
+      "snapshot_jpeg_quality": 95,
+      "snapshot_interval": 5.0,
       "detection_enabled": false
     },
     {
