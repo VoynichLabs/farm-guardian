@@ -2,6 +2,20 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.15.1] - 2026-04-12
+
+### Fixed — Night-only detection gate for enabled cameras (OpenAI Codex GPT-5.4)
+
+Added a config-driven night window to `guardian.py` so enabled cameras only run YOLO detection from 20:00 to 09:00 America/New_York. This keeps the house-yard camera armed at night without wasting daytime inference.
+
+**What changed:**
+- **`guardian.py`** — Added a local-time window check before `AnimalDetector.detect()` runs. The gate uses `detection.night_window_*` values from config, defaults to 20:00 → 09:00, and logs the active schedule on startup.
+- **`config.json`** — Re-enabled `house-yard` for detection and added the approved global night-window settings.
+- **`config.example.json`** — Mirrored the live config shape so future setups match the same gate.
+- **`docs/12-Apr-2026-house-yard-night-window-plan.md`** — Added the focused implementation plan and validation checklist.
+
+**Validation:** `guardian.py` compiles cleanly, the config parses, Guardian restarted successfully on the Mac Mini, and local/public status checks showed detection frames processing after restart.
+
 ## [2.15.0] - 2026-04-12
 
 ### Changed — Snapshot polling replaces HLS video pipeline (Claude Opus 4.6)

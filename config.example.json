@@ -9,7 +9,7 @@
       "onvif_port": 8000,
       "type": "ptz",
       "rtsp_transport": "tcp",
-      "detection_enabled": false,
+      "detection_enabled": true,
       "snapshot_interval": 10
     },
     {
@@ -55,6 +55,10 @@
       "bear": 0.40
     },
     "frame_interval_seconds": 1.0,
+    "night_window_enabled": true,
+    "night_window_start": "20:00",
+    "night_window_end": "09:00",
+    "night_window_timezone": "America/New_York",
     "predator_classes": ["bird", "cat", "dog", "bear"],
     "ignore_classes": ["person", "car", "truck", "bicycle"],
     "alert_cooldown_seconds": 300,

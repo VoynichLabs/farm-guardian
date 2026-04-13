@@ -1,5 +1,5 @@
-# Author: Claude Opus 4.6 (updated), Cascade (Claude Sonnet 4) (original)
-# Date: 12-April-2026 (v2.15.0 — snapshot polling replaces HLS video)
+# Author: OpenAI Codex GPT-5.4 Mini
+# Date: 12-April-2026
 # PURPOSE: Main service entry point for Farm Guardian v2 (Phases 1-4). Orchestrates camera
 #          discovery, frame capture, YOLO animal detection, GLM vision refinement, animal
 #          visit tracking, automated deterrence (spotlight/siren/audio), PTZ patrol with
@@ -7,11 +7,10 @@
 #          (DB + JSONL), daily intelligence reports, REST API for LLM tools, and the local
 #          web dashboard. Runs as a foreground process on the Mac Mini. Handles graceful
 #          shutdown via SIGINT/SIGTERM. Supports sky-watch mode: parks camera at a fixed
-#          preset on startup for optimal hawk detection coverage.
-#          v2.15.0: All cameras use OpenCV capture via FrameCaptureManager. Detection cameras
-#          run at ~1fps; non-detection cameras run at configurable snapshot_interval (default
-#          10s) for lightweight polling. Replaces the ffmpeg HLS pipeline (stream.py removed).
-# SRP/DRY check: Pass — single responsibility is service lifecycle and module coordination.
+#          preset on startup for optimal hawk detection coverage. Adds a configurable
+#          night-only detection gate so enabled cameras only run YOLO between 20:00 and
+#          09:00 America/New_York.
+# SRP/DRY check: Pass — reviewed the existing detection flow before adding the window gate.
 
 import os
 # MUST be set before any cv2 import anywhere in the process — sets a 5-second
@@ -33,6 +32,7 @@ from collections import deque
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from discovery import CameraDiscovery
 from capture import FrameCaptureManager, FrameResult
@@ -133,6 +133,15 @@ class GuardianService:
         log.info("=" * 60)
         log.info("Farm Guardian starting up")
         log.info("=" * 60)
+
+        detection_cfg = self._config.get("detection", {})
+        if detection_cfg.get("night_window_enabled", True):
+            log.info(
+                "Detection window for enabled cameras: %s-%s %s",
+                detection_cfg.get("night_window_start", "20:00"),
+                detection_cfg.get("night_window_end", "09:00"),
+                detection_cfg.get("night_window_timezone", "America/New_York"),
+            )
 
         # Register signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -374,9 +383,13 @@ class GuardianService:
         if self._detector is None:
             return  # Detector still loading — skip frame
 
-        # Skip detection for cameras with detection_enabled=false in config
+        # Skip detection for cameras with detection disabled in config.
         cam_cfg = self._get_camera_config(frame_result.camera_name)
         if cam_cfg and not cam_cfg.get("detection_enabled", True):
+            return
+
+        # Enabled cameras still respect the global night window.
+        if not self._detection_window_open():
             return
 
         try:
@@ -478,6 +491,52 @@ class GuardianService:
             if cam_cfg.get("name") == camera_name:
                 return cam_cfg
         return None
+
+    @staticmethod
+    def _clock_to_minutes(clock: str) -> int:
+        """Convert HH:MM clock strings to minutes since midnight."""
+        hour, minute = (int(part) for part in clock.split(":"))
+        return hour * 60 + minute
+
+    @classmethod
+    def _window_allows_minutes(cls, current_minutes: int, start_clock: str, end_clock: str) -> bool:
+        """Return True when current_minutes falls inside the configured window."""
+        start_minutes = cls._clock_to_minutes(start_clock)
+        end_minutes = cls._clock_to_minutes(end_clock)
+
+        # Same start/end means the gate is effectively open all day.
+        if start_minutes == end_minutes:
+            return True
+
+        # Normal daytime window.
+        if start_minutes < end_minutes:
+            return start_minutes <= current_minutes < end_minutes
+
+        # Overnight window crossing midnight.
+        return current_minutes >= start_minutes or current_minutes < end_minutes
+
+    def _detection_window_open(self) -> bool:
+        """Check whether the current time is inside the configured night window."""
+        detection_cfg = self._config.get("detection", {})
+        if not detection_cfg.get("night_window_enabled", True):
+            return True
+
+        timezone_name = detection_cfg.get("night_window_timezone", "America/New_York")
+        try:
+            now = datetime.now(ZoneInfo(timezone_name))
+        except Exception:
+            log.warning(
+                "Invalid night window timezone '%s' — falling back to system local time",
+                timezone_name,
+            )
+            now = datetime.now()
+
+        current_minutes = now.hour * 60 + now.minute
+        return self._window_allows_minutes(
+            current_minutes=current_minutes,
+            start_clock=detection_cfg.get("night_window_start", "20:00"),
+            end_clock=detection_cfg.get("night_window_end", "09:00"),
+        )
 
     def _rescan_loop(self) -> None:
         """Periodically re-scan for cameras that may have reconnected."""
