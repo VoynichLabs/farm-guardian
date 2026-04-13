@@ -49,6 +49,16 @@ both an OpenAI-compatible API (`/v1/...`) and a native management API
 (`/api/v1/...`) on `http://localhost:1234`. It can also serve over
 the LAN at `http://192.168.0.105:1234` (Mac Mini's LAN IP).
 
+**There is a second LM Studio instance on the LAN.** The GWTC
+(Gateway) laptop runs LM Studio on a non-standard port: **9099**, not
+1234. The model lineup on GWTC is different from the Mac Mini and
+the laptop's IP drifts on DHCP — find it by scanning for port 9099
+on the /24 (recipe in CLAUDE.md "Network & Machine Access" section)
+or by reading `~/bubba-workspace/memory/reference/network.md`.
+Everything in this document is about the Mac Mini's instance unless
+explicitly noted; if you target the GWTC instance you are coordinating
+with a different machine's resources, not this one's.
+
 LM Studio holds models in VRAM as long-lived "instances" rather than
 loading per-request. Loading is slow (5–30 s); inference is fast.
 Loading is *also* dangerous — see the incident below.
