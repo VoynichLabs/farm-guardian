@@ -2,6 +2,47 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.22.2] - 2026-04-13
+
+### Added — `farmcam-watchdog` on GWTC: auto-recovers from post-reboot dshow zombie (Claude Opus 4.6)
+
+Boss called it: "Wouldn't some better idea be to have some script on that GWTC that automatically runs when it reboots and does the restart or whatever?" Yes. This is that.
+
+**Background:** Earlier this evening, GWTC was rebooted and the `nestbox` RTSP path 404'd despite mediamtx + farmcam services both running, ffmpeg holding a live PID, and port 8554 open. Root cause (verified 18:18 then documented in `docs/13-Apr-2026-gwtc-laptop-troubleshooting-incident.md` Addendum): Windows reboot leaves the dshow camera handle in a state where ffmpeg's dshow input cannot complete the device open. ffmpeg sits there forever, never produces frames, never registers as a publisher with mediamtx. **Both retry mechanisms bypass the failure** — Shawl's `--restart` only fires on non-zero exit, and the `:loop` in `start-camera.bat` only re-enters when the inner ffmpeg call returns. Neither happens for wedged-ffmpeg. The original recovery was a manual two-command kill-the-PID dance.
+
+**The fix (this commit):** A PowerShell watchdog wrapped as a Shawl-managed Windows service called `farmcam-watchdog`, installed alongside the existing `farmcam` and `mediamtx` services on GWTC. Probes `rtsp://localhost:8554/nestbox` every 30s using `ffprobe`. If no publisher AND ffmpeg has been alive ≥60s (past startup grace), it kills ffmpeg by PID. Shawl's existing `--restart` on the `farmcam` service then respawns ffmpeg in ~3s with a fresh dshow open. Worst-case recovery is ~90s after the wedge condition; best case ~30s.
+
+**What this catches that Shawl misses:** Shawl restarts ffmpeg only when ffmpeg *exits non-zero*. Wedged-ffmpeg never exits. The watchdog detects the wedge externally (publisher absent from mediamtx's perspective, verified by ffprobe) and forces the exit, which Shawl then handles normally. Not replacing Shawl — giving it a kick when its trigger condition (process exit) doesn't fire.
+
+**What changed in this repo:**
+
+- **`deploy/gwtc/farm-watchdog.ps1`** (new) — The watchdog script. Single file, no dependencies beyond the existing ffprobe.exe (already present in the WinGet ffmpeg bundle that `farmcam` already uses). Tunable constants at the top (probe interval, wedge threshold, ffprobe path, RTSP URL). Logs to `C:\farm-services\logs\watchdog.log`. **Intentionally ASCII-only** — PowerShell 5.1 reads `.ps1` files as ANSI/Windows-1252 unless they carry a UTF-8 BOM, so em-dashes and smart quotes break parsing. Don't "improve" the script with typographic punctuation. (Learned this the hard way when the first deploy parser-errored on em-dashes.)
+- **`deploy/gwtc/install-watchdog.md`** (new) — Install / update / uninstall recipes from the Mac Mini, the constraints, and how to test the wedge-recovery path.
+- **`docs/13-Apr-2026-gwtc-laptop-troubleshooting-incident.md`** — Addendum updated with a top-of-section banner ("watchdog auto-handles this, you should not need to intervene"), a new "Automated Recovery -- `farmcam-watchdog`" subsection covering design + live state + what the watchdog does NOT do, and the original manual fix demoted to "fallback if the watchdog is broken."
+- **`CLAUDE.md`** — The bullet under "Network & Machine Access" rewritten to lead with "watchdog auto-recovers it" instead of "kill the PID manually." Manual fix kept as the fallback. Cross-refs to the deploy/ and docs/ paths.
+
+**On GWTC:**
+
+- `farm-watchdog.ps1` written to `C:\farm-services\farm-watchdog.ps1`.
+- New service `farmcam-watchdog` registered:
+  ```
+  sc create farmcam-watchdog binPath= "C:\shawl\shawl.exe run --name farmcam-watchdog --restart -- powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\farm-services\farm-watchdog.ps1" start= auto
+  ```
+- Service started; `sc query farmcam-watchdog` returns `STATE: 4 RUNNING`.
+- First log line confirmed: `2026-04-13 18:32:30 watchdog started -- pid=10880, probe=30s, wedge_threshold=60s, target=rtsp://localhost:8554/nestbox`.
+- ffprobe-against-live-publisher check passed: `codec_name=h264 width=1280 height=720`.
+
+**Validation status:**
+
+- ✅ Service installed, auto-start enabled, currently running.
+- ✅ Probe path verified end-to-end with the live publisher (ffprobe correctly identifies the H264 720p stream).
+- ⏳ Wedge-recovery path will be verified the next time GWTC reboots and reproduces the wedge. Per the install doc, a synthetic test (suspending ffmpeg with `pssuspend`) is possible but disrupts the live brooder feed and isn't worth doing casually.
+
+**Cross-references:**
+
+- `~/bubba-workspace/memory/reference/network.md` GWTC entry — bullet rewritten to point at the watchdog, manual fix demoted to fallback.
+- `~/.claude` auto-memory `project_gwtc_dshow_zombie.md` — same update so future Bubba sessions surface "watchdog auto-handles it" first.
+
 ## [2.22.1] - 2026-04-13
 
 ### Fixed — Renamed `brooder-cam` → `mba-cam` (Claude Opus 4.6)

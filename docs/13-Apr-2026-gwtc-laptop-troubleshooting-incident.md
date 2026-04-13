@@ -141,6 +141,8 @@ Future Claude sessions: the diagnostic recipe above should resolve "is GWTC reac
 
 A second GWTC failure mode, distinct from the reachability incident above. **The host is reachable; the camera publisher is wedged.** Don't conflate the two.
 
+> **Update (later that evening):** The watchdog described in the **Automated Recovery** subsection below is now installed on GWTC as the `farmcam-watchdog` Windows service. **In normal operation you should not need to do anything when this fails — the watchdog detects it within ~90s of a wedge and recovers it autonomously.** The manual two-command fix (further down) is the fallback if the watchdog itself is broken. Boss's directive that prompted the build: "Wouldn't some better idea be to have some script on that GWTC that automatically runs when it reboots and does the restart or whatever?" Yes. This is that.
+
 ## Symptom (verified 2026-04-13 18:18)
 
 After GWTC reboots, from the Mini you observe **all of**:
@@ -201,6 +203,42 @@ After the fresh ffmpeg starts, **Guardian on the Mini will reconnect on its own*
 
 ## The rule
 
-**If GWTC just rebooted and `nestbox` is 404'ing while services report Running: kill the ffmpeg PID, done.** Two SSH commands. Don't burn time inspecting Shawl logs, restarting services in a dance, or asking Boss to rerun `ipconfig`.
+**If GWTC just rebooted and `nestbox` is 404'ing while services report Running: wait ~90s — the watchdog will fix it.** If after 2 minutes it hasn't recovered, *then* kill the ffmpeg PID manually as a fallback. Don't burn time inspecting Shawl logs, restarting services in a dance, or asking Boss to rerun `ipconfig`.
 
 This pattern is also documented in `~/bubba-workspace/memory/reference/network.md` under the GWTC entry and in the Bubba auto-memory at `feedback`-level so future Bubba sessions surface it without needing to read this file.
+
+---
+
+## Automated Recovery — `farmcam-watchdog` (deployed 13-April-2026)
+
+Documentation is a band-aid. Boss called it: "Wouldn't some better idea be to have some script on that GWTC that automatically runs when it reboots and does the restart or whatever?" The answer is yes, so we built one.
+
+**What it is:** A PowerShell watchdog wrapped as a Shawl-managed Windows service called `farmcam-watchdog`. Auto-starts on boot. Probes `rtsp://localhost:8554/nestbox` every 30s using `ffprobe`. If no publisher AND ffmpeg has been alive ≥60s (past startup grace), it kills ffmpeg by PID. Shawl's existing `--restart` policy on `farmcam` then respawns ffmpeg in ~3s with a fresh dshow open.
+
+**Worst-case recovery time after a wedge:** ~90s (30s probe interval + 60s wedge threshold + ~3s respawn). Best case ~30s.
+
+**Why this catches what Shawl misses:** Shawl restarts ffmpeg only when ffmpeg *exits non-zero*. Wedged-ffmpeg never exits — it sits in the dshow open call forever. The watchdog detects the wedge externally (publisher absent from mediamtx) and forces the exit, which Shawl then handles normally. We're not replacing Shawl's supervision; we're giving it a kick when its trigger condition (process exit) doesn't fire.
+
+**Where to find it in this repo:**
+
+- `deploy/gwtc/farm-watchdog.ps1` — the script.
+- `deploy/gwtc/install-watchdog.md` — install / update / uninstall recipes, the constraints (no UTF-8 multibyte chars in the script, etc.), and how to test the wedge-recovery path.
+
+**Live state on GWTC as of 2026-04-13 18:32:**
+
+```
+sc query farmcam-watchdog
+  STATE: 4 RUNNING
+
+C:\farm-services\logs\watchdog.log
+  2026-04-13 18:32:30 watchdog started -- pid=10880, probe=30s, wedge_threshold=60s, target=rtsp://localhost:8554/nestbox
+```
+
+The probe is verified end-to-end: `ffprobe` against `rtsp://localhost:8554/nestbox` with the live publisher returns exit 0 with `codec_name=h264 width=1280 height=720`. With no publisher, exits non-zero — which the watchdog treats as the trigger condition.
+
+**What the watchdog does NOT do:**
+
+- Does not restart MediaMTX. If MediaMTX is dead, that's a different problem and needs a different fix.
+- Does not restart Guardian on the Mini. Guardian auto-reconnects on its own 60s back-off after the upstream comes back.
+- Does not reboot GWTC. Same wedge would just reproduce.
+- Does not silence the manual recipe up in the **Fix** section above — that recipe is the fallback if `sc query farmcam-watchdog` ever returns anything other than `STATE: 4 RUNNING`, or if the watchdog log shows the watchdog itself has a bug. Keep the recipe in muscle memory for that case.
