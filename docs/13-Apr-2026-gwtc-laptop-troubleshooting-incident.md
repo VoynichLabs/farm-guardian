@@ -134,3 +134,73 @@ Two long-term followups (I am not doing them in this session because they're out
 ## Don't do this again
 
 Future Claude sessions: the diagnostic recipe above should resolve "is GWTC reachable?" in under 30 seconds. If the answer is "no", **stop probing, stop theorizing**, and ask Boss to console-check the laptop with the four PowerShell commands listed above. Speculating about Windows Defender, port-scan auto-blocks, or chickens with admin rights wastes everyone's time.
+
+---
+
+# Addendum — 13-April-2026 evening: Post-Reboot dshow Zombie Pattern
+
+A second GWTC failure mode, distinct from the reachability incident above. **The host is reachable; the camera publisher is wedged.** Don't conflate the two.
+
+## Symptom (verified 2026-04-13 18:18)
+
+After GWTC reboots, from the Mini you observe **all of**:
+
+- `nc -z -w 2 192.168.0.68 8554` → OPEN. (MediaMTX is up and listening.)
+- `ssh markb@192.168.0.68 'sc query mediamtx'` and `'sc query farmcam'` → both `STATE: 4 RUNNING`.
+- `ssh markb@192.168.0.68 'tasklist | findstr ffmpeg'` → `ffmpeg.exe` is alive (e.g. PID 2516, ~80MB RAM).
+- `ssh markb@192.168.0.68 'tasklist | findstr mediamtx'` → `mediamtx.exe` is alive.
+- BUT: any consumer pulling `rtsp://192.168.0.68:8554/nestbox` gets `Server returned 404 Not Found`, and the mediamtx log shows a continuous stream of:
+  ```
+  INF [RTSP] [conn <ip>:<port>] closed: no stream is available on path 'nestbox'
+  ```
+  Look at `C:\farm-services\logs\mediamtx.log` — the most recent `is publishing to path 'nestbox'` line will be from **before** the reboot.
+
+If all of those line up: this is the wedge. Don't bother running the upper troubleshooting recipe — that one's for "is the box reachable at all," which is already answered yes.
+
+## Diagnosis
+
+Windows reboot leaves the dshow camera handle in a state where ffmpeg's `dshow` input cannot open the `Hy-HD-Camera` device. The ffmpeg process spawned by Shawl after the reboot is alive but **wedged on the device open** — it never produces frames, never registers as a publisher with mediamtx. Crucially:
+
+- Shawl's `--restart` policy doesn't trigger because ffmpeg never exits non-zero — it just sits there forever.
+- The `:loop` retry in `C:\farm-services\start-camera.bat` doesn't trigger either — the `goto loop` only fires when the inner ffmpeg call returns, and a wedged ffmpeg never returns.
+
+So both retry mechanisms are bypassed by the failure mode. The only escape is to forcibly kill the wedged ffmpeg and let Shawl respawn it.
+
+## Fix (verified 2026-04-13 18:21 — restored gwtc to live in ~10s of operator time)
+
+```bash
+# 1. From the Mini, find the wedged ffmpeg PID:
+ssh -o StrictHostKeyChecking=no markb@192.168.0.68 'tasklist | findstr ffmpeg'
+#   ffmpeg.exe                    <PID>  Services                   0     <NN> K
+
+# 2. Kill it. Shawl's --restart policy will respawn ffmpeg within ~3s:
+ssh -o StrictHostKeyChecking=no markb@192.168.0.68 'taskkill /F /PID <PID>'
+
+# 3. Verify a NEW ffmpeg PID appeared (different from step 1):
+ssh -o StrictHostKeyChecking=no markb@192.168.0.68 'tasklist | findstr ffmpeg'
+
+# 4. Confirm it's actually publishing now:
+ssh -o StrictHostKeyChecking=no markb@192.168.0.68 'powershell -Command "Get-Content C:\farm-services\logs\mediamtx.log -Tail 5"'
+# Look for: INF [RTSP] [session ...] is publishing to path 'nestbox', 1 track (H264)
+
+# 5. End-to-end check from the Mini:
+ffmpeg -hide_banner -loglevel warning -rtsp_transport tcp \
+  -i rtsp://192.168.0.68:8554/nestbox -frames:v 1 -y /tmp/gwtc-test.jpg
+file /tmp/gwtc-test.jpg   # should report: JPEG image data, ... 1280x720
+```
+
+After the fresh ffmpeg starts, **Guardian on the Mini will reconnect on its own** within its 60s capture-retry back-off. No Guardian restart needed.
+
+## Why the obvious fixes don't work
+
+- **`sc stop farmcam && sc start farmcam`** — Stopping the Shawl-wrapped service kills the supervisor, but the orphaned ffmpeg may persist (Shawl's process-tree handling under Windows services is imperfect). Then `sc start farmcam` returns `1056: An instance of the service is already running` because Shawl's still considered alive. The straight `taskkill /F` on the ffmpeg PID is the reliable path because Shawl is already running and watching — it just needs the wedged child to actually die.
+- **Restarting MediaMTX** — Doesn't help. MediaMTX is working correctly; it has no publisher to serve from. Restarting the consumer-side service to fix a publisher wedge solves nothing.
+- **Restarting Guardian on the Mini** — Doesn't help. Guardian is *trying* to consume; the upstream is broken. Guardian will auto-reconnect within 60s once the upstream is healthy.
+- **Rebooting GWTC again** — Doesn't help. Same dshow handle behavior, same wedge.
+- **Speculating that another app is "claiming" the camera** — Doesn't help. The Hy-HD-Camera isn't shared with anything else on this host. The wedge is internal to the ffmpeg + dshow + Windows-reboot interaction. Confirmed by: ffmpeg is the only process holding the device.
+
+## The rule
+
+**If GWTC just rebooted and `nestbox` is 404'ing while services report Running: kill the ffmpeg PID, done.** Two SSH commands. Don't burn time inspecting Shawl logs, restarting services in a dance, or asking Boss to rerun `ipconfig`.
+
+This pattern is also documented in `~/bubba-workspace/memory/reference/network.md` under the GWTC entry and in the Bubba auto-memory at `feedback`-level so future Bubba sessions surface it without needing to read this file.
