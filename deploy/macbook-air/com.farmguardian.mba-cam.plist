@@ -2,7 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>Label</key><string>com.farmguardian.brooder-cam</string>
+  <key>Label</key><string>com.farmguardian.mba-cam</string>
   <key>ProgramArguments</key>
   <array>
     <string>/Users/markb/.local/bin/ffmpeg</string>
@@ -21,13 +21,13 @@
     <string>-b:v</string><string>1500k</string>
     <string>-f</string><string>rtsp</string>
     <string>-rtsp_transport</string><string>tcp</string>
-    <string>rtsp://127.0.0.1:8554/brooder-cam</string>
+    <string>rtsp://127.0.0.1:8554/mba-cam</string>
   </array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>ThrottleInterval</key><integer>15</integer>
-  <key>StandardOutPath</key><string>/Users/markb/Library/Logs/farmguardian/brooder-cam.log</string>
-  <key>StandardErrorPath</key><string>/Users/markb/Library/Logs/farmguardian/brooder-cam.log</string>
+  <key>StandardOutPath</key><string>/Users/markb/Library/Logs/farmguardian/mba-cam.log</string>
+  <key>StandardErrorPath</key><string>/Users/markb/Library/Logs/farmguardian/mba-cam.log</string>
   <key>WorkingDirectory</key><string>/Users/markb/.local/bin</string>
 </dict>
 </plist>

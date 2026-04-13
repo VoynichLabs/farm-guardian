@@ -2,6 +2,25 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.22.1] - 2026-04-13
+
+### Fixed — Renamed `brooder-cam` → `mba-cam` (Claude Opus 4.6)
+
+Boss caught the naming violation immediately: cameras are named after the **device**, never the location (rule originally established in v2.11.0, applied to `gwtc` instead of `nestbox` in v2.12.0). I shipped v2.22.0 with `brooder-cam` because the camera is currently aimed at the brooder — wrong call. Locations change; the device doesn't.
+
+**What changed (everywhere — config, RTSP path, LaunchAgent label, log filenames, plan doc):**
+
+- **`config.json` / `config.example.json`** — `name: "brooder-cam"` → `name: "mba-cam"`; `rtsp_url_override` → `rtsp://192.168.0.50:8554/mba-cam`.
+- **`deploy/macbook-air/com.farmguardian.brooder-cam.plist`** → renamed file to `com.farmguardian.mba-cam.plist`; Label, RTSP push URL, and log paths updated to `mba-cam`.
+- **On the Air:** new `~/Library/LaunchAgents/com.farmguardian.mba-cam.plist` bootstrapped, old `com.farmguardian.brooder-cam` agent booted out and its plist removed. Log file moved to `~/Library/Logs/farmguardian/mba-cam.log`.
+- **`docs/12-Apr-2026-macbook-air-camera-node-plan.md`** — All `brooder-cam` references → `mba-cam`. The 13-Apr update header now points at the device-not-location rule explicitly.
+
+**Validation:**
+
+- TCC permission was granted by the on-Air Claude session per Boss's spec — the MediaMTX log went from "no stream is available on path" to `is publishing to path 'mba-cam', 1 track (H264)`.
+- From the Mini: `ffmpeg -rtsp_transport tcp -i rtsp://192.168.0.50:8554/mba-cam -frames:v 1 -y /tmp/test.jpg` produces a 1280x720 JPEG (~55KB) within a couple seconds. Stream is live end-to-end.
+- Both LaunchAgents on the Air are `state = running`, last exit code `(never exited)`.
+
 ## [2.22.0] - 2026-04-13
 
 ### Added — `brooder-cam` (MacBook Air 2013 → RTSP) for the brooder angle (Claude Opus 4.6)
