@@ -16,6 +16,12 @@ SRP/DRY check: Pass — new tool, no overlap with the removed vision.py
 
 # Brooder VLM Narrator — Plan (Draft for Approval, revised PM 2026-04-13)
 
+> **SUPERSEDED 13-April-2026 (PM)** by `docs/13-Apr-2026-multi-cam-image-pipeline-plan.md`.
+> Boss feedback: this plan was the wrong shape — narrating then discarding throws away
+> the image, which is the actual asset. Replacement covers all 5 cameras, structured-JSON
+> enrichment, and a queryable SQLite archive. This document retained for the LM Studio
+> safety analysis it inherited and as historical context.
+
 ## What it is, in one paragraph
 
 **Revised after Boss feedback (PM 2026-04-13):** the goal is not

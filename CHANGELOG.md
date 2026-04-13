@@ -2,6 +2,88 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.23.0] - 2026-04-13
+
+### Added — Multi-camera image pipeline (`tools/pipeline/`) (Claude Opus 4.6)
+
+Boss directive (paraphrased): "we're producing a massive number of high-quality photographs — I want rich metadata about the images as a sidebar, auto-publish everything, and I want to pick out the gems." The concept of Farm Guardian shifts with this release: the live-video predator-detection path keeps running unchanged on the hot path, but the **primary product is now a continuously-curated archive of high-quality images of the flock and property, with rich queryable metadata**.
+
+Plan doc: `docs/13-Apr-2026-multi-cam-image-pipeline-plan.md`. Supersedes the narrator plan (`docs/13-Apr-2026-brooder-vlm-narrator-plan.md`) which was banner-marked accordingly. The narrator plan's "sample → narrate → discard" shape captured none of the archive / retrospective / share value; this replaces it.
+
+**Shape:** standalone tool under `tools/pipeline/`. Wakes per-camera on configured cadences, captures one sharp frame with a device-specific recipe, gates on trivial garbage (pixel std-dev floor only — no calibrated sharpness threshold; GLM's `image_quality` field is the real arbiter), enriches via `zai-org/glm-4.6v-flash` on LM Studio with structured JSON output, archives JPEG + sidecar + SQLite row. Tiered storage: full-res for `share_worth=strong`, downscaled to 1920px for `decent`, no-JPEG-metadata-only for `skip`. 90-day retention; `concerns` non-empty exempts from auto-delete.
+
+**Per-camera capture recipes (the part that decides gem stream vs blur stream):**
+
+- **house-yard** (Reolink PTZ, 4K): reuses Guardian's own `/api/v1/cameras/house-yard/snapshot` endpoint — sharp 4K JPEG from the Reolink HTTP `cmd=Snap` with AF already handled. No auth duplication.
+- **usb-cam** (AVFoundation on the Mini): OpenCV `VideoCapture`, `CAP_PROP_AUTOFOCUS=1`, 5 warmup frames before keeper.
+- **s7-cam** (Samsung S7 IP Webcam): config-ready but **disabled** as of v2.23.0 — phone was offline at implementation time. Flip `enabled: true` when the phone is back on.
+- **gwtc** (Gateway laptop fixed webcam via MediaMTX): RTSP burst of 5 frames at 0.5s spacing, Laplacian-variance-sharpest wins.
+- **mba-cam** (2013 MacBook Air FaceTime HD via MediaMTX): same burst-and-pick as gwtc. **Fixed-focus lens — no AF dance to tune.** Hyperfocal sweet spot is ~2-4 ft; placement matters more than software here.
+
+**VLM output schema** (`tools/pipeline/schema.json`, strict JSON): `scene`, `bird_count`, `individuals_visible[]`, `any_special_chick`, `apparent_age_days`, `activity`, `lighting`, `composition`, `image_quality`, `share_worth`, `share_reason`, `caption_draft`, `concerns[]`. `apparent_age_days` uses `-1` as the "n/a" sentinel rather than `null` because LM Studio's `json_schema` path on this build rejects `["integer","null"]` union types — validated at implementation time against this specific LM Studio build.
+
+**LM Studio safety** (inheriting the rules from `docs/13-Apr-2026-lm-studio-reference.md`): before every VLM call, `GET /v1/models`; if `glm-4.6v-flash` isn't loaded, the cycle logs and skips (does NOT auto-load, to avoid contention with G0DM0D3 sweeps). Single in-flight VLM call per process via a `threading.Lock`. Never calls `/v1/chat/completions` with a model that isn't already loaded.
+
+**Database:** new table `image_archive` added to `data/guardian.db` via `store.ensure_schema()` on first use. Idempotent `CREATE TABLE IF NOT EXISTS`, no change to `database.py` itself — the pipeline is strictly additive. Indices on `(camera_id, ts)`, `(share_worth, image_quality)`, `has_concerns`, and `retained_until`.
+
+**Smoke-test results** (all 4 enabled cameras, one cycle each):
+
+| Camera | scene | birds | activity | quality | tier | inference |
+|---|---|---|---|---|---|---|
+| house-yard | other | 0 | none-visible | sharp | decent | 29.1 s |
+| usb-cam | brooder | 0 | none-visible | blurred | skip | 28.0 s |
+| gwtc | coop | 6 | foraging | soft | decent | 18.5 s |
+| mba-cam | brooder | 22 | none-visible | soft | decent | 18.8 s |
+
+Total archive after first cycle: 3 JPEGs + 3 sidecars, ~1 MB. (usb-cam returned a blurred zero-bird frame this cycle while mba-cam aimed at the same brooder saw 22 chicks — worth investigating placement / AF / timing but not a blocker; the pipeline correctly identified it as `skip` and stored metadata only.)
+
+**Daemon:** `venv/bin/python -m tools.pipeline.orchestrator --daemon` runs forever on per-camera cadences (house-yard/s7-cam/gwtc: 600s; mba-cam: 300s; usb-cam: 180s). Staggered start (spread across first 60s) so cycles don't stampede. Daily retention sweep runs automatically. Graceful SIGINT/SIGTERM shutdown. Currently running as PID 61645 writing to `data/pipeline-logs/orchestrator.log`.
+
+**Files added:**
+
+- `tools/__init__.py`, `tools/pipeline/__init__.py` — package markers.
+- `tools/pipeline/config.json` — per-camera config, cadences, retention, tiers.
+- `tools/pipeline/schema.json` — VLM output JSON schema.
+- `tools/pipeline/prompt.md` — VLM prompt template with Birdadette + brood context.
+- `tools/pipeline/quality_gate.py` — trivial garbage filter (std-dev floor) + Laplacian helper for burst ranking.
+- `tools/pipeline/capture.py` — per-camera capture methods (reolink_snapshot, usb_avfoundation, rtsp_burst, ip_webcam).
+- `tools/pipeline/vlm_enricher.py` — LM Studio round-trip with model-loaded check, strict JSON-schema response format, post-hoc validator, single-in-flight lock.
+- `tools/pipeline/store.py` — tier-based JPEG persistence, sidecar JSON, SQLite row insert, schema migration.
+- `tools/pipeline/retention.py` — daily sweep of expired JPEGs (metadata rows always preserved).
+- `tools/pipeline/orchestrator.py` — main entry. `--once [--camera NAME]`, `--daemon`, `--retention-only`.
+- `docs/13-Apr-2026-multi-cam-image-pipeline-plan.md` — the plan.
+
+**Files modified:**
+
+- `docs/13-Apr-2026-brooder-vlm-narrator-plan.md` — banner-marked SUPERSEDED, retained for LM Studio safety analysis + historical context.
+
+**Storage projection:** ~1,140 enrichments/day across 4 live cameras. Tier mix ~70/25/5 (skip/decent/strong). ~37 MB/day archived × 90 days ≈ 3.3 GB steady-state. SQLite metadata ~1 GB/year. Comfortable on the Mini.
+
+**Operator queries once there's data:**
+
+```sql
+-- Birdadette portraits (for the retrospective)
+SELECT image_path, ts, caption_draft FROM image_archive
+WHERE individuals_visible_csv LIKE '%birdadette%'
+  AND composition = 'portrait' AND image_quality = 'sharp'
+ORDER BY ts DESC LIMIT 7;
+
+-- Today's Instagram candidates
+SELECT image_path, caption_draft, share_reason FROM image_archive
+WHERE share_worth = 'strong' AND date(ts) = date('now');
+
+-- Private review queue (never publish)
+SELECT image_path, ts, vlm_json FROM image_archive
+WHERE has_concerns = 1 ORDER BY ts DESC;
+```
+
+**Open items:**
+
+- Re-enable `s7-cam` once the phone is back on the network (flip `enabled: true` in `tools/pipeline/config.json`).
+- Investigate why `usb-cam` returned a blurred zero-bird frame while `mba-cam` aimed at the same brooder saw 22 — may be AF behavior, aim, or timing.
+- Decide on launchd plist for boot-time auto-start (currently manual `nohup` launch).
+- Audit first 200 archived rows by hand once the daemon has accumulated them; tune prompt if GLM over- or under-calls `share_worth=strong`.
+
 ## [2.22.2] - 2026-04-13
 
 ### Added — `farmcam-watchdog` on GWTC: auto-recovers from post-reboot dshow zombie (Claude Opus 4.6)

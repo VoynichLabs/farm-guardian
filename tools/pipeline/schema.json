@@ -1,0 +1,24 @@
+{
+  "name": "farm_image_metadata",
+  "strict": true,
+  "schema": {
+    "type": "object",
+    "properties": {
+      "scene":              { "type": "string", "enum": ["brooder","yard","coop","nesting-box","sky","other"] },
+      "bird_count":         { "type": "integer", "minimum": 0 },
+      "individuals_visible":{ "type": "array",   "items": { "type": "string", "enum": ["birdadette","adult-survivor","chick","unknown-bird"] } },
+      "any_special_chick":  { "type": "boolean" },
+      "apparent_age_days":  { "type": "integer", "minimum": -1, "maximum": 365 },
+      "activity":           { "type": "string", "enum": ["huddling","eating","drinking","dust-bathing","foraging","preening","sleeping","sparring","alert","none-visible","other"] },
+      "lighting":           { "type": "string", "enum": ["natural-good","heat-lamp","dim","blown-out","backlit","mixed"] },
+      "composition":        { "type": "string", "enum": ["portrait","group","wide","cluttered","empty"] },
+      "image_quality":      { "type": "string", "enum": ["sharp","soft","blurred"] },
+      "share_worth":        { "type": "string", "enum": ["skip","decent","strong"] },
+      "share_reason":       { "type": "string", "maxLength": 200 },
+      "caption_draft":      { "type": "string", "maxLength": 200 },
+      "concerns":           { "type": "array",  "items": { "type": "string", "maxLength": 200 } }
+    },
+    "required": ["scene","bird_count","individuals_visible","any_special_chick","apparent_age_days","activity","lighting","composition","image_quality","share_worth","share_reason","caption_draft","concerns"],
+    "additionalProperties": false
+  }
+}

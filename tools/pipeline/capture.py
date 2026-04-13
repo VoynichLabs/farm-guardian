@@ -1,0 +1,184 @@
+# Author: Claude Opus 4.6 (1M context)
+# Date: 13-April-2026
+# PURPOSE: Per-camera high-quality frame capture for the multi-cam image
+#          pipeline. Each camera has a different focus/capture reality; this
+#          module encodes those differences in one place so the orchestrator
+#          stays dumb. Methods supported:
+#            - reolink_snapshot: hits Guardian's own /api/v1/cameras/.../snapshot
+#              (which internally calls the Reolink HTTP cmd=Snap and returns
+#              a sharp 4K JPEG — reuses Guardian's auth, no duplication)
+#            - usb_avfoundation: OpenCV VideoCapture with autofocus warmup
+#            - rtsp_burst: ffmpeg one-shot burst, Laplacian-ranked winner
+#            - ip_webcam: HTTP /photo.jpg with optional AF trigger
+# SRP/DRY check: Pass — single responsibility is turning a camera + recipe
+#                into sharp JPEG bytes in memory. No archiving, no VLM, no DB.
+
+from __future__ import annotations
+
+import io
+import logging
+import subprocess
+import tempfile
+import time
+from pathlib import Path
+from typing import Optional
+
+import cv2
+import numpy as np
+import requests
+
+from .quality_gate import laplacian_variance
+
+log = logging.getLogger("pipeline.capture")
+
+
+class CaptureError(Exception):
+    pass
+
+
+# ---------------------------------------------------------------------------
+# Method 1: Reolink via Guardian's own snapshot API (reuses auth)
+# ---------------------------------------------------------------------------
+
+def capture_via_guardian_api(camera_name: str, guardian_base: str = "http://localhost:6530", timeout: int = 15) -> bytes:
+    url = f"{guardian_base}/api/v1/cameras/{camera_name}/snapshot"
+    r = requests.get(url, timeout=timeout)
+    r.raise_for_status()
+    if not r.content or r.content[:2] != b"\xff\xd8":
+        raise CaptureError(f"guardian api returned non-JPEG for {camera_name}")
+    return r.content
+
+
+# ---------------------------------------------------------------------------
+# Method 2: USB camera via OpenCV / AVFoundation
+# ---------------------------------------------------------------------------
+
+def capture_usb(device_index: int = 0, resolution: tuple[int, int] = (1920, 1080),
+                warmup_frames: int = 5, jpeg_quality: int = 92) -> bytes:
+    # AVFoundation backend on macOS. Autofocus is controlled per-device; many
+    # USB webcams expose continuous AF via CAP_PROP_AUTOFOCUS=1. Warmup frames
+    # let the autoexposure/whitebalance/AF converge before we grab the keeper.
+    cap = cv2.VideoCapture(device_index, cv2.CAP_AVFOUNDATION)
+    if not cap.isOpened():
+        raise CaptureError(f"USB device {device_index} failed to open")
+    try:
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, resolution[0])
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, resolution[1])
+        cap.set(cv2.CAP_PROP_AUTOFOCUS, 1)
+        frame = None
+        for _ in range(warmup_frames):
+            ok, frame = cap.read()
+            if not ok:
+                raise CaptureError(f"USB device {device_index} read failed during warmup")
+            time.sleep(0.08)
+        # One more read after warmup — this is the keeper
+        ok, frame = cap.read()
+        if not ok or frame is None:
+            raise CaptureError(f"USB device {device_index} keeper read failed")
+        ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, jpeg_quality])
+        if not ok:
+            raise CaptureError("JPEG encode failed")
+        return bytes(buf)
+    finally:
+        cap.release()
+
+
+# ---------------------------------------------------------------------------
+# Method 3: RTSP burst via ffmpeg
+# ---------------------------------------------------------------------------
+
+def _ffmpeg_single_frame(rtsp_url: str, transport: str, out_path: Path, timeout: int) -> bool:
+    cmd = [
+        "ffmpeg", "-y", "-loglevel", "error",
+        "-rtsp_transport", transport,
+        "-i", rtsp_url,
+        "-frames:v", "1",
+        str(out_path),
+    ]
+    try:
+        r = subprocess.run(cmd, capture_output=True, timeout=timeout)
+        return r.returncode == 0 and out_path.exists() and out_path.stat().st_size > 0
+    except subprocess.TimeoutExpired:
+        return False
+
+
+def capture_rtsp_burst(rtsp_url: str, burst_size: int = 5, burst_interval_seconds: float = 0.5,
+                       transport: str = "tcp", per_grab_timeout: int = 15) -> bytes:
+    """Pulls N frames at spacing, returns the Laplacian-variance-sharpest as
+    JPEG bytes. This is the recipe for fixed-focus cameras (gwtc, mba-cam)
+    where we can't trigger AF — we rely on motion/light-variation between
+    frames to give us at least one sharp sample."""
+    with tempfile.TemporaryDirectory() as td:
+        td_path = Path(td)
+        candidates: list[tuple[float, bytes]] = []
+        for i in range(burst_size):
+            out = td_path / f"frame_{i}.jpg"
+            if _ffmpeg_single_frame(rtsp_url, transport, out, per_grab_timeout):
+                img = cv2.imread(str(out))
+                if img is not None:
+                    lap = laplacian_variance(img)
+                    candidates.append((lap, out.read_bytes()))
+            if i < burst_size - 1:
+                time.sleep(burst_interval_seconds)
+        if not candidates:
+            raise CaptureError(f"RTSP burst yielded zero frames: {rtsp_url}")
+        candidates.sort(key=lambda t: t[0], reverse=True)
+        log.debug("burst sharpness ranking: %s", [f"{c[0]:.1f}" for c in candidates])
+        return candidates[0][1]
+
+
+# ---------------------------------------------------------------------------
+# Method 4: IP Webcam (Samsung S7) via HTTP /photo.jpg
+# ---------------------------------------------------------------------------
+
+def capture_ip_webcam(base_url: str, trigger_focus: bool = True, focus_wait: float = 1.5,
+                      timeout: int = 15) -> bytes:
+    if trigger_focus:
+        try:
+            requests.get(f"{base_url}/focus", timeout=5)
+            time.sleep(focus_wait)
+        except Exception as e:
+            log.warning("AF trigger failed, continuing: %s", e)
+    r = requests.get(f"{base_url}/photo.jpg", timeout=timeout)
+    r.raise_for_status()
+    if not r.content or r.content[:2] != b"\xff\xd8":
+        raise CaptureError(f"IP Webcam returned non-JPEG: {base_url}")
+    return r.content
+
+
+# ---------------------------------------------------------------------------
+# Dispatch
+# ---------------------------------------------------------------------------
+
+def capture_camera(camera_name: str, camera_cfg: dict, global_cfg: dict) -> bytes:
+    method = camera_cfg.get("capture_method")
+    if method == "reolink_snapshot":
+        return capture_via_guardian_api(camera_name, guardian_base="http://localhost:6530")
+    if method == "usb_avfoundation":
+        return capture_usb(
+            device_index=camera_cfg.get("device_index", 0),
+            resolution=tuple(camera_cfg.get("resolution", (1920, 1080))),
+            warmup_frames=camera_cfg.get("warmup_frames", 5),
+        )
+    if method == "rtsp_burst":
+        return capture_rtsp_burst(
+            rtsp_url=camera_cfg["rtsp_url"],
+            burst_size=camera_cfg.get("burst_size", 5),
+            burst_interval_seconds=camera_cfg.get("burst_interval_seconds", 0.5),
+            transport=camera_cfg.get("rtsp_transport", "tcp"),
+        )
+    if method == "ip_webcam":
+        return capture_ip_webcam(base_url=camera_cfg["ip_webcam_base"])
+    raise CaptureError(f"unknown capture_method: {method} for {camera_name}")
+
+
+if __name__ == "__main__":
+    import json, sys
+    logging.basicConfig(level=logging.INFO)
+    cfg_path = Path(__file__).parent / "config.json"
+    cfg = json.loads(cfg_path.read_text())
+    cam = sys.argv[1] if len(sys.argv) > 1 else "usb-cam"
+    out = Path(sys.argv[2]) if len(sys.argv) > 2 else Path(f"/tmp/{cam}-capture.jpg")
+    data = capture_camera(cam, cfg["cameras"][cam], cfg)
+    out.write_bytes(data)
+    print(f"{cam}: {out} ({len(data)} bytes)")
