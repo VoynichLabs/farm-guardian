@@ -55,53 +55,59 @@ The GWTC's built-in webcam (`Hy-HD-Camera`) streams to the Mac Mini via RTSP:
 GWTC Laptop (192.168.0.68)
 ├── Hy-HD-Camera (built-in USB webcam, DirectShow)
 ├── ffmpeg — captures webcam, encodes H.264, pushes to localhost:8554
-└── MediaMTX v1.16.3 — RTSP server at rtsp://192.168.0.68:8554/nestbox
+└── MediaMTX — RTSP server at rtsp://192.168.0.68:8554/gwtc
 
 Mac Mini (192.168.0.105)
 └── Farm Guardian
-    └── capture.py → connects to rtsp://192.168.0.68:8554/nestbox
+    └── capture.py → connects to rtsp://192.168.0.68:8554/gwtc
 ```
 
 **Stream specs:** 1280x720, 15fps, H.264 (libx264 ultrafast), ~1 Mbps.
 
+**MediaMTX version:** check `C:\mediamtx\mediamtx.exe --version` on the laptop. Constraints around acceptable versions on this host (in case of upgrade) are documented inline in `deploy/macbook-air/` writeups (the same dyld-symbol-floor concern applies on the Air; on the GWTC Win11 host, modern releases work fine).
+
+**Path naming note:** The MediaMTX path was `nestbox` until 13-Apr-2026 evening; renamed to `gwtc` to match the device name we use everywhere else (locations change, devices don't). See `CHANGELOG.md` v2.23.1 for the cutover. **Don't reintroduce location-based stream paths** — see `HARDWARE_INVENTORY.md` rule #1.
+
 ### Windows Services
 
-Both run as auto-start Windows services that survive reboots and crashes:
+Three services run as auto-start, all wrapped by [Shawl](https://github.com/mtkennerly/shawl) so they survive reboots and crashes:
 
-| Service | Tool | Status | StartType |
+| Service | Wraps | Purpose | StartType |
 |---|---|---|---|
-| `mediamtx` | Shawl | Running | Automatic |
-| `ffmpeg-nestbox` | Shawl | Running | Automatic |
+| `mediamtx` | `C:\mediamtx\mediamtx.exe C:\mediamtx\mediamtx.yml` | RTSP server on `:8554` | Automatic |
+| `farmcam` | `cmd /c C:\farm-services\start-camera.bat` | ffmpeg dshow capture, pushes to `rtsp://localhost:8554/gwtc` (with the `:loop` retry built into the bat file) | Automatic |
+| `farmcam-watchdog` | `powershell -File C:\farm-services\farm-watchdog.ps1` | Detects + recovers the post-reboot dshow zombie pattern (kills wedged ffmpeg PID; Shawl respawns) | Automatic |
 
-**ffmpeg path:** `C:\Users\markb\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.1-full_build\bin\ffmpeg.exe`
+Canonical copies of `start-camera.bat`, `mediamtx.yml`, and `farm-watchdog.ps1` are version-controlled in this repo at `deploy/gwtc/`. Install / update / uninstall recipes for the watchdog are in `deploy/gwtc/install-watchdog.md`. The same recipe pattern applies to the other two services if you ever need to re-register them.
 
-**ffmpeg command (wrapped by Shawl):**
-```
-ffmpeg -f dshow -video_size 1280x720 -framerate 15 -i video="Hy-HD-Camera" -c:v libx264 -preset ultrafast -tune zerolatency -b:v 1000k -f rtsp rtsp://localhost:8554/nestbox
-```
+### Service Management (via SSH from the Mac Mini)
 
-### Service Management (via SSH)
+```bash
+# Check all three
+ssh -o StrictHostKeyChecking=no markb@192.168.0.68 'sc query mediamtx & sc query farmcam & sc query farmcam-watchdog'
 
-```powershell
-# Check status
-Get-Service mediamtx,ffmpeg-nestbox | Format-Table Name,Status,StartType
+# Restart the camera publisher (use this, not "restart farmcam" via sc — that hits the
+# "1056: An instance of the service is already running" pattern because Shawl stays alive
+# even when its child is killed by sc)
+ssh -o StrictHostKeyChecking=no markb@192.168.0.68 'tasklist | findstr ffmpeg'      # find PID
+ssh -o StrictHostKeyChecking=no markb@192.168.0.68 'taskkill /F /PID <pid>'         # Shawl respawns ffmpeg in ~3s
 
-# Restart ffmpeg (if stream goes down)
-Restart-Service ffmpeg-nestbox
+# Restart MediaMTX
+ssh -o StrictHostKeyChecking=no markb@192.168.0.68 'sc stop mediamtx & sc start mediamtx'
 
-# Restart both
-Restart-Service mediamtx; Start-Sleep 2; Restart-Service ffmpeg-nestbox
+# Restart watchdog
+ssh -o StrictHostKeyChecking=no markb@192.168.0.68 'sc stop farmcam-watchdog & sc start farmcam-watchdog'
 
-# View ffmpeg process details
-Get-WmiObject Win32_Process -Filter "Name='ffmpeg.exe'" | Select ProcessId,CommandLine
+# Tail the live logs
+ssh -o StrictHostKeyChecking=no markb@192.168.0.68 'powershell -Command "Get-Content C:\farm-services\logs\mediamtx.log -Tail 20"'
+ssh -o StrictHostKeyChecking=no markb@192.168.0.68 'powershell -Command "Get-Content C:\farm-services\logs\watchdog.log -Tail 20"'
 ```
 
 ### Troubleshooting
 
-If the stream returns 404 from MediaMTX but the machine is pingable:
-1. ffmpeg likely lost the webcam handle (after sleep/crash)
-2. `Restart-Service ffmpeg-nestbox` fixes it
-3. Guardian's capture.py reconnects automatically (exponential backoff)
+If the stream returns 404 from MediaMTX but the machine is pingable: this is the post-reboot dshow zombie pattern (or a mid-operation wedge of the same shape). The `farmcam-watchdog` service auto-recovers within ~90s — **wait, don't intervene**. Full failure-mode writeup, manual fallback if the watchdog itself is broken, and "what does NOT help" list: `docs/13-Apr-2026-gwtc-laptop-troubleshooting-incident.md` "Addendum -- Post-Reboot dshow Zombie Pattern" section.
+
+If the machine itself is unreachable (port 8554 closed, SSH won't connect): that's the *reachability* incident, a separate failure mode. Use the diagnostic recipe at the top of the same troubleshooting doc (sweep `/24` for service signatures on `:8554` or `:9099` — don't trust pings or MAC tables). DO NOT confuse the two failure modes; the recoveries are completely different.
 
 ---
 
@@ -136,7 +142,7 @@ In `config.json` on the Mac Mini:
   "password": "",
   "type": "fixed",
   "rtsp_transport": "tcp",
-  "rtsp_url_override": "rtsp://192.168.0.68:8554/nestbox",
+  "rtsp_url_override": "rtsp://192.168.0.68:8554/gwtc",
   "detection_enabled": false
 }
 ```

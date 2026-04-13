@@ -1,0 +1,14 @@
+# MediaMTX config for Farm Guardian — GWTC laptop camera node
+logLevel: info
+logDestinations: [file]
+logFile: C:\farm-services\logs\mediamtx.log
+rtsp: yes
+rtspAddress: :8554
+rtmp: no
+hls: no
+webrtc: no
+srt: no
+paths:
+  gwtc:
+    source: publisher
+    sourceOnDemand: no

@@ -27,7 +27,7 @@ If gwtc seems "unreachable" from the Mac Mini:
 
 ```bash
 # Find GWTC by service signature on the /24
-echo "-- MediaMTX (RTSP, GWTC's nestbox service) --"
+echo "-- MediaMTX (RTSP, GWTC's gwtc service) --"
 for i in $(seq 2 254); do
   (nc -z -w 1 192.168.0.$i 8554 2>/dev/null && echo "  192.168.0.$i") &
 done; wait
@@ -151,11 +151,11 @@ After GWTC reboots, from the Mini you observe **all of**:
 - `ssh markb@192.168.0.68 'sc query mediamtx'` and `'sc query farmcam'` → both `STATE: 4 RUNNING`.
 - `ssh markb@192.168.0.68 'tasklist | findstr ffmpeg'` → `ffmpeg.exe` is alive (e.g. PID 2516, ~80MB RAM).
 - `ssh markb@192.168.0.68 'tasklist | findstr mediamtx'` → `mediamtx.exe` is alive.
-- BUT: any consumer pulling `rtsp://192.168.0.68:8554/nestbox` gets `Server returned 404 Not Found`, and the mediamtx log shows a continuous stream of:
+- BUT: any consumer pulling `rtsp://192.168.0.68:8554/gwtc` gets `Server returned 404 Not Found`, and the mediamtx log shows a continuous stream of:
   ```
-  INF [RTSP] [conn <ip>:<port>] closed: no stream is available on path 'nestbox'
+  INF [RTSP] [conn <ip>:<port>] closed: no stream is available on path 'gwtc'
   ```
-  Look at `C:\farm-services\logs\mediamtx.log` — the most recent `is publishing to path 'nestbox'` line will be from **before** the reboot.
+  Look at `C:\farm-services\logs\mediamtx.log` — the most recent `is publishing to path 'gwtc'` line will be from **before** the reboot.
 
 If all of those line up: this is the wedge. Don't bother running the upper troubleshooting recipe — that one's for "is the box reachable at all," which is already answered yes.
 
@@ -183,11 +183,11 @@ ssh -o StrictHostKeyChecking=no markb@192.168.0.68 'tasklist | findstr ffmpeg'
 
 # 4. Confirm it's actually publishing now:
 ssh -o StrictHostKeyChecking=no markb@192.168.0.68 'powershell -Command "Get-Content C:\farm-services\logs\mediamtx.log -Tail 5"'
-# Look for: INF [RTSP] [session ...] is publishing to path 'nestbox', 1 track (H264)
+# Look for: INF [RTSP] [session ...] is publishing to path 'gwtc', 1 track (H264)
 
 # 5. End-to-end check from the Mini:
 ffmpeg -hide_banner -loglevel warning -rtsp_transport tcp \
-  -i rtsp://192.168.0.68:8554/nestbox -frames:v 1 -y /tmp/gwtc-test.jpg
+  -i rtsp://192.168.0.68:8554/gwtc -frames:v 1 -y /tmp/gwtc-test.jpg
 file /tmp/gwtc-test.jpg   # should report: JPEG image data, ... 1280x720
 ```
 
@@ -203,7 +203,7 @@ After the fresh ffmpeg starts, **Guardian on the Mini will reconnect on its own*
 
 ## The rule
 
-**If GWTC just rebooted and `nestbox` is 404'ing while services report Running: wait ~90s — the watchdog will fix it.** If after 2 minutes it hasn't recovered, *then* kill the ffmpeg PID manually as a fallback. Don't burn time inspecting Shawl logs, restarting services in a dance, or asking Boss to rerun `ipconfig`.
+**If GWTC just rebooted and `gwtc` is 404'ing while services report Running: wait ~90s — the watchdog will fix it.** If after 2 minutes it hasn't recovered, *then* kill the ffmpeg PID manually as a fallback. Don't burn time inspecting Shawl logs, restarting services in a dance, or asking Boss to rerun `ipconfig`.
 
 This pattern is also documented in `~/bubba-workspace/memory/reference/network.md` under the GWTC entry and in the Bubba auto-memory at `feedback`-level so future Bubba sessions surface it without needing to read this file.
 
@@ -213,7 +213,7 @@ This pattern is also documented in `~/bubba-workspace/memory/reference/network.m
 
 Documentation is a band-aid. Boss called it: "Wouldn't some better idea be to have some script on that GWTC that automatically runs when it reboots and does the restart or whatever?" The answer is yes, so we built one.
 
-**What it is:** A PowerShell watchdog wrapped as a Shawl-managed Windows service called `farmcam-watchdog`. Auto-starts on boot. Probes `rtsp://localhost:8554/nestbox` every 30s using `ffprobe`. If no publisher AND ffmpeg has been alive ≥60s (past startup grace), it kills ffmpeg by PID. Shawl's existing `--restart` policy on `farmcam` then respawns ffmpeg in ~3s with a fresh dshow open.
+**What it is:** A PowerShell watchdog wrapped as a Shawl-managed Windows service called `farmcam-watchdog`. Auto-starts on boot. Probes `rtsp://localhost:8554/gwtc` every 30s using `ffprobe`. If no publisher AND ffmpeg has been alive ≥60s (past startup grace), it kills ffmpeg by PID. Shawl's existing `--restart` policy on `farmcam` then respawns ffmpeg in ~3s with a fresh dshow open.
 
 **Worst-case recovery time after a wedge:** ~90s (30s probe interval + 60s wedge threshold + ~3s respawn). Best case ~30s.
 
@@ -231,10 +231,10 @@ sc query farmcam-watchdog
   STATE: 4 RUNNING
 
 C:\farm-services\logs\watchdog.log
-  2026-04-13 18:32:30 watchdog started -- pid=10880, probe=30s, wedge_threshold=60s, target=rtsp://localhost:8554/nestbox
+  2026-04-13 18:32:30 watchdog started -- pid=10880, probe=30s, wedge_threshold=60s, target=rtsp://localhost:8554/gwtc
 ```
 
-The probe is verified end-to-end: `ffprobe` against `rtsp://localhost:8554/nestbox` with the live publisher returns exit 0 with `codec_name=h264 width=1280 height=720`. With no publisher, exits non-zero — which the watchdog treats as the trigger condition.
+The probe is verified end-to-end: `ffprobe` against `rtsp://localhost:8554/gwtc` with the live publisher returns exit 0 with `codec_name=h264 width=1280 height=720`. With no publisher, exits non-zero — which the watchdog treats as the trigger condition.
 
 **What the watchdog does NOT do:**
 

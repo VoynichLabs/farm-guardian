@@ -27,7 +27,7 @@ Boss directive (paraphrased 13-Apr-2026): *"the S7 keeps running out of power �
 
 **Verification:** both `from capture import HttpUrlSnapshotSource, ...` and `from discovery import CameraDiscovery` import clean. End-to-end live-phone smoke test is blocked until the S7 is powered back up; the procedure is codified in the phone setup doc.
 
-## [2.23.1] - 2026-04-13
+## [2.24.1] - 2026-04-13
 
 ### Fixed — Renamed GWTC MediaMTX path `nestbox` → `gwtc`; added repo-wide `HARDWARE_INVENTORY.md` (Claude Opus 4.6)
 
@@ -59,7 +59,7 @@ The audit found one live device-name violation and several stale references. The
 
 - `s7-cam` internal RTSP path is `/camera` because that's what the Android IP Webcam app exposes — not configurable on the phone side. Our config name `s7-cam` is the device-first identifier we use everywhere.
 - `tools/pipeline/schema.json` scene enum (`["brooder","yard","coop","nesting-box","sky","other"]`). Those are *scene tags* (where the camera is pointing), a separate dimension from camera identity. Defensible.
-- Historical `nestbox` references in pre-v2.23.x CHANGELOG entries. Rewriting history obscures what actually happened. The v2.23.1 entry above documents the rename for anyone reading old entries.
+- Historical `nestbox` references in pre-v2.23.x CHANGELOG entries. Rewriting history obscures what actually happened. The v2.24.1 entry above documents the rename for anyone reading old entries.
 - Anything in `.claude/worktrees/` (stale worktree).
 
 **Cross-references outside this repo:**

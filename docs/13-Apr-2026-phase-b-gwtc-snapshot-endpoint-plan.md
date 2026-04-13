@@ -1,4 +1,4 @@
-# Phase B — Gateway laptop nestbox cam: HTTP snapshot endpoint replaces MediaMTX RTSP
+# Phase B — Gateway laptop (gwtc) cam: HTTP snapshot endpoint replaces MediaMTX RTSP
 
 **Author:** Claude Opus 4.6
 **Date:** 13-April-2026
@@ -12,7 +12,7 @@ This plan is self-contained — a separate Claude session can pick it up and exe
 
 ## Why
 
-The Gateway laptop is a Windows 11 machine with a built-in webcam, located in (or near) the chicken coop nesting box. Currently it runs `ffmpeg → MediaMTX` and exposes an RTSP stream at `rtsp://192.168.0.68:8554/nestbox` at 1280×720 H.264 ~1Mbps. Boss called the RTSP video quality "pretty awful" and observed correctly that the underlying webcam can do better as a still camera — most laptop webcams support stills at higher resolutions than they stream video at, and the JPEG encoder bypasses all the motion-compression artifacts that show up in the RTSP feed.
+The Gateway laptop (`gwtc`, `192.168.0.68`) is a Windows 11 machine with a built-in webcam, currently sitting in the chicken coop. Currently it runs `ffmpeg → MediaMTX` and exposes an RTSP stream at `rtsp://192.168.0.68:8554/gwtc` at 1280×720 H.264 ~1Mbps. Boss called the RTSP video quality "pretty awful" and observed correctly that the underlying webcam can do better as a still camera — most laptop webcams support stills at higher resolutions than they stream video at, and the JPEG encoder bypasses all the motion-compression artifacts that show up in the RTSP feed.
 
 Phase A builds the `CameraSnapshotPoller` + `SnapshotSource` abstraction that makes plugging in a new HTTP snapshot source trivial on the Guardian side. The work in this phase is split:
 
@@ -36,7 +36,7 @@ Phase A builds the `CameraSnapshotPoller` + `SnapshotSource` abstraction that ma
     "password": "",
     "type": "fixed",
     "rtsp_transport": "tcp",
-    "rtsp_url_override": "rtsp://192.168.0.68:8554/nestbox",
+    "rtsp_url_override": "rtsp://192.168.0.68:8554/gwtc",
     "detection_enabled": false
   }
   ```
@@ -68,7 +68,7 @@ Phase A builds the `CameraSnapshotPoller` + `SnapshotSource` abstraction that ma
 
 ## Architecture
 
-### Laptop side: `nestbox-snap.py`
+### Laptop side: `gwtc-snap.py`
 
 ```python
 """
@@ -161,7 +161,7 @@ In `capture.py`, alongside `ReolinkSnapshotSource`:
 ```python
 class HttpUrlSnapshotSource:
     """Fetches a JPEG from an arbitrary HTTP URL. Used for cameras that expose
-    a snapshot endpoint over HTTP — the Gateway laptop nestbox cam, IP webcams,
+    a snapshot endpoint over HTTP — the Gateway laptop's `gwtc` cam, IP webcams,
     etc. The fetch is synchronous (requests.get) and runs on the poller thread.
     """
     def __init__(self, url: str, timeout: float = 5.0, label: Optional[str] = None):
@@ -232,11 +232,11 @@ Note `rtsp_url_override` is removed since RTSP is no longer the ingress.
 
 2. **Probe the webcam's max stills resolution** via a one-shot Python script. Walk through the `_TARGET_RESOLUTIONS` list and report which actually opens. Save the result so the service config matches.
 
-3. **Write `nestbox-snap.py`** (template above) with the verified resolution targets at the top. Test locally by running it and curling `http://localhost:8555/snap.jpg`. Verify dimensions are what you expected.
+3. **Write `gwtc-snap.py`** (template above) with the verified resolution targets at the top. Test locally by running it and curling `http://localhost:8555/snap.jpg`. Verify dimensions are what you expected.
 
 4. **Install Flask** (`pip install flask`) on the laptop if missing.
 
-5. **Deploy as a Shawl service** alongside MediaMTX. Name it `nestbox-snap`. Configure auto-start. Verify it survives a reboot.
+5. **Deploy as a Shawl service** alongside MediaMTX. Name it `gwtc-snap`. Configure auto-start. Verify it survives a reboot.
 
 6. **From the Mac Mini, verify reachability:** `curl -o /tmp/gwtc.jpg http://192.168.0.68:8555/snap.jpg && python -c 'from PIL import Image; print(Image.open("/tmp/gwtc.jpg").size)'`. Confirm dimensions match the laptop probe.
 
@@ -270,7 +270,7 @@ Note `rtsp_url_override` is removed since RTSP is no longer the ingress.
 
 - **Webcam reliability after long idle.** Some Windows webcams disable themselves to save power. The `WebcamHolder.grab()` retry-by-reopen handles this, but watch for it during the 24h soak.
 
-- **Concurrent access from other apps.** Windows treats webcams as exclusive devices. If MediaMTX is also bound to the same camera, the snapshot service will fail. **MediaMTX must be stopped before the snapshot service can claim the webcam** — plan the cutover accordingly. There's no truly side-by-side period; you can leave MediaMTX *installed* but stop the service before starting `nestbox-snap`.
+- **Concurrent access from other apps.** Windows treats webcams as exclusive devices. If MediaMTX is also bound to the same camera, the snapshot service will fail. **MediaMTX must be stopped before the snapshot service can claim the webcam** — plan the cutover accordingly. There's no truly side-by-side period; you can leave MediaMTX *installed* but stop the service before starting `gwtc-snap`.
 
 - **DSHOW vs MSMF backend.** If `cv2.CAP_DSHOW` doesn't pick the right device or set resolution correctly, try `cv2.CAP_MSMF`. Document whichever works.
 
@@ -282,7 +282,7 @@ Note `rtsp_url_override` is removed since RTSP is no longer the ingress.
 
 - **Service lifecycle.** Shawl is the same pattern MediaMTX uses (per CLAUDE.md). Use the same install/start/auto-start commands so the operator (Boss or another agent) can manage them uniformly.
 
-- **Detection on gwtc.** Today `detection_enabled: false`. That stays false — gwtc is the nestbox cam, not a predator-lookout. Just snapshots for Boss to peek at the chickens.
+- **Detection on gwtc.** Today `detection_enabled: false`. That stays false — `gwtc` is the in-coop angle, not a predator-lookout. Just snapshots for Boss to peek at the chickens.
 
 ---
 
@@ -292,4 +292,4 @@ Note `rtsp_url_override` is removed since RTSP is no longer the ingress.
 - `CLAUDE.md` — `gwtc` description, module-list updates if a new file appears.
 - `docs/` — this plan stays as the historical record.
 - `config.example.json` — `gwtc` example updated to snapshot mode.
-- A short README in the laptop's deployment directory (next to `nestbox-snap.py`) describing how to install/start/restart the Shawl service.
+- A short README in the laptop's deployment directory (next to `gwtc-snap.py`) describing how to install/start/restart the Shawl service.

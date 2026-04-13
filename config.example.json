@@ -51,7 +51,7 @@
       "password": "",
       "type": "fixed",
       "rtsp_transport": "tcp",
-      "rtsp_url_override": "rtsp://192.168.0.ZZZ:8554/nestbox",
+      "rtsp_url_override": "rtsp://192.168.0.ZZZ:8554/gwtc",
       "detection_enabled": false
     },
     {

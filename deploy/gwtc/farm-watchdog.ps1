@@ -4,7 +4,7 @@
 # PURPOSE: Detect and recover from the post-reboot dshow zombie pattern on GWTC.
 #   ffmpeg can wedge on the dshow camera open after a Windows reboot -- process
 #   stays alive, never produces frames, never registers as a publisher with
-#   mediamtx, so the nestbox RTSP path 404s. Shawl's --restart never triggers
+#   mediamtx, so the gwtc RTSP path 404s. Shawl's --restart never triggers
 #   because wedged-ffmpeg never exits.
 #   This watchdog probes the local RTSP publisher every 30s. If no publisher
 #   is available AND the ffmpeg process has been alive long enough that it's
@@ -16,7 +16,7 @@
 $ErrorActionPreference = "SilentlyContinue"
 
 $LogFile         = "C:\farm-services\logs\watchdog.log"
-$RtspUrl         = "rtsp://localhost:8554/nestbox"
+$RtspUrl         = "rtsp://localhost:8554/gwtc"
 $FfmpegName      = "ffmpeg"
 $FfprobePath     = "C:\Users\markb\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.1-full_build\bin\ffprobe.exe"
 $ProbeIntervalS  = 30      # how often we check
@@ -29,7 +29,7 @@ function Write-Log {
     "$ts $Msg" | Out-File -FilePath $LogFile -Append -Encoding utf8
 }
 
-# Probe whether mediamtx has a publisher on the nestbox path.
+# Probe whether mediamtx has a publisher on the gwtc path.
 # Returns $true if ffprobe can read stream info (publisher present), $false otherwise.
 function Test-Publisher {
     $null = & $FfprobePath -v error -rtsp_transport tcp -timeout $ProbeTimeoutUs -i $RtspUrl -show_streams 2>&1

@@ -3,7 +3,7 @@
 **Date:** 13-April-2026
 **Purpose:** Auto-detect and recover from the post-reboot dshow zombie pattern (see `docs/13-Apr-2026-gwtc-laptop-troubleshooting-incident.md` "Addendum — Post-Reboot dshow Zombie Pattern" for the failure mode and history).
 
-The watchdog probes `rtsp://localhost:8554/nestbox` every 30s. If no publisher is available **and** the ffmpeg process has been alive ≥60s (past startup grace), it kills ffmpeg by PID. Shawl's `--restart` policy on the existing `farmcam` service then respawns ffmpeg within ~3s, and the new instance opens dshow cleanly.
+The watchdog probes `rtsp://localhost:8554/gwtc` every 30s. If no publisher is available **and** the ffmpeg process has been alive ≥60s (past startup grace), it kills ffmpeg by PID. Shawl's `--restart` policy on the existing `farmcam` service then respawns ffmpeg within ~3s, and the new instance opens dshow cleanly.
 
 ## Files
 
@@ -34,7 +34,7 @@ ssh -o StrictHostKeyChecking=no markb@192.168.0.68 'sc query farmcam-watchdog'
 # 5. Watch the log appear after the first 30s probe
 ssh -o StrictHostKeyChecking=no markb@192.168.0.68 \
   'powershell -Command "Get-Content C:\farm-services\logs\watchdog.log -Tail 5"'
-# Expected first line: ... watchdog started -- pid=NNNN, probe=30s, wedge_threshold=60s, target=rtsp://localhost:8554/nestbox
+# Expected first line: ... watchdog started -- pid=NNNN, probe=30s, wedge_threshold=60s, target=rtsp://localhost:8554/gwtc
 ```
 
 ## Updating the script after edits

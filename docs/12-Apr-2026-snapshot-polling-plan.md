@@ -58,7 +58,7 @@ RTSP/USB → OpenCV grab (every N seconds) → in-memory JPEG → /api/cameras/{
 | **house-yard** (Reolink) | HTTP API | `camera_control.take_snapshot()` — already exists, returns JPEG bytes via `reolink_aio`. No RTSP needed. |
 | **s7-cam** (RTSP) | RTSP single grab | OpenCV `VideoCapture.read()` — open, grab one frame, release. Or keep a persistent connection with long interval. |
 | **usb-cam** (USB) | AVFoundation | OpenCV `VideoCapture(device_index)` — already proven in `capture.py`. Grab one frame per interval. |
-| **gwtc** (RTSP) | RTSP single grab | Same as s7-cam — OpenCV single frame grab from `rtsp://192.168.0.68:8554/nestbox`. |
+| **gwtc** (RTSP) | RTSP single grab | Same as s7-cam — OpenCV single frame grab from `rtsp://192.168.0.68:8554/gwtc`. |
 
 ### Key design decision: reuse FrameCaptureManager vs. new SnapshotPoller
 
