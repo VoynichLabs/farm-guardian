@@ -239,6 +239,50 @@ The fast facts you cannot afford to be wrong about:
 - **SSH into GWTC** (once you've found its IP): `ssh -o StrictHostKeyChecking=no markb@<ip>` — Bubba's `id_ed25519` is in `C:\ProgramData\ssh\administrators_authorized_keys` on the laptop.
 - **Router admin is read-only by default.** Never change router settings without Boss approval. Terry Kath rule: if you change something that kills connectivity to Bubba, you lose the ability to be told to undo it.
 
+## Multi-Machine Claude Orchestration — USE THIS WHEN A TASK NEEDS HANDS ON ANOTHER BOX
+
+**The default reflex of every agent should be: don't ask Boss to relay a task to another Claude. Spawn one yourself.**
+
+The farm has multiple machines, several of which run Claude Code (Mac Mini "Bubba" — primary; MacBook Air at `192.168.0.50` — `c` alias installed; Windows laptops at `192.168.0.68`/`.194` etc.). Whenever something needs hands at another machine — granting a TCC permission, running a GUI app, reading a local file you can't `scp`, anything where being-on-that-box matters — **invoke a fresh headless Claude on that box over SSH**. Don't ask Boss to copy-paste your prompt into a session he's sitting in front of.
+
+**The pattern (from the Mac Mini, targeting the MacBook Air):**
+
+```bash
+ssh -i ~/.ssh/id_ed25519 markb@192.168.0.50 'c -p "Granular task description here. Be self-contained — the remote Claude has no context from this conversation. Tell it what to do, what success looks like, and what to print on completion."'
+```
+
+- `c` is the alias on every machine for `claude --dangerously-skip-permissions` — already in `~/.zshrc`/`~/.bash_profile`/`~/.bashrc` on the Air, the Mini, and GWTC.
+- `-p` (print mode) runs the prompt non-interactively, prints the result, exits. No TTY needed.
+- The remote Claude runs **on that box's filesystem and GUI session** — it can spawn TCC prompts, open Finder, drive AppleScript, read files only on that disk. None of which the calling agent can do over plain SSH.
+
+**Per-machine quick reference:**
+
+| Box | SSH | Claude available? |
+|---|---|---|
+| Mac Mini (Bubba) | local — you're already here | yes (this is the orchestrator most of the time) |
+| MacBook Air | `ssh -i ~/.ssh/id_ed25519 markb@192.168.0.50` | yes — `c` alias, OAuth-logged-in |
+| Gateway laptop (GWTC) | `ssh -o StrictHostKeyChecking=no markb@<gwtc-ip>` (find IP via /24 sweep on `:8554`) | yes — pinned `c.cmd` per the GWTC notes |
+| Larry's MSI laptop | `ssh -o StrictHostKeyChecking=no user@192.168.0.194` | yes — but Larry is its own thing; see `bubba-workspace/skills/larry-access` |
+| Egon's Linode | `ssh -i ~/.ssh/id_ed25519_egon_rescue euclid@172.104.147.157` | yes — see `bubba-workspace/skills/egon-gateway` |
+
+**When you should use this pattern (non-exhaustive):**
+
+- Granting TCC permissions (Camera, Microphone, Accessibility, Screen Recording) — these need a logged-in GUI session and can't be granted over plain SSH. A local Claude can fire the prompt for Boss to click.
+- Triggering AppleScript / Automator / `osascript` flows that need to run as the logged-in GUI user.
+- Reading or modifying files on a disk you can't mount (e.g., another machine's keychain, login items, browser profiles).
+- Running interactive installers, GUI app first-launch dialogs, or `defaults` writes that take effect per-user-session.
+- Anything you'd otherwise type out as "ask the Boss to do this on the other machine" — that's the smell that means: spawn a Claude there.
+
+**Caveats:**
+
+- The remote Claude has **no context from your conversation** — your prompt must be self-contained. State the task, the success criteria, where to look for relevant docs (paths on *that* machine, not on yours), and what to print so you can verify completion.
+- Don't spawn a Claude on a box for a task you could trivially do over plain SSH (e.g., `tail` a log, `ls` a directory). Use this pattern when *the locality matters*.
+- The `--dangerously-skip-permissions` flag is in the `c` alias because every farm Claude runs in trusted-LAN, single-user mode. Don't unset it when invoking — the headless print mode will block on every permission prompt otherwise.
+- Output comes back as the SSH command's stdout. If the task needs to ping you back asynchronously, have the remote Claude write a marker file (e.g., `/tmp/<task>-done.flag`) and you poll for it.
+- Coordinated edits to the same file from two Claudes simultaneously is not safe. Either serialize, or have one Claude commit and the other pull before editing.
+
+**Cross-reference:** `bubba-workspace/skills/macbook-air/SKILL.md` has the per-machine details for the Air; `bubba-workspace/memory/reference/network.md` has the master device table; `bubba-workspace/skills/larry-access/SKILL.md` and `egon-gateway/SKILL.md` document the Windows and Linode targets respectively.
+
 ## Environment
 
 - **Machine:** Mac Mini M4 Pro, 14-core, 64GB RAM, macOS 26.3
