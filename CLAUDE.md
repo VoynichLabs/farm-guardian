@@ -81,6 +81,35 @@ These should be present in the CLAUDE.md file and the agents.md file.
 - End completed tasks with "done" (or "next" if awaiting instructions).
 
 
+## LM Studio — READ BEFORE ADDING ANY CODE THAT TALKS TO IT
+
+This Mac Mini runs LM Studio (`http://localhost:1234`). Guardian
+**does not currently call LM Studio** — `vision.py` was removed in
+v2.17.0 because over-engineered species refinement wasn't worth the
+operational complexity. There is one planned re-introduction (a
+standalone, slow-cadence brooder narrator).
+
+Before you write or modify ANY code that opens a connection to LM
+Studio, read **`docs/13-Apr-2026-lm-studio-reference.md`** in full.
+That doc covers the API, the safe model-load pattern, the locally
+available models, and the 2026-04-13 watchdog incident that took the
+whole machine down because the previous `vision.py` raced a research
+sweep on the same model. The hard rules:
+
+1. Never call `/api/v1/models/load` without first checking what's
+   loaded (instances stack — loading the same model twice doubles
+   memory).
+2. Always pass `context_length` on load (default is the model's max,
+   which can be 131k+ tokens and reserves gigabytes of KV cache).
+3. Never call `/v1/chat/completions` against a model name that isn't
+   already loaded — that endpoint **silently auto-loads** the model,
+   which is what crashed the box on 2026-04-13.
+
+The brooder narrator plan
+(`docs/13-Apr-2026-brooder-vlm-narrator-plan.md`) is the canonical
+example of how to call LM Studio safely from a Guardian-adjacent
+tool. Use it as the template for any new integration.
+
 ## Project
 
 Farm Guardian — a Python service that watches Reolink security cameras via ONVIF/RTSP, detects predator animals using YOLOv8, automates camera deterrents (spotlight/siren/PTZ), tracks animal visits in SQLite, generates daily intelligence reports, and serves a local web dashboard with REST API. Runs on a Mac Mini M4 Pro (64GB) on the same local network as the cameras.
@@ -154,6 +183,8 @@ Read `docs/02-Apr-2026-v2-system-plan.md` for the full v2 architecture document 
 - `docs/13-Apr-2026-phase-a-reolink-snapshot-polling-plan.md` — **DONE in v2.18.0** — house-yard switched from RTSP to HTTP snapshot polling (4K JPEG)
 - `docs/13-Apr-2026-phase-b-gwtc-snapshot-endpoint-plan.md` — Phase B: stand up an HTTP snapshot service on the Gateway laptop, switch `gwtc` over
 - `docs/13-Apr-2026-phase-c-usb-highres-and-motion-bursts-plan.md` — Phase C: `usb-cam` to high-res snapshots + ONVIF motion-event-triggered snapshot bursts on house-yard
+- `docs/13-Apr-2026-lm-studio-reference.md` — **READ THIS** before adding any LM Studio integration. API surface, locally available models, safe model-load pattern, the 2026-04-13 watchdog incident and what we changed because of it.
+- `docs/13-Apr-2026-brooder-vlm-narrator-plan.md` — planned standalone tool: sample brooder snapshots → glm-4.6v-flash → JSONL narrative log. Awaits Boss approval. Will be revised to incorporate "find the best image" rather than blind 5-min sampling.
 
 **Entry point:** `guardian.py` — orchestrates all modules, runs as a foreground process.
 

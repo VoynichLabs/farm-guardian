@@ -14,32 +14,46 @@ SRP/DRY check: Pass — new tool, no overlap with the removed vision.py
                problem.
 -->
 
-# Brooder VLM Narrator — Plan (Draft for Approval)
+# Brooder VLM Narrator — Plan (Draft for Approval, revised PM 2026-04-13)
 
 ## What it is, in one paragraph
 
-A small standalone Python script that wakes up every N minutes, asks
-Guardian for a snapshot of the brooder camera, sends the JPEG to GLM
-4.6v Flash via LM Studio with an open-ended prompt, and appends the
-text response to a JSONL log. The original image is discarded after
-the call. Output is a growing chronological log of "what GLM thinks is
-happening in the brooder right now," readable as a narrative.
+**Revised after Boss feedback (PM 2026-04-13):** the goal is not
+"sample blindly every N minutes and narrate what's there." The goal
+is **find the best image** — the most interesting, informative, or
+narratively-rich frame in a window — and narrate that. A small
+standalone Python script wakes up every N minutes, asks Guardian for
+a *burst* of recent snapshots from the brooder camera, scores the
+burst with cheap local heuristics (sharpness, motion delta,
+non-empty-foreground), picks the top candidate(s), and only then
+sends them to GLM 4.6v Flash with an open-ended prompt. The text
+response is appended to a JSONL log; images are discarded after the
+call. Output is a growing log of "the most interesting things that
+happened in the brooder today, with GLM's commentary."
 
-Boss's wording was: "we're going to see lots of pictures of baby
-chickens." This tool is for finding interesting needles in the
-haystack of those pictures without us having to scrub footage.
+Boss's wording: "we're going to see lots of pictures of baby
+chickens" + "I really want something where we figure out what the
+best image is." This tool is the haystack-to-needle filter.
 
 ## Scope
 
 **In scope (v0.1):**
 - Standalone script `farm-guardian/tools/brooder_narrator.py`
 - One camera at a time (default: `usb-cam` = brooder)
-- Periodic sampling (default 5 min between calls, configurable)
+- Per-cycle: pull a **burst** of K recent snapshots over a short
+  window (e.g. K=12 over 60 s, or 12 calls 5 s apart matching
+  Guardian's snapshot cadence), score them locally, send the top
+  scorer to the VLM
+- Local scoring is cheap and pure-Python (no extra deps if we lean
+  on what's already in `requirements.txt` — see "Image scoring" below)
 - One open-ended prompt mode at v0.1 ("describe what you see")
-- JSONL log at `data/narrator/{camera}_{YYYYMMDD}.jsonl`
+- JSONL log at `data/narrator/{camera}_{YYYYMMDD}.jsonl` records
+  *both* the chosen image's score and the rejected scores, so we can
+  evaluate the scorer over time
 - Image discarded after VLM call (privacy + storage hygiene per Boss
   directive: "I don't want to save them forever")
-- Optional debug mode keeps the most recent N images for spot-checking
+- Optional debug mode keeps the most recent N chosen images +
+  rejected runner-ups for spot-checking the scorer
 - Uses Guardian's existing snapshot API — no reach into Guardian
   internals
 
@@ -51,6 +65,10 @@ haystack of those pictures without us having to scrub footage.
 - Integration into Guardian dashboard
 - Comparative-pair prompts ("what changed in the last hour?")
 - Persistence of images for audit beyond the debug-mode rolling window
+- VLM-as-judge: send all K burst images to GLM 4.6v in a single
+  multi-image request, ask it to pick the most interesting. Promising
+  but expensive (~10× single-image cost) and untested at K > 3 on
+  this model. v0.2.
 
 ## Architecture
 
@@ -88,6 +106,39 @@ haystack of those pictures without us having to scrub footage.
 4. The removed `vision.py` taught us the lesson: VLM calls do not
    belong in the hot path. This is the slow-path version of the same
    capability.
+
+**Image scoring (the "best image" filter):**
+
+Cheap local heuristics, applied to every image in the burst before
+any VLM call. Goal: pick the frame that is *worth a VLM call*. Three
+component scores, weighted-summed to a single number per image:
+
+1. **Sharpness (Laplacian variance).** A blurry chick is a wasted
+   VLM call. `cv2.Laplacian(gray, cv2.CV_64F).var()` — already in
+   `requirements.txt` (opencv-python). Higher = sharper.
+2. **Activity (frame-to-frame difference).** A static "all chicks
+   asleep" frame is less interesting than a "something is moving"
+   frame. Sum of absolute pixel difference between consecutive
+   frames in the burst, normalized by image size. Higher = more
+   activity.
+3. **Foreground occupancy (non-empty / non-uniform).** A nearly-
+   uniform frame (chick out of view, or all huddled in a corner the
+   camera doesn't see) is uninteresting. Standard deviation of
+   pixel intensities, or count of pixels within a "chick-like"
+   color range. Higher = more visual content.
+
+Default weights: sharpness 0.5 + activity 0.3 + occupancy 0.2.
+Tunable via config. The scorer is its own small module
+(`tools/image_scorer.py`) so the weights and metrics can evolve
+without touching the narrator orchestration code.
+
+The scorer outputs to the JSONL log alongside the chosen image so we
+can audit "did the scorer pick well?" by sampling. If the scorer
+turns out to consistently pick boring frames, we can iterate on
+the weights or add new metrics (e.g., a tiny YOLO-derived "number of
+chicks visible" signal — Guardian already runs YOLO on this camera
+when `detection_enabled: true`, currently false; we could enable it
+and re-use the detection output).
 
 **LM Studio coordination — explicit:**
 - The narrator targets `zai-org/glm-4.6v-flash` specifically (vision-
@@ -131,16 +182,27 @@ A small JSON file at `tools/brooder_narrator.config.json`:
   "lm_studio_base": "http://localhost:1234",
   "camera_id": "usb-cam",
   "model_id": "zai-org/glm-4.6v-flash",
-  "interval_seconds": 300,
+  "cycle_interval_seconds": 300,
+  "burst_size": 12,
+  "burst_inter_frame_seconds": 5,
+  "score_weights": {
+    "sharpness": 0.5,
+    "activity": 0.3,
+    "occupancy": 0.2
+  },
   "max_tokens": 200,
+  "lm_studio_load_context_length": 8192,
   "log_dir": "data/narrator",
-  "debug_keep_last_n_images": 0,
+  "debug_keep_last_n_chosen": 0,
+  "debug_keep_last_n_rejected": 0,
   "prompt_file": "tools/brooder_narrator.prompt.md"
 }
 ```
 
-`debug_keep_last_n_images = 0` is the default — no images persisted.
-Set to e.g. 20 during development to spot-check a rolling window.
+`debug_keep_last_n_chosen = 0` is the default — no images persisted.
+Set to e.g. 20 during development to spot-check what the scorer
+picks. `debug_keep_last_n_rejected` lets us inspect the highest-
+scored runner-ups too, which is the right way to evaluate the scorer.
 
 ## JSONL record schema
 
@@ -150,8 +212,19 @@ Set to e.g. 20 during development to spot-check a rolling window.
   "camera_id": "usb-cam",
   "model_id": "zai-org/glm-4.6v-flash",
   "prompt_hash": "sha256:abc123...",
-  "image_bytes": 487213,
-  "image_sha256": "f00ba9...",
+  "burst": {
+    "size": 12,
+    "scores": [
+      {"i": 0, "sharpness": 132.4, "activity": 0.018, "occupancy": 41.2, "total": 70.0},
+      {"i": 1, "sharpness": 145.8, "activity": 0.041, "occupancy": 43.9, "total": 81.6}
+    ],
+    "chosen_index": 1
+  },
+  "chosen_image": {
+    "bytes": 487213,
+    "sha256": "f00ba9...",
+    "score_total": 81.6
+  },
   "inference_ms": 12450,
   "response": "Most of the chicks are clustered under the heat lamp...",
   "skipped": null
@@ -160,39 +233,64 @@ Set to e.g. 20 during development to spot-check a rolling window.
 
 `skipped` is a non-null reason string when the cycle was skipped
 (e.g. `"different_model_loaded"`, `"snapshot_404"`,
-`"lm_studio_unreachable"`).
+`"lm_studio_unreachable"`, `"all_burst_frames_below_score_floor"`).
 
 ## TODOs (ordered)
 
-1. **Approve this plan** (Boss).
+1. **Approve this revised plan** (Boss).
 2. Create `tools/` directory if it doesn't exist; add
-   `tools/brooder_narrator.py`, `tools/brooder_narrator.config.json`,
+   `tools/brooder_narrator.py`, `tools/image_scorer.py`,
+   `tools/brooder_narrator.config.json`,
    `tools/brooder_narrator.prompt.md`.
-3. Implement the script (~150-200 lines):
+3. Implement `tools/image_scorer.py` first (~80 lines, isolated):
+   - Decode JPEG to numpy array (cv2.imdecode)
+   - Sharpness via Laplacian variance
+   - Activity via inter-frame absdiff (needs prev-frame state)
+   - Occupancy via std-dev of intensities
+   - Weighted total
+   - Pure functions, easy to unit-test by hand
+4. Implement `tools/brooder_narrator.py` (~200 lines):
    - Config loading
-   - Snapshot fetch with timeout + retry-with-backoff
+   - Burst fetch loop: K calls to Guardian's snapshot endpoint at
+     `burst_inter_frame_seconds` spacing, with timeout + per-call
+     backoff
+   - Score the burst with `image_scorer`
+   - Pick the top scorer (or skip cycle if all below floor)
    - LM Studio model-loaded check (read-only, no auto-load if wrong
      model present)
-   - Optional model load with context_length cap
+   - Optional model load with context_length cap (per
+     `docs/13-Apr-2026-lm-studio-reference.md` safe pattern)
    - Image base64 encode + chat completion request (OpenAI
      compatible image content type)
-   - JSONL append with daily-rotated filename
-   - Debug-mode rolling image directory (only if N > 0)
+   - JSONL append with daily-rotated filename, including all burst
+     scores
+   - Debug-mode rolling image directories (only if either N > 0)
    - SIGINT handler for clean shutdown
    - Verbose stdout logging for the operator
-4. Add a launchd plist for boot-time start (OPTIONAL — Boss may want
+5. Add a launchd plist for boot-time start (OPTIONAL — Boss may want
    to run it manually first).
-5. Run for 1-3 days, sample the JSONL log, decide if v0.2 (multi-
-   camera, structured prompts, daily HTML summary) is warranted.
+6. Run for 1-3 days, audit the scorer (compare chosen-image scores
+   vs runner-ups in debug mode), tune weights if needed, then decide
+   if v0.2 (multi-camera, VLM-as-judge, daily HTML summary) is
+   warranted.
 
 **Verification steps:**
 - `curl -s http://localhost:6530/api/v1/cameras/usb-cam/snapshot
   --output /tmp/test.jpg && file /tmp/test.jpg` — confirm Guardian
   serves a JPEG
-- Manually load glm-4.6v-flash in LM Studio
-- Run `python3 tools/brooder_narrator.py --once` (one cycle, exit)
-- Inspect the JSONL line + the response
-- If response looks reasonable, run `--daemon` on the 5-min cadence
+- Run `python3 tools/image_scorer.py /tmp/burst/*.jpg` (a small CLI
+  on the scorer module) — confirm scores look reasonable on a hand-
+  picked set of "good" and "bad" frames
+- Manually load `glm-4.6v-flash` in LM Studio (or let the narrator
+  do it on first cycle — model not loaded → safe load attempt)
+- Run `python3 tools/brooder_narrator.py --once` (one burst, score,
+  one VLM call, exit)
+- Inspect the JSONL line: did the scorer pick the right frame? Did
+  the VLM say something coherent?
+- Enable `debug_keep_last_n_rejected` and re-run a few cycles to
+  visually compare chosen vs rejected
+- If the scorer looks reasonable, run `--daemon` on the configured
+  cadence
 
 ## Docs / Changelog touchpoints
 
@@ -207,7 +305,15 @@ Set to e.g. 20 during development to spot-check a rolling window.
 
 ## Risks & open questions
 
-1. **VLM quality on a 4-bit quant.** GLM 4.6v at 4-bit may hallucinate
+1. **The scorer might consistently pick the wrong frame.** The
+   sharpness/activity/occupancy heuristic is a reasonable starting
+   point but it's a guess. Mitigation: log all burst scores +
+   indices in JSONL, and run debug mode to keep rejected runner-ups
+   for a few days. If the chosen frames are visibly worse than the
+   runner-ups, reweight or add metrics. The whole point of this
+   architecture is that the scorer is replaceable without touching
+   the orchestration.
+2. **VLM quality on a 4-bit quant.** GLM 4.6v at 4-bit may hallucinate
    chick counts or invent details. The two-three sentence cap limits
    damage. We can switch to a sharper model if Boss adds one to LM
    Studio later.
