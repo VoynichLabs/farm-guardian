@@ -49,7 +49,7 @@ class CameraInfo:
     supports_motion_events: bool = False
     last_seen: float = field(default_factory=time.time)
     online: bool = False
-    source: str = "onvif"  # "onvif", "rtsp_override", or "usb"
+    source: str = "onvif"  # "onvif", "rtsp_override", "usb", or "http_url"
     device_index: Optional[int] = None  # AVFoundation device index for USB cameras
 
 

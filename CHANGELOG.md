@@ -25,7 +25,17 @@ Boss directive (paraphrased 13-Apr-2026): *"the S7 keeps running out of power �
 
 **Files changed:** `capture.py`, `guardian.py`, `discovery.py`, `docs/13-Apr-2026-s7-battery-http-snapshot-plan.md` (new), `docs/13-Apr-2026-s7-phone-setup.md` (new).
 
-**Verification:** both `from capture import HttpUrlSnapshotSource, ...` and `from discovery import CameraDiscovery` import clean. End-to-end live-phone smoke test is blocked until the S7 is powered back up; the procedure is codified in the phone setup doc.
+**Verification (actual end-to-end smoke, not just import checks):** built a throwaway `http.server` in-process exposing `/photo.jpg`, `/focus`, `/html-error.jpg`, and a basic-auth-protected `/protected/photo.jpg`. Exercised `HttpUrlSnapshotSource` against it and asserted all seven shapes pass: basic fetch returns JPEG bytes, AF-trigger path hits `/focus` then `/photo.jpg`, HTML-error 200 is rejected (SOI mismatch), 404 returns `None`, connection-refused returns `None`, basic auth succeeds with creds and fails cleanly without, and `CameraSnapshotPoller` delivers a decoded `FrameResult` to `on_frame` with `jpeg_bytes` preserved intact. Phone-side smoke test against the live S7 is blocked until the phone is powered back up but has a dedicated helper now: `tools/s7_http_smoke.py`.
+
+### Added — `tools/s7_http_smoke.py` — phone-side verification helper (Claude Opus 4.6)
+
+Standalone diagnostic to run BEFORE flipping `config.json`. Probes the phone's `/photo.jpg` endpoint through `HttpUrlSnapshotSource` itself (no duplicated logic — exercises the same class Guardian will use at runtime), saves the JPEG to `/tmp/s7-smoke.jpg` for eyeball inspection, exercises the `/focus` round-trip, runs N consecutive pulls to catch preview-flapping, and produces `[FAIL]` messages with concrete diagnoses instead of the generic `snapshot returned None` warning that would otherwise show up at Guardian startup. Usage: `venv/bin/python tools/s7_http_smoke.py` (all args optional, defaults match the live S7's network identity). Verified against the currently-offline phone: fails cleanly with the correct connection-refused message and an actionable remediation list.
+
+### Refined
+
+- `HttpUrlSnapshotSource.label` no longer double-prefixes `http:` when the URL already carries its own scheme. Default label is now the `photo_url` itself (e.g. `http://192.168.0.249:8080/photo.jpg`) rather than `http:http://...`. Caught while reading the smoke-test output, fixed, re-verified.
+- `discovery.py::CameraInfo.source` docstring updated to document `"http_url"` alongside the existing `"onvif"`, `"rtsp_override"`, `"usb"` values.
+- `config.example.json` — the `s7-cam` block now shows the `http_url` snapshot shape as the recommended default (port 8080, `source: "snapshot"`, `snapshot_method: "http_url"`, `http_base_url`, `http_photo_path`, `http_trigger_focus`, `http_focus_wait`, `http_timeout`, `snapshot_interval`) with an inline `_comment` pointing at the phone setup doc. Legacy `rtsp_url_override` path noted there as the rollback option. JSON re-validated after the edit.
 
 ## [2.24.1] - 2026-04-13
 

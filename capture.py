@@ -571,7 +571,8 @@ class HttpUrlSnapshotSource:
         self._focus_wait = max(0.0, float(focus_wait))
         self._timeout = float(timeout)
         self._auth = auth
-        self._label = label or f"http:{self._photo_url}"
+        # The URL already carries its own scheme; don't prefix "http:" again.
+        self._label = label or self._photo_url
 
     @property
     def label(self) -> str:
