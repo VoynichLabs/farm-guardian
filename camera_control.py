@@ -592,6 +592,26 @@ class CameraController:
             return None
 
     # ------------------------------------------------------------------
+    # Motion state (v2.20.0 — used by MotionWatcher in guardian.py to
+    # trigger snapshot bursts on Phase C2 cameras)
+    # ------------------------------------------------------------------
+
+    def get_motion_state(self, camera_id: str) -> Optional[bool]:
+        """Query the camera for its current motion-detection state. Returns
+        True if motion is currently detected, False if not, None on error
+        (e.g. camera unreachable or the API call raises).
+        """
+        host = self._get_host(camera_id)
+        if not host:
+            return None
+        ch = self._get_channel(camera_id)
+        try:
+            return self._run_async(host.get_motion_state(ch))
+        except Exception as exc:
+            log.debug("Motion-state poll failed for '%s': %s", camera_id, exc)
+            return None
+
+    # ------------------------------------------------------------------
     # Cleanup
     # ------------------------------------------------------------------
 

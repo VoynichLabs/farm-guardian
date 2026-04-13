@@ -2,6 +2,33 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.20.0] - 2026-04-13
+
+### Added — Phase C2: motion-event-triggered snapshot bursts (Claude Opus 4.6)
+
+Snapshot polling at 5s (day) / 2s (night) trades off a small responsiveness gap — something brief between ticks isn't seen. Close that gap for snapshot-mode cameras whose firmware exposes motion detection: poll the motion state and, on a False→True transition, temporarily raise the polling rate (~1 Hz) for a fixed duration so YOLO has more chances to see whatever moved.
+
+**What changed:**
+
+- **`capture.py:CameraSnapshotPoller`** — New `request_burst(duration_s=30.0, interval_s=1.0)` method. Coalesces overlapping calls: later bursts *extend* the deadline (and lower the interval if smaller) instead of stacking. The burst interval is floored at `_MIN_SNAPSHOT_INTERVAL` (1.0s) so no caller can set a pace faster than fetches can complete. `_effective_interval()` now has a three-tier precedence: active burst > night window > normal. When the burst deadline passes, `_burst_interval` is cleared so a fresh call starts clean. Header bumped to v2.20.0.
+- **`capture.py:FrameCaptureManager`** — New `get_poller(name)` accessor. External callers (the motion watcher) reach `request_burst` through this.
+- **`camera_control.py`** — New `get_motion_state(camera_id) -> Optional[bool]`. Wraps `reolink_aio.host.get_motion_state(channel)` through the existing async-loop bridge. Returns None on transient failure (camera blip, unreachable) so callers can skip the cycle rather than exception.
+- **`guardian.py`** — New `_motion_watch_loop()` running on its own daemon thread (name=`motion-watch`). At startup it reads the camera config for snapshot-mode Reolink cameras with `motion_burst_enabled: true`. Polls each camera's motion state every 2s (configurable via `motion_poll_interval_s` at the top level of the config). On False→True, calls `poller.request_burst(duration_s, interval_s)`. Transient poll failures log at DEBUG (not WARNING) to avoid noise when the camera hiccups. Header bumped.
+- **`config.json`** + **`config.example.json`** — `house-yard` gains `motion_burst_enabled: true`, `motion_burst_duration_s: 30`, `motion_burst_interval_s: 1.0`.
+
+**Design note: polling vs ONVIF subscribe.** The original plan (`docs/13-Apr-2026-phase-c-usb-highres-and-motion-bursts-plan.md`) considered both. Polling wins for this deployment because:
+  1. ONVIF event subscriptions need a NAT-reachable webhook endpoint on the Mac Mini that the camera can POST to. That's an extra service + firewall consideration.
+  2. ONVIF subscription leases expire and need active renewal.
+  3. `reolink_aio.host.get_motion_state(channel)` is a direct, well-tested call.
+  4. A 2s poll is ~30 HTTP round-trips per minute per camera — negligible load.
+
+**Validation:**
+
+- Log at startup: `Motion watcher started for cameras: house-yard`.
+- Unit-test of the burst logic (in isolation): normal interval = 5s, during a burst = 1s, post-expiry cleanly returns to 5s, sub-`_MIN_SNAPSHOT_INTERVAL` requests clamp to 1s.
+- No error or traceback in the log since restart.
+- **Live burst firing will only appear when something actually moves.** On a quiet yard it stays silent. To see it fire: walk past the house-yard camera and watch for `burst snapshot mode for 30s at 1.00s interval` in the log.
+
 ## [2.19.0] - 2026-04-13
 
 ### Changed — Phase C1: usb-cam switches to high-quality snapshot polling (Claude Opus 4.6)

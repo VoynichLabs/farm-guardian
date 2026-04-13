@@ -12,6 +12,9 @@
       "snapshot_method": "reolink",
       "snapshot_interval": 5.0,
       "night_snapshot_interval": 2.0,
+      "motion_burst_enabled": true,
+      "motion_burst_duration_s": 30,
+      "motion_burst_interval_s": 1.0,
       "detection_enabled": true
     },
     {

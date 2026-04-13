@@ -1,5 +1,5 @@
 # Author: Claude Opus 4.6
-# Date: 13-April-2026 (v2.19.0 — Phase C1: UsbSnapshotSource joins ReolinkSnapshotSource)
+# Date: 13-April-2026 (v2.20.0 — Phase C2: request_burst() on CameraSnapshotPoller)
 # PURPOSE: Frame acquisition for Farm Guardian. Two parallel acquisition modes share the
 #          same FrameResult/ring-buffer/dispatch surface so FrameCaptureManager can treat
 #          them interchangeably:
@@ -532,6 +532,14 @@ class CameraSnapshotPoller:
         self._lock = threading.Lock()
         self._consecutive_failures = 0
 
+        # Burst mode (v2.20.0 — Phase C2). When something interesting happens
+        # (Reolink reports motion), the guardian-side watcher calls
+        # request_burst() to raise the polling rate for a short window so
+        # YOLO has more chances to see whatever moved.
+        self._burst_lock = threading.Lock()
+        self._burst_deadline = 0.0           # monotonic timestamp
+        self._burst_interval: Optional[float] = None
+
     @property
     def camera_name(self) -> str:
         return self._camera_name
@@ -544,6 +552,24 @@ class CameraSnapshotPoller:
     def recent_frames(self) -> list[FrameResult]:
         with self._lock:
             return list(self._buffer)
+
+    def request_burst(self, duration_s: float = 30.0, interval_s: float = 1.0) -> None:
+        """Temporarily raise the polling rate. Coalesces: overlapping calls
+        extend the deadline (or lower the interval) rather than stack.
+        Safe to call from any thread.
+        """
+        # Never allow a burst interval below the source's safe floor.
+        interval_s = max(_MIN_SNAPSHOT_INTERVAL, interval_s)
+        with self._burst_lock:
+            new_deadline = time.monotonic() + duration_s
+            if new_deadline > self._burst_deadline:
+                self._burst_deadline = new_deadline
+            if self._burst_interval is None or interval_s < self._burst_interval:
+                self._burst_interval = interval_s
+            log.info(
+                "Camera '%s' — burst snapshot mode for %.0fs at %.2fs interval",
+                self._camera_name, duration_s, interval_s,
+            )
 
     def start(self) -> None:
         if self.is_running:
@@ -570,6 +596,15 @@ class CameraSnapshotPoller:
         log.info("Snapshot polling stopped for '%s'", self._camera_name)
 
     def _effective_interval(self) -> float:
+        # Precedence: active burst > night window > normal.
+        with self._burst_lock:
+            now = time.monotonic()
+            if now < self._burst_deadline and self._burst_interval is not None:
+                return self._burst_interval
+            # Burst expired — clear the cached interval so a fresh burst
+            # can set it cleanly.
+            if now >= self._burst_deadline and self._burst_interval is not None:
+                self._burst_interval = None
         if (self._night_snapshot_interval is not None
                 and self._is_night_window is not None
                 and self._is_night_window()):
@@ -731,6 +766,15 @@ class FrameCaptureManager:
         if cap and cap.recent_frames:
             return cap.recent_frames[-1]
         return None
+
+    def get_poller(self, camera_name: str):
+        """Return the underlying capture/poller object for a camera, or None.
+
+        External callers use this to reach CameraSnapshotPoller.request_burst
+        (v2.20.0). Returning `object` typing because the manager intentionally
+        dispatches to either CameraCapture or CameraSnapshotPoller — duck-typed.
+        """
+        return self._captures.get(camera_name)
 
     @property
     def active_cameras(self) -> list[str]:

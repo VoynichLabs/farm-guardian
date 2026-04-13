@@ -1,5 +1,5 @@
 # Author: Claude Opus 4.6 (updated), OpenAI Codex GPT-5.4 Mini (prior)
-# Date: 13-April-2026 (v2.19.0 — Phase C1: usb-cam switches to high-quality snapshot polling)
+# Date: 13-April-2026 (v2.20.0 — Phase C2: motion-watcher triggers snapshot bursts)
 # PURPOSE: Main service entry point for Farm Guardian v2. Orchestrates camera discovery,
 #          frame capture, YOLO animal detection, animal visit tracking (for alert dedup),
 #          automated deterrence (spotlight/siren/audio), PTZ patrol with pause-on-predator,
@@ -296,6 +296,16 @@ class GuardianService:
         )
         self._ebird_thread.start()
 
+        # Start motion watcher (v2.20.0 — Phase C2). Polls each snapshot-mode
+        # camera that has motion_burst_enabled and triggers request_burst()
+        # on a False→True transition.
+        self._motion_thread = threading.Thread(
+            target=self._motion_watch_loop,
+            args=(self._shutdown_event,),
+            name="motion-watch", daemon=True,
+        )
+        self._motion_thread.start()
+
         active = self._capture_manager.active_cameras
         log.info(
             "Guardian running — %d camera(s) active: %s",
@@ -424,6 +434,57 @@ class GuardianService:
             "Camera '%s' online but has no snapshot/USB/RTSP source — skipping", cam.name,
         )
         return False
+
+    def _motion_watch_loop(self, shutdown_event: threading.Event) -> None:
+        """Poll each snapshot-mode camera's motion state. On False→True
+        transitions, request a snapshot burst on its poller so we don't
+        miss anything brief between the normal 5s ticks.
+
+        Polling (vs ONVIF subscribe) was chosen because subscription-based
+        events require a NAT-reachable webhook endpoint + lease renewal,
+        and reolink_aio already exposes `get_motion_state(channel)` as a
+        simple async call. Poll cadence of 2s is cheap (one HTTP round-trip
+        per camera per poll) and well under the typical motion-event
+        duration.
+        """
+        # Discover which cameras opt into motion bursts. The config is authoritative.
+        watched: dict[str, dict] = {}
+        cams_cfg = self._config.get("cameras", [])
+        for cam_cfg in cams_cfg:
+            if (cam_cfg.get("source") == "snapshot"
+                    and cam_cfg.get("snapshot_method") == "reolink"
+                    and cam_cfg.get("motion_burst_enabled", True)):
+                name = cam_cfg.get("name")
+                if not name:
+                    continue
+                watched[name] = {
+                    "last_state": False,
+                    "duration_s": cam_cfg.get("motion_burst_duration_s", 30.0),
+                    "interval_s": cam_cfg.get("motion_burst_interval_s", 1.0),
+                }
+
+        if not watched:
+            log.info("Motion watcher has no cameras to poll — exiting")
+            return
+
+        log.info("Motion watcher started for cameras: %s", ", ".join(watched.keys()))
+        poll_interval = self._config.get("motion_poll_interval_s", 2.0)
+
+        while not shutdown_event.is_set():
+            for name, state in watched.items():
+                current = self._camera_ctrl.get_motion_state(name)
+                if current is None:
+                    continue  # transient read failure; try again next cycle
+                if current and not state["last_state"]:
+                    # False → True transition
+                    poller = self._capture_manager.get_poller(name)
+                    if poller is not None and hasattr(poller, "request_burst"):
+                        poller.request_burst(
+                            duration_s=state["duration_s"],
+                            interval_s=state["interval_s"],
+                        )
+                state["last_state"] = current
+            shutdown_event.wait(poll_interval)
 
     def _on_frame(self, frame_result: FrameResult) -> None:
         """
