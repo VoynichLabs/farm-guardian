@@ -2,6 +2,36 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.17.0] - 2026-04-13
+
+### Removed — GLM vision species refinement (Claude Opus 4.6)
+
+The vision refinement pipeline (`vision.py` → LM Studio → `zai-org/glm-4.6v-flash`) is gone. It had been disabled in `config.json` (`vision.enabled: false`) since at least the prior session, so this release just removes the dead code and config rather than changing runtime behaviour.
+
+**Why:** Boss directive — "It absolutely does not need to be doing that. The detection is only going to be running at night, and it's really going to be more about if it detects anything interesting at night. If it does, just show me the picture. I don't need it to run weird classification on it." The farm sees too few predator events for hawk-vs-chicken / bobcat-vs-house-cat species refinement to earn its complexity. YOLO's class label is already enough to gate "predator vs not", and the Discord alert posts the snapshot — that IS the picture Boss wants to see.
+
+**What changed:**
+
+- **`vision.py`** — **Deleted.** ~290 lines.
+- **`guardian.py`** — Removed the `VisionRefiner` import, the `_REFINED_PREDATORS` / `_REFINED_SAFE` mapping sets, the `self._vision = VisionRefiner(config)` init, and the entire refinement block inside `_on_frame()`. Detection flow is now: YOLO → tracker (for alert dedup) → log → alert. Header bumped.
+- **`config.json`** + **`config.example.json`** — Removed the `vision` config block (endpoint, model name, trigger classes, timeouts, etc.).
+- **`logger.py`** — Tightened docstrings that mentioned "vision-refined class". Header bumped.
+- **`CLAUDE.md`** — Project description, module list, and Phase 2 section updated to reflect that YOLO is now the sole classifier.
+
+### Changed — house-yard pulls ONVIF sub-stream instead of 4K main stream (Claude Opus 4.6)
+
+Live view is still choppy after v2.16.0's garbage-frame filter because the WiFi link is genuinely lossy and the filter is correctly dropping a lot of smear-frames. Switching the source from the 4K HEVC main stream to the ~640x360 H.264 sub-stream cuts bandwidth by ~10× and is dramatically more resilient to packet loss.
+
+**What changed:**
+
+- **`discovery.py`** — `_get_rtsp_url()` accepts a new `stream_preference` parameter ("main" or "sub"). Selects ONVIF profile index 0 or 1 accordingly. Falls back to profile 0 with a warning if "sub" is requested but the camera only exposes one profile. The selected profile + token are now logged. `_probe_camera()` reads the new `rtsp_stream` field from the camera config and passes it through. Header bumped.
+- **`config.json`** + **`config.example.json`** — Added `"rtsp_stream": "sub"` to the `house-yard` camera entry.
+- **`CLAUDE.md`** — Reolink description updated to note sub-stream usage and why.
+
+**Note for detection accuracy:** YOLO inference still runs on the captured frame, just at the sub-stream's native resolution rather than 4K downscaled to 1080p. For typical hawk/cat/dog detections at the camera's framing distance, 640px is acceptable — animals are still many tens of pixels in width. If detection accuracy regresses noticeably, switch back with `"rtsp_stream": "main"`.
+
+**Validation:** Restarted Guardian. Discovery log shows `"Selected ONVIF profile 1 (token=…) for stream='sub'"` for `house-yard`. Decode-garbage rejections should drop to near-zero on the sub-stream because H.264 at lower bitrate survives WiFi loss far better than 4K HEVC.
+
 ## [2.16.0] - 2026-04-13
 
 ### Fixed — Gray decode-garbage frames + choppy live view (Claude Opus 4.6)

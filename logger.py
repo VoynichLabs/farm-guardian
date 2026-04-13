@@ -1,10 +1,10 @@
 # Author: Claude Opus 4.6 (updated), Cascade (Claude Sonnet 4) (original)
-# Date: 03-April-2026
+# Date: 13-April-2026 (v2.17.0 — vision refinement removed)
 # PURPOSE: Structured event logging for Farm Guardian. Dual-write: persists detection events
 #          to both daily-rotated JSONL log files (v1 legacy) and SQLite database (v2) via
 #          the database.py module. Saves snapshot images to daily subdirectories under the
 #          configured events directory. Each event includes timestamp, camera name, detection
-#          class, confidence score, bounding box, snapshot path, and optional track/vision data.
+#          class, confidence score, bounding box, snapshot path, and optional track id.
 #          Backward-compatible: if no DB instance is provided, behaves exactly as v1.
 # SRP/DRY check: Pass — single responsibility is event persistence (log + snapshot + DB).
 
@@ -79,7 +79,7 @@ class EventLogger:
 
         Args:
             camera_name: which camera produced the detection
-            detection_class: YOLO or vision-refined class label
+            detection_class: YOLO class label
             confidence: model confidence 0-1
             bbox: (x1, y1, x2, y2) pixel coordinates
             frame: numpy array (BGR, from OpenCV) — snapshot is saved from this

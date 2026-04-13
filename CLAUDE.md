@@ -6,7 +6,7 @@ This file provides guidance to AI coding agents working in this repository.
 
 This project is part of a two-repo system:
 
-- **[farm-guardian](https://github.com/VoynichLabs/farm-guardian)** (this repo) — Python backend: camera discovery, YOLO detection, vision refinement, deterrence, tracking, alerts, REST API, local dashboard. Runs on the Mac Mini.
+- **[farm-guardian](https://github.com/VoynichLabs/farm-guardian)** (this repo) — Python backend: camera discovery, YOLO detection, deterrence, visit tracking, alerts, REST API, local dashboard. Runs on the Mac Mini.
 - **[farm-2026](https://github.com/VoynichLabs/farm-2026)** — Next.js public website at [farm.markbarney.net](https://farm.markbarney.net). Embeds live Guardian camera feeds and detection data via the Cloudflare tunnel at `guardian.markbarney.net`. Deployed on Railway.
 
 The website's Guardian components (`app/components/guardian/`) consume this repo's REST API. Changes to API response shapes in `api.py` or `dashboard.py` must be coordinated with the TypeScript types in `farm-2026/app/components/guardian/types.ts`.
@@ -83,7 +83,7 @@ These should be present in the CLAUDE.md file and the agents.md file.
 
 ## Project
 
-Farm Guardian — a Python service that watches Reolink security cameras via ONVIF/RTSP, detects predator animals using YOLOv8 + GLM vision model, automates camera deterrents (spotlight/siren/PTZ), tracks animal visits in SQLite, generates daily intelligence reports, and serves a local web dashboard with REST API. Runs on a Mac Mini M4 Pro (64GB) on the same local network as the cameras.
+Farm Guardian — a Python service that watches Reolink security cameras via ONVIF/RTSP, detects predator animals using YOLOv8, automates camera deterrents (spotlight/siren/PTZ), tracks animal visits in SQLite, generates daily intelligence reports, and serves a local web dashboard with REST API. Runs on a Mac Mini M4 Pro (64GB) on the same local network as the cameras.
 
 ## Commands
 
@@ -167,8 +167,8 @@ Read `docs/02-Apr-2026-v2-system-plan.md` for the full v2 architecture document 
 
 *Phase 2 — Intelligence foundation:*
 - `database.py` — SQLite abstraction layer (8 tables). WAL mode for concurrent reads. Daily backups.
-- `vision.py` — GLM vision model species refinement via LM Studio. Distinguishes hawk/chicken, bobcat/house-cat.
-- `tracker.py` — Groups individual detections into animal visit tracks. Duration, confidence, outcome tracking.
+- ~~`vision.py`~~ — **Removed in v2.17.0.** GLM species refinement was over-engineered for this farm. YOLO's class label is now what flows to alerts. Boss directive: "just show me the picture, no classification."
+- `tracker.py` — Groups individual detections into animal visit tracks. Used for alert dedup (one Discord post per visit, not one per frame).
 
 *Phase 3 — Deterrence:*
 - `camera_control.py` — Reolink camera hardware control via reolink_aio. PTZ move/stop, spotlight, siren, autofocus, guard control, snapshot, position readback. **Does NOT yet support preset save — needs `send_setting()` bypass (see Camera Control section above).**
@@ -186,7 +186,7 @@ Read `docs/02-Apr-2026-v2-system-plan.md` for the full v2 architecture document 
 
 - **Machine:** Mac Mini M4 Pro, 14-core, 64GB RAM, macOS 26.3
 - **Python:** 3.13 (Homebrew)
-- **Camera 1 (house-yard):** Reolink E1 Outdoor Pro — ONVIF, RTSP, 4K, PTZ, WiFi. IP `192.168.0.88`. Needs TCP RTSP transport (HEVC over WiFi/UDP drops packets).
+- **Camera 1 (house-yard):** Reolink E1 Outdoor Pro — ONVIF, RTSP, 4K, PTZ, WiFi. IP `192.168.0.88`. Pulls the ONVIF **sub-stream** (~640x360 H.264) via `rtsp_stream: "sub"` since the 4K HEVC main stream produces decode-garbage frames over the lossy WiFi link. TCP transport.
 - **Camera 2 (s7-cam):** Samsung Galaxy S7 phone running IP Webcam app (RTSP Camera Server). RTSP over WiFi (UDP). IP `192.168.0.249`, port 5554. Stream URL: `rtsp://192.168.0.249:5554/camera`. No auth required. Fixed camera, no PTZ. Uses `rtsp_url_override` — no ONVIF. Detection disabled.
 - **Camera 3 (usb-cam):** USB camera connected directly to the Mac Mini. AVFoundation device index 0. 1920x1080. No network dependency — captured locally via OpenCV. Detection disabled.
 - **Camera 4 (gwtc):** Gateway laptop built-in webcam. Streams via ffmpeg → MediaMTX at `rtsp://192.168.0.68:8554/nestbox`. 1280x720, 15fps, H.264, ~1 Mbps. Windows 11, services auto-start via Shawl. Uses `rtsp_url_override` in config. Detection disabled. Destined for the chicken coop.

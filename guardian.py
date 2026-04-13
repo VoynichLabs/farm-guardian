@@ -1,16 +1,17 @@
-# Author: OpenAI Codex GPT-5.4 Mini
-# Date: 12-April-2026
-# PURPOSE: Main service entry point for Farm Guardian v2 (Phases 1-4). Orchestrates camera
-#          discovery, frame capture, YOLO animal detection, GLM vision refinement, animal
-#          visit tracking, automated deterrence (spotlight/siren/audio), PTZ patrol with
-#          pause-on-predator, eBird raptor early warning, Discord alerting, event logging
-#          (DB + JSONL), daily intelligence reports, REST API for LLM tools, and the local
-#          web dashboard. Runs as a foreground process on the Mac Mini. Handles graceful
-#          shutdown via SIGINT/SIGTERM. Supports sky-watch mode: parks camera at a fixed
-#          preset on startup for optimal hawk detection coverage. Adds a configurable
-#          night-only detection gate so enabled cameras only run YOLO between 20:00 and
-#          09:00 America/New_York.
-# SRP/DRY check: Pass — reviewed the existing detection flow before adding the window gate.
+# Author: Claude Opus 4.6 (updated), OpenAI Codex GPT-5.4 Mini (prior)
+# Date: 13-April-2026 (v2.17.0 — vision refinement removed; YOLO is the sole classifier)
+# PURPOSE: Main service entry point for Farm Guardian v2. Orchestrates camera discovery,
+#          frame capture, YOLO animal detection, animal visit tracking (for alert dedup),
+#          automated deterrence (spotlight/siren/audio), PTZ patrol with pause-on-predator,
+#          eBird raptor early warning, Discord alerting, event logging (DB + JSONL), daily
+#          intelligence reports, REST API for LLM tools, and the local web dashboard. Runs
+#          as a foreground process on the Mac Mini. Handles graceful shutdown via
+#          SIGINT/SIGTERM. Supports sky-watch mode: parks camera at a fixed preset on
+#          startup for optimal hawk detection coverage. Detection is gated to a configurable
+#          night window (default 20:00–09:00 America/New_York). v2.17.0: removed the GLM
+#          vision species refinement entirely — YOLO's class label is what flows through to
+#          the alert. Boss directive: "just show me the picture, no classification."
+# SRP/DRY check: Pass — reviewed the detection flow when removing the vision refinement.
 
 import os
 # MUST be set before any cv2 import anywhere in the process — sets a 5-second
@@ -40,7 +41,6 @@ from detect import AnimalDetector, DetectionResult
 from alerts import AlertManager
 from logger import EventLogger
 from database import GuardianDB
-from vision import VisionRefiner
 from tracker import AnimalTracker
 from camera_control import CameraController
 from deterrent import DeterrentEngine
@@ -50,12 +50,6 @@ from reports import ReportGenerator
 from dashboard import start_dashboard
 
 log = logging.getLogger("guardian")
-
-# Vision-refined class → predator mapping. YOLO detects generic "bird"/"cat"/"dog",
-# but the vision model refines to specific species. These sets determine whether
-# the refined class is a threat or safe.
-_REFINED_PREDATORS = {"hawk", "bobcat", "coyote", "fox", "wild_cat", "other_canine", "other_bird"}
-_REFINED_SAFE = {"chicken", "small_bird", "small_dog", "house_cat"}
 
 # Default config file path
 _CONFIG_PATH = "config.json"
@@ -89,8 +83,9 @@ class GuardianService:
         self._alert_manager = AlertManager(config, camera_controller=self._camera_ctrl)
         self._event_logger = EventLogger(config, db=self._db)
 
-        # Phase 2: Vision + Tracking
-        self._vision = VisionRefiner(config)
+        # Phase 2: Tracking (vision refinement removed v2.17.0 — Boss decision: just
+        # YOLO detection at night; if it sees something interesting, send the picture.
+        # No species classification needed for this farm's volume.)
         self._tracker = AnimalTracker(config, db=self._db)
 
         # Phase 3: Deterrence (camera_ctrl already created above)
@@ -375,10 +370,9 @@ class GuardianService:
 
     def _on_frame(self, frame_result: FrameResult) -> None:
         """
-        Callback invoked by capture threads for each new frame. Runs detection,
-        optionally refines species via vision model, tracks animal visits,
-        logs events, and sends alerts if predators are found. This runs on the
-        capture thread — keep it fast.
+        Callback invoked by capture threads for each new frame. Runs YOLO detection,
+        tracks animal visits (for alert dedup), logs events, and sends alerts if
+        predators are found. This runs on the capture thread — keep it fast.
         """
         if self._detector is None:
             return  # Detector still loading — skip frame
@@ -400,38 +394,15 @@ class GuardianService:
                 return
 
             for det in result.detections:
-                # -- v2: Vision refinement for ambiguous classes --
-                model_name = "yolov8n"
-                if self._vision.should_refine(det.class_name):
-                    # Get existing track to check cache, or pass None for new
-                    existing_track = self._tracker.get_track_for_detection(
-                        result.camera_name, det.class_name
-                    )
-                    existing_track_id = existing_track.track_id if existing_track else None
-
-                    refined_class, refined_conf, model_name = self._vision.refine(
-                        class_name=det.class_name,
-                        frame=result.frame,
-                        bbox=det.bbox,
-                        track_id=existing_track_id,
-                    )
-                    # Update detection with refined class
-                    if refined_class != det.class_name:
-                        det.class_name = refined_class
-                        if refined_class in _REFINED_PREDATORS:
-                            det.is_predator = True
-                        elif refined_class in _REFINED_SAFE:
-                            det.is_predator = False
-                        # else: keep original YOLO predator status
-
-                # -- v2: Track this detection as part of an animal visit --
+                # Track this detection as part of an animal visit (used by alert
+                # dedup — one Discord post per visit, not one per frame).
                 track = self._tracker.process_detection(
                     camera_id=result.camera_name,
                     detection=det,
                 )
                 track_id = track.track_id if track else None
 
-                # -- Log to JSONL + DB --
+                # Log to JSONL + DB
                 event = self._event_logger.log_event(
                     camera_name=result.camera_name,
                     detection_class=det.class_name,
@@ -441,7 +412,7 @@ class GuardianService:
                     bbox_area_pct=det.bbox_area_pct,
                     is_predator=det.is_predator,
                     track_id=track_id,
-                    model_name=model_name,
+                    model_name="yolov8n",
                 )
                 self.recent_detections.append(event)
 

@@ -1,10 +1,14 @@
 # Author: Claude Opus 4.6
-# Date: 08-April-2026
+# Date: 13-April-2026 (v2.17.0 — per-camera rtsp_stream selector for main vs sub profile)
 # PURPOSE: Camera discovery for Farm Guardian. Connects to cameras defined in config.json,
 #          validates ONVIF connectivity, retrieves RTSP stream URIs, and subscribes to
 #          motion alarm events. Supports three source types: ONVIF (auto-discovered),
 #          manual RTSP override, and local USB cameras (AVFoundation device index).
 #          Periodic re-scanning handles cameras that reconnect after power loss.
+#          v2.17.0: ONVIF profile selection is now configurable per camera via
+#          `rtsp_stream` ("main" → profile 0, "sub" → profile 1). Lets us pull the
+#          lighter H.264 sub-stream off the Reolink to survive lossy WiFi instead
+#          of the 4K HEVC main stream that produces decode-garbage frames.
 # SRP/DRY check: Pass — single responsibility is camera discovery and stream URL resolution.
 
 import logging
@@ -188,8 +192,11 @@ class CameraDiscovery:
         cam = ONVIFCamera(ip, onvif_port, username, password, wsdl_dir=_WSDL_DIR)
         cam.update_xaddrs()
 
-        # Resolve RTSP stream URL from the first media profile
-        rtsp_url = self._get_rtsp_url(cam)
+        # Resolve RTSP stream URL from the requested ONVIF profile.
+        # rtsp_stream: "main" (profile 0, default) or "sub" (profile 1, lighter
+        # H.264 ~640x360 — far more resilient on lossy WiFi than 4K HEVC).
+        stream_pref = cam_cfg.get("rtsp_stream", "main")
+        rtsp_url = self._get_rtsp_url(cam, stream_preference=stream_pref)
 
         # Check for motion event support
         supports_motion = self._check_motion_events(cam)
@@ -210,8 +217,16 @@ class CameraDiscovery:
         )
         return info
 
-    def _get_rtsp_url(self, cam: ONVIFCamera) -> Optional[str]:
-        """Retrieve the RTSP stream URI from the camera's first media profile."""
+    def _get_rtsp_url(self, cam: ONVIFCamera, stream_preference: str = "main") -> Optional[str]:
+        """Retrieve the RTSP stream URI from the camera.
+
+        stream_preference:
+          - "main" → ONVIF profile index 0 (high-res; on Reolink E1 = 4K HEVC)
+          - "sub"  → ONVIF profile index 1 (low-res; on Reolink E1 ≈ 640x360 H.264)
+
+        If "sub" is requested but the camera only exposes one profile, falls back
+        to profile 0 with a warning.
+        """
         try:
             media_service = cam.create_media_service()
             profiles = media_service.GetProfiles()
@@ -219,8 +234,21 @@ class CameraDiscovery:
                 log.warning("No media profiles found on camera")
                 return None
 
-            # Use the first (usually main/high-res) profile
-            profile = profiles[0]
+            # Pick the requested profile. Default is the main (highest-res) stream.
+            profile_idx = 0
+            if stream_preference == "sub":
+                if len(profiles) >= 2:
+                    profile_idx = 1
+                else:
+                    log.warning(
+                        "Sub-stream requested but only %d profile(s) available — using main",
+                        len(profiles),
+                    )
+            profile = profiles[profile_idx]
+            log.info(
+                "Selected ONVIF profile %d (token=%s) for stream='%s'",
+                profile_idx, getattr(profile, "token", "?"), stream_preference,
+            )
             stream_setup = media_service.create_type("GetStreamUri")
             stream_setup.ProfileToken = profile.token
             stream_setup.StreamSetup = {
