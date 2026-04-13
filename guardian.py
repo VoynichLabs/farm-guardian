@@ -1,5 +1,5 @@
 # Author: Claude Opus 4.6 (updated), OpenAI Codex GPT-5.4 Mini (prior)
-# Date: 13-April-2026 (v2.17.0 — vision refinement removed; YOLO is the sole classifier)
+# Date: 13-April-2026 (v2.18.0 — Phase A: house-yard switches to HTTP snapshot polling)
 # PURPOSE: Main service entry point for Farm Guardian v2. Orchestrates camera discovery,
 #          frame capture, YOLO animal detection, animal visit tracking (for alert dedup),
 #          automated deterrence (spotlight/siren/audio), PTZ patrol with pause-on-predator,
@@ -36,7 +36,7 @@ from typing import Optional
 from zoneinfo import ZoneInfo
 
 from discovery import CameraDiscovery
-from capture import FrameCaptureManager, FrameResult
+from capture import FrameCaptureManager, FrameResult, ReolinkSnapshotSource
 from detect import AnimalDetector, DetectionResult
 from alerts import AlertManager
 from logger import EventLogger
@@ -178,9 +178,23 @@ class GuardianService:
                 _RESCAN_INTERVAL,
             )
         else:
+            # Register PTZ cameras with the hardware controller FIRST so the
+            # snapshot poller (Phase A+) can call take_snapshot on the first tick
+            # without an authentication race. RTSP/USB cameras don't need this
+            # but it's harmless to do for everyone in this loop.
+            for cam in online_cameras:
+                cam_cfg = self._get_camera_config(cam.name)
+                if cam_cfg and cam_cfg.get("type") == "ptz":
+                    self._camera_ctrl.connect_camera(
+                        camera_id=cam.name,
+                        ip=cam_cfg.get("ip", ""),
+                        username=cam_cfg.get("username", "admin"),
+                        password=cam_cfg.get("password", ""),
+                        port=cam_cfg.get("port", 80),
+                    )
+
             # Register cameras in DB and start capturing
             for cam in online_cameras:
-                # Register in database for v2 tracking
                 cam_cfg = self._get_camera_config(cam.name)
                 self._db.get_or_create_camera(
                     camera_id=cam.name,
@@ -190,43 +204,7 @@ class GuardianService:
                     rtsp_url=cam.rtsp_url,
                     cam_type=cam_cfg.get("type", "ptz") if cam_cfg else "ptz",
                 )
-
-                # All cameras use OpenCV capture via FrameCaptureManager (v2.15.0).
-                # Detection cameras run at ~1fps (detection.frame_interval_seconds).
-                # Non-detection cameras run at snapshot_interval (default 10s) for
-                # lightweight polling — dashboard and website poll /api/cameras/{name}/frame.
-                detection_on = cam_cfg.get("detection_enabled", True) if cam_cfg else True
-                snapshot_interval = cam_cfg.get("snapshot_interval", 10.0) if cam_cfg else 10.0
-                transport = cam_cfg.get("rtsp_transport") if cam_cfg else None
-                # Non-detection cameras use a longer interval for snapshot polling
-                interval_override = None if detection_on else snapshot_interval
-
-                if cam.source == "usb" and cam.device_index is not None:
-                    self._capture_manager.add_camera(
-                        cam.name, device_index=cam.device_index,
-                        frame_interval=interval_override,
-                    )
-                elif cam.rtsp_url:
-                    self._capture_manager.add_camera(
-                        cam.name, cam.rtsp_url, rtsp_transport=transport,
-                        frame_interval=interval_override,
-                    )
-                else:
-                    log.warning(
-                        "Camera '%s' online but no RTSP URL or USB device — skipping", cam.name
-                    )
-
-        # Connect camera hardware control (Phase 3)
-        for cam in online_cameras:
-            cam_cfg = self._get_camera_config(cam.name)
-            if cam_cfg and cam_cfg.get("type") == "ptz":
-                self._camera_ctrl.connect_camera(
-                    camera_id=cam.name,
-                    ip=cam_cfg.get("ip", ""),
-                    username=cam_cfg.get("username", "admin"),
-                    password=cam_cfg.get("password", ""),
-                    port=cam_cfg.get("port", 80),
-                )
+                self._register_camera_capture(cam, cam_cfg)
 
         # Sky-watch mode: park camera at a fixed preset on startup.
         # Used instead of patrol — camera stays in one position optimized for
@@ -367,6 +345,74 @@ class GuardianService:
         sig_name = signal.Signals(signum).name
         log.info("Received %s — initiating graceful shutdown", sig_name)
         self._shutdown_event.set()
+
+    def _register_camera_capture(self, cam, cam_cfg: Optional[dict]) -> bool:
+        """Route a discovered camera to the right capture/poller mode and add it
+        to the capture manager. Returns True if a capture was started.
+
+        Acquisition modes (in priority order):
+          1. snapshot mode — `cam_cfg["source"] == "snapshot"`. Builds a
+             SnapshotSource based on `snapshot_method` and dispatches to
+             CameraSnapshotPoller. Currently only `snapshot_method: "reolink"`
+             is implemented (Phase A); Phase B adds "http_url", Phase C adds
+             "usb".
+          2. USB mode — discovery says `cam.source == "usb"`.
+          3. RTSP mode — `cam.rtsp_url` was discovered/overridden.
+
+        Centralized so the initial setup loop and the periodic re-scan loop
+        agree on the dispatch logic. Otherwise both sites tend to drift.
+        """
+        if cam_cfg is None:
+            cam_cfg = {}
+
+        source_kind = cam_cfg.get("source", "")
+        if source_kind == "snapshot":
+            method = cam_cfg.get("snapshot_method", "reolink")
+            if method == "reolink":
+                snap_src = ReolinkSnapshotSource(self._camera_ctrl, cam.name)
+            else:
+                log.error(
+                    "Camera '%s' has snapshot_method=%r — not implemented yet (Phase B/C); skipping",
+                    cam.name, method,
+                )
+                return False
+            self._capture_manager.add_camera(
+                cam.name,
+                snapshot_source=snap_src,
+                snapshot_interval=cam_cfg.get("snapshot_interval", 5.0),
+                night_snapshot_interval=cam_cfg.get("night_snapshot_interval"),
+                is_night_window=self._detection_window_open,
+            )
+            log.info(
+                "Camera '%s' registered in snapshot mode (method=%s)", cam.name, method,
+            )
+            return True
+
+        # Legacy RTSP / USB paths — unchanged from v2.17.0
+        detection_on = cam_cfg.get("detection_enabled", True)
+        snapshot_interval = cam_cfg.get("snapshot_interval", 10.0)
+        transport = cam_cfg.get("rtsp_transport")
+        # Non-detection RTSP/USB cameras poll at snapshot_interval (default 10s);
+        # detection cameras use the global frame_interval_seconds.
+        interval_override = None if detection_on else snapshot_interval
+
+        if cam.source == "usb" and cam.device_index is not None:
+            self._capture_manager.add_camera(
+                cam.name, device_index=cam.device_index,
+                frame_interval=interval_override,
+            )
+            return True
+        if cam.rtsp_url:
+            self._capture_manager.add_camera(
+                cam.name, cam.rtsp_url, rtsp_transport=transport,
+                frame_interval=interval_override,
+            )
+            return True
+
+        log.warning(
+            "Camera '%s' online but has no snapshot/USB/RTSP source — skipping", cam.name,
+        )
+        return False
 
     def _on_frame(self, frame_result: FrameResult) -> None:
         """
@@ -530,25 +576,9 @@ class GuardianService:
                 for cam in online:
                     if cam.name not in active:
                         cam_cfg = self._get_camera_config(cam.name)
-                        detection_on = cam_cfg.get("detection_enabled", True) if cam_cfg else True
-                        transport = cam_cfg.get("rtsp_transport") if cam_cfg else None
-                        snapshot_interval = cam_cfg.get("snapshot_interval", 10.0) if cam_cfg else 10.0
-                        interval_override = None if detection_on else snapshot_interval
 
-                        if cam.source == "usb" and cam.device_index is not None:
-                            log.info("New/reconnected USB camera '%s' — starting capture", cam.name)
-                            self._capture_manager.add_camera(
-                                cam.name, device_index=cam.device_index,
-                                frame_interval=interval_override,
-                            )
-                        elif cam.rtsp_url:
-                            log.info("New/reconnected camera '%s' — starting capture", cam.name)
-                            self._capture_manager.add_camera(
-                                cam.name, cam.rtsp_url, rtsp_transport=transport,
-                                frame_interval=interval_override,
-                            )
-
-                        # Connect camera hardware control if PTZ
+                        # Connect PTZ hardware FIRST — snapshot mode needs the
+                        # authenticated controller before its first take_snapshot.
                         if cam_cfg and cam_cfg.get("type") == "ptz":
                             self._camera_ctrl.connect_camera(
                                 camera_id=cam.name,
@@ -557,6 +587,9 @@ class GuardianService:
                                 password=cam_cfg.get("password", ""),
                                 port=cam_cfg.get("port", 80),
                             )
+
+                        log.info("New/reconnected camera '%s' — starting capture", cam.name)
+                        self._register_camera_capture(cam, cam_cfg)
 
                 # Start patrol if a PTZ camera is online but patrol isn't running
                 patrol_alive = (

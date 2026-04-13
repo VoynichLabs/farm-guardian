@@ -1,17 +1,24 @@
 # Author: Claude Opus 4.6
-# Date: 13-April-2026 (v2.16.0 — decode-garbage rejection + buffer flush on disconnect)
-# PURPOSE: Frame capture for Farm Guardian. Connects to camera streams (RTSP or local USB)
-#          via OpenCV, grabs frames at a configurable interval, and downscales 4K frames to
-#          1080p before passing them to detection. Used for ALL cameras: detection cameras
-#          run at ~1fps for real-time inference, non-detection cameras run at longer intervals
-#          (e.g. 10s) for snapshot polling — replacing the old ffmpeg HLS pipeline.
-#          Maintains a small ring buffer of recent frames for event context. Handles stream
-#          disconnection with exponential backoff reconnection. Each camera gets its own
-#          capture thread. USB cameras are opened via AVFoundation device index (no RTSP/FFMPEG).
-#          v2.16.0: Rejects HEVC decode-garbage frames (the "gray washed-out frame of nothing"
-#          that FFMPEG returns when reference packets are lost on lossy WiFi). Flushes the ring
-#          buffer on disconnect so the dashboard never serves a stale post-disconnect frame.
-# SRP/DRY check: Pass — single responsibility is frame acquisition from camera streams.
+# Date: 13-April-2026 (v2.18.0 — Phase A: HTTP snapshot polling alongside RTSP capture)
+# PURPOSE: Frame acquisition for Farm Guardian. Two parallel acquisition modes share the
+#          same FrameResult/ring-buffer/dispatch surface so FrameCaptureManager can treat
+#          them interchangeably:
+#            (1) CameraCapture — RTSP or local USB via OpenCV. Used for cameras whose only
+#                interface is a live video stream. Includes decode-garbage rejection
+#                (v2.16.0) for HEVC streams that hand back uniform-gray smear frames when
+#                reference packets are lost on lossy WiFi, and ring-buffer flush on
+#                disconnect so a stale corrupt frame never persists across a reconnect.
+#            (2) CameraSnapshotPoller — periodic HTTP snapshot polling. Used for cameras
+#                that expose a high-quality JPEG-on-demand endpoint (Reolink cmd=Snap
+#                returns the camera's native 4K JPEG). Each tick: SnapshotSource.fetch()
+#                returns JPEG bytes, we decode + downscale for YOLO, push a FrameResult
+#                that also carries the original JPEG bytes for zero-loss display.
+#          The SnapshotSource Protocol decouples the poller from any one camera vendor;
+#          ReolinkSnapshotSource (this file) wraps CameraController for the Reolink path.
+#          Phase B will add HttpUrlSnapshotSource for the GWTC laptop's HTTP endpoint.
+#          Phase C will add UsbSnapshotSource for the Mac Mini's USB camera.
+# SRP/DRY check: Pass — each class has one responsibility (RTSP capture, snapshot polling,
+#          source adapter, manager dispatch). The downscale helper is shared.
 
 import logging
 import os
@@ -19,10 +26,13 @@ import threading
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Callable, Optional
+from typing import Callable, Optional, Protocol, TYPE_CHECKING
 
 import cv2
 import numpy as np
+
+if TYPE_CHECKING:
+    from camera_control import CameraController
 
 log = logging.getLogger("guardian.capture")
 
@@ -53,12 +63,31 @@ _env_lock = threading.Lock()
 
 @dataclass
 class FrameResult:
-    """A captured and pre-processed frame with metadata."""
+    """A captured and pre-processed frame with metadata.
+
+    `frame` is BGR numpy (potentially downscaled to _TARGET_WIDTH for YOLO).
+    `jpeg_bytes` is the camera's original JPEG when the source provided one
+    (snapshot mode); the dashboard prefers it for zero-loss display. RTSP
+    capture leaves it as None — the dashboard re-encodes from the numpy array
+    in that case.
+    """
     frame: np.ndarray
     camera_name: str
     timestamp: float
     original_width: int
     original_height: int
+    jpeg_bytes: Optional[bytes] = None
+
+
+def _downscale_to_target_width(raw_frame: np.ndarray) -> np.ndarray:
+    """Downscale to _TARGET_WIDTH preserving aspect ratio. Pass-through if already small."""
+    h, w = raw_frame.shape[:2]
+    if w <= _TARGET_WIDTH:
+        return raw_frame
+    scale = _TARGET_WIDTH / w
+    new_w = _TARGET_WIDTH
+    new_h = int(h * scale)
+    return cv2.resize(raw_frame, (new_w, new_h), interpolation=cv2.INTER_AREA)
 
 
 class CameraCapture:
@@ -317,17 +346,8 @@ class CameraCapture:
     def _process_frame(self, raw_frame: np.ndarray) -> FrameResult:
         """Downscale 4K frame to 1080p width for efficient inference."""
         h, w = raw_frame.shape[:2]
-
-        if w > _TARGET_WIDTH:
-            scale = _TARGET_WIDTH / w
-            new_w = _TARGET_WIDTH
-            new_h = int(h * scale)
-            frame = cv2.resize(raw_frame, (new_w, new_h), interpolation=cv2.INTER_AREA)
-        else:
-            frame = raw_frame
-
         return FrameResult(
-            frame=frame,
+            frame=_downscale_to_target_width(raw_frame),
             camera_name=self._camera_name,
             timestamp=time.time(),
             original_width=w,
@@ -335,14 +355,227 @@ class CameraCapture:
         )
 
 
+# ---------------------------------------------------------------------------
+# Snapshot polling — Phase A (v2.18.0)
+#
+# An alternative acquisition mode for cameras that expose a high-quality JPEG
+# endpoint. Pulls a still on a configurable interval instead of holding open a
+# continuous video stream. No reconnect logic needed (each fetch is a single
+# request), no decode-garbage failure mode (the JPEG is camera-encoded).
+# ---------------------------------------------------------------------------
+
+# Minimum allowed snapshot interval. Going below ~1s risks fetches overlapping
+# the previous one (a 4K Reolink snap takes ~1.1s through reolink_aio).
+_MIN_SNAPSHOT_INTERVAL = 1.0
+
+
+class SnapshotSource(Protocol):
+    """A source that returns JPEG bytes on demand. Plug-in for CameraSnapshotPoller.
+
+    Implementations must be safe to call from a worker thread. They should
+    return None (not raise) on transient failure — the poller will log and
+    retry on the next interval.
+    """
+
+    @property
+    def label(self) -> str: ...
+
+    def fetch(self) -> Optional[bytes]: ...
+
+
+class ReolinkSnapshotSource:
+    """SnapshotSource backed by the existing CameraController.take_snapshot path,
+    which uses reolink_aio's host.get_snapshot(channel) under the hood. That maps
+    to Reolink's HTTP `cmd=Snap` endpoint and returns the camera's native 4K JPEG.
+    """
+
+    def __init__(self, controller: "CameraController", camera_id: str):
+        self._controller = controller
+        self._camera_id = camera_id
+
+    @property
+    def label(self) -> str:
+        return f"reolink:{self._camera_id}"
+
+    def fetch(self) -> Optional[bytes]:
+        return self._controller.take_snapshot(self._camera_id)
+
+
+class CameraSnapshotPoller:
+    """Periodic snapshot poller. Mirrors CameraCapture's public surface
+    (start/stop/recent_frames/is_running/camera_name) so FrameCaptureManager
+    can dispatch to either class without caring which.
+
+    Cadence:
+      - Default `snapshot_interval` between fetches (e.g. 5.0s for dashboard).
+      - If `night_snapshot_interval` and `is_night_window()` are both provided
+        and the callable returns True, the interval drops to that value (e.g.
+        2.0s during the night detection window so YOLO has more chances per
+        minute to see a slow-moving nocturnal predator).
+    """
+
+    def __init__(
+        self,
+        camera_name: str,
+        source: SnapshotSource,
+        snapshot_interval: float = 5.0,
+        night_snapshot_interval: Optional[float] = None,
+        is_night_window: Optional[Callable[[], bool]] = None,
+        on_frame: Optional[Callable[[FrameResult], None]] = None,
+        buffer_size: int = 10,
+    ):
+        self._camera_name = camera_name
+        self._source = source
+        self._snapshot_interval = max(_MIN_SNAPSHOT_INTERVAL, snapshot_interval)
+        if snapshot_interval < _MIN_SNAPSHOT_INTERVAL:
+            log.warning(
+                "Camera '%s' snapshot_interval=%.2fs clamped to %.2fs to avoid overlapping fetches",
+                camera_name, snapshot_interval, _MIN_SNAPSHOT_INTERVAL,
+            )
+        if night_snapshot_interval is not None:
+            self._night_snapshot_interval = max(_MIN_SNAPSHOT_INTERVAL, night_snapshot_interval)
+            if night_snapshot_interval < _MIN_SNAPSHOT_INTERVAL:
+                log.warning(
+                    "Camera '%s' night_snapshot_interval=%.2fs clamped to %.2fs",
+                    camera_name, night_snapshot_interval, _MIN_SNAPSHOT_INTERVAL,
+                )
+        else:
+            self._night_snapshot_interval = None
+        self._is_night_window = is_night_window
+        self._on_frame = on_frame
+
+        self._buffer: deque[FrameResult] = deque(maxlen=buffer_size)
+        self._thread: Optional[threading.Thread] = None
+        self._stop_event = threading.Event()
+        self._lock = threading.Lock()
+        self._consecutive_failures = 0
+
+    @property
+    def camera_name(self) -> str:
+        return self._camera_name
+
+    @property
+    def is_running(self) -> bool:
+        return self._thread is not None and self._thread.is_alive()
+
+    @property
+    def recent_frames(self) -> list[FrameResult]:
+        with self._lock:
+            return list(self._buffer)
+
+    def start(self) -> None:
+        if self.is_running:
+            log.warning("Snapshot poller already running for '%s'", self._camera_name)
+            return
+        self._stop_event.clear()
+        self._thread = threading.Thread(
+            target=self._poll_loop,
+            name=f"snapshot-{self._camera_name}",
+            daemon=True,
+        )
+        self._thread.start()
+        log.info(
+            "Snapshot polling started for '%s' — source=%s, interval=%.1fs%s",
+            self._camera_name, self._source.label, self._snapshot_interval,
+            f" (night={self._night_snapshot_interval:.1f}s)" if self._night_snapshot_interval else "",
+        )
+
+    def stop(self) -> None:
+        if not self.is_running:
+            return
+        self._stop_event.set()
+        self._thread.join(timeout=10)
+        log.info("Snapshot polling stopped for '%s'", self._camera_name)
+
+    def _effective_interval(self) -> float:
+        if (self._night_snapshot_interval is not None
+                and self._is_night_window is not None
+                and self._is_night_window()):
+            return self._night_snapshot_interval
+        return self._snapshot_interval
+
+    def _poll_loop(self) -> None:
+        while not self._stop_event.is_set():
+            interval = self._effective_interval()
+            t_start = time.monotonic()
+
+            jpeg = None
+            try:
+                jpeg = self._source.fetch()
+            except Exception as exc:
+                log.warning(
+                    "Snapshot fetch raised for '%s' (source=%s): %s",
+                    self._camera_name, self._source.label, exc,
+                )
+
+            if jpeg is None:
+                self._consecutive_failures += 1
+                # Log once on the first failure, then every 10 to avoid spam.
+                if self._consecutive_failures == 1 or self._consecutive_failures % 10 == 0:
+                    log.warning(
+                        "Camera '%s' — snapshot returned None (consecutive=%d), will retry in %.1fs",
+                        self._camera_name, self._consecutive_failures, interval,
+                    )
+                self._wait_remaining(t_start, interval)
+                continue
+
+            arr = np.frombuffer(jpeg, np.uint8)
+            raw = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+            if raw is None:
+                self._consecutive_failures += 1
+                log.warning(
+                    "Camera '%s' — JPEG decode failed (%d bytes) — skipping",
+                    self._camera_name, len(jpeg),
+                )
+                self._wait_remaining(t_start, interval)
+                continue
+
+            if self._consecutive_failures:
+                log.info(
+                    "Camera '%s' — snapshots resumed after %d failures",
+                    self._camera_name, self._consecutive_failures,
+                )
+                self._consecutive_failures = 0
+
+            h, w = raw.shape[:2]
+            result = FrameResult(
+                frame=_downscale_to_target_width(raw),
+                camera_name=self._camera_name,
+                timestamp=time.time(),
+                original_width=w,
+                original_height=h,
+                jpeg_bytes=jpeg,
+            )
+
+            with self._lock:
+                self._buffer.append(result)
+
+            if self._on_frame:
+                try:
+                    self._on_frame(result)
+                except Exception as exc:
+                    log.error("Frame callback error for '%s': %s", self._camera_name, exc)
+
+            self._wait_remaining(t_start, interval)
+
+    def _wait_remaining(self, t_start: float, interval: float) -> None:
+        """Sleep so the loop fires at `interval` seconds from t_start, accounting
+        for fetch latency. If the fetch took longer than the interval, fire again
+        immediately.
+        """
+        remaining = interval - (time.monotonic() - t_start)
+        if remaining > 0:
+            self._stop_event.wait(remaining)
+
+
 class FrameCaptureManager:
-    """Manages capture threads for multiple cameras."""
+    """Manages capture/poller threads for multiple cameras."""
 
     def __init__(self, config: dict, on_frame: Optional[Callable[[FrameResult], None]] = None):
         detection_cfg = config.get("detection", {})
         self._frame_interval = detection_cfg.get("frame_interval_seconds", 1.0)
         self._on_frame = on_frame
-        self._captures: dict[str, CameraCapture] = {}
+        self._captures: dict[str, object] = {}  # CameraCapture or CameraSnapshotPoller
 
     def add_camera(
         self,
@@ -351,28 +584,49 @@ class FrameCaptureManager:
         rtsp_transport: Optional[str] = None,
         device_index: Optional[int] = None,
         frame_interval: Optional[float] = None,
+        snapshot_source: Optional[SnapshotSource] = None,
+        snapshot_interval: Optional[float] = None,
+        night_snapshot_interval: Optional[float] = None,
+        is_night_window: Optional[Callable[[], bool]] = None,
     ) -> None:
-        """Register and start capturing from a camera (RTSP or USB).
+        """Register and start capturing from a camera.
+
+        Three acquisition modes (mutually exclusive — first one matched wins):
+          - snapshot_source set → CameraSnapshotPoller (Phase A+ snapshot mode)
+          - device_index set    → CameraCapture (USB via AVFoundation)
+          - rtsp_url set        → CameraCapture (RTSP)
 
         Args:
-            frame_interval: Override the global detection interval for this camera.
-                            Non-detection cameras use longer intervals (e.g. 10s) for
-                            snapshot polling instead of the default ~1fps detection rate.
+            frame_interval: Override the global detection interval for the
+                RTSP/USB path. Non-detection RTSP/USB cameras use longer
+                intervals (e.g. 10s) for snapshot polling.
+            snapshot_interval / night_snapshot_interval / is_night_window:
+                Forwarded to CameraSnapshotPoller when snapshot_source is set.
         """
         if camera_name in self._captures:
             log.warning("Camera '%s' already registered — skipping", camera_name)
             return
 
-        interval = frame_interval if frame_interval is not None else self._frame_interval
+        if snapshot_source is not None:
+            cap: object = CameraSnapshotPoller(
+                camera_name=camera_name,
+                source=snapshot_source,
+                snapshot_interval=snapshot_interval if snapshot_interval is not None else 5.0,
+                night_snapshot_interval=night_snapshot_interval,
+                is_night_window=is_night_window,
+                on_frame=self._on_frame,
+            )
+        else:
+            interval = frame_interval if frame_interval is not None else self._frame_interval
+            cap = CameraCapture(
+                camera_name=camera_name,
+                rtsp_url=rtsp_url,
+                frame_interval=interval,
+                on_frame=self._on_frame,
+                rtsp_transport=rtsp_transport,
+                device_index=device_index,
+            )
 
-        cap = CameraCapture(
-            camera_name=camera_name,
-            rtsp_url=rtsp_url,
-            frame_interval=interval,
-            on_frame=self._on_frame,
-            rtsp_transport=rtsp_transport,
-            device_index=device_index,
-        )
         self._captures[camera_name] = cap
         cap.start()
 

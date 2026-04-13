@@ -151,6 +151,9 @@ Read `docs/02-Apr-2026-v2-system-plan.md` for the full v2 architecture document 
 - `docs/08-Apr-2026-remote-camera-api-plan.md` — Remote camera control API design (v2.7.0)
 - `docs/08-Apr-2026-rtsp-substream-plan.md` — RTSP substream investigation
 - `docs/08-Apr-2026-gwtc-webcam-stream-plan.md` — GWTC webcam stream plan
+- `docs/13-Apr-2026-phase-a-reolink-snapshot-polling-plan.md` — **DONE in v2.18.0** — house-yard switched from RTSP to HTTP snapshot polling (4K JPEG)
+- `docs/13-Apr-2026-phase-b-gwtc-snapshot-endpoint-plan.md` — Phase B: stand up an HTTP snapshot service on the Gateway laptop, switch `gwtc` over
+- `docs/13-Apr-2026-phase-c-usb-highres-and-motion-bursts-plan.md` — Phase C: `usb-cam` to high-res snapshots + ONVIF motion-event-triggered snapshot bursts on house-yard
 
 **Entry point:** `guardian.py` — orchestrates all modules, runs as a foreground process.
 
@@ -158,7 +161,7 @@ Read `docs/02-Apr-2026-v2-system-plan.md` for the full v2 architecture document 
 
 *Phase 1 — Core pipeline:*
 - `discovery.py` — Scans local network for ONVIF cameras. Stores IPs and stream URLs.
-- `capture.py` — Connects to camera RTSP streams. Grabs frames at configurable intervals (~1fps).
+- `capture.py` — Frame acquisition. Two parallel modes: (1) `CameraCapture` for RTSP/USB OpenCV streams (gwtc, s7-cam, usb-cam); (2) `CameraSnapshotPoller` + `SnapshotSource` adapters for HTTP-snapshot cameras (house-yard via `ReolinkSnapshotSource` since v2.18.0). Both produce `FrameResult`; the snapshot path also carries the original camera-encoded JPEG for zero-loss display.
 - `detect.py` — Runs YOLOv8 inference on frames. Classifies objects. Returns detections with bounding boxes.
 - `alerts.py` — Posts Discord messages with snapshots when predator-class animals are detected. Rate-limits alerts.
 - `logger.py` — Writes events to SQLite database and legacy JSONL files. Saves snapshots.
@@ -186,7 +189,7 @@ Read `docs/02-Apr-2026-v2-system-plan.md` for the full v2 architecture document 
 
 - **Machine:** Mac Mini M4 Pro, 14-core, 64GB RAM, macOS 26.3
 - **Python:** 3.13 (Homebrew)
-- **Camera 1 (house-yard):** Reolink E1 Outdoor Pro — ONVIF, RTSP, 4K, PTZ, WiFi. IP `192.168.0.88`. Pulls the ONVIF **sub-stream** (~640x360 H.264) via `rtsp_stream: "sub"` since the 4K HEVC main stream produces decode-garbage frames over the lossy WiFi link. TCP transport.
+- **Camera 1 (house-yard):** Reolink E1 Outdoor Pro — ONVIF, RTSP, 4K, PTZ, WiFi. IP `192.168.0.88`. **Polls the camera's HTTP `cmd=Snap` endpoint for native 4K JPEGs** (`source: "snapshot"`, `snapshot_method: "reolink"`); we no longer use RTSP for this camera. Snapshot interval 5s for the dashboard, 2s during the night detection window so YOLO has more chances per minute. The RTSP path was abandoned because the lossy WiFi link mangled HEVC reference packets — see CHANGELOG v2.16.0/v2.17.0/v2.18.0 and `docs/13-Apr-2026-phase-a-reolink-snapshot-polling-plan.md`.
 - **Camera 2 (s7-cam):** Samsung Galaxy S7 phone running IP Webcam app (RTSP Camera Server). RTSP over WiFi (UDP). IP `192.168.0.249`, port 5554. Stream URL: `rtsp://192.168.0.249:5554/camera`. No auth required. Fixed camera, no PTZ. Uses `rtsp_url_override` — no ONVIF. Detection disabled.
 - **Camera 3 (usb-cam):** USB camera connected directly to the Mac Mini. AVFoundation device index 0. 1920x1080. No network dependency — captured locally via OpenCV. Detection disabled.
 - **Camera 4 (gwtc):** Gateway laptop built-in webcam. Streams via ffmpeg → MediaMTX at `rtsp://192.168.0.68:8554/nestbox`. 1280x720, 15fps, H.264, ~1 Mbps. Windows 11, services auto-start via Shawl. Uses `rtsp_url_override` in config. Detection disabled. Destined for the chicken coop.

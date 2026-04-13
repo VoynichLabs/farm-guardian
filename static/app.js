@@ -39,17 +39,34 @@ const api = {
 // ─────────────────────────────────────────
 // All cameras serve snapshots via /api/cameras/{name}/frame. The dashboard
 // refreshes <img> tags on a timer by appending a cache-busting query param.
-// This replaced the ffmpeg HLS pipeline (v2.15.0) — simpler, more reliable,
-// and tunnel-friendly.
+//
+// v2.18.0: house-yard now returns native 4K JPEGs (~1.4MB). Locally that's a
+// trivial 2ms transfer; via the Cloudflare tunnel the home upstream bandwidth
+// (~600 KB/s effective) makes 1.4MB an intermittent timeout risk. So:
+//   - Local clients (localhost / RFC1918 / .local) request full quality.
+//   - Tunnel clients request max_width=1920 so each image lands in <1s on
+//     a healthy tunnel pull.
+// The user can override either way by appending their own ?max_width=N.
+function _isLocalNetwork(hostname) {
+    return hostname === 'localhost'
+        || hostname === '127.0.0.1'
+        || hostname.endsWith('.local')
+        || /^10\./.test(hostname)
+        || /^192\.168\./.test(hostname)
+        || /^172\.(1[6-9]|2\d|3[01])\./.test(hostname);
+}
+const SNAPSHOT_MAX_WIDTH = _isLocalNetwork(window.location.hostname) ? null : 1920;
+
 let _snapshotTimer = null;
 
-function startSnapshotPolling(intervalMs = 10000) {
+function startSnapshotPolling(intervalMs = 5000) {
     stopSnapshotPolling();
     _snapshotTimer = setInterval(() => {
         const ts = Date.now();
         document.querySelectorAll('img[data-snapshot]').forEach(img => {
             const cam = img.dataset.snapshot;
-            img.src = `/api/cameras/${cam}/frame?t=${ts}`;
+            const widthParam = SNAPSHOT_MAX_WIDTH ? `max_width=${SNAPSHOT_MAX_WIDTH}&` : '';
+            img.src = `/api/cameras/${cam}/frame?${widthParam}t=${ts}`;
         });
     }, intervalMs);
 }

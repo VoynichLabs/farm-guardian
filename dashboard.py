@@ -1,5 +1,5 @@
 # Author: Claude Opus 4.6 (updated), Cascade (Claude Sonnet 4) (original)
-# Date: 13-April-2026 (v2.16.0 — MJPEG poll cadence dropped to 100ms for smooth live view)
+# Date: 13-April-2026 (v2.18.0 — frame/stream endpoints prefer original camera JPEG when present)
 # PURPOSE: Local web dashboard for Farm Guardian. Serves a FastAPI app on the Mac Mini
 #          that provides real-time monitoring and full control of the guardian service.
 #          Features: camera snapshot feeds (polled), detection timeline, alert history, PTZ
@@ -162,18 +162,25 @@ def create_app() -> FastAPI:
                 frame_result = _service._capture_manager.get_latest_frame(name)
                 if frame_result and frame_result.timestamp != last_ts:
                     last_ts = frame_result.timestamp
-                    _, jpeg = cv2.imencode(
-                        ".jpg", frame_result.frame, [cv2.IMWRITE_JPEG_QUALITY, 100]
-                    )
+                    # Snapshot-mode cameras carry their original camera-encoded
+                    # JPEG — yield it as-is for zero re-encode loss. RTSP cameras
+                    # have jpeg_bytes=None so we fall back to encoding the numpy
+                    # frame at quality 100.
+                    if frame_result.jpeg_bytes is not None:
+                        jpeg_bytes = frame_result.jpeg_bytes
+                    else:
+                        _, encoded = cv2.imencode(
+                            ".jpg", frame_result.frame, [cv2.IMWRITE_JPEG_QUALITY, 100]
+                        )
+                        jpeg_bytes = encoded.tobytes()
                     yield (
                         b"--frame\r\n"
                         b"Content-Type: image/jpeg\r\n\r\n"
-                        + jpeg.tobytes()
+                        + jpeg_bytes
                         + b"\r\n"
                     )
                 # Poll faster than the capture rate so each new frame is yielded
-                # promptly. Capture is ~4fps on the detection camera, so 100ms
-                # polling forwards every new frame within ~25% of its lifetime.
+                # promptly.
                 await asyncio.sleep(0.1)
 
         return StreamingResponse(
@@ -181,21 +188,49 @@ def create_app() -> FastAPI:
         )
 
     @app.get("/api/cameras/{name}/frame")
-    async def camera_frame(name: str):
-        """Single latest frame as JPEG from the capture manager."""
+    async def camera_frame(name: str, max_width: int = 0, q: int = 0):
+        """Single latest frame as JPEG from the capture manager.
+
+        Query params (both optional):
+          - max_width: clamp image width (preserving aspect). Triggers a re-encode.
+                       Use this for tunnel/remote clients — the Reolink's native 4K
+                       (~1.4MB) chokes the home upstream Cloudflare tunnel.
+          - q: JPEG quality 1..100 (default 85 when re-encoding). Ignored without
+               max_width unless the source was numpy.
+
+        With no params and a snapshot-mode camera, the camera's original JPEG is
+        returned as-is — zero re-encode, full native resolution.
+        """
         if not _service:
             raise HTTPException(503, "Service not running")
 
         frame_result = _service._capture_manager.get_latest_frame(name)
-        if frame_result:
-            _, jpeg = cv2.imencode(".jpg", frame_result.frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
-            return StreamingResponse(
-                iter([jpeg.tobytes()]),
-                media_type="image/jpeg",
-                headers={"Cache-Control": "no-cache, no-store"},
-            )
+        if not frame_result:
+            raise HTTPException(404, f"No frame available for '{name}'")
 
-        raise HTTPException(404, f"No frame available for '{name}'")
+        needs_resize = max_width > 0 and frame_result.original_width > max_width
+        quality = q if 1 <= q <= 100 else 85
+
+        if frame_result.jpeg_bytes is not None and not needs_resize and q == 0:
+            # Pass through the camera's original JPEG — the zero-loss fast path.
+            jpeg_bytes = frame_result.jpeg_bytes
+        else:
+            # Need to (re)encode. The numpy `frame` is already downscaled to
+            # _TARGET_WIDTH for YOLO; if the caller wants something smaller, do it.
+            src = frame_result.frame
+            if needs_resize and src.shape[1] > max_width:
+                scale = max_width / src.shape[1]
+                new_w = max_width
+                new_h = int(src.shape[0] * scale)
+                src = cv2.resize(src, (new_w, new_h), interpolation=cv2.INTER_AREA)
+            _, encoded = cv2.imencode(".jpg", src, [cv2.IMWRITE_JPEG_QUALITY, quality])
+            jpeg_bytes = encoded.tobytes()
+
+        return StreamingResponse(
+            iter([jpeg_bytes]),
+            media_type="image/jpeg",
+            headers={"Cache-Control": "no-cache, no-store"},
+        )
 
     @app.post("/api/cameras/rescan")
     async def rescan_cameras():

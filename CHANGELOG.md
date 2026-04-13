@@ -2,6 +2,48 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.18.0] - 2026-04-13
+
+### Changed — Phase A: house-yard switches from RTSP to HTTP snapshot polling (Claude Opus 4.6)
+
+Architectural pivot directed by Boss after seeing v2.16.0's decode-garbage filter and v2.17.0's sub-stream switch get the live view stable but at low resolution: **stop using the cameras as video streams, use them as cameras.** The Reolink E1 Outdoor Pro exposes an HTTP `cmd=Snap` endpoint that returns the camera's native 4K JPEG (3840×2160, ~1.35MB, ~630ms over the LAN). That's 36× more pixels than the sub-stream RTSP we were scraping, with zero decode-garbage failure mode (a single JPEG has no inter-frame references to lose). This is **Phase A** of a three-phase plan; Phase B (GWTC laptop snapshot service) and Phase C (USB cam high-res + ONVIF motion-event-triggered snapshot bursts) are designed and documented in `docs/`.
+
+**What changed:**
+
+- **`capture.py`** — Two new types. `SnapshotSource` is a Protocol for "anything that returns JPEG bytes on demand". `ReolinkSnapshotSource` wraps the existing `CameraController.take_snapshot()` (which calls `reolink_aio.host.get_snapshot(channel)` under the hood). `CameraSnapshotPoller` mirrors `CameraCapture`'s public surface (start/stop/recent_frames/is_running/camera_name) so `FrameCaptureManager` dispatches to either class without caring which. The poller has no reconnect logic, no exponential backoff, no decode-garbage filter — none of those failure modes apply to camera-encoded JPEGs over a single HTTP request. Cadence: `snapshot_interval` always-on (default 5s for the dashboard); optional `night_snapshot_interval` overrides when the night detection window is open (default 2s — slow nocturnal predators don't need 4fps polling).
+- **`capture.py:FrameResult`** — Added `jpeg_bytes: Optional[bytes] = None`. Snapshot-mode populates it with the camera's original JPEG; the dashboard serves it as-is for zero re-encode loss. RTSP cameras leave it None and the dashboard re-encodes from the numpy frame as before. Extracted `_downscale_to_target_width(raw)` to a module-level helper since both producers use it.
+- **`capture.py:FrameCaptureManager.add_camera()`** — New `snapshot_source` / `snapshot_interval` / `night_snapshot_interval` / `is_night_window` kwargs. If `snapshot_source` is set, builds a `CameraSnapshotPoller`; else the existing RTSP/USB `CameraCapture` path.
+- **`guardian.py`** — Extracted `_register_camera_capture(cam, cam_cfg)` helper so the initial setup loop and the periodic re-scan loop agree on the dispatch logic (they used to duplicate it and drift). Three modes in priority order: (1) `cam_cfg["source"] == "snapshot"` → `CameraSnapshotPoller` with the source built per `snapshot_method`, (2) USB device, (3) RTSP URL. Reordered initial setup so PTZ controllers connect *before* captures start — the snapshot poller needs the authenticated controller for its first `take_snapshot` call. Header bumped.
+- **`dashboard.py`** — `/api/cameras/{name}/frame` and `/api/cameras/{name}/stream` prefer `frame_result.jpeg_bytes` when present (zero-loss path). Added `?max_width=N&q=Q` query params to `/frame` for clients that want a smaller version (see "Tunnel honesty" below).
+- **`static/app.js`** — Snapshot polling cadence dropped from 10s to 5s (matches the new server-side interval). Added local-vs-tunnel hostname detection: local clients (localhost / 192.168.x / 10.x / .local) get the full 4K URL; tunnel clients (`guardian.markbarney.net`) get `?max_width=1920`. The user can always override by hitting the URL directly with their own params.
+- **`config.json`** + **`config.example.json`** — `house-yard` switched to snapshot mode: `source: "snapshot"`, `snapshot_method: "reolink"`, `snapshot_interval: 5.0`, `night_snapshot_interval: 2.0`. Removed the now-irrelevant `rtsp_transport` and `rtsp_stream` fields (the snapshot path doesn't touch RTSP). gwtc/s7-cam/usb-cam are unchanged — Phase B/C handle them.
+- **`CLAUDE.md`** — Reolink description rewritten. Module list note about the new `capture.py` shape. Added entries for the three new plan docs in `docs/`.
+- **`docs/13-Apr-2026-phase-a-reolink-snapshot-polling-plan.md`** — This work, fully documented (scope, architecture, TODOs, risks, validation steps).
+- **`docs/13-Apr-2026-phase-b-gwtc-snapshot-endpoint-plan.md`** — Standalone plan for a separate session: stand up a tiny HTTP snapshot service on the Gateway laptop and switch `gwtc` over.
+- **`docs/13-Apr-2026-phase-c-usb-highres-and-motion-bursts-plan.md`** — Standalone plan for a separate session: USB cam to high-res snapshots + ONVIF motion-event-triggered snapshot bursts on house-yard.
+
+**Validation (live):**
+
+- Snapshot polling started cleanly: log shows `Snapshot polling started for 'house-yard' — source=reolink:house-yard, interval=5.0s (night=2.0s)` and `Camera 'house-yard' registered in snapshot mode (method=reolink)`.
+- `curl -o /tmp/snap.jpg http://localhost:6530/api/cameras/house-yard/frame` returns a 1.35MB **3840×2160 JPEG in 2ms** (zero re-encode — the camera's original JPEG is yielded directly from the buffer).
+- Sequential 1.5s-apart fetches show new images every ~5s (md5 changes), buffer correctly serves the cached frame between snapshots.
+- **Zero** decode-garbage rejections, zero hung-reads, zero snapshot-fetch failures since restart. The lossy-WiFi failure mode is structurally gone for house-yard.
+- gwtc, usb-cam continue to work on RTSP/USB unchanged. s7-cam phone is still offline (phone-side, unrelated).
+
+**Tunnel honesty (what I tested, what's a real limit):**
+
+After the switch I tested whether the 4K JPEGs would survive the Cloudflare tunnel. The honest finding is they often won't — and the limit is upstream of anything the code can fix.
+
+- Mac Mini sustained upload bandwidth (measured to httpbin): **~600 KB/s.**
+- Camera-to-Mac-Mini transfer over local WiFi: trivial, ~270 KB/s sustained with plenty of headroom.
+- Cloudflare tunnel performance is **erratic**: a 786KB JPEG once completed in 1.85s (~425 KB/s, near upstream bandwidth), but other 285–393KB requests timed out at 24–30s with only partial bodies delivered. There's queueing / handling overhead in cloudflared or Cloudflare's free-tier tunnel that doesn't show up on local testing.
+- The pragmatic split: **local browsers get the full 4K (no tunnel involved, 2ms transfer)**; tunnel browsers get `max_width=1920` automatically (~150–800KB depending on scene). This isn't a permanent fix — it's an honest acknowledgement of a constraint we can't engineer around without changing the access path.
+- **Future options Boss might want to consider** (intentionally NOT implemented in Phase A): (1) A snapshot-to-disk archive on the Mac Mini so high-quality images are accessible via local file share / SSH / network drive without the tunnel at all. (2) Tailscale or similar VPN for direct LAN-quality access from outside the home network. (3) Per-Host detection on the server that automatically downscales for the tunnel host. None are mandatory; the local-vs-tunnel split in `app.js` covers the common cases.
+
+**Detection cadence note for future operators:**
+
+YOLO inference now runs at 2s intervals (0.5fps) during the night detection window — 8× lower than the previous 4fps RTSP capture. This is intentional and per Boss's directive: nocturnal predators (raccoons, foxes, coyotes, bobcats, opossums) linger in frame for 10–30s, so 2s polling = 5–15 chances to detect each visit. If detection sensitivity needs to go up later, drop `night_snapshot_interval` to 1.0 or even 0.5 in `config.json` — the M4 Pro yawns at YOLOv8n on 1080p frames.
+
 ## [2.17.0] - 2026-04-13
 
 ### Removed — GLM vision species refinement (Claude Opus 4.6)
