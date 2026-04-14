@@ -90,6 +90,13 @@ log = logging.getLogger("usb-cam-host")
 _camera_lock: Optional[asyncio.Lock] = None
 
 
+async def _run_in_thread(fn):
+    """Python 3.8-compatible stand-in for asyncio.to_thread (3.9+). The MBA
+    target runs 3.8 (Big Sur ceiling)."""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, fn)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):  # noqa: ARG001
     global _camera_lock
@@ -108,7 +115,7 @@ app = FastAPI(title="usb-cam-host", version="1.0.0", lifespan=lifespan)
 
 
 # ---------------------------------------------------------------------------
-# Core capture — runs in the default threadpool via asyncio.to_thread
+# Core capture — runs in the default threadpool via _run_in_thread
 # ---------------------------------------------------------------------------
 
 class CaptureError(RuntimeError):
@@ -209,7 +216,7 @@ async def health():
             finally:
                 cap.release()
 
-        return await asyncio.to_thread(_blocking)
+        return await _run_in_thread(_blocking)
 
     try:
         async with _camera_lock:
@@ -247,7 +254,7 @@ async def photo():
     try:
         async with _camera_lock:
             jpeg_bytes, w, h = await asyncio.wait_for(
-                asyncio.to_thread(_capture_one_jpeg),
+                _run_in_thread(_capture_one_jpeg),
                 timeout=OPEN_TIMEOUT_S + (WARMUP_FRAMES * (WARMUP_FRAME_SLEEP_S + 0.15)),
             )
     except asyncio.TimeoutError:

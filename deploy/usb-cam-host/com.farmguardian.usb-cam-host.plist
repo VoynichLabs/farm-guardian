@@ -48,6 +48,10 @@
         <string>true</string>
         <key>USB_CAM_WB_STRENGTH</key>
         <string>0.8</string>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
+        <key>OPENCV_AVFOUNDATION_SKIP_AUTH</key>
+        <string>1</string>
     </dict>
 
     <key>RunAtLoad</key>

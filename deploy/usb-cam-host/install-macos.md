@@ -2,22 +2,26 @@
 
 Install steps for any macOS host that will be the physical home of the generic USB webcam (Mac Mini "Bubba", MacBook Air 2013, or any future macOS box). Canonical plan: `docs/14-Apr-2026-portable-usb-cam-host-plan.md`.
 
-## 1. Repo checkout + venv
+## 1. Runtime location — NOT under `~/Documents/`
 
-The service shares the farm-guardian checkout for simplicity. On the Mac Mini it already exists at `/Users/macmini/Documents/GitHub/farm-guardian` with a working venv — nothing to do.
-
-On the MacBook Air (or any other macOS host):
+**Big Sur and later sandbox `~/Documents/`, `~/Desktop/`, and `~/Downloads/` against LaunchAgent access.** If the service lives under any of those paths, the agent boots into a `PermissionError: [Errno 1] Operation not permitted: .../pyvenv.cfg` loop. Install the service runtime outside those directories:
 
 ```bash
-cd ~
-git clone https://github.com/VoynichLabs/farm-guardian.git
-cd farm-guardian
-python3 -m venv venv
-source venv/bin/activate
-pip install -r deploy/usb-cam-host/requirements.txt
+mkdir -p ~/.local/farm-services/usb-cam-host
+# Copy just the two files the service needs — skip cloning all of farm-guardian
+# on the target host unless you also need the rest of the repo there.
+scp <mini>:/Users/macmini/Documents/GitHub/farm-guardian/tools/usb-cam-host/usb_cam_host.py \
+    ~/.local/farm-services/usb-cam-host/
+
+python3 -m venv ~/.local/farm-services/usb-cam-host/venv
+source ~/.local/farm-services/usb-cam-host/venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install --only-binary=:all: -r <path-to>/deploy/usb-cam-host/requirements.txt
 ```
 
-The service only needs `requirements.txt` from `deploy/usb-cam-host/` — not the full Guardian `requirements.txt`, which pulls YOLO / onvif / aiohttp and is much heavier.
+**`--only-binary=:all:` is important on older macOS.** Without it, pip will try to build `opencv-python-headless` from source if the exact wheel isn't available — a half-hour cmake job on a 2013 MacBook Air. `requirements.txt` pins `opencv-python-headless==4.8.1.78` specifically because that version has a prebuilt wheel for macOS 11 + Intel + Python 3.8 (the MBA 2013 ceiling).
+
+Mac Mini note: the Mini runs Python 3.13 from Homebrew and can use the farm-guardian checkout's existing venv directly — `~/Documents/GitHub/farm-guardian/venv` is fine on Sequoia because Full Disk Access is already granted to the Guardian agent's Python. The `~/.local/farm-services/` layout above is only needed on Big Sur hosts and any host where you haven't yet granted the Python binary Full Disk Access.
 
 ## 2. Verify the camera
 
@@ -126,6 +130,9 @@ Plug the camera into a different macOS host. Repeat steps 1–4 on that host. Ch
 ## Troubleshooting
 
 - **`/health` returns 503 "camera not openable"** — camera unplugged, TCC denied, or another process holds the device. Check `lsof | grep VDC.plugin`.
+- **OpenCV logs `not authorized to capture video (status 0), requesting... can not spin main run loop from other thread`** — Camera TCC is denied for the service's Python *and* OpenCV can't surface the prompt from its worker thread. Fix: ensure `OPENCV_AVFOUNDATION_SKIP_AUTH=1` is set in the plist's `EnvironmentVariables` (it is by default in the repo plist), then grant Camera access to the Python binary manually via **System Settings → Privacy & Security → Camera** — toggle ON the `Python` / `Python.app` entry, or `+` → `/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.8/Resources/Python.app` on Big Sur (`3.13` on Sequoia via Homebrew). Service recovers within ~5 s of the toggle; no restart needed.
+- **`PermissionError: pyvenv.cfg Operation not permitted`** — service was installed under `~/Documents/` (or `~/Desktop`, `~/Downloads`) which Big Sur+ sandboxes. Move to `~/.local/farm-services/usb-cam-host/` (see §1).
+- **pip install sits on "Building wheel for opencv-python" for 30+ minutes** — you forgot `--only-binary=:all:` and pip is compiling from source. Kill pip, re-run with the flag. The `requirements.txt` in this repo is pinned to a version with a Big Sur Intel Python 3.8 wheel, but the flag is still needed to prevent any fallback to sdist.
 - **First `/photo.jpg` after a reboot is slow (~2–3 s)** — expected. The webcam HAL cold-starts. Subsequent requests are ~1.1 s.
 - **Service dies silently** — `tail /tmp/usb-cam-host.err.log`. Most common cause: OpenCV ImportError because the venv isn't the one the plist references. Edit the `ProgramArguments` paths in the plist, `launchctl unload` + `launchctl load`.
 - **"Operation not permitted" from AVFoundation** — Camera TCC denied. `System Settings → Privacy & Security → Camera` — approve whatever process the plist launches (typically `Python`).

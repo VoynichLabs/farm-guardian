@@ -1,4 +1,9 @@
 fastapi>=0.110,<1.0
 uvicorn[standard]>=0.27,<1.0
-opencv-python>=4.8,<5.0
-numpy>=1.24,<3.0
+# opencv-python-headless pinned to 4.8.1.78 because newer versions don't ship
+# a prebuilt wheel for macOS 11 Big Sur + Intel + Python 3.8 (MacBook Air
+# 2013 ceiling) — pip would otherwise spend 30-60 min compiling OpenCV from
+# source. 4.8.1.78 has a cp38 macosx_10_16_x86_64 wheel and works on all
+# farm hosts. -headless skips the GUI libs we don't need on a service.
+opencv-python-headless==4.8.1.78
+numpy>=1.24,<2.0

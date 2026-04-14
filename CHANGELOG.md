@@ -2,6 +2,28 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.26.2] - 2026-04-14
+
+### Changed — `usb-cam` physically moved to the MacBook Air; MBA host setup lessons-learned (Claude Opus 4.6)
+
+Boss plugged the generic USB webcam into the MacBook Air, triggering the host-portability move that v2.26.0 was designed to enable. The cutover landed cleanly but surfaced four MBA-specific gotchas that wouldn't have hit the Mac Mini. All four are documented here + in `deploy/usb-cam-host/install-macos.md` so the next host move doesn't relearn them.
+
+**Collateral fix on the MBA's other LaunchAgent (`com.farmguardian.mba-cam`):** the moment the USB webcam plugged in, it took AVFoundation device index `0` and shoved the built-in FaceTime HD Camera to index `1`. `com.farmguardian.mba-cam`'s ffmpeg had been running 23 h with `-i 0` — still serving FaceTime HD because the *open handle* was locked, but any restart would have silently swapped it to the USB camera and broken `mba-cam`. Rewrote the plist to `-i "FaceTime HD Camera"` by name so index shifts can't hijack it. `HARDWARE_INVENTORY.md`'s `mba-cam` row records this.
+
+**Python 3.8 compatibility shim in `tools/usb-cam-host/usb_cam_host.py`.** The service used `asyncio.to_thread` (Python 3.9+). MBA ceilings at Big Sur 11.7.11 + Python 3.8.9. Replaced with a small `_run_in_thread(fn)` helper that uses `loop.run_in_executor(None, fn)` — identical behavior, works on 3.8+. All farm Python targets now covered (3.8 MBA, 3.11 GWTC Windows installer, 3.13 Mini Homebrew).
+
+**`opencv-python-headless==4.8.1.78` pin in `deploy/usb-cam-host/requirements.txt`.** The previous `opencv-python>=4.8,<5.0` range let pip pull 4.10 on Big Sur Python 3.8, which has no prebuilt wheel and kicked off a 30–60 min cmake build. The pinned 4.8.1.78 has a `cp38 macosx_10_16_x86_64` wheel. Headless variant skips GUI libs we don't use. Install instructions updated to pass `--only-binary=:all:` so pip never silently falls back to source.
+
+**Runtime location outside `~/Documents/`.** Big Sur+ sandboxes `~/Documents/`, `~/Desktop/`, `~/Downloads/` against LaunchAgent access — the agent boots into `PermissionError: pyvenv.cfg Operation not permitted` and never starts uvicorn. Put the MBA runtime at `/Users/markb/.local/farm-services/usb-cam-host/` (script + venv together, outside any sandboxed directory). The Mini is unaffected because its Python has Full Disk Access granted already, but any new macOS host should follow this layout.
+
+**OpenCV Camera TCC from a worker thread.** OpenCV's AVFoundation backend tries to request Camera auth via a prompt that only works if called from the main thread — our asyncio executor path isn't. Symptom: `OpenCV: not authorized to capture video (status 0), requesting... can not spin main run loop from other thread`. Fix: set `OPENCV_AVFOUNDATION_SKIP_AUTH=1` in the plist environment (added to the canonical plist in the repo + the live MBA one), then grant Camera to the Python binary manually via **System Settings → Privacy & Security → Camera**. Boss clicks once per host.
+
+**Mini-side configs flipped:** `config.json` (Guardian) and `tools/pipeline/config.json` both now point `usb-cam` at `http://192.168.0.50:8089`. Guardian + orchestrator restarted via `nohup` (the `com.farm.guardian` LaunchAgent is still in its post-power-outage `posix_spawn: Operation not permitted` state — noted in v2.26.0 entry, still independent of this release).
+
+`HARDWARE_INVENTORY.md` "Last verified" stamp bumped to 2026-04-14 18:35 ET; `usb-cam` row host column now reads MacBook Air 2013; `mba-cam` row notes the device-by-name pin; "What Runs Where" MacBook Air entry adds the `usb-cam-host` agent.
+
+---
+
 ## [2.26.1] - 2026-04-14
 
 ### Fixed — gray-world white balance ported into `usb-cam-host` (regression from v2.26.0, Claude Opus 4.6)
