@@ -47,7 +47,7 @@
         <key>USB_CAM_AUTO_WB</key>
         <string>true</string>
         <key>USB_CAM_WB_STRENGTH</key>
-        <string>0.8</string>
+        <string>0.5</string>
         <key>PYTHONUNBUFFERED</key>
         <string>1</string>
         <key>OPENCV_AVFOUNDATION_SKIP_AUTH</key>

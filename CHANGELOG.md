@@ -2,6 +2,22 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.26.3] - 2026-04-14
+
+### Tuned — brooder sample rate 3× + WB strength 0.8→0.5 for cute-bird pipeline (Claude Opus 4.6)
+
+Boss's explicit goal is a gallery of cute baby-bird pictures. The formula is simple: `rate_of_strong_tier = rate_of_samples × P(strong | sample)`. Two adjustments today, both on the `usb-cam` (brooder) path — no code logic changed, just parameters + one default.
+
+**Sample rate — `tools/pipeline/config.json`.** `usb-cam` cycle_seconds 180 → 60. GLM inference runs ~28 s, so 60 s is comfortable. Brooder sample rate goes from 20/h to 60/h — roughly triples the probability of catching a 10–30 s cute-moment window. All other cameras left at their old cadences (`house-yard` 600 s, `mba-cam` 300 s, `gwtc` 600 s).
+
+**WB strength — `deploy/usb-cam-host/com.farmguardian.usb-cam-host.plist`, `deploy/usb-cam-host/start-usb-cam-host.bat`, and the default in `tools/usb-cam-host/usb_cam_host.py`.** `USB_CAM_WB_STRENGTH` 0.8 → 0.5. Gray-world at 0.8 over a heat-lamp-dominated scene swings frames green/cyan — GLM's `image_quality` label rates those lower and they get demoted out of the `strong` tier. 0.5 still removes the orange cast without overshooting. The docstring note on `WB_STRENGTH` explains when to raise it back (neutral-light scenes).
+
+Applied live on the MBA (agent bootout+bootstrap); `usb-cam-host ready: ... wb_strength=0.50` confirmed in `service.log`. Orchestrator restarted with the new cycle config; `pipeline.orchestrator usb-cam: scheduled first cycle in 41s (cadence 60s)` confirmed.
+
+**Knowingly deferred — continuous-capture refactor of `usb-cam-host`.** Today's service opens/warms/releases the camera on every `/photo.jpg` (15-frame warmup ≈ 3.4 s per call). With Guardian polling every 5 s, the camera's AE/AWB never stabilizes — it's always warming up. A refactor to keep the camera open, grab frames in a background thread at ~2 Hz, and serve the latest buffered frame on demand would: cut response latency from 3.4 s → ~50 ms, let AE/AWB actually settle so frames get sharper and more naturally exposed, and make the dashboard tile feel genuinely live. Scoped at ~30 min. Not in this release because Boss hasn't approved the extra complexity yet; tracked as the next lever to pull.
+
+---
+
 ## [2.26.2] - 2026-04-14
 
 ### Changed — `usb-cam` physically moved to the MacBook Air; MBA host setup lessons-learned (Claude Opus 4.6)

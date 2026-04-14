@@ -65,7 +65,10 @@ OPEN_TIMEOUT_S = float(os.environ.get("USB_CAM_OPEN_TIMEOUT", "10"))
 # brooder; set USB_CAM_AUTO_WB=false if the camera moves somewhere with
 # neutral light and full correction would over-correct.
 AUTO_WB = os.environ.get("USB_CAM_AUTO_WB", "true").lower() in ("1", "true", "yes", "on")
-WB_STRENGTH = max(0.0, min(1.0, float(os.environ.get("USB_CAM_WB_STRENGTH", "0.8"))))
+# 0.5 is tuned for a heat-lamp-lit brooder scene: it removes the orange cast
+# without swinging the frame cold. 0.8 (the earlier default) over-corrects —
+# chicks go green. Raise back to 0.8 if the camera moves to neutral light.
+WB_STRENGTH = max(0.0, min(1.0, float(os.environ.get("USB_CAM_WB_STRENGTH", "0.5"))))
 
 # ---------------------------------------------------------------------------
 # Logging
