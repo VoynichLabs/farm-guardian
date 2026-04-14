@@ -1,5 +1,5 @@
 # Author: Claude Opus 4.6 (1M context)
-# Date: 14-April-2026
+# Date: 14-April-2026 (v2.26.1 — gray-world WB ported in from capture.py)
 # PURPOSE: Cross-platform HTTP snapshot service for the generic USB webcam.
 #          Exposes GET /photo.jpg returning a single warmed-up JPEG from
 #          the locally attached camera, and GET /health for liveness probes.
@@ -13,6 +13,13 @@
 #          camera from two handlers at once deadlocks the kernel driver
 #          on macOS. No Laplacian ranking (Boss flagged GLM calibration
 #          distrust in today's discussion); warmup-then-grab a single frame.
+#          Applies gray-world white balance before JPEG encode so the
+#          brooder's heat-lamp cast doesn't render the whole frame orange
+#          (ported from UsbSnapshotSource._apply_gray_world_wb — the
+#          correction that v2.26.0 accidentally dropped when usb-cam moved
+#          off UsbSnapshotSource onto HttpUrlSnapshotSource). Toggle via
+#          USB_CAM_AUTO_WB / USB_CAM_WB_STRENGTH; keeping the correction
+#          in the service means it moves with the camera to any host.
 # SRP/DRY check: Pass — single responsibility is "turn a local camera into
 #          a JPEG HTTP endpoint". No archiving, no detection, no consumer
 #          logic. Full plan: docs/14-Apr-2026-portable-usb-cam-host-plan.md
@@ -50,6 +57,16 @@ WARMUP_FRAME_SLEEP_S = float(os.environ.get("USB_CAM_WARMUP_SLEEP", "0.06"))
 # call indefinitely; we cap it via asyncio.wait_for in the handler.
 OPEN_TIMEOUT_S = float(os.environ.get("USB_CAM_OPEN_TIMEOUT", "10"))
 
+# Gray-world white balance — removes the brooder heat-lamp's orange cast.
+# AUTO_WB=true enables; STRENGTH 0.0–1.0 blends between identity (0.0) and
+# full gray-world (1.0). 0.7–0.9 reads natural; full correction over a
+# scene that legitimately has dominant warm content can swing too cool.
+# Defaults on because the camera currently lives in a heat-lamp-lit
+# brooder; set USB_CAM_AUTO_WB=false if the camera moves somewhere with
+# neutral light and full correction would over-correct.
+AUTO_WB = os.environ.get("USB_CAM_AUTO_WB", "true").lower() in ("1", "true", "yes", "on")
+WB_STRENGTH = max(0.0, min(1.0, float(os.environ.get("USB_CAM_WB_STRENGTH", "0.8"))))
+
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
@@ -78,8 +95,10 @@ async def lifespan(app: FastAPI):  # noqa: ARG001
     global _camera_lock
     _camera_lock = asyncio.Lock()
     log.info(
-        "usb-cam-host ready: device=%d requested=%dx%d warmup=%d jpeg_q=%d",
+        "usb-cam-host ready: device=%d requested=%dx%d warmup=%d jpeg_q=%d "
+        "auto_wb=%s wb_strength=%.2f",
         DEVICE_INDEX, REQUESTED_WIDTH, REQUESTED_HEIGHT, WARMUP_FRAMES, JPEG_QUALITY,
+        AUTO_WB, WB_STRENGTH,
     )
     yield
     log.info("usb-cam-host shutting down")
@@ -94,6 +113,26 @@ app = FastAPI(title="usb-cam-host", version="1.0.0", lifespan=lifespan)
 
 class CaptureError(RuntimeError):
     pass
+
+
+def _apply_gray_world_wb(frame: np.ndarray, strength: float) -> np.ndarray:
+    """Gray-world auto white balance. Scales each BGR channel so the per-channel
+    means converge on the overall mean, removing a uniform color cast (chick
+    brooder heat-lamp orange). Ported verbatim from
+    capture.py:UsbSnapshotSource._apply_gray_world_wb so the two paths stay
+    interchangeable — if we ever move back to the local adapter, the visual
+    contract is the same. `strength` interpolates between identity (0.0) and
+    full correction (1.0)."""
+    if strength <= 0.0:
+        return frame
+    avg = frame.reshape(-1, 3).mean(axis=0).astype(np.float32)  # B,G,R
+    overall = float(avg.mean())
+    if overall < 1.0:
+        return frame  # pitch-black frame, nothing meaningful to correct
+    scales = overall / np.maximum(avg, 1.0)
+    scales = 1.0 + strength * (scales - 1.0)
+    corrected = frame.astype(np.float32) * scales.reshape(1, 1, 3)
+    return np.clip(corrected, 0, 255).astype(np.uint8)
 
 
 def _capture_one_jpeg() -> tuple[bytes, int, int]:
@@ -131,6 +170,9 @@ def _capture_one_jpeg() -> tuple[bytes, int, int]:
             raise CaptureError("keeper read failed after warmup")
 
         h, w = frame.shape[:2]
+
+        if AUTO_WB:
+            frame = _apply_gray_world_wb(frame, WB_STRENGTH)
 
         ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
         if not ok:

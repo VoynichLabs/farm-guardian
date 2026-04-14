@@ -44,6 +44,10 @@
         <string>15</string>
         <key>USB_CAM_JPEG_QUALITY</key>
         <string>95</string>
+        <key>USB_CAM_AUTO_WB</key>
+        <string>true</string>
+        <key>USB_CAM_WB_STRENGTH</key>
+        <string>0.8</string>
     </dict>
 
     <key>RunAtLoad</key>

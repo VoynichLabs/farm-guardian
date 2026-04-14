@@ -25,6 +25,8 @@ set USB_CAM_WIDTH=1920
 set USB_CAM_HEIGHT=1080
 set USB_CAM_WARMUP=15
 set USB_CAM_JPEG_QUALITY=95
+set USB_CAM_AUTO_WB=true
+set USB_CAM_WB_STRENGTH=0.8
 
 :loop
 "%PYTHON_EXE%" "%REPO%\tools\usb-cam-host\usb_cam_host.py"

@@ -2,6 +2,24 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.26.1] - 2026-04-14
+
+### Fixed — gray-world white balance ported into `usb-cam-host` (regression from v2.26.0, Claude Opus 4.6)
+
+v2.26.0 moved `usb-cam` from the local `UsbSnapshotSource` adapter to the portable HTTP service, which **silently dropped the gray-world white-balance step** that `UsbSnapshotSource._apply_gray_world_wb` had been applying before JPEG encode (originally shipped for the brooder heat-lamp cast). Post-v2.26.0 frames were rendering orange again. Boss spotted it within an hour.
+
+Ported the WB correction verbatim from `capture.py:514–534` into `tools/usb-cam-host/usb_cam_host.py` as `_apply_gray_world_wb`. Applied after warmup + keeper read, before JPEG encode. Visual A/B: pre-fix frame is fully orange; post-fix frame shows yellow chicks, blue brooder walls, red feed dish rendering correctly.
+
+Two new env vars for the service (also wired into the LaunchAgent plist and the Windows `.bat`):
+- `USB_CAM_AUTO_WB` (default `true`) — gray-world enabled for the current heat-lamp environment. Set `false` if the camera ever moves to a neutral-light scene where full correction would over-correct a legitimately warm-toned subject.
+- `USB_CAM_WB_STRENGTH` (default `0.8`, clamped 0.0–1.0) — interpolates between identity (0.0) and full gray-world (1.0). Matches the default from `config.json`'s old `snapshot_wb_strength`.
+
+Keeping the WB in the service (not at the consumer) means the correction **moves with the camera** — when Boss plugs it into the MBA, the WB follows.
+
+Verified end-to-end: agent reloaded; log line now reads `usb-cam-host ready: device=0 requested=1920x1080 warmup=15 jpeg_q=95 auto_wb=True wb_strength=0.80`; `curl http://localhost:8089/photo.jpg` returns a neutral-balanced 1080p JPEG.
+
+---
+
 ## [2.26.0] - 2026-04-14
 
 ### Added — host-portable `usb-cam` via `tools/usb-cam-host/` (Claude Opus 4.6)
