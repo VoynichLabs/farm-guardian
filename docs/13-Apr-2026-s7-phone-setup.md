@@ -1,18 +1,24 @@
 # S7 Phone Setup — HTTP Snapshot Mode
 
 **Author:** Claude Opus 4.6 (1M context)
-**Date:** 13-April-2026
-**Supersedes (operationally):** the RTSP-streaming parts of `docs/06-Apr-2026-s7-nesting-box-camera-setup.md`. That doc is still the authoritative reference for mounting, WiFi config, and the general "IP Webcam as a camera" pattern; only the stream-vs-snapshot choice changes.
+**Date:** 13-April-2026 (written); executed 14-April-2026; this doc updated to reflect what actually happened.
+**Supersedes (operationally):** the RTSP-streaming parts of `docs/06-Apr-2026-s7-nesting-box-camera-setup.md`. That doc is still the authoritative reference for mounting and WiFi config.
+**Status:** **LIVE** — `s7-cam` is running in `http_url` snapshot mode since 2026-04-14 11:01 EDT. Guardian log confirms `Camera 's7-cam' registered in snapshot mode (method=http_url)` and `/api/cameras/s7-cam/frame` serves 1920×1080 JPEGs from the phone. This doc is now a recovery / re-deploy playbook, not a pending-action list.
 
-## Why this changed
+## Important discovery made during execution (2026-04-14)
 
-RTSP streaming from the S7 was killing its battery faster than USB could charge it. We've switched to pulling HTTP snapshots on a timer. See `docs/13-Apr-2026-s7-battery-http-snapshot-plan.md` for the architectural rationale. This doc is the checklist for the person at the phone.
+Prior docs claimed the S7 had been running "IP Webcam" all along. **It wasn't.** The phone was actually running **RTSP Camera Server (`com.miv.rtspcamera`)**, a visually similar but functionally different Android app. RTSP Camera Server is RTSP-only (no HTTP `/photo.jpg` endpoint at all — its `:8080` is a dumb playlist-server that returns the same `.m3u` file for every path) and, crucially, it auto-records the RTSP stream to internal storage in 1-hour chunks. By the time the S7 was re-powered, `/sdcard/RTSPRecords` had **19 GB** of looped chicken-coop recordings — that, not streaming to the Mac Mini, was the primary battery and storage drain. Streaming over RTSP to Guardian was secondary. Every Guardian doc that said "S7 running IP Webcam" was wrong — the real IP Webcam (`com.pas.webcam`) was installed for the first time as part of the v2.24.0 cutover. Lesson for the next agent: verify `adb shell pm list packages | grep -iE 'webcam|rtsp'` before acting on the assumption that a specific app is installed.
 
-## Prereqs
+## Why this changed (original motivation)
+
+RTSP streaming from the S7 was killing its battery faster than USB could charge it. We switched to pulling HTTP snapshots on a timer. See `docs/13-Apr-2026-s7-battery-http-snapshot-plan.md` for the architectural rationale. This doc is the checklist that describes how the cutover actually ran.
+
+## Prereqs (for a re-deploy / recovery)
 
 - Samsung Galaxy S7, charged enough to boot, USB charger plugged in.
-- IP Webcam app installed (Pavel Khlebovich's, free version — the same app from the 06-Apr setup). If it was already installed for the RTSP setup, it's still fine.
-- Mac Mini reachable on the same WiFi at `192.168.0.105`. (ICMP doesn't work between wired & wireless on this router — use TCP, `ssh`, or `nc -z -w 1 192.168.0.105 6530` to confirm.)
+- IP Webcam (`com.pas.webcam`) by Pavel Khlebovich. **Install it fresh; don't trust that it's already there** — on 14-Apr the phone had RTSP Camera Server instead.
+- Mac Mini reachable on the same WiFi at `192.168.0.105`.
+- If you need to install from a Mac: adb (`brew install --cask android-platform-tools`, or pull the portable tarball via `curl -L -o pt.zip https://dl.google.com/android/repository/platform-tools-latest-darwin.zip && unzip pt.zip`), USB cable with **data lines** (charge-only cables will enumerate the phone on MTP without exposing ADB — the 14-Apr incident had a cable swap mid-job that dropped the device), and USB debugging enabled on the phone with the Mac's RSA fingerprint authorized.
 
 ## Step 1 — Boot the phone, let it connect to WiFi
 
