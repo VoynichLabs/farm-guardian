@@ -135,6 +135,16 @@ python guardian.py --debug
 
 No test suite yet. This is a v2 production system (Phases 1-4 complete).
 
+## Recent Changes (14-Apr-2026)
+
+**Host-portable `usb-cam` (v2.26.0, 14-Apr-2026):** The generic USB webcam is no longer hardcoded to the Mac Mini. A new FastAPI snapshot service (`tools/usb-cam-host/usb_cam_host.py`) runs on whichever host the camera is physically plugged into and serves `GET /photo.jpg` + `GET /health` on port `8089`. Cross-platform via `cv2.VideoCapture(index)` (no backend flag — OpenCV auto-picks AVFoundation / dshow / V4L2). 15-frame warmup for AE/AWB convergence; no Laplacian burst ranking (Boss distrusts Laplacian-vs-GLM calibration). Guardian's `config.json` and `tools/pipeline/config.json` both flipped `usb-cam` to the HTTP path (`http_url` / `ip_webcam`); zero Guardian or pipeline code changed — reuses `HttpUrlSnapshotSource` (v2.24.0) and `capture_ip_webcam`. Deploy artifacts in `deploy/usb-cam-host/` (launchd plist for macOS, Shawl-wrappable `.bat` for Windows, install guides). Moving the camera later is: new host → install agent → change one URL in each config file. **Plan:** `docs/14-Apr-2026-portable-usb-cam-host-plan.md`. **System state snapshot (live now):** `docs/14-Apr-2026-system-state-snapshot.md`.
+
+**Image archive REST surface (v2.25.0, 14-Apr-2026):** `/api/v1/images/*` — public `/gems`, `/recent`, `/stats`, `/gems/{id}`, `/gems/{id}/image`; private `/review/*` for promote/demote/flag/unflag/delete with an append-only `image_archive_edits` audit table. Public SQL always prefixes `WHERE has_concerns = 0`; public response models omit `concerns`/`has_concerns`/`vlm_json`; review endpoints 503 when `GUARDIAN_REVIEW_TOKEN` is unset. Lazy thumbnails cached under `data/cache/thumbs/`. Plan: `docs/14-Apr-2026-image-archive-api-plan.md`. Layer-2 follow-ups: `docs/14-Apr-2026-followups-post-layer1.md`. **farm-2026 frontend consumes this via the Cloudflare tunnel at `guardian.markbarney.net`.**
+
+**The `com.farm.guardian` LaunchAgent is currently broken (14-Apr-2026, post-outage).** After a mid-session power outage, the agent started failing to spawn with `posix_spawn ... Operation not permitted` (the brand-new `com.farmguardian.usb-cam-host` agent using the *same* venv Python starts cleanly, so it's label-specific, not binary). Guardian is running via `nohup ./venv/bin/python guardian.py` in the meantime. Fix is either a reboot of the Mac Mini or re-approval under **System Settings → Privacy & Security → App Management**. Unrelated to v2.25.0 / v2.26.0.
+
+---
+
 ## Recent Changes (08-Apr-2026)
 
 **Remote camera control API (v2.7.0):** Five new endpoints in `api.py` for full remote camera control over the Cloudflare tunnel: snapshot, position readback, zoom, autofocus, guard control. A remote Claude session can now control the camera from anywhere.
@@ -186,7 +196,13 @@ Read `docs/02-Apr-2026-v2-system-plan.md` for the full v2 architecture document 
 - `docs/08-Apr-2026-gwtc-webcam-stream-plan.md` — GWTC webcam stream plan
 - `docs/13-Apr-2026-phase-a-reolink-snapshot-polling-plan.md` — **DONE in v2.18.0** — house-yard switched from RTSP to HTTP snapshot polling (4K JPEG)
 - `docs/13-Apr-2026-phase-b-gwtc-snapshot-endpoint-plan.md` — Phase B: stand up an HTTP snapshot service on the Gateway laptop, switch `gwtc` over
-- `docs/13-Apr-2026-phase-c-usb-highres-and-motion-bursts-plan.md` — Phase C: `usb-cam` to high-res snapshots + ONVIF motion-event-triggered snapshot bursts on house-yard
+- `docs/13-Apr-2026-phase-c-usb-highres-and-motion-bursts-plan.md` — Phase C: `usb-cam` to high-res snapshots + ONVIF motion-event-triggered snapshot bursts on house-yard. **C1 (USB high-res) is effectively delivered by v2.26.0 `usb-cam-host` via a different architecture (HTTP service instead of local AVFoundation adapter) — read the v2.26.0 plan alongside.** C2 (motion bursts) is still open.
+- `docs/14-Apr-2026-portable-usb-cam-host-plan.md` — **DONE in v2.26.0** — host-portable `usb-cam` via `tools/usb-cam-host/` HTTP snapshot service; moves cleanly between Mini / MBA / GWTC / any host.
+- `docs/14-Apr-2026-image-archive-api-plan.md` — **DONE in v2.25.0** — `/api/v1/images/*` REST surface over the image archive, powers farm-2026's gems/retrospective pages.
+- `docs/14-Apr-2026-followups-post-layer1.md` — v2.25.0 layer-2 follow-up list for the frontend dev.
+- `docs/14-Apr-2026-modularization-plan.md` — in-progress cleanup plan.
+- `docs/14-Apr-2026-audio-triggered-capture-plan.md` — planned: audio-triggered capture on `usb-cam`.
+- `docs/14-Apr-2026-system-state-snapshot.md` — **READ FIRST IF YOU'RE A NEW AGENT.** Point-in-time snapshot of every running service, every camera's current wiring, what's committed vs running via `nohup`, known-broken bits (the `com.farm.guardian` agent).
 - `docs/13-Apr-2026-gwtc-laptop-troubleshooting-incident.md` — **READ THIS BEFORE TROUBLESHOOTING THE GATEWAY LAPTOP.** Pre-buries four wrong theories and gives the 30-second diagnostic recipe that actually works.
 - `docs/13-Apr-2026-lm-studio-reference.md` — **READ THIS** before adding any LM Studio integration. API surface, locally available models, safe model-load pattern, the 2026-04-13 watchdog incident and what we changed because of it.
 - `docs/13-Apr-2026-brooder-vlm-narrator-plan.md` — planned standalone tool: sample brooder snapshots → glm-4.6v-flash → JSONL narrative log. Awaits Boss approval. Will be revised to incorporate "find the best image" rather than blind 5-min sampling.
@@ -197,7 +213,7 @@ Read `docs/02-Apr-2026-v2-system-plan.md` for the full v2 architecture document 
 
 *Phase 1 — Core pipeline:*
 - `discovery.py` — Scans local network for ONVIF cameras. Stores IPs and stream URLs.
-- `capture.py` — Frame acquisition. Two parallel modes: (1) `CameraCapture` for RTSP/USB OpenCV streams (gwtc, s7-cam, usb-cam); (2) `CameraSnapshotPoller` + `SnapshotSource` adapters for HTTP-snapshot cameras (house-yard via `ReolinkSnapshotSource` since v2.18.0). Both produce `FrameResult`; the snapshot path also carries the original camera-encoded JPEG for zero-loss display.
+- `capture.py` — Frame acquisition. Two parallel modes: (1) `CameraCapture` for RTSP streams (`gwtc`, `mba-cam`); (2) `CameraSnapshotPoller` + `SnapshotSource` adapters for HTTP-snapshot cameras (`house-yard` via `ReolinkSnapshotSource` since v2.18.0; `s7-cam` and **`usb-cam`** via `HttpUrlSnapshotSource` — the latter added in v2.24.0 for the S7 battery path, reused by `usb-cam` in v2.26.0 via the portable `usb-cam-host` service). `UsbSnapshotSource` still exists in the file for anyone who wants to reach AVFoundation directly, but no camera in `config.json` currently dispatches to it. Both modes produce `FrameResult`; the snapshot path also carries the original camera-encoded JPEG for zero-loss display.
 - `detect.py` — Runs YOLOv8 inference on frames. Classifies objects. Returns detections with bounding boxes.
 - `alerts.py` — Posts Discord messages with snapshots when predator-class animals are detected. Rate-limits alerts.
 - `logger.py` — Writes events to SQLite database and legacy JSONL files. Saves snapshots.
@@ -294,7 +310,7 @@ ssh -i ~/.ssh/id_ed25519 markb@192.168.0.50 'c -p "Granular task description her
 - **Python:** 3.13 (Homebrew)
 - **Camera 1 (house-yard):** Reolink E1 Outdoor Pro — ONVIF, RTSP, 4K, PTZ, WiFi. IP `192.168.0.88`. **Polls the camera's HTTP `cmd=Snap` endpoint for native 4K JPEGs** (`source: "snapshot"`, `snapshot_method: "reolink"`); we no longer use RTSP for this camera. Snapshot interval 5s for the dashboard, 2s during the night detection window so YOLO has more chances per minute. The RTSP path was abandoned because the lossy WiFi link mangled HEVC reference packets — see CHANGELOG v2.16.0/v2.17.0/v2.18.0 and `docs/13-Apr-2026-phase-a-reolink-snapshot-polling-plan.md`.
 - **Camera 2 (s7-cam):** Samsung Galaxy S7 phone running IP Webcam app (RTSP Camera Server). RTSP over WiFi (UDP). IP `192.168.0.249`, port 5554. Stream URL: `rtsp://192.168.0.249:5554/camera`. No auth required. Fixed camera, no PTZ. Uses `rtsp_url_override` — no ONVIF. Detection disabled.
-- **Camera 3 (usb-cam):** USB camera connected directly to the Mac Mini. AVFoundation device index 0. 1920x1080. No network dependency — captured locally via OpenCV. Detection disabled.
+- **Camera 3 (usb-cam):** Generic USB webcam (1920×1080), **host-portable as of v2.26.0**. Frames flow through the `usb-cam-host` FastAPI snapshot service (`tools/usb-cam-host/usb_cam_host.py`) running on whichever machine the camera is plugged into — currently the Mac Mini on port `8089`, `http://192.168.0.71:8089/photo.jpg`. Guardian consumes it via `HttpUrlSnapshotSource` (`snapshot_method: "http_url"`); the pipeline consumes it via `capture_ip_webcam` (`capture_method: "ip_webcam"`). Boss plans to move the camera to the MacBook Air; that's config-only on the Mini side once the service is installed on the new host. Detection disabled.
 - **Camera 4 (gwtc):** Gateway laptop (Windows 11) built-in webcam. Streams via ffmpeg → MediaMTX at `rtsp://192.168.0.68:8554/gwtc` (path renamed from `/nestbox` 13-Apr-2026 — see CHANGELOG v2.24.1). 1280x720, 15fps, H.264, ~1 Mbps. Services auto-start via Shawl, with the `farmcam-watchdog` Shawl service handling post-reboot recovery. Uses `rtsp_url_override` in config. Detection disabled. Currently in the chicken coop.
 - **Network:** All devices on same local WiFi network
 

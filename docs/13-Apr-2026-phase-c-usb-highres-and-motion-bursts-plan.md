@@ -2,6 +2,13 @@
 
 **Author:** Claude Opus 4.6
 **Date:** 13-April-2026
+
+**STATUS (14-Apr-2026, after v2.26.0):**
+- **C1 (USB cam high-res snapshot mode) — SUPERSEDED.** v2.26.0 shipped a different implementation of the same outcome: instead of a local-AVFoundation `UsbSnapshotSource` adapter dispatched from `guardian.py`, the USB camera now flows through a cross-host FastAPI snapshot service (`tools/usb-cam-host/`). The `UsbSnapshotSource` adapter path in `capture.py` still exists but is no longer wired to any camera in `config.json`. The C1 sections of this plan should be treated as historical context — **read `docs/14-Apr-2026-portable-usb-cam-host-plan.md` for the live architecture, and `docs/14-Apr-2026-system-state-snapshot.md` for the current operational wiring.**
+- **C2 (ONVIF motion-triggered snapshot bursts on house-yard) — STILL OPEN.** Independent of C1 and of v2.26.0. Anyone picking it up should resume from this plan's C2 sections directly; the motion-event plumbing in `discovery.py` is untouched by v2.26.0.
+
+---
+
 **Goal:** Two related improvements to the snapshot architecture established in Phases A and B:
 
 - **C1.** The Mac Mini's local USB camera (`usb-cam`) switches to the snapshot polling pattern, opening the device at its maximum stills resolution rather than the OpenCV default.
