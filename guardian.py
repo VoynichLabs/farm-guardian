@@ -795,6 +795,13 @@ def load_config(config_path: str) -> dict:
     if env_ebird_key:
         config.setdefault("ebird", {})["api_key"] = env_ebird_key
 
+    # v2.25.0 — bearer token for /api/v1/images/review/* endpoints.
+    # Unset env var leaves review endpoints returning 503; public image
+    # endpoints run either way.
+    env_review_token = os.environ.get("GUARDIAN_REVIEW_TOKEN")
+    if env_review_token:
+        config.setdefault("api", {})["review_token"] = env_review_token
+
     webhook_url = config.get("alerts", {}).get("discord_webhook_url", "")
     if not webhook_url or "YOUR_WEBHOOK" in webhook_url:
         log.warning("Discord webhook not configured — alerts will be logged but not sent")

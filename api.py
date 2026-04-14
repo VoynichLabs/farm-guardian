@@ -1,5 +1,5 @@
-# Author: Claude Opus 4.6
-# Date: 08-April-2026
+# Author: Claude Opus 4.6 (1M context)
+# Date: 14-April-2026
 # PURPOSE: REST API for Farm Guardian v2 (Phase 4). Provides structured JSON endpoints
 #          for detection history, animal patterns, deterrent effectiveness, and full
 #          camera hardware control (PTZ, snapshot, zoom, autofocus, guard). Mounted on
@@ -7,7 +7,10 @@
 #          structured JSON except /snapshot which returns JPEG. Designed so a remote
 #          Claude session can fully control cameras over the internet when exposed
 #          via Railway/Cloudflare.
-#          Authentication via optional API key header for future hosted mode.
+#          v2.25.0 — also mounts the /api/v1/images/* router from images_api.py
+#          which surfaces the image archive (gems, recent, stats, and Boss-only
+#          review endpoints). That router is built in register_api() so it gets
+#          the same db + config references.
 # SRP/DRY check: Pass — single responsibility is structured API for LLM tool access.
 
 import logging
@@ -385,12 +388,37 @@ def create_api_router() -> APIRouter:
     return router
 
 
-def register_api(app, service, db: GuardianDB, reports: ReportGenerator):
-    """Register the v1 API router on the FastAPI app and set module references."""
+def register_api(app, service, db: GuardianDB, reports: ReportGenerator, config: Optional[dict] = None):
+    """Register the v1 API router on the FastAPI app and set module references.
+
+    Also registers the /api/v1/images/* router (image archive REST surface) —
+    added in v2.25.0 for farm-2026 integration. The images router gets its
+    own file (images_api.py) so this module stays focused on detection / PTZ.
+    `config` is needed to plumb the GUARDIAN_REVIEW_TOKEN into the images
+    auth dependency and to resolve data_root for thumbnails; callers who
+    haven't been updated yet still work (image endpoints simply 503)."""
     global _db, _reports, _service
     _db = db
     _reports = reports
     _service = service
     router = create_api_router()
     app.include_router(router)
-    log.info("API v1 registered — %d endpoints", len(router.routes))
+    route_total = len(router.routes)
+
+    # -----------------------------------------------------------------
+    # Image archive REST surface (v2.25.0)
+    # -----------------------------------------------------------------
+    try:
+        from images_api import build_images_router
+        from images_auth import set_review_token
+        cfg = config or {}
+        token = (cfg.get("api", {}) or {}).get("review_token")
+        set_review_token(token)
+        images_router = build_images_router(db, cfg)
+        app.include_router(images_router)
+        route_total += len(images_router.routes)
+        log.info("Image archive router registered — %d routes", len(images_router.routes))
+    except Exception as exc:
+        log.error("Failed to register image archive router: %s", exc)
+
+    log.info("API v1 registered — %d endpoints", route_total)

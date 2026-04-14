@@ -163,6 +163,39 @@ def store(
         spath.write_text(json.dumps(sidecar, indent=2))
         image_path_rel = str(jpath.relative_to(archive_root.parent)) if archive_root.parent in jpath.parents or archive_root.parent == jpath.parent.parent else str(jpath)
 
+        # Curation views: hardlink strong-tier into gems/ and concerns into private/.
+        # Hardlinks share the inode with the archive copy — zero extra disk,
+        # and they survive the 90-day archive retention sweep because unlinking
+        # the archive entry doesn't delete the inode while another link exists.
+        # That's the intended behavior: gems are kept indefinitely; archive
+        # rotates. Private (concerns) rows are additionally exempt in retention.py.
+        gems_root = archive_root.parent / "gems"
+        private_root = archive_root.parent / "private"
+        try:
+            if tier == "strong":
+                gsub = gems_root / ym / camera_id
+                gsub.mkdir(parents=True, exist_ok=True)
+                gpath = gsub / fname
+                if not gpath.exists():
+                    try:
+                        gpath.hardlink_to(jpath)
+                    except OSError:
+                        # cross-device or filesystem disallows hardlinks → fall back to copy
+                        gpath.write_bytes(stored_bytes)
+                (gsub / fname.replace(".jpg", ".json")).write_text(spath.read_text())
+            if has_concerns:
+                psub = private_root / ym / camera_id
+                psub.mkdir(parents=True, exist_ok=True)
+                ppath = psub / fname
+                if not ppath.exists():
+                    try:
+                        ppath.hardlink_to(jpath)
+                    except OSError:
+                        ppath.write_bytes(stored_bytes)
+                (psub / fname.replace(".jpg", ".json")).write_text(spath.read_text())
+        except Exception as e:
+            log.warning("curation link failed for %s (archive row still written): %s", fname, e)
+
     # Insert DB row
     with _DB_LOCK, sqlite3.connect(str(db_path)) as c:
         c.execute("""

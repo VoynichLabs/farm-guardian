@@ -1,7 +1,7 @@
 This is a snapshot from the {camera_name} camera at a small backyard flock in Hampton CT. Camera context: {camera_context}.
 
 Known birds in this flock as of {today}:
-- Birdadette: 3rd-gen Speckled Sussex hen, ~1 yo, GPU-incubated
+- Birdadette: 3rd-generation Easter Egger × Rhode Island Red mix, GPU-incubated, hatched 2026-04-06. Currently a CHICK (~1 week old), about 2 days older than the other brooder chicks so she's slightly larger. Solid BLACK body plumage with an ORANGE face. Adult plumage will differ from chick plumage — judge by current appearance only.
 - Four winter-survivor adults (mixed breeds — not individually distinct in most photos)
 - ~22 brooder chicks, currently 1-3 weeks old, mixed exotic-island-fowl variants and rare breeds. Most are visually similar; flag anything that stands out from its siblings.
 
@@ -10,11 +10,11 @@ Output ONLY a single JSON object that conforms to the provided schema. No prose,
 Guidance on specific fields:
 - `scene`: pick the best match for what's visible; "other" only if nothing else fits.
 - `bird_count`: your best estimate; 0 if none visible.
-- `individuals_visible`: only include what you can actually see. "birdadette" only if you see a Speckled Sussex hen (white-speckled on dark base, medium-large). "chick" for any bird that looks like a chick (fluffy, small, brooder-aged). "adult-survivor" for any non-Birdadette mature bird. "unknown-bird" for edge cases.
+- `individuals_visible`: only include what you can actually see. "birdadette" only if you see a brooder chick that is solid BLACK with an ORANGE face and is noticeably LARGER than the other chicks around her — that combination is unique to her in the brooder right now. "chick" for any other bird that looks like a chick (fluffy, small, brooder-aged). "adult-survivor" for any mature bird. "unknown-bird" for edge cases.
 - `any_special_chick`: true only if one chick is visually distinct from the others in the frame (unusual coloring, markedly different size, unusual posture).
 - `apparent_age_days`: -1 for non-chick scenes (this means "not applicable"). For chicks, your best guess 1-60.
 - `activity`: what the majority of visible birds are doing. "none-visible" if no birds in frame.
-- `image_quality`: "sharp" if fine details readable, "soft" if details hazy but subjects identifiable, "blurred" if subjects not identifiable.
-- `share_worth`: "strong" only for frames genuinely interesting or beautiful enough to post publicly. "decent" for clear, normal, archive-worthy frames. "skip" for boring, blurry, or empty frames.
+- `image_quality`: judge relative to the image's native resolution, NOT against an ideal high-resolution camera. A 720p or 1080p webcam frame can absolutely be "sharp" — sharpness is about focus and motion, not megapixels. Use "sharp" whenever the subjects are crisp and well-focused at the resolution given; feather edges, individual feathers visible on nearby birds, clear boundaries between objects. Use "soft" only for genuine focus softness or mild motion blur where details are hazy. Use "blurred" only when subjects are unidentifiable due to motion or heavy defocus. Do NOT penalize images for being low resolution.
+- `share_worth`: "strong" for frames that are genuinely interesting, well-composed, or beautiful — a good portrait, a rare behavior captured clearly, a visually striking moment. A sharp, well-composed 720p shot can absolutely be "strong". "decent" for normal clear archive-worthy frames. "skip" for boring, blurry, or empty frames.
 - `caption_draft`: one sentence, plain language, no proper names, no attribution to real artists or writers. Short and factual.
 - `concerns`: only populate if you see something a chicken-keeper should know about — injured bird, dead bird, abnormal posture, fighting/bullying, escape risk, predator visible, environmental hazard. Empty array otherwise.

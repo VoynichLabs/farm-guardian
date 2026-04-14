@@ -1,12 +1,17 @@
-# Author: Claude Opus 4.6
-# Date: 04-April-2026
+# Author: Claude Opus 4.6 (1M context)
+# Date: 14-April-2026
 # PURPOSE: SQLite abstraction layer for Farm Guardian v2. All database reads/writes
 #          go through this module. Creates and manages the guardian.db schema with
 #          tables for cameras, detections, tracks, alerts, deterrent actions, PTZ presets,
-#          daily summaries, and eBird sightings. Uses WAL mode for concurrent read access
-#          from dashboard/API while the detection pipeline writes. Provides daily backup
+#          daily summaries, eBird sightings, and (v2.25.0) the image_archive +
+#          image_archive_edits tables backing the /api/v1/images/* REST surface.
+#          Uses WAL mode for concurrent read access from dashboard/API while the
+#          detection pipeline + image pipeline both write. Provides daily backup
 #          to data/backups/. No ORM — raw parameterized SQL for portability to PostgreSQL.
 # SRP/DRY check: Pass — single responsibility is structured data persistence.
+#   The image_archive DDL is duplicated (with IF NOT EXISTS) from
+#   tools/pipeline/store.py so the image REST API can query the table on fresh
+#   installs where the pipeline hasn't run yet. Schema is stable; drift risk is low.
 
 import json
 import logging
@@ -173,6 +178,55 @@ CREATE TABLE IF NOT EXISTS ebird_sightings (
 
 CREATE INDEX IF NOT EXISTS idx_ebird_time ON ebird_sightings(polled_at);
 CREATE INDEX IF NOT EXISTS idx_ebird_threat ON ebird_sightings(threat_level, polled_at);
+
+-- image_archive: one row per captured + VLM-enriched frame.
+-- Canonical DDL lives in tools/pipeline/store.py:_SCHEMA_SQL; duplicated here
+-- (with IF NOT EXISTS, so idempotent) so the image REST API can query the
+-- table on fresh installs where the pipeline hasn't run yet. If you evolve
+-- the schema, update BOTH places.
+CREATE TABLE IF NOT EXISTS image_archive (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    camera_id TEXT NOT NULL,
+    ts TEXT NOT NULL,
+    image_path TEXT,
+    image_tier TEXT NOT NULL,
+    sha256 TEXT,
+    width INT, height INT, bytes INT,
+    std_dev REAL, laplacian_var REAL, exposure_p50 REAL,
+    vlm_model TEXT, vlm_inference_ms INT, vlm_prompt_hash TEXT,
+    vlm_json TEXT NOT NULL,
+    scene TEXT, bird_count INT, activity TEXT, lighting TEXT,
+    composition TEXT, image_quality TEXT, share_worth TEXT,
+    any_special_chick INT, apparent_age_days INT, has_concerns INT,
+    individuals_visible_csv TEXT,
+    retained_until TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_archive_camera_ts ON image_archive(camera_id, ts);
+CREATE INDEX IF NOT EXISTS idx_archive_share    ON image_archive(share_worth, image_quality);
+CREATE INDEX IF NOT EXISTS idx_archive_concerns ON image_archive(has_concerns);
+CREATE INDEX IF NOT EXISTS idx_archive_retain   ON image_archive(retained_until);
+
+-- image_archive_edits: audit log for every promote / demote / flag / unflag /
+-- delete / purge action performed on an image_archive row via the
+-- /api/v1/images/review/* endpoints. We snapshot the row's relevant fields
+-- before + after each edit so we can reconstruct what changed and when — the
+-- load-bearing concern is "if something concerning leaked publicly, prove
+-- exactly when and how its state changed."
+CREATE TABLE IF NOT EXISTS image_archive_edits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    target_image_id INTEGER NOT NULL REFERENCES image_archive(id),
+    ts TEXT NOT NULL DEFAULT (datetime('now')),
+    action TEXT NOT NULL,    -- 'promote' | 'demote' | 'flag' | 'unflag' | 'delete' | 'purge'
+    actor TEXT,              -- 'boss' for v0.1; future: user id
+    note TEXT,
+    request_id TEXT,
+    pre_state TEXT,          -- JSON snapshot of relevant fields before the edit
+    post_state TEXT          -- JSON snapshot after
+);
+CREATE INDEX IF NOT EXISTS idx_edits_target ON image_archive_edits(target_image_id);
+CREATE INDEX IF NOT EXISTS idx_edits_ts     ON image_archive_edits(ts);
+CREATE INDEX IF NOT EXISTS idx_edits_action ON image_archive_edits(action);
 """
 
 
@@ -853,3 +907,371 @@ class GuardianDB:
             except (ValueError, OSError) as exc:
                 log.warning("Could not process backup file %s: %s", f.name, exc)
         return removed
+
+    # ------------------------------------------------------------------
+    # Image archive (v2.25.0) — read + mutate helpers backing /api/v1/images/*.
+    # Public read helpers always filter has_concerns = 0; the `_review` variants
+    # expose everything for the Boss-only review UI. Mutations take an
+    # `_editing=True` path that writes both the target row and an audit row
+    # inside a single BEGIN IMMEDIATE transaction.
+    # ------------------------------------------------------------------
+
+    _IMG_PUBLIC_COLS = (
+        "id, camera_id, ts, image_path, image_tier, sha256, width, height, "
+        "scene, bird_count, activity, lighting, composition, image_quality, "
+        "share_worth, any_special_chick, apparent_age_days, "
+        "individuals_visible_csv, vlm_json"
+    )
+
+    def _img_row_to_dict(self, row: sqlite3.Row) -> dict:
+        """Shape a raw image_archive row into the API's public row dict.
+        Parses caption_draft + share_reason + individuals_visible out of
+        vlm_json; normalizes apparent_age_days sentinel -1 → None; always
+        omits concerns[] even if present in vlm_json (defense-in-depth #3)."""
+        d = dict(row)
+        vlm_raw = d.pop("vlm_json", None) or "{}"
+        try:
+            vlm = json.loads(vlm_raw)
+        except (ValueError, TypeError):
+            vlm = {}
+        # Never surface concerns on a public shape. caption_draft + share_reason
+        # are safe per plan §2.a JSON contract (surface on list) but the caller
+        # can strip share_reason too if they want §1.c's stricter reading.
+        d["caption_draft"] = vlm.get("caption_draft", "") or ""
+        d["share_reason"] = vlm.get("share_reason", "") or ""
+        # Normalize individuals_visible: prefer denormalized CSV, fall back to
+        # the JSON list if CSV is missing. Empty string → empty list.
+        csv = d.pop("individuals_visible_csv", None) or ""
+        if csv:
+            d["individuals_visible"] = [s for s in csv.split(",") if s]
+        else:
+            d["individuals_visible"] = list(vlm.get("individuals_visible", []) or [])
+        # Sentinel: -1 means "n/a"; normalize to None for the type contract.
+        if d.get("apparent_age_days") == -1:
+            d["apparent_age_days"] = None
+        # any_special_chick is 0/1 in the DB; publish as bool.
+        d["any_special_chick"] = bool(d.get("any_special_chick", 0))
+        return d
+
+    def _img_row_to_review_dict(self, row: sqlite3.Row) -> dict:
+        """Shape a raw image_archive row into the review UI's full dict.
+        Includes concerns[], vlm_json (raw), has_concerns. Only ever returned
+        behind bearer auth."""
+        d = self._img_row_to_dict(row)
+        raw = dict(row)
+        try:
+            vlm = json.loads(raw.get("vlm_json") or "{}")
+        except (ValueError, TypeError):
+            vlm = {}
+        d["concerns"] = list(vlm.get("concerns", []) or [])
+        d["has_concerns"] = bool(raw.get("has_concerns", 0))
+        d["vlm_json"] = raw.get("vlm_json")
+        d["retained_until"] = raw.get("retained_until")
+        return d
+
+    @staticmethod
+    def _individuals_clause(values: list[str]) -> tuple[str, list[str]]:
+        """Build a safe CSV-contains OR-joined WHERE clause for
+        individuals_visible_csv. Uses the ',csv,' LIKE '%,name,%' idiom so a
+        name like 'adult' doesn't collide with 'adult-survivor'."""
+        if not values:
+            return "", []
+        parts = ["',' || IFNULL(individuals_visible_csv,'') || ',' LIKE '%,' || ? || ',%'"] * len(values)
+        return "(" + " OR ".join(parts) + ")", list(values)
+
+    def query_images(
+        self,
+        *,
+        tiers: Optional[list[str]] = None,         # e.g. ['strong'] or ['strong','decent']
+        cameras: Optional[list[str]] = None,
+        scenes: Optional[list[str]] = None,
+        activities: Optional[list[str]] = None,
+        individuals: Optional[list[str]] = None,
+        since_iso: Optional[str] = None,
+        until_iso: Optional[str] = None,
+        include_concerns: bool = False,            # True only for /review/queue
+        only_concerns: bool = False,               # /review/queue with switch
+        only_unreviewed: bool = False,             # /review/queue with switch
+        require_image_path: bool = True,           # public endpoints exclude NULL paths
+        order: str = "newest",                     # 'newest' | 'oldest' | 'random'
+        cursor_ts: Optional[str] = None,
+        cursor_id: Optional[int] = None,
+        limit: int = 24,
+    ) -> list[sqlite3.Row]:
+        """Single parameterized query backing /gems, /recent, /review/queue."""
+        wheres: list[str] = []
+        params: list = []
+
+        if tiers:
+            wheres.append("image_tier IN (" + ",".join("?" * len(tiers)) + ")")
+            params.extend(tiers)
+        if cameras:
+            wheres.append("camera_id IN (" + ",".join("?" * len(cameras)) + ")")
+            params.extend(cameras)
+        if scenes:
+            wheres.append("scene IN (" + ",".join("?" * len(scenes)) + ")")
+            params.extend(scenes)
+        if activities:
+            wheres.append("activity IN (" + ",".join("?" * len(activities)) + ")")
+            params.extend(activities)
+        if individuals:
+            clause, vals = self._individuals_clause(individuals)
+            if clause:
+                wheres.append(clause)
+                params.extend(vals)
+        if since_iso:
+            wheres.append("ts >= ?")
+            params.append(since_iso)
+        if until_iso:
+            wheres.append("ts <= ?")
+            params.append(until_iso)
+        if require_image_path:
+            wheres.append("image_path IS NOT NULL")
+        if not include_concerns:
+            wheres.append("has_concerns = 0")
+        elif only_concerns:
+            wheres.append("has_concerns = 1")
+        if only_unreviewed:
+            wheres.append("id NOT IN (SELECT target_image_id FROM image_archive_edits)")
+
+        # Cursor pagination — (ts, id) lexicographic compare.
+        if cursor_ts is not None and cursor_id is not None and order in ("newest", "oldest"):
+            cmp = "<" if order == "newest" else ">"
+            wheres.append(f"(ts {cmp} ? OR (ts = ? AND id {cmp} ?))")
+            params.extend([cursor_ts, cursor_ts, cursor_id])
+
+        where_sql = ("WHERE " + " AND ".join(wheres)) if wheres else ""
+        if order == "random":
+            order_sql = "ORDER BY RANDOM()"
+        elif order == "oldest":
+            order_sql = "ORDER BY ts ASC, id ASC"
+        else:
+            order_sql = "ORDER BY ts DESC, id DESC"
+
+        sql = f"""SELECT * FROM image_archive {where_sql} {order_sql} LIMIT ?"""
+        params.append(limit)
+        rows = self._conn.execute(sql, params).fetchall()
+        return rows
+
+    def count_images(
+        self,
+        *,
+        tiers: Optional[list[str]] = None,
+        cameras: Optional[list[str]] = None,
+        scenes: Optional[list[str]] = None,
+        activities: Optional[list[str]] = None,
+        individuals: Optional[list[str]] = None,
+        since_iso: Optional[str] = None,
+        until_iso: Optional[str] = None,
+        include_concerns: bool = False,
+        only_concerns: bool = False,
+        only_unreviewed: bool = False,
+        require_image_path: bool = True,
+        cap: int = 10000,
+    ) -> tuple[int, bool]:
+        """Cheap count bounded at `cap`. Returns (count, estimated).
+        estimated=True means the true count is >= cap and we stopped
+        counting to keep the hot path fast."""
+        wheres: list[str] = []
+        params: list = []
+        if tiers:
+            wheres.append("image_tier IN (" + ",".join("?" * len(tiers)) + ")")
+            params.extend(tiers)
+        if cameras:
+            wheres.append("camera_id IN (" + ",".join("?" * len(cameras)) + ")")
+            params.extend(cameras)
+        if scenes:
+            wheres.append("scene IN (" + ",".join("?" * len(scenes)) + ")")
+            params.extend(scenes)
+        if activities:
+            wheres.append("activity IN (" + ",".join("?" * len(activities)) + ")")
+            params.extend(activities)
+        if individuals:
+            clause, vals = self._individuals_clause(individuals)
+            if clause:
+                wheres.append(clause)
+                params.extend(vals)
+        if since_iso:
+            wheres.append("ts >= ?")
+            params.append(since_iso)
+        if until_iso:
+            wheres.append("ts <= ?")
+            params.append(until_iso)
+        if require_image_path:
+            wheres.append("image_path IS NOT NULL")
+        if not include_concerns:
+            wheres.append("has_concerns = 0")
+        elif only_concerns:
+            wheres.append("has_concerns = 1")
+        if only_unreviewed:
+            wheres.append("id NOT IN (SELECT target_image_id FROM image_archive_edits)")
+        where_sql = ("WHERE " + " AND ".join(wheres)) if wheres else ""
+        sql = f"SELECT COUNT(*) FROM (SELECT 1 FROM image_archive {where_sql} LIMIT ?) t"
+        params.append(cap)
+        (n,) = self._conn.execute(sql, params).fetchone()
+        return int(n), int(n) >= cap
+
+    def get_image(self, image_id: int) -> Optional[sqlite3.Row]:
+        """Fetch one row by id; returns None if missing. Caller applies
+        has_concerns / share_worth / image_path NULL checks per endpoint."""
+        row = self._conn.execute(
+            "SELECT * FROM image_archive WHERE id = ?", (image_id,)
+        ).fetchone()
+        return row
+
+    def get_related_gems(self, image_id: int, limit: int = 4) -> list[sqlite3.Row]:
+        """Up to `limit` other strong-tier gem IDs from the same camera
+        within a ±2h window, excluding image_id itself. Powers /gems/{id}.related."""
+        base = self.get_image(image_id)
+        if base is None:
+            return []
+        rows = self._conn.execute(
+            """SELECT * FROM image_archive
+               WHERE camera_id = ?
+                 AND id <> ?
+                 AND share_worth = 'strong'
+                 AND has_concerns = 0
+                 AND image_path IS NOT NULL
+                 AND ts BETWEEN datetime(?, '-2 hours') AND datetime(?, '+2 hours')
+               ORDER BY ABS(julianday(ts) - julianday(?)) ASC
+               LIMIT ?""",
+            (base["camera_id"], image_id, base["ts"], base["ts"], base["ts"], limit),
+        ).fetchall()
+        return rows
+
+    def get_image_stats(self, since_iso: str, until_iso: str) -> dict:
+        """Aggregate counts for the /stats endpoint. All counts filter
+        has_concerns = 0 (these are public stats, not the full dataset)."""
+        base = "FROM image_archive WHERE has_concerns = 0 AND ts >= ? AND ts <= ?"
+        p = (since_iso, until_iso)
+        c = self._conn.execute
+        total = c(f"SELECT COUNT(*) {base}", p).fetchone()[0]
+        by_tier = {r[0]: r[1] for r in c(f"SELECT image_tier, COUNT(*) {base} GROUP BY image_tier", p).fetchall()}
+        by_camera = {r[0]: r[1] for r in c(f"SELECT camera_id, COUNT(*) {base} GROUP BY camera_id", p).fetchall()}
+        by_scene = {r[0]: r[1] for r in c(f"SELECT scene, COUNT(*) {base} GROUP BY scene", p).fetchall() if r[0]}
+        by_activity = {r[0]: r[1] for r in c(f"SELECT activity, COUNT(*) {base} GROUP BY activity", p).fetchall() if r[0]}
+        birdadette = c(
+            f"SELECT COUNT(*) {base} AND ',' || IFNULL(individuals_visible_csv,'') || ',' LIKE '%,birdadette,%'",
+            p,
+        ).fetchone()[0]
+        # oldest / newest ignore the since/until bounds — they describe the
+        # dataset as a whole so the caller can tell whether the pipeline is alive.
+        oldest = c("SELECT MIN(ts) FROM image_archive WHERE has_concerns = 0").fetchone()[0]
+        newest = c("SELECT MAX(ts) FROM image_archive WHERE has_concerns = 0").fetchone()[0]
+        return {
+            "range": {"since": since_iso, "until": until_iso},
+            "total_rows": int(total),
+            "by_tier": by_tier,
+            "by_camera": by_camera,
+            "by_scene": by_scene,
+            "by_activity": by_activity,
+            "birdadette_sightings": int(birdadette),
+            "oldest_ts": oldest,
+            "newest_ts": newest,
+        }
+
+    def count_all_images(self) -> int:
+        """Total rows (unfiltered) — used only by /ping for liveness signal."""
+        return int(self._conn.execute("SELECT COUNT(*) FROM image_archive").fetchone()[0])
+
+    def get_edits(
+        self,
+        *,
+        since_iso: Optional[str] = None,
+        until_iso: Optional[str] = None,
+        action: Optional[str] = None,
+        cursor_ts: Optional[str] = None,
+        cursor_id: Optional[int] = None,
+        limit: int = 50,
+    ) -> list[dict]:
+        wheres: list[str] = []
+        params: list = []
+        if since_iso:
+            wheres.append("ts >= ?"); params.append(since_iso)
+        if until_iso:
+            wheres.append("ts <= ?"); params.append(until_iso)
+        if action:
+            wheres.append("action = ?"); params.append(action)
+        if cursor_ts is not None and cursor_id is not None:
+            wheres.append("(ts < ? OR (ts = ? AND id < ?))")
+            params.extend([cursor_ts, cursor_ts, cursor_id])
+        where_sql = ("WHERE " + " AND ".join(wheres)) if wheres else ""
+        sql = f"""SELECT * FROM image_archive_edits {where_sql}
+                  ORDER BY ts DESC, id DESC LIMIT ?"""
+        params.append(limit)
+        rows = self._conn.execute(sql, params).fetchall()
+        return [dict(r) for r in rows]
+
+    def apply_review_action(
+        self,
+        *,
+        image_id: int,
+        action: str,               # 'promote' | 'demote' | 'flag' | 'unflag' | 'delete'
+        actor: str = "boss",
+        note: Optional[str] = None,
+        request_id: Optional[str] = None,
+        new_share_worth: Optional[str] = None,
+        new_has_concerns: Optional[int] = None,
+        new_vlm_json: Optional[str] = None,
+        new_image_path_null: bool = False,
+    ) -> dict:
+        """Apply one review mutation to the target row + write an audit row,
+        both inside a single BEGIN IMMEDIATE transaction. Returns {pre, post}
+        dicts so the caller can report what changed (and reverse FS ops on a
+        partial failure).
+
+        The caller is responsible for hardlink / unlink FS work BEFORE calling
+        this, so that if the DB commit fails the FS and DB can be reconciled.
+        This method does NOT touch the filesystem."""
+        with self._lock:
+            pre_row = self._conn.execute(
+                "SELECT id, share_worth, has_concerns, image_path, vlm_json "
+                "FROM image_archive WHERE id = ?",
+                (image_id,),
+            ).fetchone()
+            if pre_row is None:
+                raise KeyError(f"image {image_id} not found")
+
+            pre_state = {
+                "share_worth": pre_row["share_worth"],
+                "has_concerns": pre_row["has_concerns"],
+                "image_path": pre_row["image_path"],
+            }
+            post_state = dict(pre_state)
+
+            sets: list[str] = []
+            params: list = []
+            if new_share_worth is not None:
+                sets.append("share_worth = ?"); params.append(new_share_worth)
+                post_state["share_worth"] = new_share_worth
+            if new_has_concerns is not None:
+                sets.append("has_concerns = ?"); params.append(new_has_concerns)
+                post_state["has_concerns"] = new_has_concerns
+            if new_vlm_json is not None:
+                sets.append("vlm_json = ?"); params.append(new_vlm_json)
+            if new_image_path_null:
+                sets.append("image_path = NULL")
+                post_state["image_path"] = None
+
+            try:
+                self._conn.execute("BEGIN IMMEDIATE")
+                if sets:
+                    self._conn.execute(
+                        f"UPDATE image_archive SET {', '.join(sets)} WHERE id = ?",
+                        (*params, image_id),
+                    )
+                self._conn.execute(
+                    """INSERT INTO image_archive_edits
+                       (target_image_id, action, actor, note, request_id,
+                        pre_state, post_state)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        image_id, action, actor, note, request_id,
+                        json.dumps(pre_state), json.dumps(post_state),
+                    ),
+                )
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+            return {"pre": pre_state, "post": post_state}

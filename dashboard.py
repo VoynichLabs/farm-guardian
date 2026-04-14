@@ -38,13 +38,16 @@ STATIC_DIR = Path(__file__).parent / "static"
 def create_app() -> FastAPI:
     app = FastAPI(title="Farm Guardian", docs_url=None, redoc_url=None)
 
-    # Allow farm site to call Guardian API (PTZ controls, etc.)
+    # Allow farm site to call Guardian API (PTZ controls, image archive, etc.).
+    # v2.25.0 widened this: DELETE is needed for /api/v1/images/review/{id};
+    # Authorization + If-None-Match are needed for bearer auth and ETag 304s.
+    # `http://localhost:3000` stays in for farm-2026 local dev per the cross-repo plan.
     from fastapi.middleware.cors import CORSMiddleware
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["https://farm.markbarney.net"],
-        allow_methods=["GET", "POST"],
-        allow_headers=["Content-Type"],
+        allow_origins=["https://farm.markbarney.net", "http://localhost:3000"],
+        allow_methods=["GET", "POST", "DELETE"],
+        allow_headers=["Content-Type", "Authorization", "If-None-Match"],
     )
 
     # Serve static files (JS, CSS)
@@ -631,11 +634,13 @@ def start_dashboard(service, config: dict, config_path: str = "config.json",
 
     app = create_app()
 
-    # Register the v1 REST API for LLM tool access (Phase 4)
+    # Register the v1 REST API for LLM tool access (Phase 4).
+    # v2.25.0: pass `config` through so register_api can also mount the
+    # /api/v1/images/* router with GUARDIAN_REVIEW_TOKEN + data_root.
     if db and reports:
         try:
             from api import register_api
-            register_api(app, service, db, reports)
+            register_api(app, service, db, reports, config=config)
         except Exception as exc:
             log.error("Failed to register API v1: %s", exc)
 
