@@ -2,6 +2,20 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.24.1] - 2026-04-13
+
+### Fixed — Cloudflare tunnel: switched `--protocol http2` → `quic` to stop stream-closed drops (Claude Opus 4.6)
+
+**Symptom Boss reported:** "frontend hosted on Railway still shows GWTC is down, but `localhost:6530` shows it is up and working just fine." All five cameras reported `online: true` and `capturing: true` in `/api/status` locally, and local `/api/cameras/{name}/frame` returned healthy JPEGs in ~2 ms flat. Through the Cloudflare tunnel at `https://guardian.markbarney.net` the same endpoints intermittently stalled or returned curl exit 28 (no response within 5 s). The farm-2026 frontend polls every 1.2 s and flips a feed to "OFFLINE" after 10 consecutive misses — exactly what was happening, especially for `gwtc` whose larger JPEG responses hit the failure mode more often.
+
+**Root cause:** the Mac Mini's `~/Library/LaunchAgents/com.cloudflare.tunnel.farm-guardian.plist` ran `cloudflared` with an explicit `--protocol http2`. The tunnel's `/tmp/cloudflared-guardian.log` was flooded with repeated `ERR error="http2: stream closed"` and `ERR error="context canceled"` on connIndex=2 (and all other conns), every few seconds. The http2 protocol mode in cloudflared has known stability issues under sustained load — streams get closed mid-response by one side or the other and the request never completes. A kickstart restart only moved the needle from 1/5 to 3/10 success, confirming it wasn't a stale-state hang.
+
+**Fix:** edited the plist `--protocol` argument from `http2` to `quic` (cloudflared's modern default) and reloaded the LaunchAgent. After the reload, four tunnel connections registered with `protocol=quic` to IAD edge. Verification: 10/10 `/api/status` probes green, and 5/5 `/api/cameras/{name}/frame` probes green for each of `house-yard`, `s7-cam`, `usb-cam`, `gwtc`, and `mba-cam`. The backend never changed; only the tunnel transport did.
+
+**Canonical copy committed:** the fixed plist is now at `deploy/mac-mini/com.cloudflare.tunnel.farm-guardian.plist` (token redacted — farm-guardian is public) alongside a `README.md` covering reload and health-check commands. Matches the pattern set by `deploy/macbook-air/` and `deploy/gwtc/`.
+
+**Durable lesson:** Don't flip the tunnel back to http2. If a future agent sees cameras flapping offline on the Railway frontend while Guardian local endpoints are healthy, the first thing to check is `/tmp/cloudflared-guardian.log` for `stream closed` / `context canceled` spam — that's the signature of this failure mode and it will say exactly where to look.
+
 ## [2.24.0] - 2026-04-13
 
 ### Added — `HttpUrlSnapshotSource`: generic HTTP `/photo.jpg` puller for S7 battery path (Claude Opus 4.6)
