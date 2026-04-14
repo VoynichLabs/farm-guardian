@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  usb-cam-host LaunchAgent. Runs as the logged-in user so AVFoundation can
+  surface a Camera TCC prompt on first launch (LaunchDaemons run as root,
+  cannot surface a user-visible TCC prompt, and cannot be granted user-scope
+  Camera access on modern macOS).
+
+  Install:
+    cp com.farmguardian.usb-cam-host.plist ~/Library/LaunchAgents/
+    launchctl unload ~/Library/LaunchAgents/com.farmguardian.usb-cam-host.plist 2>/dev/null
+    launchctl load  ~/Library/LaunchAgents/com.farmguardian.usb-cam-host.plist
+
+  Tailor per-host:
+    - ProgramArguments: point at the Python venv and the repo checkout on that box
+    - USB_CAM_PORT: keep 8089 unless it collides
+    - USB_CAM_DEVICE_INDEX: 0 unless the host has multiple cameras
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.farmguardian.usb-cam-host</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/macmini/Documents/GitHub/farm-guardian/venv/bin/python</string>
+        <string>/Users/macmini/Documents/GitHub/farm-guardian/tools/usb-cam-host/usb_cam_host.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/macmini/Documents/GitHub/farm-guardian</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>USB_CAM_PORT</key>
+        <string>8089</string>
+        <key>USB_CAM_DEVICE_INDEX</key>
+        <string>0</string>
+        <key>USB_CAM_WIDTH</key>
+        <string>1920</string>
+        <key>USB_CAM_HEIGHT</key>
+        <string>1080</string>
+        <key>USB_CAM_WARMUP</key>
+        <string>15</string>
+        <key>USB_CAM_JPEG_QUALITY</key>
+        <string>95</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/usb-cam-host.out.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/tmp/usb-cam-host.err.log</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>

@@ -2,6 +2,91 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.26.0] - 2026-04-14
+
+### Added — host-portable `usb-cam` via `tools/usb-cam-host/` (Claude Opus 4.6)
+
+Boss flagged that the `usb-cam` frames weren't clearing the quality bar in the pipeline (every recent `data/archive/2026-04/usb-cam/*.json` is `image_quality: "soft"`, Laplacian variance 14–50) and that he wants to be able to move the camera off the Mac Mini — onto the MacBook Air, onto the Gateway laptop, onto "literally any device." The old wiring assumed the camera was physically attached to the host running Guardian (`snapshot_method: "usb"` → AVFoundation device index 0, macOS-only), which blocked that move.
+
+**New service: `tools/usb-cam-host/usb_cam_host.py`.** FastAPI + OpenCV, ~200 lines. Exposes `GET /photo.jpg` (single warmed-up JPEG; 15-frame warmup lets AE/AWB converge under the heat lamp — materially longer than the prior 5×80ms pipeline warmup) and `GET /health` (open-read-release probe with negotiated resolution). Uses `cv2.VideoCapture(index)` with no backend flag so OpenCV auto-selects AVFoundation on macOS, dshow on Windows, V4L2 on Linux — this is the one-line portability fix that dropping `cv2.CAP_AVFOUNDATION` from the old `capture_usb` path enables. Single-in-flight asyncio lock so two simultaneous consumers don't deadlock the kernel driver against the same device index. Configured via env vars (port, device index, resolution, warmup, JPEG quality).
+
+**No Laplacian frame ranking inside the service.** Boss reiterated today that he doesn't trust the Laplacian-vs-GLM-sharpness calibration. The pipeline plan (`docs/13-Apr-2026-multi-cam-image-pipeline-plan.md` §Trivial Gate) already notes Laplacian is a ranking signal only. The service warms the camera and returns a single frame; it does not burst-rank. If a future consumer wants to rank, it can request multiple frames and rank externally.
+
+**Deploy artifacts: `deploy/usb-cam-host/`.**
+- `requirements.txt` — FastAPI, Uvicorn, opencv-python, NumPy. Pinned versions.
+- `com.farmguardian.usb-cam-host.plist` — macOS LaunchAgent (user-scope, not LaunchDaemon — AVFoundation Camera TCC is a per-user grant and LaunchDaemons can't surface prompts). Installed into `~/Library/LaunchAgents/` on the Mini today; same file copies cleanly to the MBA.
+- `start-usb-cam-host.bat` — Windows startup script mirroring `deploy/gwtc/start-camera.bat`. Intended to be Shawl-wrapped the same way the existing `farmcam` and `farmcam-watchdog` services are.
+- `install-macos.md` + `install-windows.md` — per-platform install, TCC walkthrough, smoke-test recipes (health + `/photo.jpg` + Laplacian-variance-for-diagnostics).
+
+**Config changes — `usb-cam` consumer rewiring (both ends, Mini-host bring-up):**
+- `config.json` (Guardian): `usb-cam` block switched from `snapshot_method: "usb"` + `device_index`/`resolution`/`autofocus`/`auto_wb`/`warmup_frames` to `snapshot_method: "http_url"` + `http_base_url: "http://192.168.0.71:8089"` + `http_photo_path: "/photo.jpg"` + `http_trigger_focus: false`. Guardian already had `HttpUrlSnapshotSource` (v2.24.0, `capture.py:537`) and its dispatch in `guardian.py:398`; **no Guardian code changed** — only config.
+- `tools/pipeline/config.json`: `usb-cam` block switched from `capture_method: "usb_avfoundation"` + `device_index`/`warmup_frames`/`resolution` to `capture_method: "ip_webcam"` + `ip_webcam_base: "http://192.168.0.71:8089"`. The pipeline already had `capture_ip_webcam` (`tools/pipeline/capture.py:134`) for the S7 path; **no pipeline code changed** — only config.
+- `config.example.json` — `usb-cam` example block updated to match, with `192.168.0.XXX` as the placeholder host so future copies don't silently point at the Mini.
+
+**Moving the camera later** is now: plug into the new host → install the LaunchAgent (macOS) or Shawl-wrap the `.bat` (Windows) → change `http_base_url` and `ip_webcam_base` in the two config files on the Mini → restart Guardian and the pipeline orchestrator → update `HARDWARE_INVENTORY.md`'s `usb-cam` row.
+
+**Explicit non-goals** (from the plan doc's Scope-out):
+- Physical positioning. The `2026-04-14T17-14-49` sample shows a chick standing on the lens under a blown-out heat lamp. The service will deliver the best frame the camera is physically capable of — not a better one. Standoff, cowl, and heat-lamp angle are Boss's to solve.
+- Sharpness-based ranking inside the service (Boss's distrust of Laplacian-vs-GLM).
+- Auth / TLS — LAN-only, same trust model as the MBA and GWTC MediaMTX services.
+- Replacing `mba-cam` or `gwtc` — those are built-in webcams streaming RTSP; this is a separate portable external USB camera.
+
+**Plan doc:** `docs/14-Apr-2026-portable-usb-cam-host-plan.md` — full scope/architecture/TODOs/verification/risks.
+
+**Operational note for future agents.** During today's flip, immediately after the house had a brief power outage mid-session, the existing `com.farm.guardian` LaunchAgent started failing to exec with `posix_spawn ... Operation not permitted` — NOT caused by any config or code change in this release (the brand-new `com.farmguardian.usb-cam-host` agent installed today uses the same `venv/bin/python` and starts cleanly). Guardian is currently running via `nohup ./venv/bin/python guardian.py` on the Mini; a reboot or a System Settings → Privacy & Security → App Management re-approval is likely the cleanest restore path for the `com.farm.guardian` agent. Independent of this release.
+
+---
+
+## [2.25.0] - 2026-04-14
+
+### Added — `/api/v1/images/*` REST surface for the image archive (Claude Opus 4.6)
+
+farm-2026's frontend developer is blocked on this: they want to ship a `/gallery/gems` page, a homepage "Latest from the Flock" rail, and a Birdadette retrospective that all pull from the image-archive dataset the pipeline has been filling since v2.23.0. Today that dataset lives only on the Mini's filesystem. This release exposes it over the Cloudflare tunnel.
+
+**New public endpoints** (no auth; every SQL query filters `has_concerns = 0` as the first predicate; response models omit `concerns` / `vlm_json`):
+
+- `GET /api/v1/images/ping` — tiny liveness endpoint, reports row count. Used by the plan doc's Phase-0 tunnel verification (`curl https://guardian.markbarney.net/api/v1/images/ping`).
+- `GET /api/v1/images/gems` — list `share_worth='strong'` rows, newest first. Filters: `camera` (repeatable), `scene`, `activity`, `individual`, `since`, `until`, `order` (`newest`|`oldest`|`random`). Cursor pagination; `limit` ≤ 100 (default 24).
+- `GET /api/v1/images/gems/{id}` — single gem + up to 4 related gem IDs from the same camera within ±2h.
+- `GET /api/v1/images/gems/{id}/image?size=thumb|1920|full` — JPEG bytes. Thumbnails generated lazily via Pillow and cached under `data/cache/thumbs/{sha256}-{size}.jpg`. `ETag`-backed `If-None-Match` → 304.
+- `GET /api/v1/images/recent` — same shape as `/gems`, tier-in `{strong, decent}` by default. Adds `image_tier` per row.
+- `GET /api/v1/images/stats` — aggregate counts for badges and hero copy (per-tier, per-camera, per-scene, per-activity, Birdadette sightings, oldest/newest ts).
+
+**New private endpoints** (require `Authorization: Bearer $GUARDIAN_REVIEW_TOKEN`; return `503` if the env var is unset — review endpoints just go dark, the rest of the service stays up):
+
+- `GET /api/v1/images/review/queue` — full queue including `has_concerns=1` + `tier=skip`, with `only_concerns` / `only_unreviewed` switches.
+- `POST /api/v1/images/review/{id}/promote` — set `share_worth='strong'`, hardlink archive JPEG into `data/gems/`, audit the action.
+- `POST /api/v1/images/review/{id}/demote` — set `share_worth='skip'`, unlink from `data/gems/`, audit.
+- `POST /api/v1/images/review/{id}/flag` — append `note` to `vlm_json.concerns[]`, set `has_concerns=1`, hardlink into `data/private/`, audit. Row vanishes from every public endpoint atomically.
+- `POST /api/v1/images/review/{id}/unflag` — clear `concerns[]`, unset `has_concerns`, unlink from `data/private/`, audit. Row returns to public visibility per its `share_worth`.
+- `DELETE /api/v1/images/review/{id}` — unlink JPEG + sidecar + all hardlinks, set `image_path=NULL`, keep the row for audit, log `action='delete'`.
+- `GET /api/v1/images/review/edits` — read the audit log with `since` / `until` / `action` filters.
+
+**Schema changes** (`database.py`):
+- Added `image_archive` DDL to `_SCHEMA_SQL` (duplicated from `tools/pipeline/store.py` with `CREATE TABLE IF NOT EXISTS` idempotency, so the image API works on fresh installs where the pipeline hasn't run yet). Both sides kept in sync; schema is stable.
+- Added `image_archive_edits` table: `(id, target_image_id → image_archive(id), ts, action, actor, note, request_id, pre_state, post_state)` with indexes on `target_image_id`, `ts`, `action`. Powers the audit log that's load-bearing for the "if something leaked publicly, prove exactly when and how" requirement.
+
+**Defense-in-depth against `concerns[]` leaks** per the cross-repo plan §1.g:
+1. **Query** — every public SQL has `WHERE has_concerns = 0` as the first predicate.
+2. **Type** — public response models omit `concerns`, `has_concerns`, `vlm_json`. Only the review-queue and review endpoints return those.
+3. **Route** — `/gems/{id}` also 404s on `has_concerns=1`, even though URL-guessing should already be defused by (1) and (2). Verified by flag/unflag round-trip test.
+
+**Mutation correctness**: review endpoints are filesystem-first, DB-last. `os.link` / `Path.unlink(missing_ok=True)` happen before `BEGIN IMMEDIATE`; the DB transaction commits only after the FS is consistent. On DB rollback, the FS ops are best-effort reversed. Matches the pipeline-side pattern in `tools/pipeline/store.py:174-197`.
+
+**New modules:**
+- `images_api.py` (13 routes) — HTTP layer only, no SQL, no FS except delegating to thumb module.
+- `images_auth.py` — `require_review_token` FastAPI dependency (constant-time compare via `hmac.compare_digest`).
+- `images_thumb.py` — Pillow thumbnail generation + `data/cache/thumbs/` cache + ETag/If-None-Match plumbing + 1×1 placeholder JPEG for post-retention rows (plan §F6).
+
+**Wiring:**
+- `api.py:register_api` now takes an optional `config` arg; it instantiates the images router and plumbs `GUARDIAN_REVIEW_TOKEN` into the auth dependency at mount time.
+- `dashboard.py` widens CORS to include `DELETE`, `Authorization`, `If-None-Match`, and `http://localhost:3000` (farm-2026 dev). Passes `config` through to `register_api`.
+- `guardian.py:load_config` overlays `GUARDIAN_REVIEW_TOKEN` from env var using the same pattern as `EBIRD_API_KEY` / `DISCORD_WEBHOOK_URL`.
+
+**Not in this release** (explicitly v0.2 per plan doc): `caption_overrides` table, FTS `/search`, server-side Birdadette bucketing, Instagram autofeed, in-process rate limiter (delegated to Cloudflare edge).
+
+**Plan:** `docs/14-Apr-2026-image-archive-api-plan.md` (backend-internal); cross-repo plan in farm-2026 is `docs/14-Apr-2026-image-archive-dataset-and-frontend-plan.md` (commit `ce946c2`).
+
 ## [2.24.2] - 2026-04-14
 
 ### Cutover — s7-cam flipped from RTSP to `http_url`, IP Webcam installed fresh on the S7 (Claude Opus 4.6)
