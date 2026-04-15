@@ -2,6 +2,16 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.27.3] - 2026-04-15
+
+### Changed — `gwtc` pipeline cadence: 600s → 60s (Claude Opus 4.6)
+
+Boss's call. Five frames every ten minutes was far too sparse for what the coop camera was meant to do — he was watching the live feed and noticing the image only refreshed on the burst boundary. `tools/pipeline/config.json` `gwtc.cycle_seconds` dropped from `600` → `60`; `burst_size` (5) and `burst_interval_seconds` (0.5) unchanged. New archival rate: 5 frames/min, ~300/hr. Orchestrator restarted to pick up the new cadence (log confirms `gwtc: scheduled first cycle in 50s (cadence 60s)`). Retention policy unchanged — 90 days for strong/decent, so disk footprint grows 10× on this one camera.
+
+Separately: noted that the Guardian live-RTSP capture for `gwtc` is dropping and reconnecting roughly every 10 minutes (`frame read failed, reconnecting` at 17:48:13 and 17:59:49 in `guardian.log`). That's a separate bug from the pipeline cadence — flagged for follow-up, not fixed here.
+
+---
+
 ## [2.27.2] - 2026-04-15
 
 ### Removed — `mba-cam` decommissioned; MBA repurposed (Claude Opus 4.6)
