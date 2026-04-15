@@ -2,6 +2,20 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.27.1] - 2026-04-14
+
+### Fixed — `mba-cam` / `gwtc` dashboard tiles felt stuck (Claude Opus 4.6)
+
+Boss reported the MacBook Air camera tile updating "really slow." Root cause: `guardian.py:441` defaults `snapshot_interval` to **10.0 s** for any camera with `detection_enabled: false`. `mba-cam` and `gwtc` both inherit that default — their RTSP capture loops push a new frame to the ring buffer only every 10 s, so the dashboard tile never feels live even though the underlying RTSP stream is fine.
+
+Fix — explicit `"snapshot_interval": 2.0` on both cameras in `config.example.json` (and mirrored on the live Mini `config.json`, which is gitignored). Guardian restarted; log now reads `Capture started for 'mba-cam' — interval=2.0s` and `'gwtc' — interval=2.0s`. Verified live: six consecutive `/api/cameras/mba-cam/frame` pulls 3 s apart now return six unique frame hashes (were all identical before).
+
+Did **not** change the default in `guardian.py:441` itself — 10 s may be intentionally conservative on other deployments. Overriding per-camera is the right granularity.
+
+`usb-cam` already poll-via-http at 5 s cadence (snapshot source, not RTSP) — unaffected. `house-yard` has `detection_enabled: true` so it uses the global `detection.frame_interval_seconds` — unaffected. `s7-cam` is 5 s snapshot — unaffected.
+
+---
+
 ## [2.27.0] - 2026-04-14
 
 ### Changed — `usb-cam-host` is now continuous-capture (Claude Opus 4.6)

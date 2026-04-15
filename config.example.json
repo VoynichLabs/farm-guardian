@@ -55,6 +55,7 @@
       "type": "fixed",
       "rtsp_transport": "tcp",
       "rtsp_url_override": "rtsp://192.168.0.ZZZ:8554/gwtc",
+      "snapshot_interval": 2.0,
       "detection_enabled": false
     },
     {
@@ -66,6 +67,7 @@
       "type": "fixed",
       "rtsp_transport": "tcp",
       "rtsp_url_override": "rtsp://192.168.0.WWW:8554/mba-cam",
+      "snapshot_interval": 2.0,
       "detection_enabled": false
     }
   ],
