@@ -2,6 +2,34 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.27.0] - 2026-04-14
+
+### Changed — `usb-cam-host` is now continuous-capture (Claude Opus 4.6)
+
+v2.26.x opened/warmed/released the camera on every `/photo.jpg` — 15-frame warmup → grab → release, ~3.4 s per request. With Guardian polling every 5 s the camera lived in a perpetual warmup cycle and AE/AWB never actually settled; request latency dominated the service.
+
+**New architecture.** A daemon grabber thread holds the camera open for the life of the service, reads frames at ~2 Hz (`USB_CAM_GRAB_INTERVAL`, default 0.5 s), and publishes the latest raw BGR frame into a lock-protected slot. Request handlers copy the latest frame out, apply WB, encode JPEG, and return.
+
+**Measured impact** (Mini, M4 Pro):
+- `/photo.jpg` latency: **3.4 s → ~75 ms** (45×). First three post-cutover calls: 102 ms, 77 ms, 74 ms.
+- Through-Guardian API latency (`/api/cameras/usb-cam/frame`): **~1 ms** (Guardian's ring buffer is already warm).
+- `latest_frame_age_ms` at health check: 74 ms. Frames are always <500 ms stale in steady state.
+
+**Side effects by design:**
+- AE/AWB stabilizes because the camera stays warm — no more cold-start exposure on every request. Expect sharper frames and more `strong`-tier VLM hits over time.
+- Request fan-in doesn't stall on camera I/O — only on the cheap WB + JPEG encode, which run in the default executor.
+- The grabber auto-reconnects on persistent read failures (`USB_CAM_READ_FAILURE_THRESHOLD`, default 5 consecutive). Camera unplug / USB glitch / dshow hiccup → up to 3 s reconnect, service stays up.
+- Frame max-age gating (`USB_CAM_MAX_FRAME_AGE`, default 5 s) returns 503 if the grabber stalls instead of serving something ancient.
+- `/health` now reports `grabber_alive`, `camera_open`, `latest_frame_age_ms`, `latest_frame_sequence`, `total_grabs`, `total_failures` — useful for external watchdogs and for the frontend dev to reason about tile freshness.
+
+**No consumer changes needed.** `HttpUrlSnapshotSource` (Guardian) and `capture_ip_webcam` (pipeline) both just hit `GET /photo.jpg` and get bytes back. Every client gets the latency improvement for free.
+
+**Cutover tonight:** USB webcam plugged back into the Mac Mini. Mini's `usb-cam-host` LaunchAgent reloaded with the v2.27 code. MBA's `usb-cam-host` LaunchAgent booted out and killed. Mini configs flipped `http://192.168.0.50:8089` → `http://192.168.0.71:8089`. Guardian + pipeline orchestrator restarted; both confirmed to be consuming the 60-s-cadence stream off the Mini again.
+
+**Guardian is running tonight under `nohup`.** The `com.farm.guardian` LaunchAgent has been in `posix_spawn: Operation not permitted` since this morning's power outage; the workaround from v2.26.0 onward is `nohup ./venv/bin/python guardian.py`. Verified live: 5 cameras active (`house-yard`, `s7-cam` [phone offline], `usb-cam`, `gwtc`, `mba-cam`); frame API returns 200s for all four online cameras.
+
+---
+
 ## [2.26.3] - 2026-04-14
 
 ### Tuned — brooder sample rate 3× + WB strength 0.8→0.5 for cute-bird pipeline (Claude Opus 4.6)
