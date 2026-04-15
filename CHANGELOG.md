@@ -2,6 +2,21 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.27.2] - 2026-04-15
+
+### Removed — `mba-cam` decommissioned; MBA repurposed (Claude Opus 4.6)
+
+Boss announced he's repurposing the MacBook Air 2013 for unrelated work. Fully disconnected the MBA from the camera network:
+
+- **Mini-side:** `mba-cam` entry removed from `config.json`; `mba-cam` entry in `tools/pipeline/config.json` set to `enabled: false` with an `enabled_note` for future re-activation (kept the block because the ffmpeg/MediaMTX recipe for that particular hardware is non-trivial — v1.16.3+ dyld-fails on Big Sur, 15 fps isn't a valid capture rate on FaceTime HD, etc., all documented in the config). Guardian + pipeline orchestrator restarted; Guardian log confirms `4 camera(s) active: house-yard, s7-cam, usb-cam, gwtc`.
+- **MBA-side:** `launchctl bootout` on all three farmguardian LaunchAgents (`com.farmguardian.mediamtx`, `com.farmguardian.mba-cam`, `com.farmguardian.usb-cam-host`). `pkill -9` on any stragglers. Plists left on disk at `~/Library/LaunchAgents/` and runtime tree left at `~/.local/farm-services/usb-cam-host/` — MBA can rejoin with a single `launchctl load` if Boss ever puts it back.
+
+`HARDWARE_INVENTORY.md`: the "Five Cameras" table header is now "Four Cameras (was five until 2026-04-15…)", the `mba-cam` row strike-through'd with a decommission note, the MBA "What Runs Where" entry zero'd out, the frame-flow diagram updated. "Last verified" stamp bumped.
+
+Did not delete the plists or the runtime — it's cheap to leave them and saves the next setup a reinstall.
+
+---
+
 ## [2.27.1] - 2026-04-14
 
 ### Fixed — `mba-cam` / `gwtc` dashboard tiles felt stuck (Claude Opus 4.6)
