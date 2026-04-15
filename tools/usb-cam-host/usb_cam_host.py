@@ -1,5 +1,5 @@
 # Author: Claude Opus 4.6 (1M context)
-# Date: 14-April-2026 (v2.27.0 — continuous-capture architecture)
+# Date: 15-April-2026 (v2.27.4 — heat-lamp WB + orange-desat tuning)
 # PURPOSE: Cross-platform HTTP snapshot service for the generic USB webcam.
 #          Exposes GET /photo.jpg returning the latest frame from a warm,
 #          continuously-running camera, and GET /health for liveness probes.
@@ -22,11 +22,13 @@
 #          Frame max-age gating (default 5 s) keeps us from serving stale
 #          frames if the grabber ever hangs — handler returns 503 instead.
 #
-#          Applies gray-world white balance before JPEG encode so the
-#          brooder's heat-lamp cast doesn't render the whole frame orange.
-#          Toggle via USB_CAM_AUTO_WB / USB_CAM_WB_STRENGTH; keeping the
-#          correction in the service means it moves with the camera to
-#          any host.
+#          Two-stage color correction before JPEG encode for heat-lamp
+#          brooder scenes: (1) gray-world WB at USB_CAM_WB_STRENGTH (default
+#          0.8) cools the global cast; (2) targeted orange-hue desaturation
+#          at USB_CAM_ORANGE_DESAT (default 0.75) pulls red out of the chicks
+#          specifically, because gray-world alone cannot recover blue light
+#          the heat lamp never emitted. /photo.jpg also accepts ?wb=X&os=Y
+#          query overrides for live A/B tuning without a service restart.
 # SRP/DRY check: Pass — single responsibility is "turn a local camera into
 #          a JPEG HTTP endpoint". No archiving, no detection, no consumer
 #          logic. Full plan: docs/14-Apr-2026-portable-usb-cam-host-plan.md
@@ -45,7 +47,7 @@ from typing import Optional
 
 import cv2
 import numpy as np
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse, Response
 
 # ---------------------------------------------------------------------------
@@ -74,12 +76,22 @@ READ_FAILURE_THRESHOLD = int(os.environ.get("USB_CAM_READ_FAILURE_THRESHOLD", "5
 
 # Gray-world white balance — removes the brooder heat-lamp's orange cast.
 # AUTO_WB=true enables; STRENGTH 0.0–1.0 blends between identity (0.0) and
-# full gray-world (1.0). 0.5 is tuned for a heat-lamp-lit brooder scene:
-# it removes the orange cast without swinging the frame cold. 0.8 over-
-# corrects — chicks go green. Raise back to 0.8 if the camera moves to
-# neutral light.
+# full gray-world (1.0). 0.8 is the current brooder tune: pairs with the
+# orange-hue desaturation pass below. Gray-world alone at 0.8 leaves chicks
+# looking orange because the scene's incident light really is tungsten-red —
+# the desat pass finishes the job by pulling orange saturation down on
+# specifically the orange-hue range so the chicks read as yellow/cream.
 AUTO_WB = os.environ.get("USB_CAM_AUTO_WB", "true").lower() in ("1", "true", "yes", "on")
-WB_STRENGTH = max(0.0, min(1.0, float(os.environ.get("USB_CAM_WB_STRENGTH", "0.5"))))
+WB_STRENGTH = max(0.0, min(1.0, float(os.environ.get("USB_CAM_WB_STRENGTH", "0.8"))))
+
+# Targeted orange-hue desaturation — gray-world can't recover blue light that
+# isn't there, so after WB we pull saturation on the orange hue band
+# (OpenCV H=5..30) down by this factor. 1.0 = off, 0.0 = fully desaturated.
+# 0.75 is tuned to chicks-under-heat-lamp: takes the "pumpkin" look off the
+# birds while leaving non-orange hues untouched.
+ORANGE_DESAT = max(0.0, min(1.0, float(os.environ.get("USB_CAM_ORANGE_DESAT", "0.75"))))
+ORANGE_HUE_LO = int(os.environ.get("USB_CAM_ORANGE_HUE_LO", "5"))
+ORANGE_HUE_HI = int(os.environ.get("USB_CAM_ORANGE_HUE_HI", "30"))
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -268,6 +280,22 @@ def _apply_gray_world_wb(frame: np.ndarray, strength: float) -> np.ndarray:
     return np.clip(corrected, 0, 255).astype(np.uint8)
 
 
+def _apply_orange_desat(frame: np.ndarray, factor: float, hue_lo: int, hue_hi: int) -> np.ndarray:
+    """Desaturate pixels whose hue falls in the orange band (OpenCV H in
+    [hue_lo, hue_hi], where full range is 0–180). Used after gray-world to
+    deal with heat-lamp scenes where the incident light is physically red:
+    gray-world can't synthesize blue that wasn't there, so the fix is to
+    pull saturation on the orange hues instead. factor=1.0 is a no-op;
+    factor=0.0 fully desaturates orange pixels to gray at their own value."""
+    if factor >= 1.0:
+        return frame
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV).astype(np.float32)
+    h = hsv[:, :, 0]
+    mask = (h >= hue_lo) & (h <= hue_hi)
+    hsv[:, :, 1][mask] *= factor
+    return cv2.cvtColor(np.clip(hsv, 0, 255).astype(np.uint8), cv2.COLOR_HSV2BGR)
+
+
 def _snapshot_latest() -> tuple[np.ndarray, int, int, float, int]:
     """Atomically copy out the latest frame. Raises HTTPException(503) if
     there is no frame yet or the frame is older than MAX_FRAME_AGE_S."""
@@ -341,15 +369,28 @@ async def health():
 
 
 @app.get("/photo.jpg")
-async def photo():
+async def photo(wb: Optional[float] = None, os_: Optional[float] = Query(default=None, alias="os")):
     t0 = time.monotonic()
     frame, w, h, age, sequence = _snapshot_latest()
+
+    # Explicit ?wb=X and ?os=Y overrides win; otherwise env-configured
+    # defaults. Lets operators A/B tune live without a service restart.
+    # Both clamped to [0.0, 1.0].
+    if wb is not None:
+        effective_wb = max(0.0, min(1.0, wb))
+        apply_wb = effective_wb > 0.0
+    else:
+        effective_wb = WB_STRENGTH
+        apply_wb = AUTO_WB
+
+    effective_os = max(0.0, min(1.0, os_)) if os_ is not None else ORANGE_DESAT
 
     # WB + encode are CPU-bound; run off the event loop so concurrent requests
     # don't serialize on them. (The grabber thread is still the sole camera
     # owner; this only affects request fan-in.)
     def _process() -> bytes:
-        out = _apply_gray_world_wb(frame, WB_STRENGTH) if AUTO_WB else frame
+        out = _apply_gray_world_wb(frame, effective_wb) if apply_wb else frame
+        out = _apply_orange_desat(out, effective_os, ORANGE_HUE_LO, ORANGE_HUE_HI)
         ok, buf = cv2.imencode(".jpg", out, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
         if not ok:
             raise CaptureError("cv2.imencode JPEG failed")

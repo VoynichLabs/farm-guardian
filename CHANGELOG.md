@@ -2,6 +2,26 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.27.4] - 2026-04-15
+
+### Changed — `usb-cam-host` heat-lamp color correction retuned (Claude Opus 4.6)
+
+Brooder frames still looked orange under the heat lamp despite the gray-world WB. Root cause: gray-world scales each channel toward the overall mean, but when the scene has almost no blue light (tungsten heat lamp ≈ 3000K, peaks red/yellow), there is no blue signal to amplify — the chicks stay orange no matter how hard the WB pushes. Fix is a two-stage correction:
+
+1. **Gray-world WB** strength raised from `0.5` → `0.8`. Cooler global balance; background curtain / blue surfaces now read neutral-to-blue instead of muddy tan.
+2. **New orange-hue saturation pass** (`_apply_orange_desat`): after WB, pull saturation down by 25% on OpenCV hue band `[5, 30]` (the orange/amber wedge). Chicks and pine shavings read as yellow/cream instead of pumpkin. Non-orange hues untouched.
+
+New env knobs on `tools/usb-cam-host/usb_cam_host.py` (all optional, sensible defaults):
+- `USB_CAM_WB_STRENGTH` — was 0.5 default, now 0.8.
+- `USB_CAM_ORANGE_DESAT` — 0.75 default (`1.0` = off, `0.0` = fully desat).
+- `USB_CAM_ORANGE_HUE_LO` / `USB_CAM_ORANGE_HUE_HI` — OpenCV hue band the desat targets, default `5..30`.
+
+`/photo.jpg` also gained `?wb=X&os=Y` query-string overrides so operators can A/B tune live without a service restart — useful for re-dialing if the camera moves to a non-brooder scene. Defaults to the env-configured values.
+
+A/B sample (raw → current): chicks-under-heat-lamp go from fully orange silhouettes to visibly yellow/cream birds against a cool blue backdrop, while non-orange areas of the scene are unchanged. Service kicked via `launchctl kickstart -k gui/<uid>/com.farmguardian.usb-cam-host` to pick up the new defaults.
+
+---
+
 ## [2.27.3] - 2026-04-15
 
 ### Changed — `gwtc` pipeline cadence: 600s → 60s (Claude Opus 4.6)
