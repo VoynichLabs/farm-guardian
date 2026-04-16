@@ -2,6 +2,64 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.27.9] - 2026-04-16
+
+### Docs — S7 "frozen" incident post-mortem (Claude Opus 4.7)
+
+Boss reported the S7 looked frozen on the dashboard. Root cause was not the phone or the camera — the IP Webcam Android app had been navigated to its Configuration / OnvifConfiguration screens (Boss was tweaking ONVIF settings), which on `com.pas.webcam` halts the HTTP server and unbinds port 8080. Guardian's snapshot poller then gets `Connection refused` every tick; the dashboard meanwhile keeps displaying the last cached good frame from the poller's ring buffer, which is what makes it look frozen rather than missing.
+
+Recovery is a 30-second manual tap ("Start server" on IP Webcam's main Configuration screen). Boss did it, port 8080 re-bound, Guardian log confirmed `snapshots resumed after 68 failures`, all five cameras back online.
+
+**Pre-buried wrong theories** (don't chase these next time):
+- Not a dead phone — dumpsys battery during the incident: level=100%, status=Full, 37.2°C, USB powered, awake.
+- Not the v2.24.0 battery-drain-on-charger pattern.
+- Not WiFi / DHCP — phone was pingable and `nc` showed *refused* (listener gone), not unreachable.
+- Not a Guardian or config bug.
+
+**What also doesn't work** (I tried these before realizing the pragmatic answer was a human tap):
+- `am start -n com.pas.webcam/.Rolling` — Binder exception, Rolling needs internal state.
+- Tasker-style broadcast intents (`com.pas.webcam.CONTROL` with `action=start` in several extras formats, `com.pas.webcam.START_SERVER`) — accepted but ignored while the app is on a settings screen.
+- UI automation via `input keyevent` / `uiautomator dump` / `input tap` — blocked because the S7's USB composite drops between every `adb shell` invocation; `adb reconnect offline` re-arms it, but the next shell call hits `device not found` again. Not worth chasing for a 30-second manual fix.
+
+**New doc:** `docs/16-Apr-2026-s7-ipwebcam-frozen-incident.md` — full writeup in the same pattern as `docs/13-Apr-2026-gwtc-laptop-troubleshooting-incident.md`. Includes the 30-second recovery recipe, the diagnostic one-liner for confirming it's this specific failure mode (dumpsys activity → top resumed is Configuration/OnvifConfiguration, not Rolling), and IP Webcam settings to harden against recurrence ("Run server in background," "Keep camera running when locked," plus marking IP Webcam as *never sleeping* in Samsung's Adaptive Battery).
+
+**No code changes this release.** The v2.27.8 battery monitor on the MBA explicitly survives this failure mode — it polls the phone's battery state via USB ADB, which is independent of whether IP Webcam's HTTP server is bound, so "phone is alive" vs "camera app crashed" stays observable during the next recurrence.
+
+---
+
+## [2.27.8] - 2026-04-16
+
+### Added — `mba-cam` back online via HTTP snapshot, S7 battery monitor on the MBA, first S7 gem posted to #farm-2026 Discord (Claude Opus 4.7)
+
+Continuation of the S7 recovery session. After the image-quality fix in v2.27.7, Boss plugged the S7 into the MacBook Air's USB for charging + data. Three things landed off that:
+
+**1. MBA FaceTime camera re-enabled as `mba-cam`.** The MBA was decommissioned as a camera host on v2.27.2 (MediaMTX + ffmpeg RTSP streaming was ripped out when Boss repurposed the machine). It's coming back, but on the lighter HTTP-snapshot architecture — `usb-cam-host` FastAPI service bound to `*:8089`, Guardian pulls `/photo.jpg` at 60 s cadence via `HttpUrlSnapshotSource`. No RTSP, no continuous video. The `com.farmguardian.usb-cam-host` LaunchAgent and the `~/.local/farm-services/usb-cam-host/` tree were already installed from the earlier stint (v2.26.2); just needed `launchctl bootstrap`. The MBA is a 2013 machine with a 720 p FaceTime HD camera, so quality is fleet-tier not portrait-tier — overview shot of the whole brooder from an elevated angle, complementary to the S7's close-up portrait camera.
+- `config.json` (gitignored): added `mba-cam` entry, `http_base_url: http://marks-macbook-air.local:8089` (mDNS — the MBA is DHCP and drifts, never put an IP here)
+- `config.example.json`: same block added with an `_comment` explaining the context
+- Verified: Guardian `online=True capturing=True` on all 5 cameras (house-yard, s7-cam, usb-cam, mba-cam, gwtc); `/api/cameras/mba-cam/frame` returns a fresh 293 KB 1280×720 JPEG
+
+**2. S7 battery monitor (new service, runs on the MBA).** Boss's stated concern was that the S7 "kept losing power even when it was plugged in" — the old RTSP-streaming load drained faster than USB could top up. After the v2.24.0 HTTP-snapshot switch + v2.27.7 60-s cadence, the draw is much lower, but the battery is still worn. Needed visibility. IP Webcam's built-in `/sensors.json` doesn't expose battery (returns `{}` — battery isn't an Android-sensor-framework sensor), so we went the ADB route.
+- ADB-over-USB from the MBA works via `~/.local/android/platform-tools/adb` (installed on v2.27.2). Initial `adb devices -l` returned empty because the S7's USB composite goes dormant when its screen sleeps — `adb reconnect offline` re-arms it cleanly; the service uses the same trick on every poll.
+- New `tools/s7-battery-monitor/monitor.py` (stdlib-only Python 3, runs under `/usr/bin/python3` on the MBA — compatible with 3.8 per the MBA's macOS 11 base). Reads `dumpsys battery` every 5 min. Alerts the existing Guardian Discord webhook on three transitions: (a) battery level below `LEVEL_ALERT` (default 25%), (b) temperature above `TEMP_ALERT_TENTHS` (default 48.0°C), (c) phone comes off USB power unexpectedly. A matching "recovered" message fires on exit from each state. Alerts are deduped via a tiny JSON state file — they fire on the transition *into* the alert, not every 5 minutes while the condition persists. Every poll also logs to `~/.local/farm-services/s7-battery-monitor/monitor.log` so historical drain curves can be reconstructed.
+- `tools/s7-battery-monitor/com.farmguardian.s7-battery-monitor.plist.template` — LaunchAgent template; installed as `~/Library/LaunchAgents/com.farmguardian.s7-battery-monitor.plist` on the MBA, bootstrapped with `launchctl bootstrap gui/$(id -u) …`, `StartInterval=300`, `RunAtLoad=true`. Webhook URL lives in the plist's `EnvironmentVariables` block, not in the script.
+- First live reading: level=99%, temp=41.5°C, voltage=4282 mV, status=2 (charging), USB-powered. All healthy, no alerts firing. Log rolling.
+- **Known limitation — ADB-over-WiFi is not configured.** On Android 8, `adb tcpip 5555` doesn't survive phone reboots; the S7 has rebooted itself several times this session. As long as the phone stays USB-tethered to the MBA, we don't need WiFi-ADB because the monitor runs locally on the MBA. If the phone moves off USB, the monitor will scream "ADB unreachable" on the next tick.
+
+**3. Discord demo post to #farm-2026.** Boss asked to route good S7 shots to "the Discord Farm 2026 channel." Confirmed via `GET https://discord.com/api/webhooks/<id>/<token>` that the existing Guardian webhook's `channel_id=1482466978806497522` *is* `#farm-2026` (cross-checked with `~/bubba-workspace/memory/2026-04-04-farm-session.md`) — so "post to #farm-2026" = "post to the Guardian webhook with a nice caption and an attachment." One fresh S7 frame posted with `username: "S7 Brooder"`, attached as multipart form-data, HTTP 200 + CDN URL returned. This is the manual-one-off path; the auto-forward-from-pipeline flow is in the other dev's lane (they're on a separate branch working on the USB-cam + S7 pipeline tie-in, per Boss).
+
+**Files changed:**
+- `config.json` (gitignored) — added `mba-cam` entry
+- `config.example.json` — same `mba-cam` block, with an `_comment` block
+- `tools/s7-battery-monitor/monitor.py` — new, ~180 lines
+- `tools/s7-battery-monitor/com.farmguardian.s7-battery-monitor.plist.template` — new
+
+**Not in this release (explicitly deferred):**
+- S7 re-enable in `tools/pipeline/config.json` — the other dev is working on the pipeline side on a separate branch; I reverted my one speculative edit there to avoid a merge collision.
+- An automatic gem → Discord forwarder. The one-off post is enough to prove the channel wiring works; the auto-forward design ties into the pipeline work, which isn't my lane this session.
+- ADB-over-WiFi on the S7 (persistent via Tasker/WiFi ADB app). Only needed if the phone moves off USB.
+
+---
+
 ## [2.27.7] - 2026-04-16
 
 ### Fixed — `s7-cam` image quality: `focusmode=macro` and heat-lamp orange cast (Claude Opus 4.7)
