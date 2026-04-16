@@ -41,12 +41,87 @@ class CaptureError(Exception):
 # ---------------------------------------------------------------------------
 
 def capture_via_guardian_api(camera_name: str, guardian_base: str = "http://localhost:6530", timeout: int = 15) -> bytes:
-    url = f"{guardian_base}/api/v1/cameras/{camera_name}/snapshot"
+    # /api/cameras/<name>/frame returns the latest good frame from Guardian's
+    # per-camera ring buffer — works for every camera type (RTSP, HTTP-snapshot,
+    # IP Webcam, etc). The v1 /cameras/<name>/snapshot endpoint triggers an
+    # active snapshot and 500s on cameras that don't have a Reolink-style
+    # snapshot capability (confirmed 500 on gwtc 2026-04-16).
+    url = f"{guardian_base}/api/cameras/{camera_name}/frame"
     r = requests.get(url, timeout=timeout)
     r.raise_for_status()
     if not r.content or r.content[:2] != b"\xff\xd8":
         raise CaptureError(f"guardian api returned non-JPEG for {camera_name}")
     return r.content
+
+
+def _pick_representative_jpeg(jpegs: list[bytes]) -> bytes:
+    """Pick the frame with smallest mean-absolute-difference to its peers —
+    i.e. the most central frame in the burst. Corrupted H.264 frames are
+    outliers (their vertical-stripe smear makes them look wildly different
+    from the surrounding clean frames), so picking the 'median' frame
+    robustly dodges transient decode artifacts without relying on Laplacian
+    variance (which the stripes *fool* — they generate fake high-frequency
+    edges). Requires N >= 2."""
+    if len(jpegs) == 1:
+        return jpegs[0]
+    grays = []
+    for jb in jpegs:
+        arr = np.frombuffer(jb, dtype=np.uint8)
+        img = cv2.imdecode(arr, cv2.IMREAD_GRAYSCALE)
+        if img is None:
+            grays.append(None)
+            continue
+        # downscale for fast comparison — identity of the image is
+        # preserved at 320x180, artifacts still visible.
+        grays.append(cv2.resize(img, (320, 180)).astype(np.int16))
+    valid_indices = [i for i, g in enumerate(grays) if g is not None]
+    if not valid_indices:
+        raise CaptureError("burst: no decodable frames")
+    # sum of MAD (mean-abs-diff) to every other valid frame; lower = more central.
+    scores = {}
+    for i in valid_indices:
+        total = 0.0
+        for j in valid_indices:
+            if i == j:
+                continue
+            total += float(np.mean(np.abs(grays[i] - grays[j])))
+        scores[i] = total
+    winner = min(scores, key=scores.get)
+    log.debug("burst-api representative pick: idx=%d scores=%s",
+              winner, {i: round(s, 1) for i, s in scores.items()})
+    return jpegs[winner]
+
+
+def capture_via_guardian_api_burst(
+    camera_name: str,
+    burst_size: int = 3,
+    burst_interval_seconds: float = 0.4,
+    guardian_base: str = "http://localhost:6530",
+    timeout: int = 15,
+) -> bytes:
+    """Pulls N frames from Guardian's snapshot API with short spacing,
+    returns the 'representative' frame (min mean-abs-diff to peers).
+    Purpose: dodge transient H.264 decode artifacts that Guardian's
+    ring-buffer serves without complaint — when the encoder recovers
+    the next frame looks normal, and the corrupted one is the outlier
+    in the burst. A single pull might catch the bad frame; a 3-burst
+    almost always has a clean majority."""
+    if burst_size <= 1:
+        return capture_via_guardian_api(camera_name, guardian_base, timeout)
+    jpegs: list[bytes] = []
+    last_err: Exception | None = None
+    for i in range(burst_size):
+        try:
+            jpegs.append(capture_via_guardian_api(camera_name, guardian_base, timeout))
+        except Exception as e:
+            last_err = e
+            log.debug("burst-api %s: frame %d/%d failed: %s",
+                      camera_name, i + 1, burst_size, e)
+        if i < burst_size - 1:
+            time.sleep(burst_interval_seconds)
+    if not jpegs:
+        raise CaptureError(f"burst-api {camera_name}: zero frames collected ({last_err})")
+    return _pick_representative_jpeg(jpegs)
 
 
 # ---------------------------------------------------------------------------
@@ -156,6 +231,14 @@ def capture_ip_webcam(base_url: str, photo_path: str = "/photo.jpg",
 def capture_camera(camera_name: str, camera_cfg: dict, global_cfg: dict) -> bytes:
     method = camera_cfg.get("capture_method")
     if method == "reolink_snapshot":
+        burst = int(camera_cfg.get("burst_size", 1))
+        if burst > 1:
+            return capture_via_guardian_api_burst(
+                camera_name,
+                burst_size=burst,
+                burst_interval_seconds=float(camera_cfg.get("burst_interval_seconds", 0.4)),
+                guardian_base="http://localhost:6530",
+            )
         return capture_via_guardian_api(camera_name, guardian_base="http://localhost:6530")
     if method == "usb_avfoundation":
         return capture_usb(

@@ -2,6 +2,46 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.28.4] - 2026-04-16
+
+### Pipeline — robustness pass against corrupted frames and VLM over-rating
+
+Boss was seeing persistent feed loss + pixelated/corrupted frames slipping through to the Discord auto-posts, especially on `gwtc` after the laptop was moved. Calibration run confirmed the expected hypothesis: the H.264 vertical-stripe smear that follows a keyframe loss actually produces **higher** Laplacian variance (238) than a genuinely-good S7 gem with shallow-DOF bokeh (84). Laplacian is the wrong signal for this failure — the stripes generate fake high-frequency edges.
+
+Four-part fix, defense in depth:
+
+**1. Endpoint correctness — `capture.py:capture_via_guardian_api`**
+
+Switched from `/api/v1/cameras/<name>/snapshot` to `/api/cameras/<name>/frame`. The v1/snapshot endpoint is an active-snapshot trigger that only works on Reolink-style cameras (500s on `gwtc`, which is MediaMTX/RTSP-backed); the non-v1 /frame endpoint returns the latest good frame from Guardian's per-camera ring buffer and works for every camera type. `gwtc` immediately started capturing cleanly instead of always failing.
+
+**2. Burst-of-N with median-representative selection — new `capture.py:capture_via_guardian_api_burst`**
+
+Pulls N frames over (N-1) × interval ms, picks the one with smallest mean-abs-diff to its peers — the most central frame in the burst. Corrupted H.264 frames are outliers (stripe smear is wildly different from the surrounding clean frames), so picking the "median" frame robustly dodges transient decode artifacts WITHOUT relying on Laplacian (which the stripes fool). Compares at 320×180 grayscale for speed (~50 ms overhead for N=3). `gwtc` in config.json flipped to `burst_size: 3, burst_interval_seconds: 0.4` — 800 ms per capture, almost always dodges the bad frame. `reolink_snapshot` dispatch in `capture_camera` now checks `burst_size` and routes through the burst path when > 1, so any Guardian-API camera (house-yard, gwtc, and any future ones) can opt in with a config change alone.
+
+**3. Prompt hardening — `tools/pipeline/prompt.md`**
+
+Added two explicit clauses to the `image_quality` guidance:
+
+- **Compression artifacts = `blurred`**. Vertical/horizontal banding, smeared/duplicated columns or rows, blocky H.264/H.265 decode-error regions, mismatched color fringes, uniform stripes — all disqualify from `sharp` and from `strong` regardless of how crisp the individual stripe edges look. Names the `gwtc` camera by name as the common source so the VLM anchors on it.
+- **Fixed-focus close-up blur = `soft` or `blurred`**. Birds closer than a fixed-focus camera's minimum focal distance (common on `gwtc` and `mba-cam`) show up as soft colored blobs with no visible feather texture. If the nearest bird's feathers are indistinct even though the rest of the scene looks fine, tag accordingly. Addresses Boss's "bird right next to the camera" observation directly.
+
+**4. Defense-in-depth in auto-post — `tools/pipeline/gem_poster.py:should_post`**
+
+Even a hardened prompt occasionally produces a VLM that says `strong` + `sharp` on a visibly broken frame (model over-rating). `should_post` now:
+
+- **requires `image_quality == "sharp"`** regardless of tier. If the VLM tagged it anything else, skip.
+- **requires `bird_count >= 1`** (was implicit; now explicit — no posting of empty frames even if somehow tagged strong).
+- `tier=strong` + above → post.
+- `tier=decent` + above + `bird_count >= 2` → post ("multiple little faces" bar).
+
+So for a bad GWTC frame to still reach Discord: (a) the burst picker would have to pick the corrupted frame (unlikely — it's the outlier), (b) the VLM would have to mis-rate it as `sharp` after the new prompt clause, (c) the tier would have to come out `strong` or decent-with-≥2-birds. Three independent gates.
+
+**Verified live:** 3 sequential `capture_via_guardian_api_burst('gwtc', burst_size=3)` runs all returned frames with Laplacian ≈ 740 (the clean-frame band), 862–876 ms each including the burst interval.
+
+Pipeline daemon reloaded under `com.farmguardian.pipeline` with the new code.
+
+---
+
 ## [2.28.3] - 2026-04-16
 
 ### Pipeline — auto-post gems to #farm-2026 Discord as they land
