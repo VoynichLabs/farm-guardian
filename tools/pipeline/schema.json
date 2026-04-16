@@ -13,12 +13,13 @@
       "lighting":           { "type": "string", "enum": ["natural-good","heat-lamp","dim","blown-out","backlit","mixed"] },
       "composition":        { "type": "string", "enum": ["portrait","group","wide","cluttered","empty"] },
       "image_quality":      { "type": "string", "enum": ["sharp","soft","blurred"] },
+      "bird_face_visible":  { "type": "boolean" },
       "share_worth":        { "type": "string", "enum": ["skip","decent","strong"] },
       "share_reason":       { "type": "string", "maxLength": 200 },
       "caption_draft":      { "type": "string", "maxLength": 200 },
       "concerns":           { "type": "array",  "items": { "type": "string", "maxLength": 200 } }
     },
-    "required": ["scene","bird_count","individuals_visible","any_special_chick","apparent_age_days","activity","lighting","composition","image_quality","share_worth","share_reason","caption_draft","concerns"],
+    "required": ["scene","bird_count","individuals_visible","any_special_chick","apparent_age_days","activity","lighting","composition","image_quality","bird_face_visible","share_worth","share_reason","caption_draft","concerns"],
     "additionalProperties": false
   }
 }

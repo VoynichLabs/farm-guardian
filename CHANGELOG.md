@@ -2,6 +2,21 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.28.6] - 2026-04-16
+
+### Pipeline — `bird_face_visible` schema field, no-butt-shot filter
+
+Boss: *"just like a shot of one bird, nice and in focus and sharp, and not just of its big fluffy ass."* A sharp rear-view is not a gem even when all the other signals pass. Added a new required boolean field the VLM must emit, and gated auto-post on it.
+
+- **Schema — `tools/pipeline/schema.json`:** new required `bird_face_visible: boolean` field. Kept `strict: true` json_schema mode, so the VLM cannot omit it.
+- **Validator — `tools/pipeline/vlm_enricher.py`:** added to `_REQUIRED_KEYS` and explicit bool-type check. Smoke-tested on gwtc `--once`, Gemma-4 31B validated cleanly (144 s inference, status=ok).
+- **Prompt — `tools/pipeline/prompt.md`:** explicit guidance for when to flag true (visible eye / beak / head-on or quizzical tilt) vs false (rear / tail / body only). "Err on the side of false when uncertain — only flag true when you can point at a specific visible eye or beak."
+- **Post filter — `tools/pipeline/gem_poster.py:should_post`:** adds `bird_face_visible is True` to the pass criteria. The full rule is now: `image_quality == "sharp"` AND `bird_count >= 1` AND `bird_face_visible is True`. Tier-agnostic and cooldown-free, per Boss's "frequent is fine" direction.
+
+Existing DB rows from before this change don't have the new field; `should_post` treats missing/False identically and will not re-fire on them (not that it would — should_post only runs on fresh cycles).
+
+---
+
 ## [2.28.5] - 2026-04-16
 
 ### Pipeline — lower the Discord auto-post bar (Boss wanted more pings, not fewer)

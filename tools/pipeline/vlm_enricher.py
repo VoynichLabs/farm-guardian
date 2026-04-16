@@ -44,8 +44,8 @@ class ValidationFailed(EnricherError):
 _REQUIRED_KEYS = {
     "scene", "bird_count", "individuals_visible", "any_special_chick",
     "apparent_age_days", "activity", "lighting", "composition",
-    "image_quality", "share_worth", "share_reason", "caption_draft",
-    "concerns",
+    "image_quality", "bird_face_visible", "share_worth", "share_reason",
+    "caption_draft", "concerns",
 }
 
 
@@ -80,6 +80,8 @@ def _validate_response(obj: dict) -> None:
             raise ValidationFailed(f"{field} must be string")
     if not isinstance(obj["any_special_chick"], bool):
         raise ValidationFailed("any_special_chick must be bool")
+    if not isinstance(obj["bird_face_visible"], bool):
+        raise ValidationFailed("bird_face_visible must be bool")
     age = obj["apparent_age_days"]
     if not (isinstance(age, int) and -1 <= age <= 365):
         raise ValidationFailed(f"apparent_age_days invalid: {age!r}")
