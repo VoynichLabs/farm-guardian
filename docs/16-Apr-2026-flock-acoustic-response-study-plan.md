@@ -223,7 +223,7 @@ Always record the source URL, license, and contributor in `MANIFEST.csv`. If the
 
 ## Appendix B — what's already built
 
-- `tools/flock-response/sounds/turkey-gobble-soundbible-1737.wav` — 239 KB, 44.1 kHz stereo, public domain, the first seed stimulus. (from http://soundbible.com/grab.php?id=1737&type=wav)
+- `tools/flock-response/sounds/01-turkey-gobble/turkey-gobble-soundbible-1737.wav` — 239 KB, 44.1 kHz stereo, public domain, the first seed stimulus. (from http://soundbible.com/grab.php?id=1737&type=wav). Moved from `sounds/` into the per-category subdir during the 16-Apr scaffold tranche to match the layout in the practical-implementation sketch above.
 - Verified: `ssh markb@192.168.0.68 'powershell -Command "(New-Object System.Media.SoundPlayer C:\Windows\Media\tada.wav).PlaySync()"'` → audio plays on GWTC, PowerShell returns READY. Playback path end-to-end works; just needs the study code on top.
 - v2.28.6 pipeline schema already emits `bird_face_visible`, which will be a core response metric.
 

@@ -1,0 +1,8 @@
+# Stimulus library manifest for the flock acoustic-response study.
+# One row per audio file. Add a row when a new exemplar is sourced; the
+# columns marked `_dBFS` / `duration_s` / `rms_dBFS` are populated after
+# peak-normalize-to-minus-3-dBFS + duration-clamp 3-6s (per plan).
+# Sources MUST be public-domain or CC0 if the dataset will be redistributed
+# alongside any preprint / journal submission.
+filename,category,source_url,license,contributor,sample_rate_hz,channels,duration_s,peak_dBFS,rms_dBFS,notes
+01-turkey-gobble/turkey-gobble-soundbible-1737.wav,turkey_gobble,http://soundbible.com/grab.php?id=1737&type=wav,public_domain,SoundBible,44100,2,,,,seed exemplar; not yet peak-normalized or duration-clamped

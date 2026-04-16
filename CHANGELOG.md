@@ -14,7 +14,29 @@ Boss: *"Make it scientific. Make it publishable."* New flock coming in a few wee
 
 **Already verified (noted in plan's Appendix B):** SSH + PowerShell `System.Media.SoundPlayer.PlaySync` playback on GWTC works end-to-end. Pipeline schema v2.28.6 already emits `bird_face_visible`, which will be a core response metric.
 
-No code beyond the seed sound file; no experiment runs; no data collected yet.
+### Scaffold — sounds-library layout + playback primitives (Claude Opus 4.7, branch `bubba/flock-response-scaffold-16-Apr`)
+
+First executable tranche under the same `[unreleased]` umbrella. Resolves plan open-items 2 (latency measurement) partially, plus the deploy-script and directory layout pieces of the practical implementation sketch. Does not touch `tools/pipeline/schema.json`, `database.py`, `dashboard.py`, or any farm-2026 contract — those wait for the experiment-runner tranche.
+
+**New files:**
+- `tools/flock-response/playback.py` — minimal SSH→GWTC→PowerShell `System.Media.SoundPlayer.PlaySync()` primitive. Returns wall-clock round-trip in a dataclass / JSON. Pure stdlib. Defaults `--remote-path` to `C:\Windows\Media\tada.wav` so smoke-testing never burns a real stimulus.
+- `tools/flock-response/measure_latency.py` — runs `playback.play()` N times against the same WAV; reports n_ok / median / p95 / min / max wall-clock seconds and any per-trial failures. Output is the per-trial `playback_latency_ms` constant the experiment runner will record.
+- `tools/flock-response/deploy/push-sounds-to-gwtc.sh` — idempotent scp of the local `sounds/` tree to `C:/farm-sounds/` on GWTC. `--dry-run` flag for planning. Honours `GWTC_HOST` / `GWTC_USER` / `GWTC_REMOTE_PATH` env vars.
+- `tools/flock-response/sounds/MANIFEST.csv` — header row + the seed turkey-gobble exemplar. Columns: filename, category, source_url, license, contributor, sample_rate_hz, channels, duration_s, peak_dBFS, rms_dBFS, notes. Normalization fields blank where measurement / processing has not happened yet.
+- `tools/flock-response/sounds/{01..08, 08b}-*/README.md` — one short README per category quoting the plan's table row, the target count (3 exemplars / cat), and any category-specific notes (e.g., hawk-scream must be a real local raptor species; ambient must be field-recorded not sourced).
+
+**Refactored:**
+- `sounds/turkey-gobble-soundbible-1737.wav` moved into `sounds/01-turkey-gobble/` to match the layout in the plan's "practical implementation sketch" (and what the deploy script + experiment runner will assume).
+- `tools/flock-response/README.md` rewritten: documents what's *built* now (the three primitives + the layout), the welfare warning against pre-pilot real-stimulus playback, the smoke-test recipe, and cross-references to the plan / GWTC troubleshooting / network docs.
+
+**Verified end-to-end (2026-04-16):**
+- `playback.py` against `C:\Windows\Media\tada.wav` — `ok=true`, `returncode=0`, wall-clock 2.91 s.
+- `measure_latency.py --n 5` — `n_ok=5`, median 2.80 s, p95 3.05 s, no failures. `tada.wav` is ~1.5 s of audio, so SSH + PowerShell + WiFi overhead is ~1.3 s on this link. The number that goes in trial metadata is the raw wall-clock; `analyze.py` will subtract per-clip duration from `MANIFEST.csv` to get pure-overhead estimates if the analysis needs it.
+- `deploy/push-sounds-to-gwtc.sh --dry-run` — prints the planned target / source paths cleanly.
+
+**Welfare note carried through to code:** `playback.py`'s docstring and `tools/flock-response/README.md` both explicitly warn against pre-pilot playback of real exemplars (would contaminate the H5 habituation measurement on the spring 2026 cohort). The CLI default of `tada.wav` makes the safe path the default.
+
+Still deferred to the next tranche per the plan: `experiment.py` (the daemon owning trial scheduling + counterbalancing), `analyze.py` (mixed-effects + effect sizes + writeup), `flock_response_trials` SQLite migration, schema additions (`attention_direction`, `motion_level`, `alarm_posture_count`), the LaunchAgent plist, weather integration, OSF pre-registration, and the actual sourcing of the remaining 7 categories × 3 exemplars.
 
 ---
 
