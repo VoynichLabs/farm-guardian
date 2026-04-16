@@ -2,6 +2,29 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.28.3] - 2026-04-16
+
+### Pipeline — auto-post gems to #farm-2026 Discord as they land
+
+Boss 2026-04-16 late afternoon: "anything you think is a gem should be getting pushed to that Discord channel. … anything that's like sharp and good. You can see multiple birds' little faces." Today pipeline was writing tier=strong rows to `image_archive` and `data/archive/gems/` hardlinks but nothing surfaced anywhere — Boss had to go look. Wired the orchestrator to POST gems to Discord as soon as store completes.
+
+**New module — `tools/pipeline/gem_poster.py`:**
+
+- `should_post(vlm_metadata, tier)` — the gem predicate. `tier=strong` → always. `tier=decent` + `image_quality=sharp` + `bird_count >= 2` → also post (matches Boss's "sharp and good, multiple faces" bar). Everything else → skip. Decent-sharp-plural is where the bulk of in-focus brooder-group shots land; restricting to strong-only would miss most of what Boss actually called gems.
+- `post_gem(...)` — multipart POST to the Discord webhook, JPEG + `payload_json` with per-camera username (`S7 Brooder`, `Yard`, `Brooder Overhead`, `Brooder Floor`, `Coop` — matching `docs/skills-farm-2026-discord-post.md`). Captures `requests.RequestException` and non-2xx status internally, returns bool, never raises.
+- `load_dotenv(path)` — minimal .env reader (no new dependency). Idempotent; launchd-injected env vars win.
+
+**Orchestrator wiring — `tools/pipeline/orchestrator.py`:**
+
+- `_load_configs()` now calls `load_dotenv(repo_root / ".env")` at startup so `DISCORD_WEBHOOK_URL` is in `os.environ` before the first cycle.
+- After every successful store in `run_cycle`, check `should_post()` and call `post_gem()` with the raw JPEG bytes (not the hardlinked on-disk copy — same bytes, saves a read). Wrapped in a try/except: a failed post logs a warning and continues the cycle. Discord rate limits or webhook rotations must never interrupt capture.
+
+**Verified end-to-end (2026-04-16 ~18:00 ET):** Replayed the first real v2.28 S7 strong gem through the new poster — webhook loaded from `.env` (121 chars), HTTP 2xx, message appeared in `#farm-2026`. Next autonomous strong/decent-sharp-plural cycle will post without manual intervention.
+
+**Known:** the `decent + sharp + bird_count>=2` bar can produce multiple posts per minute on brooder cameras (usb-cam 2s cadence). If Discord rate-limits (5 posts per 2 sec per webhook), `post_gem` logs and returns False; the next cycle tries again independently. If posting density becomes a problem, raise the bar in `should_post` (e.g. require `bird_count >= 3`, or dedup against the previous post's caption).
+
+---
+
 ## [2.28.2] - 2026-04-16
 
 ### Pipeline — route gwtc through Guardian API instead of direct RTSP

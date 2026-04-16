@@ -42,12 +42,14 @@ if __package__ in (None, ""):
     from tools.pipeline.vlm_enricher import enrich, ModelNotLoaded, EnricherError, ValidationFailed
     from tools.pipeline.store import ensure_schema, store
     from tools.pipeline.retention import sweep as retention_sweep
+    from tools.pipeline.gem_poster import post_gem, should_post, load_dotenv
 else:
     from .capture import capture_camera, CaptureError
     from .quality_gate import passes_trivial_gate
     from .vlm_enricher import enrich, ModelNotLoaded, EnricherError, ValidationFailed
     from .store import ensure_schema, store
     from .retention import sweep as retention_sweep
+    from .gem_poster import post_gem, should_post, load_dotenv
 
 
 log = logging.getLogger("pipeline.orchestrator")
@@ -180,6 +182,21 @@ def run_cycle(camera_name: str, camera_cfg: dict, cfg: dict, schema: dict,
         share_worth=vlm_result["metadata"]["share_worth"],
         has_concerns=store_result["has_concerns"],
     )
+
+    # Auto-post gems to Discord. Never break the cycle on a failed post.
+    try:
+        if should_post(vlm_result["metadata"], store_result["tier"]):
+            import os as _os
+            webhook = _os.environ.get("DISCORD_WEBHOOK_URL", "")
+            post_gem(
+                image_bytes=jpeg_bytes,
+                caption=vlm_result["metadata"].get("caption_draft", "") or "",
+                camera_name=camera_name,
+                webhook_url=webhook,
+            )
+            result["posted_to_discord"] = True
+    except Exception as e:
+        log.warning("%s: gem post wrapper failed: %s", camera_name, e)
     return result
 
 
@@ -191,6 +208,9 @@ def _load_configs():
     repo_root = Path(__file__).resolve().parents[2]
     db_path = repo_root / cfg["guardian_db_path"]
     archive_root = repo_root / cfg["archive_root"]
+    # Load .env so DISCORD_WEBHOOK_URL is available for gem auto-posting.
+    # Idempotent — does not overwrite launchd-injected env vars.
+    load_dotenv(repo_root / ".env")
     return cfg, schema, prompt_template, db_path, archive_root
 
 
