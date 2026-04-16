@@ -1,4 +1,4 @@
-# Author: Claude Opus 4.6
+# Author: Claude Opus 4.7 (edits 16-April-2026 — startup_gets on HttpUrlSnapshotSource for IP Webcam settings reapply)
 # Date: 13-April-2026 (v2.24.0 — HttpUrlSnapshotSource for generic /photo.jpg cameras, S7 battery path)
 # PURPOSE: Frame acquisition for Farm Guardian. Two parallel acquisition modes share the
 #          same FrameResult/ring-buffer/dispatch surface so FrameCaptureManager can treat
@@ -563,6 +563,7 @@ class HttpUrlSnapshotSource:
         timeout: float = 15.0,
         auth: Optional[tuple] = None,
         label: Optional[str] = None,
+        startup_gets: Optional[list] = None,
     ):
         self._base_url = base_url.rstrip("/")
         self._photo_url = self._base_url + photo_path
@@ -573,6 +574,23 @@ class HttpUrlSnapshotSource:
         self._auth = auth
         # The URL already carries its own scheme; don't prefix "http:" again.
         self._label = label or self._photo_url
+
+        # IP Webcam resets runtime settings (focusmode, whitebalance, etc.)
+        # whenever the phone or the app restarts. `startup_gets` is a list of
+        # path+querystring fragments (e.g. "/settings/focusmode?set=continuous-picture")
+        # that get GET'd once during construction so Guardian can reassert the
+        # camera's desired state on every boot without touching the phone's UI.
+        # Failures here are logged and swallowed — the camera may not support
+        # every setting, and we never want a setting reapply to block capture.
+        if startup_gets:
+            import requests
+            for path in startup_gets:
+                url = self._base_url + (path if path.startswith("/") else "/" + path)
+                try:
+                    resp = requests.get(url, timeout=min(5.0, self._timeout), auth=self._auth)
+                    log.info("Startup GET %s → %d", url, resp.status_code)
+                except Exception as exc:
+                    log.warning("Startup GET %s failed: %s", url, exc)
 
     @property
     def label(self) -> str:

@@ -2,6 +2,35 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.27.7] - 2026-04-16
+
+### Fixed — `s7-cam` image quality: `focusmode=macro` and heat-lamp orange cast (Claude Opus 4.7)
+
+Boss turned the S7 back on after its battery-death outage and immediately flagged the dashboard frames as "blurry, washed-out — like nothing that I see. I just want one nice high-quality image every 30 seconds or a minute." Investigation via `http://192.168.0.249:8080/status.json` showed the phone's camera was in `focusmode=macro` — close-up mode, 10–20 cm focal distance — so everything beyond arm's reach was out of focus. On top of that, `whitebalance=auto` couldn't correct for the ~3000 K tungsten heat lamp, leaving every frame drowning in orange. The 5-second poll interval was also much denser than Boss's "every 30 s or a minute" ask.
+
+Fix is three parts, all landing in one release:
+
+1. **Phone side, via IP Webcam's runtime API:** `GET /settings/focusmode?set=continuous-picture` and `GET /settings/whitebalance?set=incandescent`. With continuous-picture the camera AFs whenever the scene shifts instead of holding a fixed macro plane; with incandescent WB the 3000 K tungsten cast gets neutralized to roughly what the eye sees. These two calls produce a visibly dramatic quality jump — chicks are sharp end-to-end, wall reads as its actual purple-blue instead of red-orange.
+
+2. **Guardian side, capture path:** `s7-cam.http_photo_path` changed from `/photo.jpg` to `/photoaf.jpg`. The `af` variant fires a fresh AF cycle per pull (~1 s overhead) and hands back a freshly-focused still, so even if the scene drifts between polls Guardian always captures on a locked frame. `snapshot_interval` raised `5.0` → `60.0` — one "nice high-quality image" per minute is what Boss asked for, and it's 12× less load on a phone with a worn battery.
+
+3. **Persistence problem + fix:** IP Webcam's runtime settings reset whenever the phone or the app restarts (they're not baked into preferences). So without persistence, every S7 reboot would drop us back to macro + auto-WB. New `http_startup_gets` array on `HttpUrlSnapshotSource` (`capture.py`): a list of path+query fragments that get GET'd once at poller construction. Guardian now reasserts `focusmode=continuous-picture` + `whitebalance=incandescent` on every start, logging each GET at INFO level. Failures are logged + swallowed (a setting the phone doesn't support shouldn't block capture). The wiring in `guardian.py` pipes `cam_cfg.get("http_startup_gets")` through.
+
+**Files changed:**
+- `capture.py` — `HttpUrlSnapshotSource.__init__` accepts `startup_gets: Optional[list]`, fires each GET with auth + 5 s timeout + log entry; header metadata updated
+- `guardian.py` — pass `cam_cfg.get("http_startup_gets")` to `HttpUrlSnapshotSource`
+- `config.json` (gitignored) — s7-cam: `http_photo_path` → `/photoaf.jpg`, `snapshot_interval` → `60.0`, added `http_startup_gets` array
+- `config.example.json` — same s7-cam block updated, with an expanded `_comment` explaining the v2.27.7 rationale
+
+**Verification (live):**
+- Phone before: `focusmode=macro`, `whitebalance=auto`; `/photo.jpg` returns 1920×1080 but subjects beyond ~20 cm are soft and the frame is heavily orange-cast.
+- Phone after (API writes): `focusmode=continuous-picture`, `whitebalance=incandescent`; same `/photoaf.jpg` endpoint returns sharp full-frame detail with chicks reading as cream/white and wall reading as neutral purple-blue.
+- Guardian after restart: log shows `Startup GET …/settings/focusmode?set=continuous-picture → 200`, `Startup GET …/settings/whitebalance?set=incandescent → 200`, `Snapshot polling started for 's7-cam' — source=http:s7-cam, interval=60.0s`. First `/api/cameras/s7-cam/frame` inside the first minute returns 677 KB 1920×1080 JPEG with sharp focus and corrected WB.
+
+**Not yet addressed (explicitly deferred by Boss's "focus right now on quality"):** the power-monitor ask. IP Webcam on this S7 does not expose battery via `/sensors.json` (it returns `{}` — battery isn't an Android-sensor-framework sensor, and IP Webcam doesn't polyfill it), and there's no `/battery` endpoint. Options for the next pass are (a) liveness-based monitoring (Discord-alert on `s7-cam` online→offline and back, treats sustained offline as "probably battery"), or (b) ADB-over-WiFi to read `dumpsys battery` directly (richer telemetry, needs Developer Options + WiFi ADB pairing on the phone once). Picking between those is a call for Boss to make.
+
+---
+
 ## [2.27.6] - 2026-04-16
 
 ### Fixed — `usb-cam` feed-lost, caused by a stale WiFi IP in two configs (Claude Opus 4.7)

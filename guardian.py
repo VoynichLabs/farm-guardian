@@ -417,6 +417,7 @@ class GuardianService:
                     timeout=cam_cfg.get("http_timeout", 15.0),
                     auth=auth,
                     label=f"http:{cam.name}",
+                    startup_gets=cam_cfg.get("http_startup_gets"),
                 )
             else:
                 log.error(

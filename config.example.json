@@ -18,7 +18,7 @@
       "detection_enabled": true
     },
     {
-      "_comment": "Phone camera (Samsung S7 running IP Webcam). v2.24.0 — prefer snapshot_method=http_url: pulling /photo.jpg at snapshot_interval avoids the continuous H.264 encoding that kills phone battery. For rollback to RTSP streaming, use rtsp_url_override + rtsp_transport instead (see docs/13-Apr-2026-s7-phone-setup.md).",
+      "_comment": "Phone camera (Samsung S7 running IP Webcam). v2.24.0 — prefer snapshot_method=http_url: pulling /photoaf.jpg at snapshot_interval avoids the continuous H.264 encoding that kills phone battery. v2.27.7 — /photoaf.jpg (not /photo.jpg) triggers a fresh AF cycle per pull; interval raised to 60s (one nice image/minute) to further reduce phone load; http_startup_gets reasserts focusmode=continuous-picture + whitebalance=incandescent on every Guardian start so the S7 doesn't come back in blurry macro mode with a heavy orange cast after a phone reboot. For rollback to RTSP streaming, use rtsp_url_override + rtsp_transport instead (see docs/13-Apr-2026-s7-phone-setup.md).",
       "name": "s7-cam",
       "ip": "192.168.0.YYY",
       "port": 8080,
@@ -28,11 +28,15 @@
       "source": "snapshot",
       "snapshot_method": "http_url",
       "http_base_url": "http://192.168.0.YYY:8080",
-      "http_photo_path": "/photo.jpg",
+      "http_photo_path": "/photoaf.jpg",
       "http_trigger_focus": false,
       "http_focus_wait": 1.5,
       "http_timeout": 15.0,
-      "snapshot_interval": 5.0,
+      "http_startup_gets": [
+        "/settings/focusmode?set=continuous-picture",
+        "/settings/whitebalance?set=incandescent"
+      ],
+      "snapshot_interval": 60.0,
       "detection_enabled": false
     },
     {
