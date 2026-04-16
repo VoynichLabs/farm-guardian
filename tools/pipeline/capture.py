@@ -131,18 +131,21 @@ def capture_rtsp_burst(rtsp_url: str, burst_size: int = 5, burst_interval_second
 # Method 4: IP Webcam (Samsung S7) via HTTP /photo.jpg
 # ---------------------------------------------------------------------------
 
-def capture_ip_webcam(base_url: str, trigger_focus: bool = True, focus_wait: float = 1.5,
+def capture_ip_webcam(base_url: str, photo_path: str = "/photo.jpg",
+                      trigger_focus: bool = True, focus_wait: float = 1.5,
                       timeout: int = 15) -> bytes:
-    if trigger_focus:
+    # /photoaf.jpg on IP Webcam fires AF server-side (slower, sharper); in that
+    # case skip the separate /focus trigger since the endpoint handles it.
+    if trigger_focus and photo_path == "/photo.jpg":
         try:
             requests.get(f"{base_url}/focus", timeout=5)
             time.sleep(focus_wait)
         except Exception as e:
             log.warning("AF trigger failed, continuing: %s", e)
-    r = requests.get(f"{base_url}/photo.jpg", timeout=timeout)
+    r = requests.get(f"{base_url}{photo_path}", timeout=timeout)
     r.raise_for_status()
     if not r.content or r.content[:2] != b"\xff\xd8":
-        raise CaptureError(f"IP Webcam returned non-JPEG: {base_url}")
+        raise CaptureError(f"IP Webcam returned non-JPEG: {base_url}{photo_path}")
     return r.content
 
 
@@ -168,7 +171,11 @@ def capture_camera(camera_name: str, camera_cfg: dict, global_cfg: dict) -> byte
             transport=camera_cfg.get("rtsp_transport", "tcp"),
         )
     if method == "ip_webcam":
-        return capture_ip_webcam(base_url=camera_cfg["ip_webcam_base"])
+        return capture_ip_webcam(
+            base_url=camera_cfg["ip_webcam_base"],
+            photo_path=camera_cfg.get("photo_path", "/photo.jpg"),
+            trigger_focus=camera_cfg.get("trigger_focus", True),
+        )
     raise CaptureError(f"unknown capture_method: {method} for {camera_name}")
 
 

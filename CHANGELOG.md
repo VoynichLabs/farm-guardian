@@ -2,6 +2,54 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.28.0] - 2026-04-16
+
+### Pipeline restart — max-volume capture, resilient daemon, LaunchAgent (Claude Opus 4.7)
+
+Boss's directive: max picture volume across all cameras, gems emerge from sample count, junk gets culled by retention. The image pipeline had been stalled since 2026-04-15 ~22:59 ET with zero S7 rows ever (S7 was `enabled:false` with stale RTSP paths). Brought it back online with all 5 cameras flowing and supervised by launchd.
+
+**Capture path — `tools/pipeline/capture.py`:**
+
+- `capture_ip_webcam` now takes `photo_path` (default `/photo.jpg`) and `trigger_focus` (default `True`). Threaded through `capture_camera` dispatch from per-camera config. Lets the S7 use `/photoaf.jpg` (server-side AF per pull, ~1s overhead, locked frame) while `usb-cam` + `mba-cam` skip the (404-ing, 1.5 s wasted) `/focus` preflight entirely.
+
+**Orchestrator — `tools/pipeline/orchestrator.py`:**
+
+- `run_cycle` now catches any unexpected exception inside the VLM block and returns it as `status: skipped, reason: transient: ...`. LM Studio restarts, socket timeouts, and OpenClaw-adjacent connection blips no longer kill the daemon — the failed camera just misses a tick.
+- `run_daemon` wraps the per-camera `run_cycle` call in a last-resort try/except so a single bad cycle can never propagate out and exit the daemon.
+
+**VLM enricher — `tools/pipeline/vlm_enricher.py`:**
+
+- On LM Studio HTTP errors (e.g. 400 Bad Request), the exception message now includes the first 800 bytes of the response body. Before this, a 400 surfaced as "Bad Request" with no detail, which hid schema / payload mismatches.
+
+**Pipeline config — `tools/pipeline/config.json`** (gitignored; shape for reference):
+
+- `vlm_model_id: google/gemma-4-31b` (was `zai-org/glm-4.6v-flash` — Boss swapped the loaded model).
+- `vlm_timeout_seconds: 120 → 300` (Gemma-4 31B on the M4 Pro runs 42–98 s per call; 120 was too tight).
+- `retention_days_strong: 90 → 365`.
+- `retention_days_decent: 90 → 7` (Boss's call — aggressive cull of the bulk, gems stay long).
+- `s7-cam` flipped `enabled: false → true`, `rtsp_burst` → `ip_webcam`, points at `http://192.168.0.249:8080` with `photo_path: /photoaf.jpg`, `trigger_focus: false`, `cycle_seconds: 10`. First S7 rows ever written to `image_archive`.
+- `mba-cam` flipped `enabled: false → true`, `rtsp_burst` → `ip_webcam`, points at `http://marks-macbook-air.local:8089` (mDNS name Guardian already uses; `mba.local` does not resolve from the Mini), `cycle_seconds: 10`.
+- `usb-cam` `cycle_seconds: 60 → 2` (the v2.27.0 continuous-capture host can serve this easily — `/photo.jpg` is 75 ms).
+- `gwtc` `cycle_seconds: 60 → 20`.
+
+**LaunchAgent — `deploy/pipeline/com.farmguardian.pipeline.plist` (new):**
+
+- `Label: com.farmguardian.pipeline`, mirrors `com.farmguardian.guardian` and `com.farmguardian.usb-cam-host` patterns. `KeepAlive: true`, `RunAtLoad: true`, logs to `/tmp/pipeline.{out,err}.log`. Fresh label — no TCC history per the CLAUDE.md rename gotcha.
+
+**Smoke verification (2026-04-16 ~17:40 ET, all cameras `--once`):**
+
+- house-yard ✅ decent, 42 s inference
+- usb-cam ✅ skip (blurred sleeping chicks — legitimate skip)
+- s7-cam ✅ skip (soft focus) — first S7 cycle ever completed by the pipeline
+- gwtc ✅ decent, 42 s inference
+- mba-cam ✅ decent, 46 s inference, 8 chicks huddling
+
+Pipeline now running under launchctl with staggered first cycles. Scraper at `/Users/macmini/farm-backlog/` stays up as a safety net until pipeline is proven stable for a few hours; kill with `pkill -f farm-backlog/scraper.sh`.
+
+**Handoff doc:** `docs/16-Apr-2026-source-quality-plan.md` — originally a handoff for another dev to execute; Boss asked me to execute it myself. This commit is the execution. Open items remaining in that doc (model-agnostic selection, Python-grades-not-VLM, prompt context leakage, pipeline architecture decoupling) are still deferred; this ships the minimum that gets volume flowing.
+
+---
+
 ## [2.27.9] - 2026-04-16
 
 ### Docs — S7 "frozen" incident post-mortem (Claude Opus 4.7)

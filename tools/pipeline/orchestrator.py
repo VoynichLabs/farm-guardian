@@ -137,6 +137,15 @@ def run_cycle(camera_name: str, camera_cfg: dict, cfg: dict, schema: dict,
         log.warning("%s: VLM error: %s", camera_name, e)
         result.update(status="error", stage="vlm", reason=str(e))
         return result
+    except Exception as e:
+        # LM Studio restart / network blip / socket timeout at the requests
+        # layer can surface as ConnectionError, ReadTimeout, OSError etc.
+        # Treat all of these as a transient skip so the daemon keeps running.
+        log.warning("%s: VLM transient failure (%s: %s), skipping cycle",
+                    camera_name, type(e).__name__, e)
+        result.update(status="skipped", stage="vlm",
+                      reason=f"transient: {type(e).__name__}: {e}")
+        return result
 
     # Store
     try:
@@ -240,7 +249,14 @@ def run_daemon() -> int:
                 break
             ccfg = cfg["cameras"][name]
             t0 = time.monotonic()
-            r = run_cycle(name, ccfg, cfg, schema, prompt_template, db_path, archive_root)
+            try:
+                r = run_cycle(name, ccfg, cfg, schema, prompt_template, db_path, archive_root)
+            except Exception as e:
+                # Last-resort guard: run_cycle is supposed to never raise, but
+                # if it does, don't let one bad cycle take the daemon down.
+                log.exception("%s: run_cycle raised unexpectedly", name)
+                r = {"camera": name, "status": "error", "stage": "orchestrator",
+                     "reason": f"{type(e).__name__}: {e}"}
             elapsed = time.monotonic() - t0
             next_due[name] = time.monotonic() + ccfg["cycle_seconds"]
             cycle_count += 1

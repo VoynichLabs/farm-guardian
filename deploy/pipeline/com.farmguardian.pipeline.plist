@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.farmguardian.pipeline</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/macmini/Documents/GitHub/farm-guardian/venv/bin/python</string>
+        <string>-m</string>
+        <string>tools.pipeline.orchestrator</string>
+        <string>--daemon</string>
+        <string>--log-level</string>
+        <string>INFO</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/macmini/Documents/GitHub/farm-guardian</string>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/pipeline.out.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/tmp/pipeline.err.log</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+</dict>
+</plist>

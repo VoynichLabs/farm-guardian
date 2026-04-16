@@ -135,6 +135,13 @@ def enrich(
         try:
             r = requests.post(f"{lm_base}/v1/chat/completions", json=body, timeout=timeout)
             r.raise_for_status()
+        except requests.HTTPError as e:
+            body_snippet = ""
+            try:
+                body_snippet = (e.response.text or "")[:800]
+            except Exception:
+                pass
+            raise EnricherError(f"LM Studio request failed: {e} | body: {body_snippet}") from e
         except requests.RequestException as e:
             raise EnricherError(f"LM Studio request failed: {e}") from e
         inference_ms = int((time.monotonic() - t0) * 1000)
