@@ -2,6 +2,36 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.28.7] - 2026-04-16
+
+### Pipeline — drop `bird_face_visible` from post filter; new durable heat-lamp investigation doc
+
+Boss was watching a good gwtc frame (3 birds, sharp, foraging) not get auto-posted and finally pointed at the real issue: *"It's not even certain it can tell what a face is."* The VLM's `bird_face_visible` judgment is noisy enough that using it as a gate blocks legitimate gems (head-down foraging, partial-profile birds) while letting ambiguous shots through. Noisy gates produce arbitrary results.
+
+**`tools/pipeline/gem_poster.py:should_post`** — dropped the `bird_face_visible` check. Current rule:
+
+- `image_quality == "sharp"` AND `bird_count >= 1` → post.
+- Anything else → skip.
+
+The schema field stays (still useful metadata for downstream analysis / the flock-response study) but is not load-bearing for auto-post. The "fluffy ass" failure mode from v2.28.6 is accepted as a small price vs. blocking legitimate foraging / group / candid frames. Compression-artifact defense is still intact via the `image_quality == "sharp"` check combined with the prompt clauses and the burst-median capture from v2.28.4.
+
+**`tools/pipeline/prompt.md`** — softened the `bird_face_visible` guidance (was: "err on the side of false when uncertain"; now: neutral default, true for most frames with recognizable birds). The field is still emitted so we keep the metadata; just no longer asked to be conservative about it.
+
+### Docs — heat-lamp orange-cast pre-burial (`docs/16-Apr-2026-heat-lamp-orange-cast-investigation.md`)
+
+Boss: *"this has to be the fourth or fifth fucking time that we've been through this … rectify it for the future idiots."* New doc captures:
+
+- All WB correction code that already exists (usb-cam-host gray-world + orange-desat; S7 `http_startup_gets` with incandescent WB).
+- Wrong theories pre-buried (new WB algorithm, more desat, more strength, swap camera, `cv2.CAP_PROP_AUTO_WB`).
+- The **real** root cause: sensor red-channel clipping from auto-exposure under a heat lamp. Gray-world scaling saturated-red pixels past 255 produces the nuclear pink/yellow artefacts. No post-processing can recover clipped data.
+- The actual fix path (exposure control via `cv2.CAP_PROP_EXPOSURE` on the Mini + MBA hosts, or IP Webcam's `/settings/exposure` on the S7) as an open item for the next dev.
+- Recovery recipes for S7 settings regression (manual re-assert via curl) and MBA stale `usb-cam-host` code (SSH git-pull + service reload).
+- A "what NOT to do" list so the sixth attempt doesn't repeat the mistakes of the first five.
+
+No code changes to the WB pipeline itself — Boss explicitly said not to write new code for this. The doc is the deliverable.
+
+---
+
 ## [unreleased] - flock acoustic-response study, first-pass plan
 
 ### Docs — scientific plan for a publishable acoustic-response study across two flock cohorts (Claude Opus 4.7)

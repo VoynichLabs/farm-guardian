@@ -31,34 +31,35 @@ _USERNAME_BY_CAMERA = {
 
 
 def should_post(vlm_metadata: dict, tier: str) -> bool:
-    """Gem predicate.
+    """Gem predicate, refined across the 2026-04-16 evening session:
 
-    Boss 2026-04-16 evening refined this through several rounds:
+      v2.28.3  tier=strong OR (tier=decent + bird_count>=2)  'multiple faces'
+      v2.28.5  sharp + bird_count>=1  (dropped tier gate)    'nothing posts'
+      v2.28.6  + bird_face_visible                           'not its fluffy ass'
+      v2.28.7  (this)  drop face requirement                 'VLM cannot reliably tell what a face is'
 
-      1. 'multiple little faces'      → v2.28.3 tier+bird_count>=2
-      2. 'nothing posts'              → v2.28.5 sharp + bird_count>=1
-      3. 'not just its fluffy ass'    → v2.28.6 (this version) adds the
-         bird_face_visible VLM-reported flag. A sharp shot of only the
-         back of a bird is not gem-worthy.
+    Boss's observation: Gemma-4's `bird_face_visible` flag is noisy —
+    it tags False on obviously-good foraging shots and True on ambiguous
+    rear-views. Gating on a noisy field means good gems get blocked
+    arbitrarily. Pulled it out of the filter entirely. The schema field
+    still exists (it's useful metadata for downstream analysis) but is
+    NOT load-bearing for auto-post.
 
-      - image_quality NOT 'sharp'        → skip (compression-artifact
-        defense; prompt is first layer, this is second)
-      - bird_count < 1                   → skip (empty frame)
-      - bird_face_visible is not True    → skip (rear/back-only shot)
-      - sharp + >=1 bird + face visible  → post (any tier)
+      - image_quality NOT 'sharp'  → skip (compression-artifact defense,
+        this is the only remaining load-bearing gate — it blocks the
+        H.264 decode-smear frames; see the burst-median and prompt
+        defenses in capture.py + prompt.md)
+      - bird_count < 1             → skip (empty frame)
+      - sharp + >=1 bird           → post
 
-    No cooldown. Boss explicitly asked for frequent pings; he'll
-    raise the bar if it gets noisy. `bird_face_visible` is the only
-    field whose absence falls through to False (legacy rows from
-    before the v2.28.6 schema addition don't have it)."""
+    The 'fluffy ass' failure mode from v2.28.6 is accepted as a small
+    price for not blocking legitimate foraging / group / candid shots.
+    Boss has said he'll raise the bar if volume is too high."""
     iq = vlm_metadata.get("image_quality")
     bc = vlm_metadata.get("bird_count", 0)
-    face = vlm_metadata.get("bird_face_visible", False)
     if iq != "sharp":
         return False
     if not isinstance(bc, int) or bc < 1:
-        return False
-    if face is not True:
         return False
     return True
 

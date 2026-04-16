@@ -110,6 +110,10 @@ The brooder narrator plan
 example of how to call LM Studio safely from a Guardian-adjacent
 tool. Use it as the template for any new integration.
 
+## Heat-lamp orange cast — READ THIS BEFORE "FIXING" THE BROODER COLOR
+
+Every 1–2 weeks an agent sees orange / red brooder frames on `usb-cam`, `mba-cam`, or `s7-cam` and reaches for a new WB algorithm. Boss has been through this loop 4–5 times. Stop. Read **`docs/16-Apr-2026-heat-lamp-orange-cast-investigation.md`** first. It covers: (a) the gray-world + orange-desat code that already exists in `tools/usb-cam-host/usb_cam_host.py` and the S7 `http_startup_gets` settings, (b) the real root cause (**sensor exposure clipping, not WB**), (c) pre-buried wrong theories, (d) the fix path that actually works (exposure control), (e) recovery recipes for S7 settings regression and MBA stale-code drift.
+
 ## Hardware Inventory — READ THIS BEFORE TOUCHING ANY CAMERA
 
 The single source of truth for what every camera *is*, what device hosts it, where its frames flow, and the device-not-location naming rule with worked examples lives in **`HARDWARE_INVENTORY.md`** at the repo root. Read it before adding, renaming, or moving any camera. The frontend devs and the next backend agent both depend on it.
