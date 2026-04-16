@@ -2,6 +2,22 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [unreleased] - flock acoustic-response study, first-pass plan
+
+### Docs — scientific plan for a publishable acoustic-response study across two flock cohorts (Claude Opus 4.7)
+
+Boss: *"Make it scientific. Make it publishable."* New flock coming in a few weeks → rare natural replication opportunity (spring 2026 cohort vs summer 2026 cohort).
+
+**New files:**
+- `docs/16-Apr-2026-flock-acoustic-response-study-plan.md` — pre-registration-style plan: 5 primary hypotheses (alarm, food, conspecific neutral, interspecific, habituation) + 2 controls (silent, ambient); Latin-square counterbalancing across 8 stimulus categories × 2–3 exemplars; mixed-effects analysis with effect-size reporting; cohort-replication design; welfare / ethics section; threats-to-validity table; DB schema sketch for `flock_response_trials`; 9 explicit open items for the next assistant.
+- `tools/flock-response/README.md` + `tools/flock-response/sounds/turkey-gobble-soundbible-1737.wav` — seed directory. First public-domain stimulus already in place. Everything else (remaining 8 categories × 3 exemplars, `experiment.py`, `analyze.py`, LaunchAgent, SPL calibration, latency measurement, OSF pre-registration) is deferred to the next assistant per Boss's handoff direction.
+
+**Already verified (noted in plan's Appendix B):** SSH + PowerShell `System.Media.SoundPlayer.PlaySync` playback on GWTC works end-to-end. Pipeline schema v2.28.6 already emits `bird_face_visible`, which will be a core response metric.
+
+No code beyond the seed sound file; no experiment runs; no data collected yet.
+
+---
+
 ## [2.28.6] - 2026-04-16
 
 ### Pipeline — `bird_face_visible` schema field, no-butt-shot filter
