@@ -51,6 +51,18 @@
       "detection_enabled": false
     },
     {
+      "_comment": "MacBook Air built-in FaceTime HD webcam (2013, 720p). Re-enabled 16-Apr-2026 v2.27.8 after the S7 came back and was USB-tethered to the MBA — figured if we're using the MBA anyway, might as well have it serve its camera too. Same HTTP-snapshot architecture as usb-cam: the MBA runs usb-cam-host on :8089 serving /photo.jpg. Use the mDNS hostname rather than an IP — the MBA is DHCP and drifts.",
+      "name": "mba-cam",
+      "type": "fixed",
+      "source": "snapshot",
+      "snapshot_method": "http_url",
+      "http_base_url": "http://marks-macbook-air.local:8089",
+      "http_photo_path": "/photo.jpg",
+      "http_trigger_focus": false,
+      "snapshot_interval": 60.0,
+      "detection_enabled": false
+    },
+    {
       "name": "gwtc",
       "ip": "192.168.0.ZZZ",
       "port": 8554,

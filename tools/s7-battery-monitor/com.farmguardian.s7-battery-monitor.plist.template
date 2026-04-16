@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  LaunchAgent template for the S7 battery monitor. Copy to
+  ~/Library/LaunchAgents/com.farmguardian.s7-battery-monitor.plist on whichever
+  Mac the S7 is USB-tethered to (currently the MacBook Air), substitute the
+  DISCORD_WEBHOOK_URL value, and bootstrap with:
+      launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.farmguardian.s7-battery-monitor.plist
+  Runs every 5 minutes. Stdlib-only Python 3, uses the system Python at
+  /usr/bin/python3 — no venv needed.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.farmguardian.s7-battery-monitor</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>/Users/markb/.local/farm-services/s7-battery-monitor/monitor.py</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>DISCORD_WEBHOOK_URL</key>
+        <string>REPLACE_WITH_ACTUAL_WEBHOOK_URL</string>
+        <key>ADB_PATH</key>
+        <string>/Users/markb/.local/android/platform-tools/adb</string>
+        <key>S7_SERIAL</key>
+        <string>ce12160cec2f2f0901</string>
+    </dict>
+    <key>StartInterval</key>
+    <integer>300</integer>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>StandardOutPath</key>
+    <string>/tmp/s7-battery-monitor.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/s7-battery-monitor.err.log</string>
+</dict>
+</plist>
