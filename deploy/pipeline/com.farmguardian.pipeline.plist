@@ -18,6 +18,12 @@
     <key>WorkingDirectory</key>
     <string>/Users/macmini/Documents/GitHub/farm-guardian</string>
 
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+
     <key>StandardOutPath</key>
     <string>/tmp/pipeline.out.log</string>
 
