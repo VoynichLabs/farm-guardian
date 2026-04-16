@@ -2,6 +2,27 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.27.5] - 2026-04-16
+
+### Fixed — `com.farm.guardian` LaunchAgent relabeled to `com.farmguardian.guardian` (Claude Opus 4.6)
+
+The LaunchAgent had been failing to spawn with `posix_spawn ... Operation not permitted` since the 14-Apr-2026 power outage. The previous CLAUDE.md note proposed a fix via **System Settings → Privacy & Security → App Management** — that turned out to be wrong. App Management does not expose launchd service entries, and adding the venv Python binary there is not possible (the file picker rejects it). Reboot also did not clear the denial.
+
+Root cause: macOS TCC persists **per-label** denies in its database. The specific label `com.farm.guardian` was permanently held in a denied state, independent of the binary being spawned — confirmed by the fact that `com.farmguardian.usb-cam-host` (running the identical venv Python from the identical folder) spawned without issue.
+
+Fix: renamed the plist label (and the plist filename) to `com.farmguardian.guardian`. A fresh label carries no TCC history, so the first bootstrap attempt spawned cleanly.
+
+**Files changed:**
+- `~/Library/LaunchAgents/com.farm.guardian.plist` → renamed to `~/Library/LaunchAgents/com.farmguardian.guardian.plist`
+- Label: `com.farm.guardian` → `com.farmguardian.guardian`
+- StandardOutPath / StandardErrorPath: `guardian.log` in project dir → `/tmp/guardian.out.log` + `/tmp/guardian.err.log` (prophylactic; matches the working sibling plist). Guardian's own Python logger still writes to `guardian.log` in the project dir — that path works because the running process writes there; it's only launchd's redirect that sometimes hits TCC.
+
+**Result:** Guardian auto-starts on boot again. `nohup` workaround retired.
+
+**Rule for future sessions:** if a LaunchAgent label ever lands in a `posix_spawn Operation not permitted` loop that survives a reboot, the surgical fix is a label rename, not a System Settings hunt.
+
+---
+
 ## [2.27.4] - 2026-04-15
 
 ### Changed — `usb-cam-host` heat-lamp color correction retuned (Claude Opus 4.6)
