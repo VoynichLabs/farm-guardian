@@ -2,6 +2,25 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.28.5] - 2026-04-16
+
+### Pipeline — lower the Discord auto-post bar (Boss wanted more pings, not fewer)
+
+Right after v2.28.4 Boss flagged that he hadn't heard a Discord notification for the excellent turkey frames the gwtc was producing: *"don't mind if the Discord notifications are frequent. I will tone them down if I need to."* I had tightened `should_post` around the phrase "multiple little faces" and quietly gated the single-bird case behind tier=strong. That caught the corrupted-frame failure mode but also dropped the single-turkey / single-chick portraits, which are gems too.
+
+New `should_post` rule in `tools/pipeline/gem_poster.py`:
+
+- `image_quality == "sharp"` AND `bird_count >= 1` → post.
+- Anything else → skip.
+- No tier check — a sharp decent single-bird shot is a gem, same as a strong one.
+- No cooldown / rate limit. Boss explicitly said to trigger on every sharp shot with a visible bird; he'll tell us to dial it back if he buries in pings.
+
+Kept the `image_quality == "sharp"` load-bearing check from v2.28.4 — this is still what blocks H.264-corrupted frames from getting through even if the VLM over-rates them as strong. The burst-median capture + prompt clauses from v2.28.4 are the other two layers of the same defense and are unchanged.
+
+Also fired a one-off test post of the current `/api/cameras/gwtc/frame` (an adolescent white turkey in profile, dark hens behind) manually through `gem_poster.post_gem()` so Boss got a ping while the new code was committing.
+
+---
+
 ## [2.28.4] - 2026-04-16
 
 ### Pipeline — robustness pass against corrupted frames and VLM over-rating

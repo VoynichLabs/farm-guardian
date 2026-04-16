@@ -31,34 +31,30 @@ _USERNAME_BY_CAMERA = {
 
 
 def should_post(vlm_metadata: dict, tier: str) -> bool:
-    """Gem predicate per Boss 2026-04-16: 'anything that's like sharp and
-    good. You can see multiple birds' little faces.' Hardened against
-    VLM self-contradiction (sometimes says strong+sharp on a visibly
-    corrupted GWTC frame) by ALWAYS requiring image_quality=sharp and
-    bird_count>=1 regardless of tier, plus at least one visible bird.
+    """Gem predicate, revised by Boss 2026-04-16 evening: 'don't mind if
+    the Discord notifications are frequent. I will tone them down if I
+    need to.' Lowered the bar from 'multiple little faces' to any sharp
+    shot with at least one bird visible — a single turkey posing in
+    profile is just as gem-worthy as a brooder group.
 
-      - image_quality NOT sharp           → skip (catches VLM mis-rating)
-      - bird_count == 0                   → skip (empty frames)
-      - tier=strong + above               → post
-      - tier=decent + bird_count >= 2     → post (the "multiple little
-        faces" bar; single-bird decent is not gem material)
+      - image_quality NOT in {sharp}      → skip (defends against VLM
+        over-rating of compression-artifact frames; the prompt is the
+        first defense, this is the second)
+      - bird_count < 1                    → skip (an empty coop is not
+        a gem even if it's sharp and the VLM called it strong)
+      - sharp + bird_count >= 1           → post (regardless of tier)
 
-    The image_quality==sharp requirement is the single most load-bearing
-    check here — it stops auto-posts of H.264-corrupted frames that the
-    VLM sometimes over-rates as 'strong' because the stripe edges look
-    sharp at a glance. The prompt's compression-artifact clause is the
-    first line of defense; this is the second."""
+    No cooldown / rate-limit: Boss explicitly asked for frequent
+    notifications. If volume becomes a problem he can raise the bar
+    later (e.g. add a per-camera cooldown or restore the bird_count>=2
+    requirement)."""
     iq = vlm_metadata.get("image_quality")
     bc = vlm_metadata.get("bird_count", 0)
     if iq != "sharp":
         return False
     if not isinstance(bc, int) or bc < 1:
         return False
-    if tier == "strong":
-        return True
-    if tier == "decent" and bc >= 2:
-        return True
-    return False
+    return True
 
 
 def load_dotenv(path: Path) -> None:
