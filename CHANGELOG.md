@@ -2,6 +2,28 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.28.2] - 2026-04-16
+
+### Pipeline — route gwtc through Guardian API instead of direct RTSP
+
+First post-restart cycle on gwtc failed with "RTSP burst yielded zero frames" — the Gateway laptop was in its familiar dshow-zombie pattern (ffmpeg wedged on dshow camera open, never registers as MediaMTX publisher, port 8554 open but `/gwtc` path 404s; `farmcam-watchdog` normally clears it in ~90s). Direct ffmpeg RTSP pull failed with `Connection reset by peer`, H.264 decode errors, no frames produced.
+
+Flipped `tools/pipeline/config.json` → `gwtc.capture_method: rtsp_burst → reolink_snapshot`. This routes pipeline captures through Guardian's `/api/cameras/gwtc/frame` — Guardian's ring buffer keeps serving last-good frames through the dshow-zombie windows, so the pipeline no longer burns 3 × retries × per-grab-timeout every cycle while the watchdog resets the stream.
+
+Verified: first `gwtc` row after the change landed at 17:52:30 ET, tier=decent, inference 42s. Same architecture house-yard already uses for the same reason.
+
+No code changes — config-only (pipeline config is gitignored, documented here for shape).
+
+---
+
+## [2.28.1] - 2026-04-16
+
+### Pipeline — LaunchAgent PATH so rtsp_burst can find ffmpeg
+
+launchd runs with a minimal PATH (`/usr/bin:/bin`); `subprocess.run(['ffmpeg', ...])` from `capture_rtsp_burst` in `capture.py` surfaced as `FileNotFoundError` on the first gwtc cycle after the v2.28.0 LaunchAgent load. Fix: `EnvironmentVariables` → `PATH` including `/opt/homebrew/bin` (Apple-Silicon Homebrew prefix) in `deploy/pipeline/com.farmguardian.pipeline.plist`.
+
+---
+
 ## [2.28.0] - 2026-04-16
 
 ### Pipeline restart — max-volume capture, resilient daemon, LaunchAgent (Claude Opus 4.7)
