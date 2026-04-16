@@ -2,6 +2,24 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.27.6] - 2026-04-16
+
+### Fixed — `usb-cam` feed-lost, caused by a stale WiFi IP in two configs (Claude Opus 4.7)
+
+Dashboard reported `usb-cam` feed lost. Root cause: both `config.json` (Guardian) and `tools/pipeline/config.json` (orchestrator) pointed the `usb-cam` HTTP snapshot URL at `http://192.168.0.71:8089` — the Mini's *old* WiFi address from 13-Apr-2026. The Mini's en1 WiFi now leases `192.168.0.220` (the DHCP lease rolled at some point; memory already flagged this drift pattern). The `usb-cam-host` LaunchAgent was healthy the whole time — it's bound to `*:8089` and serving 448 KB JPEGs — but nothing reachable at `.71` meant Guardian's capture loop got `[Errno 64] Host is down` every poll and the last-frame cache went stale.
+
+Fix: both configs now use `http://localhost:8089`. The `usb-cam-host` runs on the same Mini as Guardian and the orchestrator, so routing the snapshot pull through the external WiFi IP was never meaningful — it just added a reachability dependency that the hardware doesn't need. `localhost` is immune to any future WiFi-DHCP-lease drift, ethernet reconnect, or NIC swap on this machine. If the USB cam ever moves to another host again (it lived on the MBA for ~24h on 14-Apr-2026), the service's `http_base_url` will need to be updated to point at that host's mDNS name — **do not put an IP back in**.
+
+**Files changed:**
+- `config.json` — `usb-cam.http_base_url`: `http://192.168.0.71:8089` → `http://localhost:8089`
+- `tools/pipeline/config.json` — `usb-cam.ip_webcam_base`: same swap
+
+**Verification:** Guardian restarted via `launchctl kickstart -k gui/$UID/com.farmguardian.guardian`; `GET /api/cameras/usb-cam/frame` now returns HTTP 200 + ~448 KB JPEG; all four cameras report `online=True capturing=True`.
+
+**Hardcoded-IP audit (per Boss's ask):** Swept `**/*.{py,json}` for `192.168.*`. Remaining hits are all defensible — `house-yard` `.88` (Reolink on a router DHCP reservation), `gwtc` `.68` (Windows laptop, known-fragile but the documented drift-recovery is a `:8554` service-signature scan, not a config rewrite), and `s7-cam` `.249` (phone on reservation; pipeline entry is `enabled: false` right now anyway while the S7 is offline). Only Mini-self-reference was genuinely stupid, and that's what this release fixes.
+
+---
+
 ## [2.27.5] - 2026-04-16
 
 ### Fixed — `com.farm.guardian` LaunchAgent relabeled to `com.farmguardian.guardian` (Claude Opus 4.6)
