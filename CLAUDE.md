@@ -114,6 +114,14 @@ tool. Use it as the template for any new integration.
 
 The single source of truth for what every camera *is*, what device hosts it, where its frames flow, and the device-not-location naming rule with worked examples lives in **`HARDWARE_INVENTORY.md`** at the repo root. Read it before adding, renaming, or moving any camera. The frontend devs and the next backend agent both depend on it.
 
+## Operational skills — read before working with the S7 or Discord
+
+Two runbooks capture the how-to for cross-agent operations on this repo. Any agent picking up S7 or Discord work should read the relevant one first rather than re-deriving it:
+
+- **`docs/skills-farm-2026-discord-post.md`** — how to post a camera frame from Guardian to the `#farm-2026` Discord channel. Webhook wiring, channel ID, a copy-paste-ready `post.sh`, failure modes, what not to post. **No credentials in the doc** — the webhook URL lives in `.env` (gitignored).
+- **`docs/skills-s7-adb-operations.md`** — how to check the Samsung S7's battery, temperature, charging state, screen state, and IP Webcam app activity via ADB on the MacBook Air (where the phone lives). The phone has a specific USB-composite quirk (`adb reconnect offline` is required between commands) and a specific failure mode (IP Webcam on Configuration = server stopped); the runbook pre-buries the dead ends I already walked down on 2026-04-16.
+- **`docs/16-Apr-2026-s7-ipwebcam-frozen-incident.md`** — the incident post-mortem those two runbooks reference. 30-second human recovery recipe.
+
 ## Project
 
 Farm Guardian — a Python service that watches Reolink security cameras via ONVIF/RTSP, detects predator animals using YOLOv8, automates camera deterrents (spotlight/siren/PTZ), tracks animal visits in SQLite, generates daily intelligence reports, and serves a local web dashboard with REST API. Runs on a Mac Mini M4 Pro (64GB) on the same local network as the cameras.

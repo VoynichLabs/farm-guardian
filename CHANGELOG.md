@@ -2,6 +2,31 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.27.9] - 2026-04-16
+
+### Docs — S7 "frozen" incident post-mortem (Claude Opus 4.7)
+
+Boss reported the S7 looked frozen on the dashboard. Root cause was not the phone or the camera — the IP Webcam Android app had been navigated to its Configuration / OnvifConfiguration screens (Boss was tweaking ONVIF settings), which on `com.pas.webcam` halts the HTTP server and unbinds port 8080. Guardian's snapshot poller then gets `Connection refused` every tick; the dashboard meanwhile keeps displaying the last cached good frame from the poller's ring buffer, which is what makes it look frozen rather than missing.
+
+Recovery is a 30-second manual tap ("Start server" on IP Webcam's main Configuration screen). Boss did it, port 8080 re-bound, Guardian log confirmed `snapshots resumed after 68 failures`, all five cameras back online.
+
+**Pre-buried wrong theories** (don't chase these next time):
+- Not a dead phone — dumpsys battery during the incident: level=100%, status=Full, 37.2°C, USB powered, awake.
+- Not the v2.24.0 battery-drain-on-charger pattern.
+- Not WiFi / DHCP — phone was pingable and `nc` showed *refused* (listener gone), not unreachable.
+- Not a Guardian or config bug.
+
+**What also doesn't work** (I tried these before realizing the pragmatic answer was a human tap):
+- `am start -n com.pas.webcam/.Rolling` — Binder exception, Rolling needs internal state.
+- Tasker-style broadcast intents (`com.pas.webcam.CONTROL` with `action=start` in several extras formats, `com.pas.webcam.START_SERVER`) — accepted but ignored while the app is on a settings screen.
+- UI automation via `input keyevent` / `uiautomator dump` / `input tap` — blocked because the S7's USB composite drops between every `adb shell` invocation; `adb reconnect offline` re-arms it, but the next shell call hits `device not found` again. Not worth chasing for a 30-second manual fix.
+
+**New doc:** `docs/16-Apr-2026-s7-ipwebcam-frozen-incident.md` — full writeup in the same pattern as `docs/13-Apr-2026-gwtc-laptop-troubleshooting-incident.md`. Includes the 30-second recovery recipe, the diagnostic one-liner for confirming it's this specific failure mode (dumpsys activity → top resumed is Configuration/OnvifConfiguration, not Rolling), and IP Webcam settings to harden against recurrence ("Run server in background," "Keep camera running when locked," plus marking IP Webcam as *never sleeping* in Samsung's Adaptive Battery).
+
+**No code changes this release.** The v2.27.8 battery monitor on the MBA explicitly survives this failure mode — it polls the phone's battery state via USB ADB, which is independent of whether IP Webcam's HTTP server is bound, so "phone is alive" vs "camera app crashed" stays observable during the next recurrence.
+
+---
+
 ## [2.27.8] - 2026-04-16
 
 ### Added — `mba-cam` back online via HTTP snapshot, S7 battery monitor on the MBA, first S7 gem posted to #farm-2026 Discord (Claude Opus 4.7)
