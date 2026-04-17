@@ -2,6 +2,28 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [2.28.8] - 2026-04-16
+
+### Pipeline — switch to LM Studio native endpoint to actually disable Gemma-4 reasoning
+
+Boss: *"you've got all night to work on this. When I come back, I expect it to be up, working … just the way it used to be but better."* The pipeline was running ~49–150 s per cycle on Gemma-4-31b because reasoning was eating the token budget. Confirmed that LM Studio's OpenAI-compat `/v1/chat/completions` endpoint does NOT honor `reasoning_effort` or any adjacent parameter on Gemma-4 (bug #1743 in the LM Studio tracker, plus my 7-variant test showed all rejected or ignored). Load-time `reasoning: "off"` in the load config returns 400. System-prompt "no thinking" instruction reduces reasoning ~3× but never zeros it.
+
+**The real path is LM Studio's native `/api/v1/chat` endpoint**, which does honor `reasoning: "off"` on Gemma-4 — verified via the LM Studio docs (endpoint schema has `reasoning (optional) : "off" | "low" | "medium" | "high" | "on"`) and measured live: short test went 78 s → 4.2 s with `reasoning_output_tokens: 0`. On full-prompt cycles with the image and complete instructions the win is smaller but real — 38–45 s vs 49–150 s before.
+
+**Rewrote `tools/pipeline/vlm_enricher.py`:**
+
+- New body shape: `POST /api/v1/chat` with `reasoning: "off"`, `system_prompt`, `input: [{type:image,data_url:...}, {type:text,content:...}]`, `max_output_tokens`, `context_length`. No more `/v1/chat/completions`, no more `response_format: json_schema`.
+- Trade-off: native endpoint does **not** support LM Studio's grammar-based `response_format: json_schema` (that's only on the OpenAI-compat path). So JSON validity + enum compliance now ride on: (a) an auto-generated enum appendix built from `schema.json` at call time and injected at the tail of the prompt, listing every enum field's allowed values verbatim — single source of truth stays `schema.json`; (b) a hardened `_validate_response` that raises `ValidationFailed` on any enum drift. Catches the "coop-run" vs "coop" / "close-up" vs "portrait" failures Gemma would otherwise produce.
+- New parser for the native response shape (`output: [{type:"message", content:"..."}]`) with the existing markdown-fence stripper.
+- Defensive: coerce `None → ""` for optional-feeling string fields (`share_reason`, `caption_draft`) because Gemma under reasoning off occasionally emits JSON `null` there. Semantic no-op; prevents whole-cycle waste on that noise.
+- Exposes `reasoning_output_tokens` in the result dict so we can verify via logs that reasoning stayed off.
+
+**Smoke-verified (2026-04-16 ~21:47 ET):** 4/5 cameras end-to-end clean on the first all-cameras `--once` run. Validator passed all enum fields on all responses. First v2.28.8 strong gem auto-posted to `#farm-2026` on s7-cam at 21:48. mba-cam failed because the MBA itself is currently off-network (mDNS doesn't resolve, ARP shows incomplete on `192.168.0.50`) — bumped its cycle from 10 s to 60 s in config so its failed cycles don't eat time from other cameras while MBA is asleep.
+
+Pipeline daemon reloaded under `com.farmguardian.pipeline`. Discord auto-post rule unchanged from v2.28.7: `image_quality == "sharp"` AND `bird_count >= 1` → post.
+
+---
+
 ## [2.28.7] - 2026-04-16
 
 ### Pipeline — drop `bird_face_visible` from post filter; new durable heat-lamp investigation doc
