@@ -1,99 +1,121 @@
-# 17-Apr-2026 — Yard-diary daily capture
+# 17-Apr-2026 — Yard-diary capture (thrice-daily, dated)
 
 Author: Claude Opus 4.7 (1M context)
 
 ## The problem
 
-Boss wants a daily photo of the yard to record the cherry tree blooming (right now, mid-April) and the seasonal progression through the year. The existing gems pipeline doesn't solve this — by design it only promotes frames that score `share_worth='strong'` in the VLM pass, and the house-yard camera is currently producing zero strong gems. A tree-in-bloom scene isn't what the curator's tuned for, and relying on stochastic curation for a seasonal-record story has the wrong failure mode: miss a day, miss the bloom.
+Boss wants a visual record of the yard through the year — the cherry tree blooming right now, the summer green, the autumn burn, the snow — for a year-end retrospective. The existing gems pipeline doesn't solve this: it only promotes `share_worth='strong'` frames from the VLM pass and the house-yard camera currently produces zero strong gems. Relying on stochastic curation for a seasonal-record story is the wrong failure mode — miss a day, miss the bloom.
 
-Written post-hoc — Boss was clear the work needed to happen today, not tomorrow after a plan review. This doc records what was built so a future agent can find it.
+Requirements tightened in conversation:
+1. **Three captures a day** — around 07:00 (sunup), 12:00 (noon), 16:00 (before sundown). Boss wants morning / noon / evening light on every day.
+2. **Date burned into the image** — not an HTML caption, not alt text, not EXIF. The `DD-Mon-YYYY` label is part of the JPEG itself so the retrospective artifact is self-describing regardless of how the image ends up being viewed (slideshow, print, re-share).
+
+Written post-hoc — Boss was clear the work needed to happen today, not after a planning round trip.
 
 ## Scope
 
 **In:**
-- One-shot-per-day capture from the Reolink (`house-yard`) at 12:00 local via launchd.
-- 4K master stored on the Mini; 1920px published copy committed to farm-2026 so Railway serves it from its own CDN.
-- Automatic git commit + push on each capture so the site picks up the new frame without manual action.
-- Idempotent — re-running on the same day overwrites (safe for manual re-triggers).
-- Site surface: `app/yard/page.tsx` in farm-2026 renders today as hero + prior days in a grid.
+- Three captures per day (morning / noon / evening) from the Reolink (`house-yard`) via launchd.
+- 4K master stored on the Mini (`data/yard-diary/{YYYY-MM-DD}-{slot}.jpg`).
+- 1920px published copy with a burned-in `DD-Mon-YYYY` label in the lower-right, committed to farm-2026's `public/photos/yard-diary/` so Railway serves it from its own CDN.
+- Automatic git commit + push on each capture; site picks up the new frame without manual action.
+- Idempotent — re-running in the same slot on the same day overwrites (safe for manual re-triggers).
+- Site surface: `app/yard/page.tsx` renders today's latest slot as hero + per-day triptych rows below, newest day first.
 
 **Out:**
-- PTZ re-aim. Whatever the Reolink is pointed at today is what today's diary captures. If the cherry tree isn't in frame, that's a physical-aim concern for Boss to handle at the coop, not a code concern. Per `docs/08-Apr-2026-absolute-ptz-investigation.md`, absolute PTZ doesn't work reliably; don't script aim changes.
-- VLM enrichment. The diary frames are not run through `glm-4.6v-flash`; they're raw snapshots. If we want captions later, add them manually or via a separate pass — keeping the daily capture dead-simple is the point.
-- Retention policy. JPEGs accumulate indefinitely on both the Mini (4K masters, ~1.3 MB/day) and in farm-2026's `public/` (1920px, ~500 KB–1 MB/day). At 365 frames/year this is ≤500 MB/year in the repo; acceptable for now. Revisit at year-2 if repo size becomes an issue.
+- PTZ re-aim. Whatever the Reolink is pointed at is what we get. The cherry tree is currently in frame (confirmed by Boss 2026-04-17); if it leaves the frame later, that's a coop-side re-aim, not a code change. Per `docs/08-Apr-2026-absolute-ptz-investigation.md`, absolute PTZ doesn't work reliably — don't script aim changes.
+- VLM enrichment. The diary frames are not run through `glm-4.6v-flash`; they're raw snapshots. Captions, if ever wanted, go in a sibling MDX file per date.
+- Retention policy. At 1,095 frames/year × ~900 KB published ≈ 1 GB/year in the farm-2026 repo, plus ~1.5 GB/year in 4K masters on the Mini. Manageable for now; revisit at year-2.
 
 ## Architecture
 
 ```
-12:00 daily (launchd)
+07:00 / 12:00 / 16:00 daily  (launchd — com.farmguardian.yard-diary-capture)
       │
       ▼
-scripts/yard-diary-capture.sh
+/opt/homebrew/bin/python3  /Users/macmini/bin/yard-diary-capture.py
       │
+      ├─► slot = morning|noon|evening  (derived from current hour)
       ├─► curl localhost:6530/api/v1/cameras/house-yard/snapshot
       │         (reuses existing Guardian Reolink snapshot endpoint)
       │
-      ├─► data/yard-diary/{YYYY-MM-DD}.jpg   (4K master, ~1.3 MB)
+      ├─► data/yard-diary/{YYYY-MM-DD}-{slot}.jpg   (4K master, ~1.3 MB)
       │
-      ├─► sips -Z 1920
+      ├─► Pillow: resize (long edge → 1920px)
+      │          → draw rounded-rect pill at bottom-right
+      │          → overlay "DD-Mon-YYYY" in HelveticaNeue white-on-translucent-dark
+      │          → JPEG quality 88
       │
-      ├─► ../farm-2026/public/photos/yard-diary/{YYYY-MM-DD}.jpg (~500 KB)
+      ├─► farm-2026/public/photos/yard-diary/{YYYY-MM-DD}-{slot}.jpg
       │
-      └─► git add + commit + push (farm-2026)
+      └─► git add + commit "yard-diary: {YYYY-MM-DD} {slot}" + push
               │
               ▼
          Railway redeploys → site shows new frame
 ```
 
-Key invariants:
+### Key invariants
 
-1. **Reuses the existing snapshot endpoint** — no new Guardian code. If that endpoint breaks, the gems pipeline and the dashboard also break, so we'll know.
-2. **Publish path is farm-2026's `public/`, not a Guardian API endpoint.** This is the opposite of how gems work. Gems go through the tunnel; the yard diary goes through Railway's CDN. Rationale: the diary should stay visible during Mini outages or tunnel drops, and a redeploy-per-day cost is negligible.
-3. **Master and published are separate.** 4K master stays on the Mini for future re-use (zoomable detail view, print, regenerate a different size). Published copy is 1920px because that's plenty for the site and halves bandwidth.
+1. **Reuses the existing Guardian snapshot endpoint** — no new backend code. If that endpoint breaks, the dashboard and the gems pipeline also break, so we'll know.
+2. **Publish path is farm-2026's `public/`, not a Guardian API endpoint.** The diary is served from Railway's CDN with zero Cloudflare-tunnel dependency at view time. A redeploy-per-capture cost is acceptable (three deploys/day).
+3. **Master and published are separate.** 4K masters live indefinitely on the Mini for future re-use (a print, a zoom-in crop, a re-render at a different size or without the overlay). The published copy is downscaled + overlaid + committed.
+4. **Date is burned into the pixels.** The retrospective artifact is self-describing.
+5. **Script lives at `~/bin/`, not `~/Documents/`.** Launchd denies execution of scripts under TCC-protected `~/Documents/`. `~/bin/` is clear. The label prefix `com.farmguardian.*` piggybacks on the known-working Guardian plist's TCC grant so the Python process can still write into `~/Documents/` — the farm-guardian CLAUDE.md covers this under "LaunchAgent posix_spawn EPERM."
+
+### Slot derivation
+
+Slot comes from the system hour at runtime, not a plist argument, so one script handles all three firings:
+
+| Hour (local) | Slot       |
+|--------------|------------|
+| `< 10`       | `morning`  |
+| `10–13`      | `noon`     |
+| `>= 14`      | `evening`  |
+
+A launchd fire at 07:00 lands in morning, 12:00 in noon, 16:00 in evening. Ad-hoc kickstarts pick up whichever slot matches the current hour, so manual re-fires don't require reasoning about which label to pass.
+
+### Date label rendering
+
+`Pillow.ImageDraw.text` with `HelveticaNeue.ttc`. Font size scales with image width (~2.2%) so the label is readable but not dominant. A rounded semi-transparent dark pill sits behind the text so it stays legible against any seasonal backdrop (blown-out sky, snow, dark tree line). White text, ~95% opacity. Positioned bottom-right with ~1.8% margin.
+
+Format: `DD-Mon-YYYY` (e.g. `17-Apr-2026`) — Boss's standard date format, matching his repo filenames and docs.
 
 ## Files
 
 | Path | Purpose |
 |------|---------|
-| `scripts/yard-diary-capture.sh` | The capture + publish script. |
-| `~/Library/LaunchAgents/com.voynichlabs.yard-diary-capture.plist` | Daily noon schedule. Not in git (lives under `~/Library/`). |
-| `data/yard-diary/{YYYY-MM-DD}.jpg` | 4K masters. Not in git (gitignored via `data/`). |
+| `scripts/yard-diary-capture.py` | **Source of truth, git-tracked.** Copy installed at `~/bin/yard-diary-capture.py`. |
+| `~/bin/yard-diary-capture.py` | Installed copy that launchd actually fires. Out of `~/Documents/` to dodge TCC. |
+| `~/Library/LaunchAgents/com.farmguardian.yard-diary-capture.plist` | Fires at 07:00 / 12:00 / 16:00 local. Not in git. |
+| `data/yard-diary/{YYYY-MM-DD}-{slot}.jpg` | 4K masters. Gitignored via `data/`. |
 | `data/pipeline-logs/yard-diary.log` | Per-run log. |
-| `../farm-2026/public/photos/yard-diary/{YYYY-MM-DD}.jpg` | 1920px published copies. In git (farm-2026 repo). |
-| `../farm-2026/app/yard/page.tsx` | The `/yard` route. |
-| `docs/17-Apr-2026-yard-diary-capture-plan.md` | This doc. |
-
-## Why 12:00 local
-
-- Sun is usually close to overhead; tree-line lighting is neutral.
-- No heavy back-light from low-angle morning or evening sun behind the tree line.
-- Noon is a memorable, predictable time — no confusion about when the daily shot happens.
-- If it's raining or overcast, the diary still captures the day; we want the weather record too.
-
-If it turns out noon is wrong (shadow angle bad for the bloom, or Boss wants morning light), change the `Hour` key in the plist and `launchctl bootstrap` it again. One-line change.
+| `/tmp/yard-diary-stderr.log` | Launchd stderr redirect (mirrors the Guardian plist convention). |
+| `../farm-2026/public/photos/yard-diary/{YYYY-MM-DD}-{slot}.jpg` | 1920px published copies with date overlay. In git. |
+| `../farm-2026/app/yard/page.tsx` | `/yard` route — latest as hero, per-day triptych below. |
 
 ## Failure modes
 
 | Mode | Behavior |
 |------|----------|
-| Guardian snapshot endpoint down | Script exits with log `ERROR: snapshot fetch failed`; no git commit; next day retries. No partial/empty frame pushed. |
-| Snapshot tiny (camera off, network hiccup returns error page) | Size check rejects < 50 KB, deletes the file, logs and exits. |
-| `sips` resize fails | Logs and exits. Master is kept, can be re-published manually later. |
-| `git push` fails (no network) | Commit is made locally; next run's push will include it. `pipeline-logs/yard-diary.log` shows WARN. |
-| Reolink pointed at sky / wrong angle | Captured anyway. This is a physical-aim issue, not a code issue. Boss fixes at the coop. |
-| Two runs same day (manual re-trigger) | Second overwrites first. Intentional — allows a manual "retake" if the noon frame was bad. |
+| Guardian snapshot endpoint down | Python script logs `ERROR: snapshot fetch failed`; exits 1; no git commit; next slot retries. |
+| Snapshot tiny (camera off, error page) | Size check rejects `< 50 KB`, deletes the master, exits 1. |
+| Pillow font load fails | Falls back to `ImageFont.load_default()`. Label still burns in but smaller and less pretty. |
+| `git push` fails (no network) | Commit is made locally; next run's push will include it. Log shows WARN. |
+| Reolink pointed at sky / wrong angle | Captured anyway. Boss re-aims at the coop. |
+| Two runs same slot same day | Second overwrites first. Intentional — allows a manual retake if the scheduled frame was bad. |
+| TCC blocks script exec | Shouldn't happen now (script out of `~/Documents/`, label prefix in the known-working family). If it does, see farm-guardian CLAUDE.md on renaming labels and the `com.farmguardian.guardian` post-mortem. |
 
 ## Verification
 
-- `launchctl print gui/501/com.voynichlabs.yard-diary-capture` — shows the job registered, next-fire time.
-- `tail -f data/pipeline-logs/yard-diary.log` — watch the next run land.
-- Hit `https://farm.markbarney.net/yard` after Railway redeploys — should show today's frame as hero.
-- First entry 2026-04-17 was captured during setup (manual run at ~10:44) and is already live in farm-2026 `main`.
+- `launchctl print gui/501/com.farmguardian.yard-diary-capture` — shows the job registered with three calendar entries and `last exit code = 0` after each fire.
+- `tail -f data/pipeline-logs/yard-diary.log` — watch each slot land.
+- `https://farm.markbarney.net/yard` — after Railway redeploys, shows today's hero + triptych.
+- First dated frame: **`2026-04-17-noon.jpg`**, label `17-Apr-2026` — captured during setup and already live in `farm-2026` `main`. Subsequent slots flow through automatically.
 
 ## Follow-ups (not today)
 
-- If Boss wants the cherry tree specifically centered rather than the whole yard, consider saving a "daily-diary" Reolink preset and having the script recall it before snapshot. That requires the preset-save feature which isn't yet implemented — see TODO in CLAUDE.md.
-- A "yard timelapse" page (every-30-min frames for a week during bloom) could live alongside the daily diary. Different cadence, different aesthetic, different retention. If Boss wants it, spin a separate plan.
-- Captioning: if we want "Day 4 of bloom: first pink petals" style copy, add a sibling MDX file per date with author-written notes, or run a separate VLM pass on the masters (not in the live pipeline).
+- Dedicated Reolink preset "yard-diary" once the camera-control module supports preset save. Script would recall the preset before each snapshot so the framing is identical day-to-day. Until then, leaving the camera pointed is sufficient.
+- Per-date MDX notes. If Boss wants "Day 4 of bloom — first pink petals" text alongside a frame, drop `content/yard-diary-notes/{YYYY-MM-DD}.mdx` and extend the page to read them.
+- Timelapse generator. At ~1,000 frames/year, `ffmpeg -framerate 30 -pattern_type glob -i '*.jpg'` produces a 36-second year in review. Boss can ask for this at Christmas.
 
 done.

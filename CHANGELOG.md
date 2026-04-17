@@ -4,15 +4,28 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-04-17
 
-### Added — yard-diary daily capture (Claude Opus 4.7 (1M context))
+### Added — yard-diary thrice-daily dated capture (Claude Opus 4.7 (1M context))
 
-New slow-cadence record of the yard. Separate from the VLM-curated gems pipeline because the seasonal story Boss wants (cherry bloom → leaf-out → fall colour → snow) is a predictable daily cadence, not something the `share_worth='strong'` selector would reliably surface. Specifically built now because the cherry tree is blooming today and every day we miss is a gap in the record.
+Seasonal-record capture of the yard for a year-end retrospective. Separate from the VLM-curated gems pipeline because the cherry-bloom → summer-green → autumn-burn → snow story Boss wants is a guaranteed-cadence story, not something the `share_worth='strong'` selector would reliably surface.
 
-- `scripts/yard-diary-capture.sh` — pulls 4K snapshot from local `/api/v1/cameras/house-yard/snapshot`, stores master under `data/yard-diary/{YYYY-MM-DD}.jpg`, resizes to 1920px via `sips` and publishes into `farm-2026/public/photos/yard-diary/`, then commits + pushes so Railway redeploys with the frame baked in. Idempotent on re-run; rejects suspiciously small captures (< 50 KB). Logs to `data/pipeline-logs/yard-diary.log`.
-- `~/Library/LaunchAgents/com.voynichlabs.yard-diary-capture.plist` fires daily at 12:00 local. Bootstrapped and running.
-- First frame (2026-04-17) captured during setup and already pushed to farm-2026 `main`. Automation covers every subsequent day.
+**Three captures a day, dated:**
 
-Publish path is deliberate: JPEGs land in farm-2026's `public/` rather than behind a new Guardian API endpoint, so the site can serve the diary from Railway's CDN with zero Cloudflare-tunnel dependency at view time. Tunnel drops don't affect the diary. Trade-off: each capture triggers a Railway redeploy; one deploy/day is acceptable. Plan writeup: `docs/17-Apr-2026-yard-diary-capture-plan.md`.
+- Fires at 07:00 (morning), 12:00 (noon), 16:00 (evening) local via a single launchd plist with three `StartCalendarInterval` entries. The script derives its slot from the current hour, so one codepath handles all three firings and ad-hoc `kickstart` runs pick up the right slot automatically.
+- Each published JPEG has `DD-Mon-YYYY` burned into the pixels in a rounded translucent-pill at the bottom-right (HelveticaNeue via Pillow). Boss's explicit requirement: the date lives in the image itself so the year-end retrospective artifact is self-describing regardless of how a frame is later re-used (print, slideshow, share).
+
+**Files:**
+
+- `scripts/yard-diary-capture.py` — source-of-truth Python script; uses `urllib` (curl-free, one dependency less) + `Pillow` + `subprocess(git)`. Installed copy at `~/bin/yard-diary-capture.py`. Previous `scripts/yard-diary-capture.sh` removed — the Python version supersedes it entirely.
+- `~/Library/LaunchAgents/com.farmguardian.yard-diary-capture.plist` — three calendar entries, label prefix in the `com.farmguardian.*` family that already has the TCC grants to read/write `~/Documents/`. Bootstrapped and running; kickstart-verified under launchd (exit 0).
+- 4K masters under `data/yard-diary/{YYYY-MM-DD}-{slot}.jpg`; 1920px published copies committed into `farm-2026/public/photos/yard-diary/`.
+
+**Why the pipeline was rebuilt within hours of v1:**
+
+The initial shell script + `sips` pipeline shipped at 10:44 worked, but Boss then tightened the spec — three captures a day with dated overlays for a proper year retrospective. Python+Pillow let the overlay, the resize, and the slot logic live in one place instead of spread across `sips` + `date` + shell arg parsing. The bash version is gone rather than kept as a fallback; keeping two implementations for the same cron job would rot immediately.
+
+**TCC fix detail:** the initial `com.voynichlabs.*` plist was denied by TCC on first fire (`posix_spawn ... Operation not permitted`) because the script lived under `~/Documents/GitHub/farm-guardian/scripts/`. The replacement plist (a) executes from `~/bin/` (not TCC-locked), and (b) uses the `com.farmguardian.*` label prefix that already works for `com.farmguardian.guardian`. Both changes were needed.
+
+Plan writeup: `docs/17-Apr-2026-yard-diary-capture-plan.md`. Publish path still Railway-CDN, not the Cloudflare tunnel — diary surface survives Mini / tunnel outages.
 
 ## [2.28.8] - 2026-04-16
 
