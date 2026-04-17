@@ -68,6 +68,18 @@ First executable tranche under the same `[unreleased]` umbrella. Resolves plan o
 
 Still deferred to the next tranche per the plan: `experiment.py` (the daemon owning trial scheduling + counterbalancing), `analyze.py` (mixed-effects + effect sizes + writeup), `flock_response_trials` SQLite migration, schema additions (`attention_direction`, `motion_level`, `alarm_posture_count`), the LaunchAgent plist, weather integration, OSF pre-registration, and the actual sourcing of the remaining 7 categories × 3 exemplars.
 
+### Docs — GWTC coop-node capabilities brainstorm + visual-arm plan (Claude Opus 4.7, branch `bubba/gwtc-coop-node-brainstorm-16-Apr`)
+
+Boss (16-Apr-2026 evening): *"Let's think about all the cool stuff we could be doing with GWTC to interact with our flock out there… Could we be turning on a little night light? Could we display something on the screen for them?… Be creative. Pretend like you have an IQ of 160."*
+
+Two new docs, no code. Welfare-floor decision was that nothing on-flock fires tonight: 3-week chicks + 1.5-week turkey poults are roosting; the "night light + display something" idea is a daytime engineering target that gets deployed at night (if at all) only after daytime calibration.
+
+**New files:**
+- `docs/16-Apr-2026-gwtc-coop-node-capabilities-brainstorm.md` — design-space survey of what GWTC (Windows 11, Intel UHD 600 @ 1366×768, in-coop) can be used for. Tier-1 (visual-arm of the acoustic study, daytime ambient screen baseline, closed-loop operant conditioning, coordinated multi-camera predator response — all *research instruments*, never deterrents on the farm's own flock). Tier-2 infrastructure (night-light, sunrise sim, telemetry mirror, low-frequency audio rig). Tier-3 speculative (BirdNET-on-coop-audio, generative content, vocal-mimicry feedback, multi-coop networking). Explicit exclusions with reasons (strobe, mirror tests, predator-as-deterrent, anything that touches the ffmpeg dshow pipeline). Hard shared-resource discipline rule: nothing here may interfere with `mediamtx`, `farmcam`, or `farmcam-watchdog`. Six open technical questions (most importantly: which way does the screen face, and does SSH-launched PowerShell reach the interactive desktop session).
+- `docs/16-Apr-2026-gwtc-visual-stimuli-plan.md` — companion to the audio-arm acoustic-response plan. Adds H6 (cross-modal congruence — silhouette + scream > each alone), H7 (modality dominance), H8 (turkey ≠ chicken cross-modal weighting), H9 (cross-modal habituation transfer). Eight visual stimulus categories paired with the audio plan's eight; cross-modal trial cells (congruent / incongruent / each-alone / both-baselines). §Apparatus lists six unblocks that must complete before any pixel hits a screen: physical screen orientation (Boss to confirm at coop), SSH→interactive-desktop probe (daylight only), brightness / colour-as-light calibration via gwtc-camera frames of solid-colour fills, GPU/browser footprint test against ffmpeg's capture, stimulus-onset latency measurement, speaker-and-screen co-location confound documentation. Welfare deltas vs the audio plan: no nighttime visual trials at all (visual stimuli are direction-specific and roosting birds with eyes closed can't consent), tighter daytime luminance-change-per-second bound, abort-on-aggression-toward-screen rule.
+
+**State changes on GWTC during this branch:** zero. One harmless `gwtc` camera frame fetched via `/api/cameras/gwtc/frame` to assess screen geometry (frame too packet-corrupted in low light to read; documented as an unblock for Boss's next coop visit). One read-only PowerShell probe over SSH for monitor / session / battery info — no display state, no audio, no process spawned in the user session.
+
 ---
 
 ## [2.28.6] - 2026-04-16
