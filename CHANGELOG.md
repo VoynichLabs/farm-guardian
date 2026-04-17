@@ -2,6 +2,18 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased] - 2026-04-17
+
+### Added — yard-diary daily capture (Claude Opus 4.7 (1M context))
+
+New slow-cadence record of the yard. Separate from the VLM-curated gems pipeline because the seasonal story Boss wants (cherry bloom → leaf-out → fall colour → snow) is a predictable daily cadence, not something the `share_worth='strong'` selector would reliably surface. Specifically built now because the cherry tree is blooming today and every day we miss is a gap in the record.
+
+- `scripts/yard-diary-capture.sh` — pulls 4K snapshot from local `/api/v1/cameras/house-yard/snapshot`, stores master under `data/yard-diary/{YYYY-MM-DD}.jpg`, resizes to 1920px via `sips` and publishes into `farm-2026/public/photos/yard-diary/`, then commits + pushes so Railway redeploys with the frame baked in. Idempotent on re-run; rejects suspiciously small captures (< 50 KB). Logs to `data/pipeline-logs/yard-diary.log`.
+- `~/Library/LaunchAgents/com.voynichlabs.yard-diary-capture.plist` fires daily at 12:00 local. Bootstrapped and running.
+- First frame (2026-04-17) captured during setup and already pushed to farm-2026 `main`. Automation covers every subsequent day.
+
+Publish path is deliberate: JPEGs land in farm-2026's `public/` rather than behind a new Guardian API endpoint, so the site can serve the diary from Railway's CDN with zero Cloudflare-tunnel dependency at view time. Tunnel drops don't affect the diary. Trade-off: each capture triggers a Railway redeploy; one deploy/day is acceptable. Plan writeup: `docs/17-Apr-2026-yard-diary-capture-plan.md`.
+
 ## [2.28.8] - 2026-04-16
 
 ### Pipeline — switch to LM Studio native endpoint to actually disable Gemma-4 reasoning
