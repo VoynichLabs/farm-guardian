@@ -212,7 +212,8 @@ Read `docs/02-Apr-2026-v2-system-plan.md` for the full v2 architecture document 
 - `docs/08-Apr-2026-remote-camera-api-plan.md` — Remote camera control API design (v2.7.0)
 - `docs/08-Apr-2026-rtsp-substream-plan.md` — RTSP substream investigation
 - `docs/08-Apr-2026-gwtc-webcam-stream-plan.md` — GWTC webcam stream plan
-- `docs/17-Apr-2026-gwtc-windows-stabilization-plan.md` — **READ BEFORE TOUCHING GWTC.** 17-Apr-2026 Debian wipe was reverted; GWTC stays on Windows long-term. This doc is the record of why, and `docs/GWTC_SETUP.md` is the operational handoff.
+- `docs/17-Apr-2026-gwtc-windows-stabilization-plan.md` — 17-Apr-2026 Debian-wipe reversal record. Historical rationale only; superseded by the 18-Apr doc below.
+- `docs/18-Apr-2026-gwtc-current-state-and-install-walkthrough.md` — **READ FIRST FOR GWTC.** Current live state (Windows autologon, `cam` account), the one Windows-Update landmine that breaks it, and the full interactive Debian install walkthrough (SD card is pre-staged in Boss's hands) for when the switch-trigger fires.
 - `docs/13-Apr-2026-phase-a-reolink-snapshot-polling-plan.md` — **DONE in v2.18.0** — house-yard switched from RTSP to HTTP snapshot polling (4K JPEG)
 - `docs/13-Apr-2026-phase-b-gwtc-snapshot-endpoint-plan.md` — Phase B: stand up an HTTP snapshot service on the Gateway laptop, switch `gwtc` over
 - `docs/13-Apr-2026-phase-c-usb-highres-and-motion-bursts-plan.md` — Phase C: `usb-cam` to high-res snapshots + ONVIF motion-event-triggered snapshot bursts on house-yard. **C1 (USB high-res) is effectively delivered by v2.26.0 `usb-cam-host` via a different architecture (HTTP service instead of local AVFoundation adapter) — read the v2.26.0 plan alongside.** C2 (motion bursts) is still open.

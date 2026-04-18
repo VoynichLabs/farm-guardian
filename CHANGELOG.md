@@ -4,6 +4,30 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-04-18
 
+### GWTC — autologon + barbarian strip + Claude toolkit (Claude Opus 4.7 (1M context))
+
+Continuation of the 17-Apr stabilization. Boss deployed GWTC to the coop, saw it drop off the LAN after a reboot (classic Windows pre-login WiFi gap), and said *"no human is ever going to use that machine again, only Claude Code instances — be ruthless like a barbarian, loot and pillage."* Two sessions of work under that banner, all remote over SSH from the Mini.
+
+**Session 1 — autologon + bootstrap (noon):**
+- Created local `cam` account (blank password, admin group). Registry autologon: `AutoAdminLogon=1`, `DefaultUserName=cam`, `DefaultDomainName=653PUDDING`, `DefaultPassword=""`. Plus `DevicePasswordLessBuildVersion=0` (defeats Win11 passwordless gate) and `LimitBlankPasswordUse=0` (permits console login on blank password).
+- Cleared `cam`'s "must change password at next logon" after the first reboot failed on that prompt.
+- Two reboots came back on the LAN without hands on GWTC; `/api/cameras/gwtc/frame` returns 200 + fresh JPEG within ~90 s (watchdog clears dshow zombie).
+
+**Session 2 — barbarian strip (afternoon):**
+- 49 AppX bloat packages removed (Xbox, Bing, Copilot, Teams, Clipchamp, Hulu, Amazon, Solitaire, Office Hub, Sticky Notes, Mixed Reality, OneConnect, OneDriveSync, Outlook, Paint, People, Power Automate, ScreenSketch, Skype, Start Experiences, Todos, Whiteboard, Windows Alarms, Windows Camera *app*, Communications apps, Feedback Hub, Windows Maps, Your Phone, Zune, Microsoft Family, Quick Assist, Widgets, CrossDevice, Messaging, DE language pack, + Edge AppX). Provisioned-package entries cleared in parallel.
+- Edge Chromium uninstalled (`setup.exe --uninstall --force-uninstall` after `AllowUninstall=1`). `C:\Program Files (x86)\Microsoft\Edge\`, `\EdgeUpdate\`, `\EdgeWebView\` deleted. `edgeupdate`/`edgeupdatem`/`MicrosoftEdgeElevationService` stopped + disabled.
+- UAC disabled (`EnableLUA=0`, `ConsentPromptBehaviorAdmin=0`, `PromptOnSecureDesktop=0`). Lock screen disabled (`NoLockScreen=1`). Ctrl+Alt+Del requirement off (`DisableCAD=1`). Console-lock-on-wake off (`powercfg CONSOLELOCK 0` on AC and DC).
+- **Windows Update fully severed:** `wuauserv`, `BITS`, `DoSvc` disabled via `sc config`. `UsoSvc` + `WaaSMedicSvc` (the service that *repairs* a disabled wuauserv — protected from sc) disabled via direct registry `Start=4`. Policies: `AU\NoAutoUpdate=1`, `AU\AUOptions=1`, `DisableWindowsUpdateAccess=1`. 14 scheduled tasks under `\UpdateOrchestrator\`, `\WindowsUpdate\`, `\Application Experience\`, `\Customer Experience Improvement Program\`, `\Feedback\`, `\Office\` disabled.
+- Telemetry off (`AllowTelemetry=0`, `DiagTrack`/`dmwappushservice`/`WerSvc` disabled). Consumer features off (`DisableWindowsConsumerFeatures=1`, `DisableConsumerAccountStateContent=1`).
+- Startup entries cleared: `HKLM\...\Run` values `SecurityHealth` and `TPCtrlServer` deleted; `cam` + `markb` + all-users Startup folders purged. Spooler, Fax, WSearch disabled.
+- **Tooling installed for Claude-Code-over-SSH:** Python 3.12 (winget), Git (winget), Node.js 24.14.1 LTS (winget), Claude Code CLI (npm -g). Binary at `C:\Users\markb\AppData\Roaming\npm\claude.cmd`; reachable from any SSH session via key auth. Future Claude can `ssh markb@192.168.0.68 'claude --dangerously-skip-permissions -p "..."'` after a one-time credential bridge from the Mini.
+
+**Verified at 2026-04-18 14:10 ET:** All four Shawl services RUNNING (`mediamtx`, `farmcam`, `farmcam-watchdog`, `sshd`). `/api/cameras/gwtc/frame` returns 200 + ~142 KB fresh JPEG. Camera pipeline unchanged by the strip.
+
+**Debian fallback still in play.** 62 GB SD card with Debian 13.4 netinst ISO is in Boss's physical possession; walkthrough is documented in `docs/18-Apr-2026-gwtc-current-state-and-install-walkthrough.md`. Switch trigger unchanged: if Windows Update somehow re-arms itself and resets `DevicePasswordLessBuildVersion=1`, GWTC drops off the LAN and the Debian walkthrough fires — but with `wuauserv` + `WaaSMedicSvc` + `UsoSvc` all disabled and the update scheduled tasks torn up, that trigger is dramatically less likely to fire than it was at noon.
+
+Authoritative operational doc: `docs/18-Apr-2026-gwtc-current-state-and-install-walkthrough.md` (big rewrite — new "Post-strip state" section at top, original noon-state retained below).
+
 ### Docs — yard-diary purpose re-clarified, cross-linked across both repos (Claude Opus 4.7 (1M context))
 
 Boss's read after the 17-Apr-2026 ship: the yard-diary was in danger of getting "lost forever" because its real purpose — raw stockpile for a year-end timelapse reel — wasn't documented in the places a future agent (Claude or human) would actually look. If they opened `CLAUDE.md`, scanned the `/yard` page, or read `scripts/yard-diary-capture.py` on its own, they'd see mechanics but not intent, and could reasonably conclude the pipeline was producing "boring daily content" worth retiring.
