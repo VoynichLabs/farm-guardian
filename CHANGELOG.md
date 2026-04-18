@@ -4,6 +4,24 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-04-18
 
+### MBA — `mba-cam` broadcast restored; legacy RTSP LaunchAgents permanently disabled (Claude Opus 4.7 (1M context))
+
+Boss reported mba-cam "stopped broadcasting" — Guardian saw no frames on `mba-cam`. Diagnosed over SSH from the Mini.
+
+**Root cause:** v2.27.2 decommissioned the old RTSP stack (`com.farmguardian.mba-cam` ffmpeg + `com.farmguardian.mediamtx`) via `launchctl bootout` only; the CHANGELOG entry at the time noted the plists were "left on disk at `~/Library/LaunchAgents/`" so the MBA could rejoin with a single `launchctl load`. What was missed: **macOS launchd auto-loads every `.plist` file in `~/Library/LaunchAgents/` on login**, regardless of prior bootout state. When the MBA rebooted Friday, both legacy agents auto-loaded alongside the current `com.farmguardian.usb-cam-host` (the HTTP snapshot service on port 8089 that Guardian actually pulls from). The legacy ffmpeg grabbed the FaceTime HD camera first; `usb_cam_host.py` ended up in an uninterruptible wait trying to open a locked device. From Guardian's perspective: 503s for two days, no frames archived.
+
+**Fix (MBA-side, durable across reboots):**
+- `launchctl bootout gui/501/com.farmguardian.mba-cam`
+- `launchctl bootout gui/501/com.farmguardian.mediamtx`
+- `pkill -9` on the held ffmpeg + mediamtx processes
+- Renamed the plists: `com.farmguardian.mba-cam.plist` → `com.farmguardian.mba-cam.plist.legacy-rtsp-disabled-2026-04-18`; same for `com.farmguardian.mediamtx.plist`. The `.plist` extension is what `launchd` keys off — any other suffix prevents auto-load on future logins.
+- Kickstarted `com.farmguardian.usb-cam-host` fresh
+- Boss power-cycled the MBA to clear the ffmpeg-SIGKILL zombie state on the FaceTime HD device (it had dropped out of AVFoundation's device list entirely)
+
+**Verified post-reboot (14:24 ET):** only `com.farmguardian.usb-cam-host` and `com.farmguardian.s7-battery-monitor` active; legacy plists stayed disabled. Three consecutive `/photo.jpg` pulls against `http://192.168.0.50:8089/` returned fresh 1280×720 JPEGs (290/274/292 KB — all different sizes, confirming live frames rather than a cached single frame).
+
+**Why this matters for future agents:** when decommissioning ANY LaunchAgent on any farm Mac (Mini, MBA, future nodes), rename or move the `.plist` file out of `~/Library/LaunchAgents/` in the same operation — a `bootout` alone is session-only. The "plists left on disk for easy re-activation" comfort pattern is a loaded gun pointed at the next reboot; `mv foo.plist.disabled foo.plist && launchctl bootstrap gui/$UID ...` is a one-liner when re-activation is ever actually needed. Captured in auto-memory at `feedback_launchagents_auto_load_trap.md`.
+
 ### GWTC — autologon + barbarian strip + Claude toolkit (Claude Opus 4.7 (1M context))
 
 Continuation of the 17-Apr stabilization. Boss deployed GWTC to the coop, saw it drop off the LAN after a reboot (classic Windows pre-login WiFi gap), and said *"no human is ever going to use that machine again, only Claude Code instances — be ruthless like a barbarian, loot and pillage."* Two sessions of work under that banner, all remote over SSH from the Mini.
