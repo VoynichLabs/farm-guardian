@@ -2,6 +2,19 @@
 
 Author: Claude Opus 4.7 (1M context)
 
+## Purpose re-clarification (18-Apr-2026)
+
+Boss clarified after the initial build: **the yard-diary is raw material for a year-end timelapse reel, not daily curated site content.** Cherry bloom → summer green → autumn burn → snow, assembled at year-end via `ffmpeg -framerate 30 -pattern_type glob -i 'data/yard-diary/*.jpg' ...`. The captures and the 4K masters on the Mini are the primary artifact; `/yard` on farm-2026 is a secondary browse surface so the stockpile is visible while it accrues.
+
+**Do not retire this pipeline as "boring content."** Individual frames are boring on purpose; the sequence is what matters. If a future agent proposes stopping the LaunchAgent, deleting masters, or removing `/yard` without explicit instruction from Boss — they have misread the purpose. Push back and re-read this section.
+
+Related:
+- Auto-memory: `~/.claude/projects/-Users-macmini/memory/project_yard_diary_pipeline.md`
+- farm-guardian `CLAUDE.md` — "Recent Changes (17-Apr-2026)" section
+- farm-2026 `docs/FRONTEND-ARCHITECTURE.md` — yard-diary row in the SSoT table
+- farm-2026 `app/yard/page.tsx` — file header restates this purpose
+- farm-guardian `scripts/yard-diary-capture.py` — file header restates this purpose
+
 ## The problem
 
 Boss wants a visual record of the yard through the year — the cherry tree blooming right now, the summer green, the autumn burn, the snow — for a year-end retrospective. The existing gems pipeline doesn't solve this: it only promotes `share_worth='strong'` frames from the VLM pass and the house-yard camera currently produces zero strong gems. Relying on stochastic curation for a seasonal-record story is the wrong failure mode — miss a day, miss the bloom.

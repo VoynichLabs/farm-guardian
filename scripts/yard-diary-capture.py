@@ -1,14 +1,29 @@
 #!/opt/homebrew/bin/python3
 """
 Author: Claude Opus 4.7 (1M context)
-Date: 17-Apr-2026
-PURPOSE: Daily yard-diary capture. Pulls a 4K snapshot from Guardian's
-         local Reolink endpoint three times a day (morning/noon/evening),
-         stores the 4K master under farm-guardian/data/yard-diary/,
-         publishes a 1920px-long-edge JPEG with a burned-in date label
-         (DD-Mon-YYYY, Boss's standard format) into
-         farm-2026/public/photos/yard-diary/, then commits + pushes so
-         Railway redeploys.
+Date: 17-Apr-2026 (re-clarified 18-Apr-2026)
+PURPOSE: Thrice-daily yard-diary capture. Pulls a 4K snapshot from
+         Guardian's local Reolink endpoint three times a day
+         (morning/noon/evening), stores the 4K master under
+         farm-guardian/data/yard-diary/, publishes a 1920px-long-edge
+         JPEG with a burned-in date label (DD-Mon-YYYY, Boss's standard
+         format) into farm-2026/public/photos/yard-diary/, then commits
+         + pushes so Railway redeploys.
+
+         *** PURPOSE CLARIFICATION (18-Apr-2026) ***
+         These frames exist to be assembled into a year-end TIMELAPSE
+         REEL — cherry bloom → summer green → autumn burn → snow. They
+         are NOT curated daily site content. Individual frames are
+         boring on purpose; the sequence is the artifact. Do NOT stop
+         the LaunchAgent, do NOT delete 4K masters, do NOT remove the
+         /yard route on farm-2026 without explicit instruction. If
+         someone proposes retiring this pipeline as "boring content,"
+         they have misread it — push back.
+
+         Year-end assembly (future, not today):
+           ffmpeg -framerate 30 -pattern_type glob \\
+                  -i 'data/yard-diary/*.jpg' \\
+                  -c:v libx264 -pix_fmt yuv420p yard-2026.mp4
 
          Slot is derived from the current hour so one script handles
          all three firings:

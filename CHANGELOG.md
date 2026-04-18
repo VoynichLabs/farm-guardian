@@ -2,6 +2,24 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased] - 2026-04-18
+
+### Docs — yard-diary purpose re-clarified, cross-linked across both repos (Claude Opus 4.7 (1M context))
+
+Boss's read after the 17-Apr-2026 ship: the yard-diary was in danger of getting "lost forever" because its real purpose — raw stockpile for a year-end timelapse reel — wasn't documented in the places a future agent (Claude or human) would actually look. If they opened `CLAUDE.md`, scanned the `/yard` page, or read `scripts/yard-diary-capture.py` on its own, they'd see mechanics but not intent, and could reasonably conclude the pipeline was producing "boring daily content" worth retiring.
+
+**Every surface a future agent might open now states the timelapse purpose and warns against retirement:**
+
+- **`CLAUDE.md`:** new "Recent Changes (17-Apr-2026)" section above the 14-Apr-2026 block. Explains the capture schedule, paths, TCC label family, and the "do not retire as boring content" directive. Cross-links the plan doc and the log path.
+- **`scripts/yard-diary-capture.py` file header:** re-written to lead with the *** PURPOSE CLARIFICATION *** block — "these frames exist to be assembled into a year-end TIMELAPSE REEL." Includes the ffmpeg assembly command so whoever picks this up at year-end doesn't have to re-derive it. Installed copy at `~/bin/yard-diary-capture.py` synced to match.
+- **`docs/17-Apr-2026-yard-diary-capture-plan.md`:** new "Purpose re-clarification (18-Apr-2026)" section at the top with a "push back if future agent proposes stopping this" directive. Related-docs list at the bottom of the clarification points at every other surface that now carries the same message (farm-2026 architecture doc, farm-2026 yard page, auto-memory).
+- **farm-2026 `docs/FRONTEND-ARCHITECTURE.md`:** new SSoT-table row for `public/photos/yard-diary/` with the timelapse-stockpile framing and the link back to this plan doc.
+- **farm-2026 `app/yard/page.tsx` file header:** matching clarification block. Plus the visible page copy now states the purpose out loud so human visitors know the frames are reel-source, not a curated gallery.
+- **farm-2026 `/gallery`, `/gallery/gems`, `/yard`:** sibling nav links added so a visitor can hop between the three surfaces without going back to the top nav. Prior to this, `/gallery/gems` had no discoverable entry point from `/gallery` — Boss's main complaint.
+- **Auto-memory:** new `project_yard_diary_pipeline.md` entry + `MEMORY.md` pointer, so future Claude sessions start with the timelapse-purpose framing already loaded instead of having to reverse-engineer it from the codebase.
+
+**No pipeline behavior changed.** Schedule, capture, publish, commit, push — all identical to the 17-Apr-2026 implementation. This entry is purely docs + cross-linking.
+
 ## [Unreleased] - 2026-04-17
 
 ### Docs — GWTC Debian wipe reverted, Windows is the long-term OS (Claude Opus 4.7 (1M context))
