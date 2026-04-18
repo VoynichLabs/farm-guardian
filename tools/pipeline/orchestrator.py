@@ -1,14 +1,22 @@
-# Author: Claude Opus 4.6 (1M context)
-# Date: 13-April-2026
+# Author: Claude Opus 4.7 (1M context)
+# Date: 17-April-2026
 # PURPOSE: Main entry point for the multi-cam image pipeline. Schedules per-
 #          camera capture cycles at their configured cadences, runs each
-#          frame through the trivial garbage gate, enriches passing frames
-#          via glm-4.6v-flash, persists to SQLite + disk. Single in-flight
-#          VLM call (enforced in vlm_enricher via a module-level lock). LM
-#          Studio coordination is read-only: if the wrong model is loaded
-#          (or nothing is loaded), the cycle is logged and skipped — we do
-#          not auto-load to avoid contention with G0DM0D3 sweeps, per
+#          frame through a three-stage pre-VLM filter (trivial std-dev gate,
+#          exposure gate, per-camera motion gate), enriches passing frames
+#          via the VLM, persists to SQLite + disk. Single in-flight VLM call
+#          (enforced in vlm_enricher via a module-level lock). LM Studio
+#          coordination is read-only: if the wrong model is loaded (or
+#          nothing is loaded), the cycle is logged and skipped — we do not
+#          auto-load to avoid contention with G0DM0D3 sweeps, per
 #          docs/13-Apr-2026-lm-studio-reference.md.
+#
+#          Motion gate is opt-in per camera via `motion_gate: true` in the
+#          camera's config block. Outdoor/coop cameras (house-yard, gwtc)
+#          enable it because 90%+ of their frames are unchanged yard/coop
+#          and returned `skip` from the VLM. Brooder cameras leave it off
+#          because chicks move continuously and we want the VLM on every
+#          frame.
 #
 #          Modes:
 #            --once                : run every enabled camera once, exit
@@ -38,14 +46,14 @@ import numpy as np
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     from tools.pipeline.capture import capture_camera, CaptureError
-    from tools.pipeline.quality_gate import passes_trivial_gate
+    from tools.pipeline.quality_gate import passes_trivial_gate, passes_exposure_gate, MotionGate
     from tools.pipeline.vlm_enricher import enrich, ModelNotLoaded, EnricherError, ValidationFailed
     from tools.pipeline.store import ensure_schema, store
     from tools.pipeline.retention import sweep as retention_sweep
     from tools.pipeline.gem_poster import post_gem, should_post, load_dotenv
 else:
     from .capture import capture_camera, CaptureError
-    from .quality_gate import passes_trivial_gate
+    from .quality_gate import passes_trivial_gate, passes_exposure_gate, MotionGate
     from .vlm_enricher import enrich, ModelNotLoaded, EnricherError, ValidationFailed
     from .store import ensure_schema, store
     from .retention import sweep as retention_sweep
@@ -55,6 +63,13 @@ else:
 log = logging.getLogger("pipeline.orchestrator")
 
 _STOP = threading.Event()
+
+# Module-level motion gate — holds one 64x64 thumbnail per camera that
+# opts in via `motion_gate: true` in its config block. Lives at module
+# scope so it survives across cycles for the daemon. The --once modes
+# build their own per-invocation instance inside run_once (no point
+# keeping baselines between one-shot invocations).
+_MOTION_GATE: MotionGate | None = None
 
 
 def _decode_jpeg(jpeg_bytes: bytes) -> np.ndarray:
@@ -66,16 +81,25 @@ def _decode_jpeg(jpeg_bytes: bytes) -> np.ndarray:
 
 
 def run_cycle(camera_name: str, camera_cfg: dict, cfg: dict, schema: dict,
-              prompt_template: str, db_path: Path, archive_root: Path) -> dict:
+              prompt_template: str, db_path: Path, archive_root: Path,
+              motion_gate: MotionGate | None = None) -> dict:
     """One capture → gate → enrich → store cycle for one camera.
     Returns a summary dict. Never raises — failures are returned as
-    {status: 'error', reason: '...'}."""
+    {status: 'error', reason: '...'}.
+
+    Gate order: trivial std-dev → exposure → motion (if opted in) → VLM.
+    Any gate failure short-circuits with status='gated' — no VLM call,
+    no archive row. The cheapest checks run first so rejections stay
+    cheap."""
     result = {"camera": camera_name, "ts": datetime.now(timezone.utc).isoformat(timespec="seconds")}
     retry_max = cfg.get("capture_retry_max", 3)
 
-    # Capture with retry on trivial-gate failure
+    # Capture with retry on trivial-gate failure. Only the trivial gate
+    # triggers a recapture — exposure/motion rejections end the cycle
+    # cleanly (the frame itself is fine, we just don't want to analyse it).
     last_gate_metrics = None
     jpeg_bytes = None
+    img = None
     for attempt in range(1, retry_max + 1):
         try:
             jpeg_bytes = capture_camera(camera_name, camera_cfg, cfg)
@@ -112,6 +136,32 @@ def run_cycle(camera_name: str, camera_cfg: dict, cfg: dict, schema: dict,
             result.update(status="gated", stage="trivial_gate", metrics=last_gate_metrics)
             return result
         time.sleep(1.0)
+
+    # Exposure gate: cheap, reuses metrics from the trivial gate. Rejects
+    # near-black, blown-out, washed-out frames before they burn VLM time.
+    exp_ok, exp_reason = passes_exposure_gate(
+        last_gate_metrics,
+        p50_floor=cfg.get("exposure_p50_floor", 25.0),
+        p50_ceiling=cfg.get("exposure_p50_ceiling", 230.0),
+        std_floor=cfg.get("exposure_std_floor", 15.0),
+    )
+    if not exp_ok:
+        log.info("%s: exposure gate rejected: %s metrics=%s",
+                 camera_name, exp_reason, last_gate_metrics)
+        result.update(status="gated", stage="exposure", reason=exp_reason,
+                      metrics=last_gate_metrics)
+        return result
+
+    # Motion gate: per-camera opt-in. Skip the VLM when the scene hasn't
+    # changed since the last accepted frame for this camera. First frame
+    # after startup always accepts (no baseline yet).
+    if motion_gate is not None and camera_cfg.get("motion_gate", False):
+        accepted, motion_metrics = motion_gate.accept(camera_name, img)
+        if not accepted:
+            log.info("%s: motion gate rejected metrics=%s", camera_name, motion_metrics)
+            result.update(status="gated", stage="motion", metrics=motion_metrics)
+            return result
+        last_gate_metrics = {**last_gate_metrics, **motion_metrics}
 
     # Enrich via VLM
     try:
@@ -225,6 +275,10 @@ def _install_signal_handlers():
 def run_once(only_camera: str | None = None) -> int:
     cfg, schema, prompt_template, db_path, archive_root = _load_configs()
     ensure_schema(db_path)
+    # Motion gate in --once mode is effectively a no-op (every camera's
+    # first frame always accepts), but we construct one so the code path
+    # matches the daemon's.
+    motion_gate = MotionGate(threshold=cfg.get("motion_delta_threshold", 3.0))
     any_error = False
     for name, ccfg in cfg["cameras"].items():
         if only_camera and name != only_camera:
@@ -233,7 +287,8 @@ def run_once(only_camera: str | None = None) -> int:
             log.info("%s: disabled, skipping", name)
             continue
         log.info("%s: cycle start", name)
-        r = run_cycle(name, ccfg, cfg, schema, prompt_template, db_path, archive_root)
+        r = run_cycle(name, ccfg, cfg, schema, prompt_template, db_path,
+                      archive_root, motion_gate=motion_gate)
         log.info("%s: %s", name, json.dumps(r, default=str))
         if r.get("status") == "error":
             any_error = True
@@ -241,9 +296,11 @@ def run_once(only_camera: str | None = None) -> int:
 
 
 def run_daemon() -> int:
+    global _MOTION_GATE
     cfg, schema, prompt_template, db_path, archive_root = _load_configs()
     ensure_schema(db_path)
     _install_signal_handlers()
+    _MOTION_GATE = MotionGate(threshold=cfg.get("motion_delta_threshold", 3.0))
 
     # Per-camera next-due tracking
     now = time.monotonic()
@@ -270,7 +327,8 @@ def run_daemon() -> int:
             ccfg = cfg["cameras"][name]
             t0 = time.monotonic()
             try:
-                r = run_cycle(name, ccfg, cfg, schema, prompt_template, db_path, archive_root)
+                r = run_cycle(name, ccfg, cfg, schema, prompt_template, db_path,
+                              archive_root, motion_gate=_MOTION_GATE)
             except Exception as e:
                 # Last-resort guard: run_cycle is supposed to never raise, but
                 # if it does, don't let one bad cycle take the daemon down.

@@ -4,6 +4,23 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-04-17
 
+### Pipeline — pre-VLM exposure gate + per-camera motion gate (Claude Opus 4.7 (1M context))
+
+Boss flagged the pipeline as "slow as fuck" and specifically called out (a) every house-yard photo being VLM-analysed even when the yard is obviously empty, and (b) washed-out frames being sent to the model. 24-hour data confirmed: house-yard ran 115 VLM calls, 107 (93%) returned `share_worth=skip` with `activity=none-visible`. Across all cameras 68% of VLM output was `skip`. At ~43 s/call on Gemma-4-31B with a single-flight lock, those skip cycles were stealing slots from the brooder cameras where actual bird content lives.
+
+**Two new pre-VLM gates in `tools/pipeline/quality_gate.py`:**
+
+- `passes_exposure_gate(metrics, ...)` — rejects frames with median luminance `p50 < 25` (near-black), `p50 > 230` (blown out), or `std_dev < 15` (washed out / low contrast). Reuses metrics already computed by the trivial gate so runtime cost is zero. Thresholds configurable via `config.json`: `exposure_p50_floor`, `exposure_p50_ceiling`, `exposure_std_floor`. Logged rejections include a short tag (`too_dark` / `too_bright` / `too_flat`) so we can tune from real data.
+- `MotionGate` class — per-camera opt-in frame-to-frame delta gate. Holds a 64x64 grayscale thumbnail of the last *accepted* frame per camera; a new frame is accepted only if the mean absolute pixel delta against that thumbnail exceeds `motion_delta_threshold` (default 3.0 on 0-255). First frame per camera always accepts. Baseline refreshes on accept only — prevents slow lighting drift from being locked out forever. Thread-safe.
+
+**Orchestrator (`tools/pipeline/orchestrator.py`) wires both into `run_cycle`** between the existing trivial gate and the VLM call. New gate order: trivial std-dev → exposure → motion (if opted in) → VLM. Any gate failure short-circuits with `status=gated, stage=<name>` — no VLM call, no archive row. Cheapest checks first; rejections stay cheap. `_MOTION_GATE` lives at module scope in the daemon so baselines survive across cycles; `run_once` builds a per-invocation instance.
+
+**Per-camera opt-in:** motion gate flipped on for `house-yard` and `gwtc` in `config.json`. Brooder cameras (`usb-cam`, `mba-cam`, `s7-cam`) leave it off — chicks move continuously and we want the VLM on every frame regardless. Boss explicitly asked us NOT to touch the 14-field schema yet (he wants to evaluate this first), so `max_output_tokens`, `vlm_load_context_length`, and the prompt are all unchanged.
+
+**Expected effect:** house-yard `image_archive` inserts drop from ~6/hour to near-zero during quiet periods (birds do occasionally cross the yard, which is exactly when we still want the VLM). VLM time freed up for cameras with actual content. Smoke-tested via `orchestrator.py --once --camera house-yard` before the daemon reload — one cycle succeeded end-to-end. Watchdog kickstart of `com.farmguardian.pipeline` at 2026-04-17 21:39 ET; new PID running.
+
+Plan: `docs/17-Apr-2026-quality-gate-motion-plan.md`. Verification SQL + log greps in the plan doc.
+
 ### Added — yard-diary thrice-daily dated capture (Claude Opus 4.7 (1M context))
 
 Seasonal-record capture of the yard for a year-end retrospective. Separate from the VLM-curated gems pipeline because the cherry-bloom → summer-green → autumn-burn → snow story Boss wants is a guaranteed-cadence story, not something the `share_worth='strong'` selector would reliably surface.
