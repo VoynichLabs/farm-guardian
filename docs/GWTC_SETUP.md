@@ -1,8 +1,26 @@
 # GWTC — Coop Camera Computer Setup
 
-**Author:** Claude Opus 4.6 (updated), Bubba / claude-sonnet-4-6 (original)
-**Date:** 11-April-2026
-**PURPOSE:** Instructions for the MSI Katana (GWTC) as a dedicated Farm Guardian camera node. Covers SSH access, webcam streaming via ffmpeg + MediaMTX, Windows services, power management, and bloatware removal.
+**Author:** Claude Opus 4.7 (1M context) — Bubba (header rewrite 17-Apr-2026); earlier revisions by Claude Opus 4.6 and sonnet-4-6.
+**Date:** 11-April-2026 (hardware-identity correction + Debian-wipe reversal both landed 17-April-2026)
+**PURPOSE:** The **single authoritative doc** for any Claude Code agent picking up GWTC. Covers what GWTC is (camera node + coop-side research speaker), SSH access, webcam streaming via ffmpeg + MediaMTX, the three Shawl services, the post-reboot watchdog, power / lock-screen quirks, and cross-links to the research-programme docs.
+
+> ## 🟢 NEXT-CLAUDE READ-FIRST POINTER
+>
+> **If you are the next Claude Code agent assigned to GWTC, this is the only file you need to read first.** Everything else is a cross-reference.
+>
+> 1. **GWTC is NOT "just a camera box."** It's a Gateway laptop sitting in the chicken coop that currently does two things and is scoped to do more:
+>    - hosts the `gwtc` camera feed into Farm Guardian (ffmpeg → MediaMTX RTSP on port 8554), and
+>    - is the **speaker** for the flock acoustic-response study (`tools/flock-response/playback.py` triggers `System.Media.SoundPlayer.PlaySync()` on it over SSH).
+>    - Planned next: screen as a visual-stimuli display for the visual arm of the study, ambient daytime dashboard, operant-conditioning sandbox. Those plans live at `docs/16-Apr-2026-gwtc-coop-node-capabilities-brainstorm.md` and `docs/16-Apr-2026-gwtc-visual-stimuli-plan.md`.
+> 2. **Do NOT propose wiping / reimaging / OS-swapping GWTC** without reading `docs/17-Apr-2026-gwtc-windows-stabilization-plan.md` first. An earlier agent committed to a Debian wipe on 17-Apr-2026; it was armed, did not complete, and was reverted the same day because the entire research-programme tool scaffold is Windows-coded (PowerShell, `C:\Windows\Media\tada.wav`, Shawl services, the watchdog). That plan doc is the written record of why Windows stays.
+> 3. **GWTC's biggest operational quirk is not a bug to fix — it's a quirk to accept.** Post-reboot the dshow webcam capture wedges for ~90 s; `farmcam-watchdog` auto-recovers it. Windows pre-login WiFi sometimes requires Boss to type PIN `5196` at the coop USB keyboard. Hard power-cycling the laptop is the approved first-line response (`feedback_gwtc_hard_reboot_freely.md`).
+> 4. **Boss does not use this machine for anything else.** "It just needs to fucking work. It gets pooped on by chickens." No user data, no kid gloves, no waiting on Boss to do keyboard work at the coop if a hard reboot would cover the same failure mode.
+>
+> **⚠️ DO NOT CONFLATE TWO MACHINES.** An earlier version of this doc called GWTC an "MSI Katana." That was wrong.
+> - **GWTC** (`192.168.0.68`) = old consumer **Gateway-brand laptop**, Windows 11, Celeron N4020 / 4 GB RAM / 60 GB eMMC, coop camera + audio-stimulus node. "GWTC" = Gateway + The Coop.
+> - **MSI Katana 15 HX B14WGK** (`192.168.0.3`) = Boss's **primary workstation**, RTX 5070, 64 GB RAM. Has nothing to do with Farm Guardian.
+>
+> **Verified specs (17-Apr-2026, via `systeminfo` over SSH):** Gateway GWTC116-2 (manufactured by "GPU Company" OEM), Intel Celeron N4020 (2C/2T @ 1.1 GHz), 3.9 GB RAM, 60 GB Biwin eMMC (C:), 62 GB SD card in the internal SD slot (left over from the Debian-wipe attempt — harmless now that BCD is disarmed; do not ask Boss to remove it), Hy-HD-Camera built-in webcam, Realtek 8723DU USB WiFi (150 Mbps link, no ethernet), Windows 11 Home 22631.
 
 ---
 
@@ -153,14 +171,10 @@ Named `gwtc` (device name, not location) per project convention — locations ch
 
 ## Bloatware Removal
 
-SSH in and run this to uninstall common MSI/Windows crapware in one shot:
+**Note:** The original list below included `MSI.Center`, `MSI.Dragon.Center`, etc. Those **do not exist on GWTC** — GWTC is a Gateway-brand laptop; those MSI entries were cross-wired from a different machine. They're left as no-ops (the `Get-AppxPackage -Name "*MSI.*"` pattern returns nothing on GWTC and harmlessly falls through). If you're updating this list, the OEM crapware actually on GWTC is Gateway/Acer/Walmart-tier (ExperienceIndexOK, various Realtek/Intel preload panels, whatever Microsoft Store prepopulates on budget Win 11 SKUs). Remove the MSI entries next time you touch this doc on the live machine.
 
 ```powershell
 $apps = @(
-    "MSI.Center",
-    "MSI.Dragon.Center",
-    "MSI.App.Player",
-    "MSI.Gaming.App",
     "XboxGameOverlay",
     "XboxGamingOverlay",
     "XboxSpeechToTextOverlay",
@@ -180,6 +194,7 @@ $apps = @(
     "Microsoft.ZuneVideo",
     "SpotifyAB.SpotifyMusic",
     "Disney.37853D22215B2"
+    # NOTE: MSI.* entries removed 17-Apr-2026 — GWTC is a Gateway laptop, not an MSI Katana.
 )
 foreach ($app in $apps) {
     Get-AppxPackage -Name "*$app*" | Remove-AppxPackage -ErrorAction SilentlyContinue
@@ -195,5 +210,15 @@ Write-Host "Done"
 - WiFi password: `4136870990!` (SSID: `653 Pudding Hill 2G Private`)
 - Windows Firewall is currently DISABLED on GWTC — do not re-enable without testing SSH still works
 - sshd service is set to Automatic startup
-- GWTC has WSL2 installed — do not remove it, but be aware it creates 172.x virtual IPs that are not routable from the Mac Mini
+- GWTC has WSL2 installed — leave it alone unless Boss asks; it creates 172.x virtual IPs that are not routable from the Mac Mini. (Earlier writeup theories blamed WSL2 for the pre-login WiFi outage — that was a misdiagnosis; see `project_gwtc_offline_pre_login_wifi.md`.)
 - Shawl installed via `winget install shawl` (v1.8.0) — wraps executables as Windows services
+
+## Research-programme role (the part that makes GWTC more than a camera)
+
+GWTC is the **coop-side node** for a flock-behaviour research programme. Three arms, all scoped in `docs/`:
+
+- **Audio arm (scaffold committed on `main`).** `tools/flock-response/playback.py` triggers blocking playback on GWTC via SSH → `System.Media.SoundPlayer.PlaySync()`. Smoke-tests safely against `C:\Windows\Media\tada.wav`. Real stimuli get pushed to `C:\farm-sounds\` by `tools/flock-response/deploy/push-sounds-to-gwtc.sh`. Study design: `docs/16-Apr-2026-flock-acoustic-response-study-plan.md`. **Welfare floor applies** — do not pre-play real stimuli on the cohort; every pre-pilot playback contaminates the H5 habituation measurement.
+- **Visual arm (plan only).** GWTC's 1366×768 screen as a display for silhouette / predator-image / food-cue stimuli. Blocked on daytime apparatus unblocks (screen orientation in the coop, SSH-to-interactive-desktop session probe, brightness / colour-as-light calibration, GPU footprint test). Design: `docs/16-Apr-2026-gwtc-visual-stimuli-plan.md`.
+- **Broader brainstorm.** Night-light, sunrise simulation, ambient dashboard, operant-conditioning sandbox, BirdNET-on-coop-audio. Design space: `docs/16-Apr-2026-gwtc-coop-node-capabilities-brainstorm.md`. Most ideas have welfare-floor constraints that gate them behind daytime calibration.
+
+**None of this means "wipe Windows to make room."** Every arm's committed or planned code path targets Windows (`System.Media.SoundPlayer`, `schtasks /Create /IT`, `[Console]::Beep`, Shawl services). The 17-Apr-2026 Debian-wipe attempt was reverted specifically because it would have invalidated that scaffold.

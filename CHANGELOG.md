@@ -4,6 +4,25 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-04-17
 
+### Docs — GWTC Debian wipe reverted, Windows is the long-term OS (Claude Opus 4.7 (1M context))
+
+An earlier 17-Apr-2026 session armed a Debian 13 wipe of the GWTC Gateway laptop because Windows kept wedging under load. The install never completed; Windows booted back up with the BCD still chainloading Debian on next power-cycle (time-bomb). Boss fired that agent and handed off with: *"Read everything, take a few hours, understand what I'm trying to achieve. I don't want future assistants to ever fail. If it's not obvious for another Claude Code assistant to do, it's not a good idea."*
+
+After reading the committed research-programme plans (`tools/flock-response/`, `docs/16-Apr-2026-flock-acoustic-response-study-plan.md`, `docs/16-Apr-2026-gwtc-visual-stimuli-plan.md`, `docs/16-Apr-2026-gwtc-coop-node-capabilities-brainstorm.md`), the OS choice resolves unambiguously to Windows: every committed tool is Windows-coded (PowerShell `System.Media.SoundPlayer`, Shawl services, `farmcam-watchdog`, `C:\Windows\Media\tada.wav` smoke-test). Debian would have silently invalidated the audio-arm scaffold before the first flock-response trial could run.
+
+**Done in-session:**
+
+- `docs/17-Apr-2026-gwtc-windows-stabilization-plan.md` added — rationale, reversal steps, out-of-scope list.
+- GWTC BCD disarmed via SSH: `default {current}` (Windows), Debian entry deleted, `timeout 30`. Verified.
+- `\EFI\debian\` removed from GWTC's internal ESP via PowerShell-mounted `Y:`.
+- Preseed HTTP server on the Mac Mini killed; `/Users/macmini/gwtc-linux-prep/`, `/tmp/gwtc-debian/`, `/tmp/debiso-extract/` deleted.
+- GWTC C: cleanup: `%TEMP%` + `C:\Windows\Temp` + `C:\Windows\SoftwareDistribution\Download` purged; hibernation disabled (`powercfg /h off`, ~3 GB freed); DISM component cleanup + `/ResetBase` running in background at publish time.
+- `docs/GWTC_SETUP.md` rewritten at top with a next-Claude read-first pointer — what GWTC is (coop camera node **+** audio/visual research speaker), verified hardware specs (Celeron N4020, 4 GB RAM, 60 GB eMMC), Windows-stays directive, and cross-links to the research-programme docs.
+- Auto-memory entry `project_gwtc_debian_wipe_17apr2026.md` rewritten from "armed and in progress" to "REVERTED"; MEMORY.md hook line updated to match.
+- 62 GB SD card with Debian installer is still physically in the GWTC SD slot — harmless (BCD no longer chainloads it); Boss's physical hands needed to remove it and he doesn't want to be asked for unnecessary coop work.
+
+**Not changed:** no code, no camera config, no service. `gwtc` RTSP stream verified live at commit time (`/api/cameras/gwtc/frame` returns 200 + JPEG). The research-programme scaffold stays untouched; tonight's work is stabilization and handoff only.
+
 ### Pipeline — pre-VLM exposure gate + per-camera motion gate (Claude Opus 4.7 (1M context))
 
 Boss flagged the pipeline as "slow as fuck" and specifically called out (a) every house-yard photo being VLM-analysed even when the yard is obviously empty, and (b) washed-out frames being sent to the model. 24-hour data confirmed: house-yard ran 115 VLM calls, 107 (93%) returned `share_worth=skip` with `activity=none-visible`. Across all cameras 68% of VLM output was `skip`. At ~43 s/call on Gemma-4-31B with a single-flight lock, those skip cycles were stealing slots from the brooder cameras where actual bird content lives.
