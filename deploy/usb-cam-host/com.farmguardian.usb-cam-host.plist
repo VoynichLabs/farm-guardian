@@ -48,6 +48,22 @@
         <string>true</string>
         <key>USB_CAM_WB_STRENGTH</key>
         <string>0.5</string>
+
+        <!--
+          Manual exposure — starts at -6 (≈1/64 sec on AVFoundation). The
+          generic UVC webcam's auto-exposure clips the red channel to 255
+          under the brooder heat lamp, which is what causes the "nuclear
+          pink" look after gray-world WB runs. Clamp the shutter below the
+          clipping point so the WB pipeline has real color data to work
+          with. Tune by watching a pure-red pixel crop: if any channel
+          still reads 255, drop one more stop (-7). If the frame is too
+          dark and the chicks become silhouettes, step back up (-5).
+          See docs/16-Apr-2026-heat-lamp-orange-cast-investigation.md.
+        -->
+        <key>USB_CAM_AUTO_EXPOSURE</key>
+        <string>manual</string>
+        <key>USB_CAM_EXPOSURE</key>
+        <string>-6</string>
         <key>PYTHONUNBUFFERED</key>
         <string>1</string>
         <key>OPENCV_AVFOUNDATION_SKIP_AUTH</key>

@@ -1,5 +1,7 @@
-# Author: Claude Opus 4.6 (1M context)
-# Date: 15-April-2026 (v2.27.4 — heat-lamp WB + orange-desat tuning)
+# Author: Claude Opus 4.7 (1M context)
+# Date: 18-April-2026 (adds manual exposure + manual focus plumbing for
+#        the brooder heat-lamp clipping problem per
+#        docs/16-Apr-2026-heat-lamp-orange-cast-investigation.md)
 # PURPOSE: Cross-platform HTTP snapshot service for the generic USB webcam.
 #          Exposes GET /photo.jpg returning the latest frame from a warm,
 #          continuously-running camera, and GET /health for liveness probes.
@@ -93,6 +95,86 @@ ORANGE_DESAT = max(0.0, min(1.0, float(os.environ.get("USB_CAM_ORANGE_DESAT", "0
 ORANGE_HUE_LO = int(os.environ.get("USB_CAM_ORANGE_HUE_LO", "5"))
 ORANGE_HUE_HI = int(os.environ.get("USB_CAM_ORANGE_HUE_HI", "30"))
 
+# Manual exposure + focus clamp — per
+# docs/16-Apr-2026-heat-lamp-orange-cast-investigation.md, the brooder's
+# real problem is that auto-exposure clips the red channel to 255 under
+# the heat lamp. Gray-world WB then amplifies the un-clipped channels past
+# 255 → nuclear pink. Clamping the camera's exposure BELOW the clipping
+# point gives the WB pipeline real color data to work with.
+#
+# "Don't touch if unset" semantics on every knob: if the env var is
+# absent, OpenCV's auto-exposure / auto-focus stays in charge. This
+# matters because bad manual values produce worse frames than auto does,
+# and AVFoundation / dshow / V4L2 interpret CAP_PROP_EXPOSURE values
+# differently. Tuning recipe lives in the investigation doc, but briefly:
+#
+# - AVFoundation (macOS): CAP_PROP_AUTO_EXPOSURE=0.25 = manual, 0.75 = auto.
+#   CAP_PROP_EXPOSURE is 2^x seconds; -7 = 1/128s, -6 = 1/64s, etc.
+# - V4L2 (Linux): CAP_PROP_AUTO_EXPOSURE=1 = manual, 3 = auto.
+#   CAP_PROP_EXPOSURE is in 100 µs units.
+# - DirectShow (Windows): similar to V4L2 but vendor-dependent.
+#
+# AUTO_EXPOSURE accepts "manual" / "auto" / a raw float (for non-standard
+# backends). Same for AUTOFOCUS: "on" / "off" / raw int.
+AUTO_EXPOSURE = os.environ.get("USB_CAM_AUTO_EXPOSURE", "").strip().lower()
+EXPOSURE_VALUE_RAW = os.environ.get("USB_CAM_EXPOSURE", "").strip()
+AUTOFOCUS = os.environ.get("USB_CAM_AUTOFOCUS", "").strip().lower()
+FOCUS_VALUE_RAW = os.environ.get("USB_CAM_FOCUS", "").strip()
+
+
+def _resolve_auto_exposure_value() -> Optional[float]:
+    """Map a semantic env value to the backend-specific float OpenCV wants.
+    Returns None if unset (= don't touch)."""
+    if not AUTO_EXPOSURE:
+        return None
+    if AUTO_EXPOSURE in ("manual", "off", "false", "0"):
+        # AVFoundation uses 0.25 for manual; V4L2 uses 1. The AVFoundation
+        # value happens to also work on most V4L2 drivers (gets rounded),
+        # but if a Linux install sees no effect, override with
+        # USB_CAM_AUTO_EXPOSURE=1 directly.
+        return 0.25 if sys.platform == "darwin" else 1.0
+    if AUTO_EXPOSURE in ("auto", "on", "true"):
+        return 0.75 if sys.platform == "darwin" else 3.0
+    try:
+        return float(AUTO_EXPOSURE)
+    except ValueError:
+        log.warning("USB_CAM_AUTO_EXPOSURE=%r is not recognized; leaving auto-exposure untouched", AUTO_EXPOSURE)
+        return None
+
+
+def _resolve_exposure_value() -> Optional[float]:
+    if not EXPOSURE_VALUE_RAW:
+        return None
+    try:
+        return float(EXPOSURE_VALUE_RAW)
+    except ValueError:
+        log.warning("USB_CAM_EXPOSURE=%r is not a number; leaving exposure untouched", EXPOSURE_VALUE_RAW)
+        return None
+
+
+def _resolve_autofocus_value() -> Optional[float]:
+    if not AUTOFOCUS:
+        return None
+    if AUTOFOCUS in ("off", "manual", "false", "0"):
+        return 0.0
+    if AUTOFOCUS in ("on", "auto", "true", "1"):
+        return 1.0
+    try:
+        return float(AUTOFOCUS)
+    except ValueError:
+        log.warning("USB_CAM_AUTOFOCUS=%r is not recognized; leaving autofocus untouched", AUTOFOCUS)
+        return None
+
+
+def _resolve_focus_value() -> Optional[float]:
+    if not FOCUS_VALUE_RAW:
+        return None
+    try:
+        return float(FOCUS_VALUE_RAW)
+    except ValueError:
+        log.warning("USB_CAM_FOCUS=%r is not a number; leaving focus untouched", FOCUS_VALUE_RAW)
+        return None
+
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
@@ -145,6 +227,26 @@ def _grabber_loop() -> None:
             return None
         c.set(cv2.CAP_PROP_FRAME_WIDTH, REQUESTED_WIDTH)
         c.set(cv2.CAP_PROP_FRAME_HEIGHT, REQUESTED_HEIGHT)
+
+        # Manual exposure / focus — only touched when env vars are set.
+        # Order matters: disable auto-mode first, then set the fixed value.
+        # Some backends ignore the value knob while auto is still on.
+        ae = _resolve_auto_exposure_value()
+        if ae is not None:
+            ok = c.set(cv2.CAP_PROP_AUTO_EXPOSURE, ae)
+            log.info("grabber: CAP_PROP_AUTO_EXPOSURE=%.3f set_ok=%s", ae, ok)
+        ev = _resolve_exposure_value()
+        if ev is not None:
+            ok = c.set(cv2.CAP_PROP_EXPOSURE, ev)
+            log.info("grabber: CAP_PROP_EXPOSURE=%.3f set_ok=%s", ev, ok)
+        af = _resolve_autofocus_value()
+        if af is not None:
+            ok = c.set(cv2.CAP_PROP_AUTOFOCUS, af)
+            log.info("grabber: CAP_PROP_AUTOFOCUS=%.3f set_ok=%s", af, ok)
+        fv = _resolve_focus_value()
+        if fv is not None:
+            ok = c.set(cv2.CAP_PROP_FOCUS, fv)
+            log.info("grabber: CAP_PROP_FOCUS=%.3f set_ok=%s", fv, ok)
         return c
 
     try:
@@ -241,10 +343,13 @@ def _stop_grabber(timeout: float = 3.0) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):  # noqa: ARG001
     log.info(
-        "usb-cam-host ready (v2.27 continuous): device=%d requested=%dx%d "
-        "grab_interval=%.2fs max_age=%.1fs jpeg_q=%d auto_wb=%s wb_strength=%.2f",
+        "usb-cam-host ready: device=%d requested=%dx%d grab_interval=%.2fs "
+        "max_age=%.1fs jpeg_q=%d auto_wb=%s wb_strength=%.2f "
+        "auto_exposure=%r exposure=%r autofocus=%r focus=%r",
         DEVICE_INDEX, REQUESTED_WIDTH, REQUESTED_HEIGHT, GRAB_INTERVAL_S,
         MAX_FRAME_AGE_S, JPEG_QUALITY, AUTO_WB, WB_STRENGTH,
+        AUTO_EXPOSURE or "untouched", EXPOSURE_VALUE_RAW or "untouched",
+        AUTOFOCUS or "untouched", FOCUS_VALUE_RAW or "untouched",
     )
     _start_grabber()
     try:
@@ -364,6 +469,10 @@ async def health():
             "jpeg_quality": JPEG_QUALITY,
             "auto_wb": AUTO_WB,
             "wb_strength": WB_STRENGTH,
+            "auto_exposure": AUTO_EXPOSURE or None,
+            "exposure": EXPOSURE_VALUE_RAW or None,
+            "autofocus": AUTOFOCUS or None,
+            "focus": FOCUS_VALUE_RAW or None,
         },
     )
 
