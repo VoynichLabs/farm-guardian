@@ -59,6 +59,17 @@ Amazon Prime Video, Hulu, RandomSalad Solitaire, Clipchamp, Exafunction Windsurf
 - `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run` — `SecurityHealth` and `TPCtrlServer` values removed.
 - Startup folders for `cam`, `markb`, and all-users purged.
 
+### Bird-on-keyboard defenses (evening, 18-Apr-2026)
+
+After the afternoon strip, Boss deployed GWTC to the coop. It dropped off the LAN within a few hours. Boss observed birds walking on the keyboard (the laptop lid is open, coop-interior-facing — keyboard exposed). Most likely culprit: a bird hits `Win+L`, session locks, Realtek 8723DU USB WiFi drops, LAN invisibility follows. Boss is covering the keyboard physically; applied four registry/power defenses as a complement:
+
+- **Win+L disabled:** `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\DisableLockWorkstation=1`. Removes the system-wide lock-workstation keyboard shortcut. A bird can no longer lock the session by keypress.
+- **Power / Sleep / Lid buttons neutralized:** `powercfg` sets `PBUTTONACTION`, `SBUTTONACTION`, `LIDACTION` all to `0` (no action) on both AC and DC. Lid-close or a bird pressing the power/sleep key does nothing.
+- **USB selective suspend globally off:** `powercfg` sets the USB suspend setting (GUID `48e6b7a6-50f5-4782-a5d4-53bb8f07e226`) to `0` on both AC and DC. The Realtek USB WiFi adapter stays powered.
+- **Monitor timeout set to never:** `powercfg /change monitor-timeout-ac 0 && monitor-timeout-dc 0`. Avoids display-sleep side-effects on this adapter.
+
+**Verified at 2026-04-18 17:00 ET after the bird-induced power cycle:** GWTC back on LAN, all services RUNNING, `/api/cameras/gwtc/frame` returns 200 + 117 KB JPEG showing the coop interior with birds visible — which is the job.
+
 ### What was NOT removed (explicit safety list)
 
 - **Windows Defender core** — real-time monitoring can be disabled if it ever causes a demonstrable camera-side issue, but on a LAN-only machine with no user browsing it doesn't matter. Tamper Protection on Win11 22H2+ blocks the usual disables anyway.
