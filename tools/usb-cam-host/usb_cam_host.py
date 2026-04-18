@@ -95,6 +95,27 @@ ORANGE_DESAT = max(0.0, min(1.0, float(os.environ.get("USB_CAM_ORANGE_DESAT", "0
 ORANGE_HUE_LO = int(os.environ.get("USB_CAM_ORANGE_HUE_LO", "5"))
 ORANGE_HUE_HI = int(os.environ.get("USB_CAM_ORANGE_HUE_HI", "30"))
 
+# Highlight roll-off — the UVC webcam's internal auto-exposure clips the
+# red channel to 255 under the heat lamp and macOS AVFoundation gives us
+# no way to lower the shutter from userland (tested 18-Apr-2026: every
+# CAP_PROP_* .set() returns False; setExposureModeCustom is iOS-only;
+# jtfrey/uvc-util segfaults on modern macOS; no maintained uvc-util fork
+# exists for Sequoia+). Since we can't prevent the clip at capture time,
+# we apply a local-tone-map-ish roll-off after capture: pixels above
+# USB_CAM_HIGHLIGHT_KNEE get their luminance compressed toward the knee,
+# which reduces the "nuclear white" blown-out look on chicks. It cannot
+# recover data that was clipped at 255, but it stops the blown regions
+# from dominating the frame visually. 1.0 = off.
+HIGHLIGHT_KNEE = max(0.0, min(1.0, float(os.environ.get("USB_CAM_HIGHLIGHT_KNEE", "0.75"))))
+HIGHLIGHT_STRENGTH = max(0.0, min(1.0, float(os.environ.get("USB_CAM_HIGHLIGHT_STRENGTH", "0.6"))))
+
+# Unsharp-mask sharpening — fixed-focus UVC webcams serving a brooder
+# scene often read as "soft" from the VLM. A mild unsharp mask recovers
+# perceived edge detail without introducing halos. 0.0 = off.
+# amount ≈ 0.6–1.0 is mild-to-moderate; above 1.5 gets crunchy.
+SHARPEN_AMOUNT = max(0.0, float(os.environ.get("USB_CAM_SHARPEN_AMOUNT", "0.8")))
+SHARPEN_RADIUS = max(1, int(os.environ.get("USB_CAM_SHARPEN_RADIUS", "3")))
+
 # Manual exposure + focus clamp — per
 # docs/16-Apr-2026-heat-lamp-orange-cast-investigation.md, the brooder's
 # real problem is that auto-exposure clips the red channel to 255 under
@@ -385,6 +406,37 @@ def _apply_gray_world_wb(frame: np.ndarray, strength: float) -> np.ndarray:
     return np.clip(corrected, 0, 255).astype(np.uint8)
 
 
+def _apply_highlight_rolloff(frame: np.ndarray, knee: float, strength: float) -> np.ndarray:
+    """Soft-clip the highlights. Pixels above `knee` (0..1 fraction of full
+    scale) get their values compressed toward knee * 255 with a cubic
+    falloff scaled by `strength` (0..1). Cannot recover data clipped at
+    255 by the sensor, but reduces the visual dominance of blown regions.
+    No-op when strength <= 0."""
+    if strength <= 0.0:
+        return frame
+    knee_255 = knee * 255.0
+    f = frame.astype(np.float32)
+    over = np.maximum(f - knee_255, 0.0)
+    headroom = max(1.0, 255.0 - knee_255)
+    # Cubic ease-out pulls values strongly toward the knee when far above it,
+    # lightly when just above. strength scales how aggressively we pull.
+    t = np.clip(over / headroom, 0.0, 1.0)
+    compressed = knee_255 + headroom * (1.0 - strength * (1.0 - (1.0 - t) ** 3))
+    out = np.where(f > knee_255, compressed, f)
+    return np.clip(out, 0, 255).astype(np.uint8)
+
+
+def _apply_unsharp_mask(frame: np.ndarray, amount: float, radius: int) -> np.ndarray:
+    """Standard unsharp mask: frame + amount * (frame - gaussian_blur(frame)).
+    Cheap, ~3-5 ms on a 1080p frame. No-op when amount <= 0."""
+    if amount <= 0.0:
+        return frame
+    k = max(1, radius | 1)  # kernel size must be odd
+    blurred = cv2.GaussianBlur(frame, (k, k), 0)
+    sharpened = cv2.addWeighted(frame, 1.0 + amount, blurred, -amount, 0)
+    return sharpened
+
+
 def _apply_orange_desat(frame: np.ndarray, factor: float, hue_lo: int, hue_hi: int) -> np.ndarray:
     """Desaturate pixels whose hue falls in the orange band (OpenCV H in
     [hue_lo, hue_hi], where full range is 0–180). Used after gray-world to
@@ -473,6 +525,10 @@ async def health():
             "exposure": EXPOSURE_VALUE_RAW or None,
             "autofocus": AUTOFOCUS or None,
             "focus": FOCUS_VALUE_RAW or None,
+            "highlight_knee": HIGHLIGHT_KNEE,
+            "highlight_strength": HIGHLIGHT_STRENGTH,
+            "sharpen_amount": SHARPEN_AMOUNT,
+            "sharpen_radius": SHARPEN_RADIUS,
         },
     )
 
@@ -498,8 +554,15 @@ async def photo(wb: Optional[float] = None, os_: Optional[float] = Query(default
     # don't serialize on them. (The grabber thread is still the sole camera
     # owner; this only affects request fan-in.)
     def _process() -> bytes:
-        out = _apply_gray_world_wb(frame, effective_wb) if apply_wb else frame
+        # Processing order: highlight roll-off FIRST (compresses clipped
+        # whites before WB amplifies them), then gray-world WB, then
+        # orange desaturation (brings chicks back toward neutral), then
+        # unsharp mask (sharpens the result, last so it doesn't
+        # amplify color noise from the earlier passes).
+        out = _apply_highlight_rolloff(frame, HIGHLIGHT_KNEE, HIGHLIGHT_STRENGTH)
+        out = _apply_gray_world_wb(out, effective_wb) if apply_wb else out
         out = _apply_orange_desat(out, effective_os, ORANGE_HUE_LO, ORANGE_HUE_HI)
+        out = _apply_unsharp_mask(out, SHARPEN_AMOUNT, SHARPEN_RADIUS)
         ok, buf = cv2.imencode(".jpg", out, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
         if not ok:
             raise CaptureError("cv2.imencode JPEG failed")

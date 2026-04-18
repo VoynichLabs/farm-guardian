@@ -257,6 +257,8 @@ Read `docs/02-Apr-2026-v2-system-plan.md` for the full v2 architecture document 
 
 **Config:** `config.json` (copied from `config.example.json`). Contains camera IPs, per-camera RTSP transport (`"tcp"`/`"udp"`), Discord webhook, detection thresholds, deterrent rules, PTZ presets, eBird API key, report settings.
 
+**TWO SEPARATE CONFIG FILES — DO NOT FORGET THE SECOND ONE.** Guardian (the main service on port 6530) reads `config.json` at the repo root. The VLM image pipeline (the `com.farmguardian.pipeline` LaunchAgent) reads **a different file** at `tools/pipeline/config.json`. When a camera moves between hosts (e.g. usb-cam jumping from Mini → MBA 18-Apr-2026), or a port changes, you MUST update both files or the dashboard and the pipeline will diverge — one will see the camera, the other won't, and it looks like "the camera is partially online." Both files are gitignored (per-host). Grep both before declaring done: `grep -n 'http_base_url\|ip_webcam_base' config.json tools/pipeline/config.json`. After editing, reload **both** services: `launchctl kickstart -k gui/$(id -u)/com.farmguardian.guardian` AND `launchctl kickstart -k gui/$(id -u)/com.farmguardian.pipeline`.
+
 ## Network & Machine Access — READ BEFORE TROUBLESHOOTING REACHABILITY
 
 **Two docs are authoritative — read both before you theorize about why something is unreachable:**
