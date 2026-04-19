@@ -70,6 +70,28 @@ After the afternoon strip, Boss deployed GWTC to the coop. It dropped off the LA
 
 **Verified at 2026-04-18 17:00 ET after the bird-induced power cycle:** GWTC back on LAN, all services RUNNING, `/api/cameras/gwtc/frame` returns 200 + 117 KB JPEG showing the coop interior with birds visible — which is the job.
 
+### WiFi dropout incident + watchdog (19-Apr-2026 ~15:00 ET)
+
+After ~19 hours of clean overnight uptime (452 `gwtc` rows in `image_archive` 00:01–18:47 UTC), GWTC dropped off the LAN the moment Boss walked into the coop. Symptom from the Mini: ping returns `Host is down` (router has no ARP entry), SSH/RTSP/Guardian frame all dead. Machine itself was powered on with a normal-looking Windows desktop — Boss saw nothing wrong on screen. **Hard power cycle recovered it within seconds of rejoining the network.**
+
+**Diagnosis — weak-signal driver wedge.** GWTC's WiFi is a **Realtek 8723DU** chipset (shows as "Realtek 8723DU Wireless LAN 802.11n USB NIC" internally — technically a USB-bus module, but it's built into the chassis, not a user-visible dongle — do not look for a removable adapter). At the coop its signal sits around 34%. A transient dropout (Boss's body blocking 2.4 GHz when he walked in is the most likely trigger) wedges the driver; Windows never re-associates and sits there with the adapter in a stuck state. The `farmcam-watchdog` service only monitors *ffmpeg/dshow*, not network reachability, so it did not recover this.
+
+**Defense deployed: `farmcam-wifi-watchdog` scheduled task.**
+
+- Script: `C:\farm-services\wifi-watchdog.ps1`.
+- Logic: ping gateway (`192.168.0.1`) 3× with 2-second spacing via `ping.exe -n 1 -w 2000`. If all 3 fail, run `Restart-NetAdapter -Name "Wi-Fi" -Confirm:$false`, wait 8 seconds, log the post-bounce reachability.
+- Log: `C:\farm-services\wifi-watchdog.log` (append-only, only written when a bounce actually fires — absence of log = no false trips).
+- Scheduled task: registered via `schtasks /Create /TN farmcam-wifi-watchdog /SC MINUTE /MO 2 /RU SYSTEM /RL HIGHEST /F`. Runs every 2 minutes as SYSTEM (required for `Restart-NetAdapter`). PowerShell launched with `-WindowStyle Hidden` so it's invisible.
+- Memory footprint: script exits in ~500 ms. PowerShell.exe briefly hits ~30 MB during the run, zero at rest. Does not hog the machine.
+- Used `ping.exe` instead of `Test-Connection -TimeoutSeconds 2` because Windows PowerShell 5.1 (what GWTC ships with) doesn't have `-TimeoutSeconds` on `Test-Connection` — that's PS 6+. Avoid that trap if editing.
+
+**What this watchdog does NOT cover:**
+- A fully frozen Windows or a WSL2 adapter glitch that takes down the network stack without the WiFi interface noticing. Those still require a power cycle.
+- Router-side issues (router down, DHCP lease starvation). The watchdog will keep bouncing the adapter every 2 min, which is harmless but pointless.
+- The pre-login WiFi gap (CLAUDE.md "WiFi does not connect until someone types the PIN `5196`"). The machine now autologons to `cam`, so that gap no longer exists — but if autologon ever breaks (see the landmine section below), the watchdog cannot fix it because nothing runs at the login screen.
+
+**Durable fix still pending: WiFi extender closer to the coop.** 34% signal is the root cause; the watchdog is a failsafe, not a solution. If dropouts keep recurring even with the watchdog, the next move is a cheap extender rather than chasing adapter/driver tweaks.
+
 ### What was NOT removed (explicit safety list)
 
 - **Windows Defender core** — real-time monitoring can be disabled if it ever causes a demonstrable camera-side issue, but on a LAN-only machine with no user browsing it doesn't matter. Tamper Protection on Win11 22H2+ blocks the usual disables anyway.

@@ -2,6 +2,32 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased] - 2026-04-19
+
+### GWTC — WiFi adapter watchdog deployed after weak-signal dropout incident (Claude Opus 4.7 (1M context))
+
+After ~19 hours of clean overnight uptime (452 `gwtc` rows in `image_archive` between 00:01–18:47 UTC), GWTC dropped off the LAN the moment Boss walked into the coop to install a cardboard keyboard cover. From the Mini: `ping 192.168.0.68` returned `Host is down`, the router had no ARP entry, SSH/RTSP/`/api/cameras/gwtc/frame` all dead. The Windows desktop on GWTC itself looked normal — no lock screen, no error dialog — so Boss couldn't see what was wrong. Hard power cycle recovered it.
+
+**Root cause:** GWTC's built-in WiFi is a **Realtek 8723DU** chipset (internally USB-bus, but physically built into the chassis — not a removable dongle). Signal at the coop is ~34%. A transient dropout (Boss's body blocking 2.4 GHz when he walked in is the most likely trigger) wedges the driver, and Windows never re-associates. The existing `farmcam-watchdog` service only watches the ffmpeg/dshow path, not network reachability.
+
+**Fix — new `farmcam-wifi-watchdog` scheduled task:**
+- `C:\farm-services\wifi-watchdog.ps1`: ping gateway (`192.168.0.1`) 3× with 2-second spacing via `ping.exe -n 1 -w 2000`; if all 3 fail, `Restart-NetAdapter -Name "Wi-Fi" -Confirm:$false`, sleep 8 s, log post-bounce reachability to `C:\farm-services\wifi-watchdog.log`.
+- Registered with `schtasks /Create /TN "farmcam-wifi-watchdog" /SC MINUTE /MO 2 /RU SYSTEM /RL HIGHEST /F`. Runs every 2 minutes as SYSTEM (`Restart-NetAdapter` needs admin). PowerShell launched with `-WindowStyle Hidden`; ~500 ms runtime, ~30 MB briefly in-use, zero at rest.
+- Trap pre-buried in the script: **do not use `Test-Connection -TimeoutSeconds`** on Windows PowerShell 5.1 (what GWTC ships with) — that flag is PS 6+ only and hard-fails with `A parameter cannot be found`. `ping.exe` with `-n 1 -w <ms>` is the portable alternative.
+- Smoke test: ran the script manually while WiFi was healthy; log file was not created (correct — no bounce fired).
+- Scope: covers adapter-level wedges. Does NOT fix a fully frozen Windows, a router outage, or the (now-closed) pre-login WiFi gap. 34% signal is the underlying issue; long-term a WiFi extender closer to the coop is the durable fix and the watchdog is the failsafe.
+
+**Why this matters for future agents:** GWTC's failure modes now have two distinct watchdogs with non-overlapping scopes:
+
+| Watchdog | What it watches | Recovery |
+|---|---|---|
+| `farmcam-watchdog` (Shawl service, 13-Apr-2026) | ffmpeg wedged on dshow camera open | `taskkill` the zombie ffmpeg; Shawl respawns |
+| `farmcam-wifi-watchdog` (scheduled task, 19-Apr-2026) | WiFi adapter not reaching gateway | `Restart-NetAdapter -Name "Wi-Fi"` |
+
+If GWTC is unreachable for >5 minutes, check both (`sc query farmcam-watchdog`; `schtasks /Query /TN farmcam-wifi-watchdog /V`). If both are running and GWTC is still off, it's beyond adapter/driver scope — power cycle. Full writeup: `docs/18-Apr-2026-gwtc-current-state-and-install-walkthrough.md` "WiFi dropout incident + watchdog" section. CLAUDE.md updated with the parallel bullet under "Network & Machine Access."
+
+---
+
 ## [Unreleased] - 2026-04-18
 
 ### MBA — `mba-cam` broadcast restored; legacy RTSP LaunchAgents permanently disabled (Claude Opus 4.7 (1M context))
