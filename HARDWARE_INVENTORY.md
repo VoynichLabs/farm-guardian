@@ -1,6 +1,8 @@
 # Hardware Inventory — Farm Guardian Cameras
 
-**Last verified end-to-end:** 2026-04-19 ET (Claude Opus 4.7 (1M context) — v2.28.x, `iphone-cam` opportunistic camera added; fleet is four always-on cameras + iPhone when plugged in)
+**Last verified end-to-end:** 2026-04-19 ET (Claude Opus 4.7 (1M context) — v2.28.1, `iphone-cam` opportunistic camera added + `scripts/add-camera.py` CLI shipped; fleet is four always-on cameras + iPhone when plugged in)
+
+> **Adding/removing a camera?** Use `scripts/add-camera.py` — it writes both `config.json` and `tools/pipeline/config.json` atomically, probes the URL before committing, and refuses duplicates. Hand-edit only for tweaks to an existing entry. Full walkthrough: `docs/19-Apr-2026-add-camera-cli.md`.
 **Why this file exists:** The frontend devs found camera-name mismatches (the backend said `gwtc` while the stream URL said `nestbox`; thumbnail labels said "Brooder" for three different cameras pointed at the brooder). This is the single source of truth for the **hardware** side: what each camera is, what machine hosts it, where its frames flow, and the naming rules that prevent the mismatches from reappearing. If something here disagrees with `config.json`, a source file, or a frontend registry, **this file is the ground truth you bring the others in line with** — not the other way around. Re-verify the "Last verified" stamp any time you change a camera.
 
 ## The Four Cameras (was five until 2026-04-15 09:16 ET when `mba-cam` was decommissioned — MBA repurposed by Boss; see note after the table)

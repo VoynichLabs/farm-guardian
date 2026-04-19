@@ -259,6 +259,8 @@ Read `docs/02-Apr-2026-v2-system-plan.md` for the full v2 architecture document 
 
 **TWO SEPARATE CONFIG FILES — DO NOT FORGET THE SECOND ONE.** Guardian (the main service on port 6530) reads `config.json` at the repo root. The VLM image pipeline (the `com.farmguardian.pipeline` LaunchAgent) reads **a different file** at `tools/pipeline/config.json`. When a camera moves between hosts (e.g. usb-cam jumping from Mini → MBA 18-Apr-2026), or a port changes, you MUST update both files or the dashboard and the pipeline will diverge — one will see the camera, the other won't, and it looks like "the camera is partially online." Both files are gitignored (per-host). Grep both before declaring done: `grep -n 'http_base_url\|ip_webcam_base' config.json tools/pipeline/config.json`. After editing, reload **both** services: `launchctl kickstart -k gui/$(id -u)/com.farmguardian.guardian` AND `launchctl kickstart -k gui/$(id -u)/com.farmguardian.pipeline`.
 
+**For NEW cameras (or removing/listing them), use `scripts/add-camera.py` instead of editing the JSON by hand.** The CLI does atomic writes across both files, refuses duplicates, probes the URL before committing, and detects existing drift via `scripts/add-camera.py list`. Examples + design rationale: `docs/19-Apr-2026-add-camera-cli.md`. Hand-editing is still fine for tweaking an existing camera's cadence/context, but for add/remove the CLI is the single point of truth — every previous agent who hand-edited has at some point forgotten the second file.
+
 ## Network & Machine Access — READ BEFORE TROUBLESHOOTING REACHABILITY
 
 **Two docs are authoritative — read both before you theorize about why something is unreachable:**

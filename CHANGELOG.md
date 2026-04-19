@@ -4,6 +4,25 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-04-19
 
+### v2.28.1 — `scripts/add-camera.py` atomic camera CLI (Claude Opus 4.7 (1M context))
+
+After v2.28.0 landed Boss asked the natural follow-up — *is the code robust and extensible enough that adding more cameras is easy?* The honest answer was "yes for code, no for the human-facing config drift." Guardian's `config.json` and `tools/pipeline/config.json` have to stay in lock-step (CLAUDE.md warns about this explicitly), and every previous agent who added or moved a camera by hand has forgotten one of the two files at least once. This release adds the CLI that makes that drift impossible.
+
+**`scripts/add-camera.py`:** pure-stdlib (no venv needed) one-shot CLI with three subcommands:
+
+- `add NAME --url URL` (HTTP-snapshot path — phones via IP Webcam, USB-cam-host instances, iPhones via Continuity). Probes the URL with a 5 s `urllib` GET before writing; accepts `200` (live) or `503` (service up, device currently absent — normal for opportunistic cameras) as "reachable, schema correct." Anything else fails loud with the `--no-probe` escape hatch suggested.
+- `add NAME --rtsp URL` (gwtc-style MediaMTX/Reolink path). No probe (RTSP requires opening a stream). Writes `rtsp_url_override` to Guardian and `capture_method: reolink_snapshot` to the pipeline — the pipeline always pulls RTSP through Guardian's snapshot API, never direct.
+- `remove NAME` — clears both configs, prints the `launchctl` reload commands and a reminder about renaming any dedicated `*-cam-host` plist out of `~/Library/LaunchAgents/` (the auto-load trap from MEMORY.md).
+- `list` — name × config table with drift detection; exits non-zero if any camera is in only one file.
+
+Both configs written atomically (`.tmp` → rename) so a half-written file never reaches a concurrently-reading service. Duplicate guard checks BOTH configs (Guardian's cameras is a list, the pipeline's is a dict — checking either alone wouldn't catch all cases).
+
+**Round-trip verified:** `list` → `add zz-test-cam --no-probe` → `add zz-test-cam2` (probe-fail rejected) → `add iphone-cam` (duplicate rejected) → `add zz-test-real` (probe-on against the live :8091 endpoint, succeeds with `HTTP 200 (image/jpeg)`) → `list` (shows test entries) → `remove` both → `list` (matches starting state, zero residue).
+
+**Cross-references added:** `CLAUDE.md` "TWO SEPARATE CONFIG FILES" section now points at the CLI as the single point of truth for add/remove. `HARDWARE_INVENTORY.md` header now references the script. Full walkthrough at `docs/19-Apr-2026-add-camera-cli.md` covers the design — including what the script deliberately does NOT do (LaunchAgent generation, HARDWARE_INVENTORY edits, service restarts) and why.
+
+**Boss's broader question — "what's the cheapest iPhone-quality camera?"** answered in the doc: nothing in the UVC webcam space touches an iPhone sensor, the cheapest path to flagship-class quality is a used Android phone ($40-80 on eBay for a Pixel 4a/5a or Galaxy S9-S10) running the IP Webcam app — exactly the `s7-cam` pattern. With this CLI in place, adding one is now a single command, no code, no plist, no manual config edits.
+
 ### v2.28.0 — `iphone-cam` opportunistic camera + name-gated `usb-cam-host` (Claude Opus 4.7 (1M context))
 
 Boss plugged in his iPhone 16 Pro Max and asked for it to surface to Guardian as a camera "on the rare occasions" it's hooked up. The iPhone shows up to macOS as an AVFoundation video device (`Mark's evil iPhone 16 Pro Max Camera`) via Continuity Camera, so the existing `usb-cam-host` HTTP-snapshot service is the right home for it — but pointing the service at `USB_CAM_DEVICE_INDEX=0` would silently fall through to `Capture screen 0` whenever the iPhone unplugged (the AVFoundation index list shifts down). That's a "publish a screenshot of the Mac Mini desktop into Guardian's archive" footgun that wouldn't be caught for weeks.
