@@ -1,7 +1,9 @@
 # Author: Claude Opus 4.7 (1M context)
-# Date: 18-April-2026 (adds manual exposure + manual focus plumbing for
-#        the brooder heat-lamp clipping problem per
-#        docs/16-Apr-2026-heat-lamp-orange-cast-investigation.md)
+# Date: 19-April-2026 (adds USB_CAM_DEVICE_NAME_CONTAINS so the same service
+#        binary can host the opportunistic iPhone Continuity Camera on the
+#        Mac Mini without risking a screen-capture fallthrough when the
+#        iPhone unplugs — see
+#        docs/19-Apr-2026-iphone-opportunistic-camera-plan.md)
 # PURPOSE: Cross-platform HTTP snapshot service for the generic USB webcam.
 #          Exposes GET /photo.jpg returning the latest frame from a warm,
 #          continuously-running camera, and GET /health for liveness probes.
@@ -57,6 +59,20 @@ from fastapi.responses import JSONResponse, Response
 # ---------------------------------------------------------------------------
 
 DEVICE_INDEX = int(os.environ.get("USB_CAM_DEVICE_INDEX", "0"))
+
+# When set, the grabber resolves the AVFoundation video device whose name
+# *contains* this substring (case-insensitive) and opens THAT device instead
+# of DEVICE_INDEX. Designed for opportunistic cameras like an iPhone over
+# Continuity Camera, where the device may not always be present and its
+# AVFoundation index shifts when other devices appear/disappear (a raw index
+# of 0 happily falls through to "Capture screen 0" when the iPhone unplugs —
+# the name gate prevents that). When this env var is set but the device is
+# not currently enumerated, _open() returns None and the existing reconnect
+# backoff treats it as a normal transient — same as "USB cable unplugged".
+# Darwin-only resolution path; on Linux/Windows we log a warning and fall
+# back to DEVICE_INDEX so the var is safe to leave in cross-platform configs.
+DEVICE_NAME_CONTAINS = os.environ.get("USB_CAM_DEVICE_NAME_CONTAINS", "").strip()
+
 REQUESTED_WIDTH = int(os.environ.get("USB_CAM_WIDTH", "1920"))
 REQUESTED_HEIGHT = int(os.environ.get("USB_CAM_HEIGHT", "1080"))
 JPEG_QUALITY = int(os.environ.get("USB_CAM_JPEG_QUALITY", "95"))
@@ -196,6 +212,123 @@ def _resolve_focus_value() -> Optional[float]:
         log.warning("USB_CAM_FOCUS=%r is not a number; leaving focus untouched", FOCUS_VALUE_RAW)
         return None
 
+
+# ---------------------------------------------------------------------------
+# AVFoundation device-name resolution (darwin-only, ffmpeg-stderr based)
+# ---------------------------------------------------------------------------
+
+# AVFoundation device-list line format from `ffmpeg -f avfoundation
+# -list_devices true -i ""`. ffmpeg writes its banner + device listing to
+# stderr and then exits non-zero ("Error opening input file") because we
+# passed an empty input — that's expected and we ignore the exit code.
+# Lines look like:
+#   [AVFoundation indev @ 0x...] [0] Mark's evil iPhone 16 Pro Max Camera
+# We only care about the bracketed index and the trailing name.
+_AVF_DEVICE_LINE_RE = None  # lazily compiled inside the helper below
+
+
+def _find_ffmpeg() -> Optional[str]:
+    """Locate the ffmpeg binary. launchd starts services with a minimal PATH
+    that excludes /opt/homebrew/bin and /usr/local/bin, so we can't rely on
+    shutil.which alone — fall back to the well-known Homebrew + system paths.
+    Returns absolute path on hit, None on miss (logged once per call)."""
+    import shutil
+    found = shutil.which("ffmpeg")
+    if found:
+        return found
+    for candidate in (
+        "/opt/homebrew/bin/ffmpeg",  # Apple Silicon Homebrew
+        "/usr/local/bin/ffmpeg",     # Intel Homebrew
+        "/usr/bin/ffmpeg",           # Linux standard
+    ):
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return None
+
+
+def _list_avfoundation_video_devices() -> list[tuple[int, str]]:
+    """Return [(index, name), ...] for AVFoundation video devices on darwin.
+    Empty list on any failure (ffmpeg missing, parse error, non-darwin).
+    Screen-capture entries are filtered out defensively — even if a future
+    macOS reorders things, we never want to publish a screen as a camera."""
+    if sys.platform != "darwin":
+        return []
+    global _AVF_DEVICE_LINE_RE
+    if _AVF_DEVICE_LINE_RE is None:
+        import re
+        _AVF_DEVICE_LINE_RE = re.compile(r"\[(\d+)\]\s+(.+?)\s*$")
+    import subprocess
+    ffmpeg = _find_ffmpeg()
+    if ffmpeg is None:
+        log.warning(
+            "AVFoundation device list failed: ffmpeg not found in PATH or "
+            "the standard Homebrew/system locations. Install via "
+            "`brew install ffmpeg` or set PATH in the LaunchAgent plist."
+        )
+        return []
+    try:
+        # ffmpeg exits non-zero here (no input file); capture stderr only.
+        # 5 s timeout is generous — listing returns in <1 s on a healthy box.
+        proc = subprocess.run(
+            [ffmpeg, "-hide_banner", "-f", "avfoundation",
+             "-list_devices", "true", "-i", ""],
+            capture_output=True, text=True, timeout=5.0,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+        log.warning("AVFoundation device list failed: %s", exc)
+        return []
+
+    in_video_section = False
+    devices: list[tuple[int, str]] = []
+    for raw in proc.stderr.splitlines():
+        line = raw.strip()
+        # Section markers from ffmpeg.
+        if "AVFoundation video devices:" in line:
+            in_video_section = True
+            continue
+        if "AVFoundation audio devices:" in line:
+            in_video_section = False
+            continue
+        if not in_video_section:
+            continue
+        # Strip the "[AVFoundation indev @ 0x...] " prefix if present.
+        if "] " in line:
+            line = line.split("] ", 1)[1]
+        m = _AVF_DEVICE_LINE_RE.match(line)
+        if not m:
+            continue
+        idx, name = int(m.group(1)), m.group(2)
+        # Defensive screen-capture exclusion. Real cameras never start with
+        # "Capture screen"; iPhone Continuity Camera is "Mark's iPhone Camera"
+        # or similar. Excluding these here means even a buggy substring
+        # match upstream cannot resolve to a screen.
+        if name.lower().startswith("capture screen"):
+            continue
+        devices.append((idx, name))
+    return devices
+
+
+def _resolve_device_index_by_name(needle: str) -> Optional[tuple[int, str]]:
+    """Find the first AVFoundation video device whose name contains `needle`
+    (case-insensitive). Returns (index, name) on hit, None on miss. None
+    means "device not currently plugged in" — the grabber's reconnect loop
+    handles it as a normal transient."""
+    if not needle:
+        return None
+    if sys.platform != "darwin":
+        log.warning(
+            "USB_CAM_DEVICE_NAME_CONTAINS=%r is set but this is not darwin; "
+            "name-based resolution is darwin-only — falling back to "
+            "USB_CAM_DEVICE_INDEX=%d.", needle, DEVICE_INDEX,
+        )
+        return None
+    needle_lc = needle.lower()
+    for idx, name in _list_avfoundation_video_devices():
+        if needle_lc in name.lower():
+            return idx, name
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
@@ -242,8 +375,29 @@ def _grabber_loop() -> None:
     sequence = 0
 
     def _open() -> Optional[cv2.VideoCapture]:
+        # Resolve which device index we're going to open. With name gating
+        # set, refuse to open if the named device isn't currently
+        # enumerated — the grabber's reconnect loop will retry. Without
+        # name gating, fall back to the legacy USB_CAM_DEVICE_INDEX path.
+        if DEVICE_NAME_CONTAINS:
+            hit = _resolve_device_index_by_name(DEVICE_NAME_CONTAINS)
+            if hit is None:
+                log.info(
+                    "grabber: no AVFoundation video device matches "
+                    "USB_CAM_DEVICE_NAME_CONTAINS=%r — device is not "
+                    "currently plugged in (this is normal for opportunistic "
+                    "cameras like an iPhone over Continuity).",
+                    DEVICE_NAME_CONTAINS,
+                )
+                return None
+            idx, name = hit
+            log.info("grabber: resolved %r -> AVFoundation index %d (%s)",
+                     DEVICE_NAME_CONTAINS, idx, name)
+        else:
+            idx = DEVICE_INDEX
+
         # No backend flag — let OpenCV pick AVFoundation / dshow / V4L2.
-        c = cv2.VideoCapture(DEVICE_INDEX)
+        c = cv2.VideoCapture(idx)
         if not c.isOpened():
             return None
         c.set(cv2.CAP_PROP_FRAME_WIDTH, REQUESTED_WIDTH)
@@ -275,17 +429,25 @@ def _grabber_loop() -> None:
             if cap is None:
                 cap = _open()
                 if cap is None:
-                    log.warning(
-                        "grabber: open failed (device=%d). Retrying in %.1fs. "
-                        "Likely: camera unplugged, TCC/Camera permission not "
-                        "granted, or another process holds the device.",
-                        DEVICE_INDEX, RECONNECT_BACKOFF_S,
-                    )
+                    if DEVICE_NAME_CONTAINS:
+                        log.info(
+                            "grabber: device matching %r not currently "
+                            "available — retrying in %.1fs (this is normal "
+                            "when the device is unplugged).",
+                            DEVICE_NAME_CONTAINS, RECONNECT_BACKOFF_S,
+                        )
+                    else:
+                        log.warning(
+                            "grabber: open failed (device=%d). Retrying in %.1fs. "
+                            "Likely: camera unplugged, TCC/Camera permission not "
+                            "granted, or another process holds the device.",
+                            DEVICE_INDEX, RECONNECT_BACKOFF_S,
+                        )
                     _grabber_stop.wait(RECONNECT_BACKOFF_S)
                     continue
                 _grabber_opened_at = time.monotonic()
                 consecutive_failures = 0
-                log.info("grabber: camera opened (device=%d)", DEVICE_INDEX)
+                log.info("grabber: camera opened successfully")
 
             ok, frame = cap.read()
             if not ok or frame is None:
@@ -364,10 +526,12 @@ def _stop_grabber(timeout: float = 3.0) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):  # noqa: ARG001
     log.info(
-        "usb-cam-host ready: device=%d requested=%dx%d grab_interval=%.2fs "
+        "usb-cam-host ready: device=%s requested=%dx%d grab_interval=%.2fs "
         "max_age=%.1fs jpeg_q=%d auto_wb=%s wb_strength=%.2f "
         "auto_exposure=%r exposure=%r autofocus=%r focus=%r",
-        DEVICE_INDEX, REQUESTED_WIDTH, REQUESTED_HEIGHT, GRAB_INTERVAL_S,
+        (f"name~{DEVICE_NAME_CONTAINS!r}" if DEVICE_NAME_CONTAINS
+         else f"index={DEVICE_INDEX}"),
+        REQUESTED_WIDTH, REQUESTED_HEIGHT, GRAB_INTERVAL_S,
         MAX_FRAME_AGE_S, JPEG_QUALITY, AUTO_WB, WB_STRENGTH,
         AUTO_EXPOSURE or "untouched", EXPOSURE_VALUE_RAW or "untouched",
         AUTOFOCUS or "untouched", FOCUS_VALUE_RAW or "untouched",
@@ -493,6 +657,7 @@ async def health():
             content={
                 "ok": False,
                 "device_index": DEVICE_INDEX,
+                "device_name_contains": DEVICE_NAME_CONTAINS or None,
                 "grabber_alive": grabber_alive,
                 "camera_open": opened_at is not None,
                 "error": "no frame grabbed yet",

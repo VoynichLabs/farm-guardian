@@ -4,6 +4,35 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-04-19
 
+### v2.28.0 — `iphone-cam` opportunistic camera + name-gated `usb-cam-host` (Claude Opus 4.7 (1M context))
+
+Boss plugged in his iPhone 16 Pro Max and asked for it to surface to Guardian as a camera "on the rare occasions" it's hooked up. The iPhone shows up to macOS as an AVFoundation video device (`Mark's evil iPhone 16 Pro Max Camera`) via Continuity Camera, so the existing `usb-cam-host` HTTP-snapshot service is the right home for it — but pointing the service at `USB_CAM_DEVICE_INDEX=0` would silently fall through to `Capture screen 0` whenever the iPhone unplugged (the AVFoundation index list shifts down). That's a "publish a screenshot of the Mac Mini desktop into Guardian's archive" footgun that wouldn't be caught for weeks.
+
+**Fix — name-gated device resolution:**
+
+- New env var `USB_CAM_DEVICE_NAME_CONTAINS` in `tools/usb-cam-host/usb_cam_host.py`. When set, `_open()` enumerates the AVFoundation video devices via `ffmpeg -f avfoundation -list_devices true -i ""` (stderr parse — no PyObjC dep), filters out screen captures defensively, picks the first device whose name contains the substring case-insensitively, and opens that index instead of the legacy `USB_CAM_DEVICE_INDEX`. No match → returns `None`, the existing reconnect-backoff loop treats it as a normal "device unplugged" transient. The legacy index path is unchanged when the name var is unset, so the brooder Logitech and any other deployment is unaffected.
+- Darwin-only resolution; on Linux/Windows the var logs a warning and falls back to the index, so it's safe to leave in cross-platform configs.
+- Defensive screen-name filter inside the resolver itself: even if a future macOS reorders devices, `Capture screen *` entries can never resolve, no matter what substring is matched against.
+
+**New deployment artifact — `~/Library/LaunchAgents/com.farmguardian.iphone-cam-host.plist`:**
+
+- Same Python binary, fresh label (`com.farmguardian.iphone-cam-host`) so it carries no TCC history — first iPhone open prompts for Camera permission once.
+- Port `8091` (Mini-only loopback, doesn't collide with the unloaded `usb-cam-host` plist on `8089`).
+- `USB_CAM_DEVICE_NAME_CONTAINS=iPhone`, `USB_CAM_WIDTH=3840`/`HEIGHT=2160` (UHD-4K, closer to landscape framing for yard scenes than the iPhone's native 4032×3024 portrait), `USB_CAM_GRAB_INTERVAL=1.0` (1 Hz — opportunistic camera doesn't need 2 Hz), all brooder-tuned image-processing knobs OFF (`USB_CAM_AUTO_WB=false`, `USB_CAM_ORANGE_DESAT=1.0`, `USB_CAM_SHARPEN_AMOUNT=0`, `USB_CAM_HIGHLIGHT_STRENGTH=0`) — iPhone output is already finished, the brooder color-correction would harm it.
+
+**Guardian + pipeline integration:**
+
+- New `iphone-cam` entry in `config.json` pointing at `http://127.0.0.1:8091/photo.jpg` with `snapshot_interval: 10.0` and `detection_enabled: false`.
+- New `iphone-cam` entry in `tools/pipeline/config.json` pointing at the same loopback URL with `cycle_seconds: 30`. Pipeline already tolerates 503 from snapshot endpoints as a normal transient — when the iPhone is absent, those cycles fail silently and the pipeline moves on.
+- Both files grep-checked together per the CLAUDE.md "two configs" warning.
+
+**Plan + docs:**
+
+- Plan doc: `docs/19-Apr-2026-iphone-opportunistic-camera-plan.md`
+- `HARDWARE_INVENTORY.md` updated with the new row (5th camera, opportunistic) and a "What Runs Where" entry for the new LaunchAgent.
+
+**Verified end-to-end on the Mac Mini:** resolver smoke test against the live AVFoundation list correctly returned `(0, "Mark's evil iPhone 16 Pro Max Camera")` for substring `iPhone`, returned `None` for `Capture screen` (excluded by the defensive filter), returned `None` for nonsense substrings.
+
 ### GWTC — WiFi adapter watchdog deployed after weak-signal dropout incident (Claude Opus 4.7 (1M context))
 
 After ~19 hours of clean overnight uptime (452 `gwtc` rows in `image_archive` between 00:01–18:47 UTC), GWTC dropped off the LAN the moment Boss walked into the coop to install a cardboard keyboard cover. From the Mini: `ping 192.168.0.68` returned `Host is down`, the router had no ARP entry, SSH/RTSP/`/api/cameras/gwtc/frame` all dead. The Windows desktop on GWTC itself looked normal — no lock screen, no error dialog — so Boss couldn't see what was wrong. Hard power cycle recovered it.
