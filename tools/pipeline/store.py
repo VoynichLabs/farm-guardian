@@ -65,6 +65,9 @@ CREATE TABLE IF NOT EXISTS image_archive (
     ig_story_id TEXT,
     ig_story_posted_at TEXT,
     ig_story_skip_reason TEXT,
+    discord_message_id TEXT,
+    discord_reactions INT DEFAULT 0,
+    discord_reactions_checked_at TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_archive_camera_ts ON image_archive(camera_id, ts);
@@ -79,6 +82,8 @@ CREATE INDEX IF NOT EXISTS idx_archive_retain   ON image_archive(retained_until)
 _LATE_INDEX_SQL = """
 CREATE INDEX IF NOT EXISTS idx_archive_ig_posted ON image_archive(ig_posted_at);
 CREATE INDEX IF NOT EXISTS idx_archive_ig_story_posted ON image_archive(ig_story_posted_at);
+CREATE INDEX IF NOT EXISTS idx_archive_discord_reactions ON image_archive(discord_reactions);
+CREATE INDEX IF NOT EXISTS idx_archive_discord_message ON image_archive(discord_message_id);
 """
 
 # Columns added post-initial-schema. Kept as a list so ensure_schema() can
@@ -86,12 +91,15 @@ CREATE INDEX IF NOT EXISTS idx_archive_ig_story_posted ON image_archive(ig_story
 # Pair each entry with the SQLite ALTER TABLE clause to apply if missing.
 _LATE_COLUMNS = [
     # (column_name, full_column_def_for_ALTER)
-    ("ig_permalink",         "ig_permalink TEXT"),
-    ("ig_posted_at",         "ig_posted_at TEXT"),
-    ("ig_skip_reason",       "ig_skip_reason TEXT"),
-    ("ig_story_id",          "ig_story_id TEXT"),
-    ("ig_story_posted_at",   "ig_story_posted_at TEXT"),
-    ("ig_story_skip_reason", "ig_story_skip_reason TEXT"),
+    ("ig_permalink",                  "ig_permalink TEXT"),
+    ("ig_posted_at",                  "ig_posted_at TEXT"),
+    ("ig_skip_reason",                "ig_skip_reason TEXT"),
+    ("ig_story_id",                   "ig_story_id TEXT"),
+    ("ig_story_posted_at",            "ig_story_posted_at TEXT"),
+    ("ig_story_skip_reason",          "ig_story_skip_reason TEXT"),
+    ("discord_message_id",            "discord_message_id TEXT"),
+    ("discord_reactions",             "discord_reactions INT DEFAULT 0"),
+    ("discord_reactions_checked_at",  "discord_reactions_checked_at TEXT"),
 ]
 
 _DB_LOCK = threading.Lock()  # WAL mode still wants serialized writes from this process

@@ -1425,3 +1425,271 @@ def post_gem_to_ig(
         log.exception("ig_poster: gem %s failed", gem_id)
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# Carousels (Phase 2.1, 20-Apr-2026 — daily rollup)
+# ---------------------------------------------------------------------------
+# IG carousel = 2-10 images in one post. API needs three passes:
+#   1. Create one child container per image (is_carousel_item=true, no caption).
+#   2. Wait for all children to reach FINISHED.
+#   3. Create ONE parent container (media_type=CAROUSEL, children=<csv of
+#      child ids>, caption goes here — not on children).
+#   4. Wait for parent FINISHED.
+#   5. Publish the parent.
+#   6. Write the resulting permalink back to EVERY source gem row so the
+#      3h/12h cadence gates in should_post_ig short-circuit re-posting
+#      those frames as standalone photos.
+#
+# Used by scripts/ig-daily-carousel.py (LaunchAgent at 18:00 local).
+
+_IG_CAROUSEL_MIN_ITEMS = 2
+_IG_CAROUSEL_MAX_ITEMS = 10
+
+
+def _create_carousel_child(
+    ig_id: str,
+    image_url: str,
+    user_token: str,
+) -> str:
+    """POST /{ig_id}/media with is_carousel_item=true. No caption on
+    children (IG rejects). Returns the child container id.
+
+    If you forget is_carousel_item=true, the POST succeeds but the
+    parent container create later 400s with a cryptic error about
+    invalid children. Always set it.
+    """
+    resp = _graph_request(
+        "POST",
+        f"/{ig_id}/media",
+        body={
+            "image_url": image_url,
+            "is_carousel_item": "true",
+            "access_token": user_token,
+        },
+    )
+    cid = resp.get("id")
+    if not cid:
+        raise RuntimeError(f"create_carousel_child returned no id: {resp}")
+    return cid
+
+
+def _create_carousel_parent(
+    ig_id: str,
+    children_ids: list[str],
+    caption: str,
+    user_token: str,
+) -> str:
+    """POST /{ig_id}/media with media_type=CAROUSEL + comma-sep children
+    ids + caption. Returns parent container id.
+
+    All children MUST have reached FINISHED status before this call
+    or the parent container create 400s.
+    """
+    resp = _graph_request(
+        "POST",
+        f"/{ig_id}/media",
+        body={
+            "media_type": "CAROUSEL",
+            "children": ",".join(children_ids),
+            "caption": caption,
+            "access_token": user_token,
+        },
+    )
+    cid = resp.get("id")
+    if not cid:
+        raise RuntimeError(f"create_carousel_parent returned no id: {resp}")
+    return cid
+
+
+def post_carousel_to_ig(
+    gem_ids: list[int],
+    full_caption: str,
+    db_path: Path,
+    farm_2026_repo_path: Path,
+    dry_run: bool = False,
+) -> dict:
+    """Post N gems as one Instagram carousel.
+
+    Flow:
+      1. Look up every gem row; resolve every local JPEG.
+      2. Commit each JPEG to farm-2026/public/photos/carousel/YYYY-MM-DD/;
+         collect the raw URLs.
+      3. Create a child container per raw URL; collect child ids.
+      4. Poll each child until FINISHED.
+      5. Create the parent container with the children csv + caption.
+      6. Poll parent until FINISHED.
+      7. Publish.
+      8. Write the resulting permalink + posted_at back to every gem row.
+
+    dry_run=True stops before ANY git push / Graph API call. Predicts
+    the raw URL shape for each gem; returns a dict echoing the would-be
+    request.
+
+    Returns (never raises except IGPosterError at credential gate):
+      {
+        "gem_ids": list[int],
+        "dry_run": bool,
+        "raw_urls": list[str],
+        "caption": str,
+        "child_ids": list[str] | None,
+        "parent_id": str | None,
+        "media_id": str | None,
+        "permalink": str | None,
+        "posted_at": str | None,
+        "error": str | None,
+      }
+    """
+    gem_ids = list(gem_ids)
+    n = len(gem_ids)
+    result: dict = {
+        "gem_ids": gem_ids,
+        "dry_run": dry_run,
+        "raw_urls": [],
+        "caption": full_caption,
+        "child_ids": None,
+        "parent_id": None,
+        "media_id": None,
+        "permalink": None,
+        "posted_at": None,
+        "error": None,
+    }
+
+    try:
+        if not (_IG_CAROUSEL_MIN_ITEMS <= n <= _IG_CAROUSEL_MAX_ITEMS):
+            raise ValueError(
+                f"gem_ids count {n} out of range "
+                f"[{_IG_CAROUSEL_MIN_ITEMS}, {_IG_CAROUSEL_MAX_ITEMS}]"
+            )
+        if len(full_caption) > _IG_CAPTION_MAX_CHARS:
+            raise ValueError(
+                f"caption is {len(full_caption)} chars; IG max is {_IG_CAPTION_MAX_CHARS}"
+            )
+
+        # 1. Look up + resolve
+        gems: list[dict] = []
+        local_paths: list[Path] = []
+        for gid in gem_ids:
+            gem = _lookup_gem(db_path, gid)
+            if not gem:
+                raise ValueError(f"gem_id {gid} not found in image_archive")
+            gems.append(gem)
+            local_paths.append(_local_path_for_gem(gem, db_path))
+
+        # 2. Stamp + commit (or predict in dry-run)
+        today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        subdir = f"carousel/{today_str}"
+        stamped_names = [f"{today_str}-gem{gid}.jpg" for gid in gem_ids]
+
+        if dry_run:
+            result["raw_urls"] = [
+                f"https://raw.githubusercontent.com/VoynichLabs/farm-2026/main/"
+                f"public/photos/{subdir}/{name}"
+                for name in stamped_names
+            ]
+            log.info(
+                "ig_poster CAROUSEL DRY RUN: would commit %d gems -> %s "
+                "and post as carousel with caption: %r",
+                n, subdir, full_caption[:80],
+            )
+            return result
+
+        # 2 (real). Commit each gem to farm-2026. One push at the end,
+        # one commit per gem so history is greppable.
+        import shutil as _shutil
+        import tempfile
+        raw_urls: list[str] = []
+        with tempfile.TemporaryDirectory() as td:
+            for i, (gid, local_path, stamped_name) in enumerate(
+                zip(gem_ids, local_paths, stamped_names)
+            ):
+                staging = Path(td) / stamped_name
+                _shutil.copy2(local_path, staging)
+                _, raw_url = commit_image_to_farm_2026(
+                    local_image=staging,
+                    subdir=subdir,
+                    repo_path=farm_2026_repo_path,
+                    commit_message=(
+                        f"public/photos/{subdir}: gem {gid} "
+                        f"({i+1}/{n}, ig carousel auto)"
+                    ),
+                )
+                raw_urls.append(raw_url)
+        result["raw_urls"] = raw_urls
+
+        # 3. Credentials
+        creds = _load_credentials()
+
+        # 4. Create child containers
+        child_ids: list[str] = []
+        for raw_url in raw_urls:
+            cid = _create_carousel_child(
+                ig_id=creds["ig_id"],
+                image_url=raw_url,
+                user_token=creds["user_token"],
+            )
+            child_ids.append(cid)
+            log.info("ig_poster: carousel child created %s", cid)
+        result["child_ids"] = child_ids
+
+        # 5. Wait for every child to reach FINISHED. IG processes
+        # children in parallel but each one might take a few seconds
+        # while it validates the image URL.
+        for cid in child_ids:
+            status = _wait_for_container(cid, creds["user_token"], timeout_s=60)
+            if status != "FINISHED":
+                raise RuntimeError(
+                    f"carousel child {cid} ended in status={status} "
+                    f"(expected FINISHED)"
+                )
+
+        # 6. Create parent container
+        parent_id = _create_carousel_parent(
+            ig_id=creds["ig_id"],
+            children_ids=child_ids,
+            caption=full_caption,
+            user_token=creds["user_token"],
+        )
+        result["parent_id"] = parent_id
+        log.info("ig_poster: carousel parent created %s", parent_id)
+
+        # 7. Wait parent FINISHED (fast — children are already done)
+        status = _wait_for_container(parent_id, creds["user_token"], timeout_s=60)
+        if status != "FINISHED":
+            raise RuntimeError(
+                f"carousel parent {parent_id} ended in status={status}"
+            )
+
+        # 8. Publish
+        pub = _publish(creds["ig_id"], parent_id, creds["user_token"])
+        result["media_id"] = pub["media_id"]
+        result["permalink"] = pub["permalink"]
+        result["posted_at"] = pub["timestamp"]
+
+        # 9. Write permalink back to every gem. Best-effort: DB hiccup
+        # here doesn't invalidate the live IG post.
+        for gid in gem_ids:
+            try:
+                _write_permalink(
+                    db_path=db_path,
+                    gem_id=gid,
+                    permalink=pub["permalink"],
+                    posted_at_iso=pub["timestamp"],
+                )
+            except Exception as e:
+                log.warning(
+                    "ig_poster: failed to write carousel permalink to gem %s: %s",
+                    gid, e,
+                )
+        log.info(
+            "ig_poster: posted carousel of %d gems -> %s",
+            n, pub["permalink"],
+        )
+
+    except IGPosterError:
+        raise
+    except Exception as e:
+        result["error"] = f"{type(e).__name__}: {e}"
+        log.exception("ig_poster: carousel post failed")
+
+    return result

@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.farmguardian.ig-daily-carousel</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/macmini/Documents/GitHub/farm-guardian/venv/bin/python</string>
+        <string>/Users/macmini/Documents/GitHub/farm-guardian/scripts/ig-daily-carousel.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/macmini/Documents/GitHub/farm-guardian</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/ig-daily-carousel.out.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/tmp/ig-daily-carousel.err.log</string>
+
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>18</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>ThrottleInterval</key>
+    <integer>60</integer>
+</dict>
+</plist>
