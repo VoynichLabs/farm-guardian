@@ -51,6 +51,16 @@ if __package__ in (None, ""):
     from tools.pipeline.store import ensure_schema, store
     from tools.pipeline.retention import sweep as retention_sweep
     from tools.pipeline.gem_poster import post_gem, should_post, load_dotenv
+    from tools.pipeline.ig_poster import (
+        build_caption,
+        pick_hashtags,
+        post_gem_to_ig,
+        query_last_ig_post_ts,
+        should_post_ig,
+        _load_hashtag_library,
+        _write_permalink,
+        IGPosterError,
+    )
 else:
     from .capture import capture_camera, CaptureError
     from .quality_gate import passes_trivial_gate, passes_exposure_gate, MotionGate
@@ -58,6 +68,16 @@ else:
     from .store import ensure_schema, store
     from .retention import sweep as retention_sweep
     from .gem_poster import post_gem, should_post, load_dotenv
+    from .ig_poster import (
+        build_caption,
+        pick_hashtags,
+        post_gem_to_ig,
+        query_last_ig_post_ts,
+        should_post_ig,
+        _load_hashtag_library,
+        _write_permalink,
+        IGPosterError,
+    )
 
 
 log = logging.getLogger("pipeline.orchestrator")
@@ -247,7 +267,170 @@ def run_cycle(camera_name: str, camera_cfg: dict, cfg: dict, schema: dict,
             result["posted_to_discord"] = True
     except Exception as e:
         log.warning("%s: gem post wrapper failed: %s", camera_name, e)
+
+    # Auto-post gems to Instagram. Gated on config["instagram"]["enabled"]
+    # (default false). Separate from Discord so the two posting lanes fail
+    # independently. Never break the cycle — IG API hiccups, Graph rate
+    # limits, git-push issues, etc. all get logged and the pipeline rolls on.
+    try:
+        _maybe_post_to_ig(
+            cfg=cfg,
+            db_path=db_path,
+            camera_name=camera_name,
+            gem_id=store_result.get("gem_id"),
+            vlm_metadata=vlm_result["metadata"],
+            store_result=store_result,
+            result=result,
+        )
+    except Exception as e:
+        log.warning("%s: IG post wrapper failed: %s", camera_name, e)
     return result
+
+
+def _maybe_post_to_ig(
+    cfg: dict,
+    db_path: Path,
+    camera_name: str,
+    gem_id: int | None,
+    vlm_metadata: dict,
+    store_result: dict,
+    result: dict,
+) -> None:
+    """Decide + act on IG auto-posting for the current cycle's gem.
+
+    Gated in layers, outermost first:
+      1. cfg["instagram"]["enabled"] — master switch. Default false; has
+         to be explicitly flipped in config.json. Never turn this on
+         without Boss's sign-off.
+      2. gem_id is present (defensive — store_result should always have
+         it post-Phase-7-prereq, but a KeyError here would bubble up to
+         the outer except).
+      3. should_post_ig predicate — same gate as the CLI, stricter than
+         the Discord gate (see ig_poster.should_post_ig docstring).
+      4. cfg["instagram"]["auto_dry_run"] — if true, call post_gem_to_ig
+         with dry_run=True so the hook exercises the full path without
+         publishing. Production gate: flip to false only after a few
+         auto-dry-run cycles confirm the predicate is picking the right
+         gems.
+
+    Skip reasons (from should_post_ig) are persisted to
+    image_archive.ig_skip_reason so we can audit what the predicate
+    rejects over time. A write is skipped if gem_id is None (shouldn't
+    happen, logged if it does).
+    """
+    ig_cfg = (cfg.get("instagram") or {})
+    if not ig_cfg.get("enabled", False):
+        return
+
+    if gem_id is None:
+        log.warning("%s: IG hook: store_result missing gem_id; skipping", camera_name)
+        return
+
+    last_any = query_last_ig_post_ts(db_path, camera_id=None)
+    last_same = query_last_ig_post_ts(db_path, camera_id=camera_name)
+
+    gem_row = {
+        "camera_id": camera_name,
+        "has_concerns": store_result.get("has_concerns", False),
+    }
+    ok, reason = should_post_ig(
+        vlm_metadata=vlm_metadata,
+        gem_row=gem_row,
+        last_ig_post_ts=last_any,
+        last_same_camera_ts=last_same,
+        min_hours_between_posts=int(ig_cfg.get("min_hours_between_posts", 6)),
+        min_hours_per_camera=int(ig_cfg.get("min_hours_per_camera", 12)),
+    )
+    if not ok:
+        log.info("%s: IG predicate skip (gem_id=%s): %s", camera_name, gem_id, reason)
+        # Persist the skip reason so we can audit later. Best-effort — if
+        # the write fails (e.g. DB locked), log and continue.
+        try:
+            _write_permalink(
+                db_path=db_path,
+                gem_id=gem_id,
+                permalink=None,
+                posted_at_iso=None,
+                skip_reason=reason,
+            )
+        except Exception as e:
+            log.warning("%s: failed to write ig_skip_reason: %s", camera_name, e)
+        result["ig_skipped"] = reason
+        return
+
+    # Build caption from VLM caption_draft + picked hashtags. Rotation-set
+    # state (last_n_tags_used) is punted to [] — per advisor, shadow-ban
+    # avoidance can be added later once we have enough auto-posts to see
+    # repetition patterns. First N auto-posts will pull from the library's
+    # natural ordering.
+    journal = (vlm_metadata.get("caption_draft") or "").strip()
+    if not journal:
+        # Defensive: if the VLM didn't emit a caption, bail rather than
+        # posting a bare hashtag line.
+        log.info("%s: IG hook: empty caption_draft; skipping gem_id=%s", camera_name, gem_id)
+        try:
+            _write_permalink(
+                db_path=db_path,
+                gem_id=gem_id,
+                permalink=None,
+                posted_at_iso=None,
+                skip_reason="empty_caption_draft",
+            )
+        except Exception as e:
+            log.warning("%s: failed to write ig_skip_reason: %s", camera_name, e)
+        result["ig_skipped"] = "empty_caption_draft"
+        return
+
+    try:
+        library = _load_hashtag_library(Path(__file__).parent / "hashtags.yml")
+        tags = pick_hashtags(
+            vlm_metadata=vlm_metadata,
+            library=library,
+            last_n_tags_used=[],
+        )
+        caption = build_caption(journal_body=journal, hashtags=tags)
+    except Exception as e:
+        log.warning("%s: IG hook: caption build failed: %s", camera_name, e)
+        result["ig_skipped"] = f"caption_build_error: {type(e).__name__}"
+        return
+
+    # Resolve farm-2026 path from config.
+    farm_2026 = Path(ig_cfg.get("farm_2026_repo_path", "")).expanduser()
+    if not farm_2026.exists():
+        log.warning(
+            "%s: IG hook: farm_2026_repo_path not found: %s", camera_name, farm_2026
+        )
+        result["ig_skipped"] = "farm_2026_repo_missing"
+        return
+
+    auto_dry_run = bool(ig_cfg.get("auto_dry_run", True))
+    try:
+        ig_result = post_gem_to_ig(
+            gem_id=gem_id,
+            full_caption=caption,
+            db_path=db_path,
+            farm_2026_repo_path=farm_2026,
+            dry_run=auto_dry_run,
+        )
+    except IGPosterError as e:
+        log.warning("%s: IG post credential/config error: %s", camera_name, e)
+        result["ig_skipped"] = f"credentials: {e}"
+        return
+
+    if ig_result.get("error"):
+        log.warning("%s: IG post failed: %s", camera_name, ig_result["error"])
+        result["ig_error"] = ig_result["error"]
+        return
+
+    if auto_dry_run:
+        log.info("%s: IG auto_dry_run — would have posted gem_id=%s", camera_name, gem_id)
+        result["ig_dry_run"] = True
+        return
+
+    result["ig_permalink"] = ig_result.get("permalink")
+    result["ig_media_id"] = ig_result.get("media_id")
+    log.info("%s: IG posted gem_id=%s permalink=%s",
+             camera_name, gem_id, ig_result.get("permalink"))
 
 
 def _load_configs():
@@ -261,6 +444,17 @@ def _load_configs():
     # Load .env so DISCORD_WEBHOOK_URL is available for gem auto-posting.
     # Idempotent — does not overwrite launchd-injected env vars.
     load_dotenv(repo_root / ".env")
+    # Also load Meta/IG creds env file if configured. Same load_dotenv
+    # (does not overwrite existing vars) so keychain-sourced values in a
+    # launchd plist would still win.
+    ig_cfg = cfg.get("instagram", {}) or {}
+    meta_env = ig_cfg.get("meta_env_file")
+    if meta_env:
+        meta_env_path = Path(meta_env).expanduser()
+        if meta_env_path.exists():
+            load_dotenv(meta_env_path)
+        else:
+            log.warning("instagram.meta_env_file configured but missing: %s", meta_env_path)
     return cfg, schema, prompt_template, db_path, archive_root
 
 
