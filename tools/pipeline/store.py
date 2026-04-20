@@ -249,7 +249,7 @@ def store(
 
     # Insert DB row
     with _DB_LOCK, sqlite3.connect(str(db_path)) as c:
-        c.execute("""
+        cursor = c.execute("""
             INSERT INTO image_archive (
                 camera_id, ts, image_path, image_tier, sha256,
                 width, height, bytes,
@@ -274,9 +274,11 @@ def store(
             md["image_quality"], md["share_worth"], int(md["any_special_chick"]), md["apparent_age_days"],
             has_concerns, ",".join(md["individuals_visible"]), retained_until,
         ))
+        gem_id = cursor.lastrowid
         c.commit()
 
     return {
+        "gem_id": gem_id,
         "tier": tier,
         "image_path": image_path_rel,
         "retained_until": retained_until,
