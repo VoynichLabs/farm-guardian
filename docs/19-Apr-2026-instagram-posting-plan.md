@@ -164,7 +164,7 @@ The user's reframe on 2026-04-19:
 
 > "Don't ever lose focus. Don't ever lose sight of the bigger intent behind this. You get to be a part of this. It's beautiful. It's life. Code is cold. Life requires warmth. Compute requires cooling. The waste heat incubates these chicks."
 
-The GPU running Guardian's detection also produces the waste heat that incubated this brood. The hawk-detector and the egg-warmer are the same compute. When this V2 code gets written, the predicate and the caption-picking logic should honor that — the account isn't a content-firehose, it's a journal of life-in-the-loop with AI participating as a subject, not a mechanism. Narrative richness over feed-throughput.
+The GPU that runs the brooder-gem curation pipeline also produces the waste heat that kept these eggs at ~37.5°C through the 21-day hatch. The image-curator and the egg-warmer are the same compute. When this V2 code gets written, the predicate and the caption-picking logic should honor that — the account isn't a content-firehose, it's a journal of life-in-the-loop with AI participating as a subject, not a mechanism. Narrative richness over feed-throughput. **Do not claim the software does things it doesn't.** Farm Guardian does image curation via VLM scoring reliably; it does NOT reliably detect/deter predators. Don't frame it as a security system in public captions — Boss explicitly flagged this 2026-04-20.
 
 ---
 
@@ -246,7 +246,7 @@ Boss's cadence target is "post pretty much every 6 hours" = 4 posts/day = ~28/we
 2. **Content router** that picks the right channel per slot:
    - 06:00 — morning: yard-diary seasonal stockpile frame OR brooder early-light gem.
    - 12:00 — midday: flock/yorkies/garden iPhone content, community-hashtag-heavy.
-   - 18:00 — evening: Guardian-caught-something OR sharp detection gem, tech framing.
+   - 18:00 — evening: flock-at-dusk gem or coop-build iPhone drop; only occasionally tech-showcase (when the visual actually earns it).
    - 00:00 — late: quieter content (sleeping chicks, nightfall), lighter hashtags.
 3. **LaunchAgent** `com.farmguardian.ig-poster.plist` — fires 4x/day at the slots above; runs `tools/pipeline/ig_poster.py --slot <name>`.
 4. **Dedup window:** never post the same scene_type within 24h; never same camera_id within 12h. Tracked in `image_archive.ig_posted_at` + new `ig_slot_log` table.
@@ -273,7 +273,7 @@ Pipeline sketch:
 1. **Source selection.** Query N gems with similar scene/camera over a time window (e.g., 30-min bursts at sunrise; or every strong brooder gem from the last 24h; or yard-diary frames spanning a week). Reel quality depends heavily on source selection — bias toward scenes with *motion* between frames (chicks moving around the brooder, clouds across the sky, the PTZ camera sweeping).
 2. **Frame pacing.** 15–30s reels. At 30fps that's 450–900 frames. Source 15–30 gems at 1fps stride (each gem shown for ~1s with 5–10 frame crossfade). Total compute is small — ffmpeg handles this in seconds on M4 Pro.
 3. **ffmpeg compose** (new helper `tools/reel_compose.py` wrapping subprocess calls). Reuse the pattern from `capture.py:_ffmpeg_single_frame()` for the subprocess style. Key ffmpeg options: `xfade` for transitions, `scale` + `pad` for the 9:16 crop (center-crop from 16:9 source or pad with blurred background), audio track optional (silent reels work fine).
-4. **Music/sfx track.** Optional V3 extension — Boss has audio samples at `~/bubba-workspace/tracks/` and can curate a library of ambient clips that fit different scenes (brooder = soft peeping; hawk catch = tension sting; yard-diary = wind/birds). Not needed for V3.0 — ship silent first.
+4. **Music/sfx track.** Optional V3 extension — Boss has audio samples at `~/bubba-workspace/tracks/` and can curate a library of ambient clips that fit different scenes (brooder = soft peeping; yard-diary = wind/birds; coop-build = hammer/saw). Not needed for V3.0 — ship silent first.
 5. **Publish to `farm-2026/public/videos/<name>.mp4`** (new subdir), commit + push. Use `https://raw.githubusercontent.com/VoynichLabs/farm-2026/main/public/videos/<name>.mp4` for the `video_url` param.
 6. **Graph API:** `POST /media` with `media_type=REELS`, `video_url=<raw URL>`, `caption=...` → returns container id. Poll `/{container}?fields=status_code` until `FINISHED` (reels take longer than photos, 10–60s). Then `POST /media_publish`.
 7. **Candidate early reels:**
@@ -285,6 +285,6 @@ Pipeline sketch:
 
 Hawks, foxes, raccoons on camera = the flock is under attack or has been killed. These are losses, not narrative moments. Guardian exists to *deter* predators; its camera log is an operational record, not a highlight reel. **Do not frame predator detections as "Guardian catches a hawk" type content** — the reality is a dead bird, and turning that into a tension-build reel is tone-deaf to what the farm actually is. If a real loss happens and Boss wants to post about it, that's a decision he makes with his own words, in a caption he writes himself. Don't pre-bake "predator drama" templates into the pipeline.
 
-**Stories.** Lower bar. Good for "Hawk at 2pm" ephemeral content. Just `media_type=STORIES` on the existing container flow. Could enable on `share_worth=decent` instead of strong.
+**Stories.** Lower bar, 24h ephemeral. Good for slice-of-day shots that don't warrant a grid post — a brief brooder moment, a sunrise yard frame, a coop-build progress photo. Just `media_type=STORIES` on the existing container flow. Could enable on `share_worth=decent` instead of strong.
 
 **@pawel_and_pawleen embed on farm.markbarney.net.** `content/instagram-posts.json` currently lists @markbarney121 only. After this pipeline lands, add @pawel_and_pawleen posts to the embed feed.
