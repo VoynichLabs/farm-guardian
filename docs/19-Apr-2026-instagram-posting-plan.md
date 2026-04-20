@@ -367,17 +367,41 @@ Boss's cadence target is "post pretty much every 6 hours" = 4 posts/day = ~28/we
 5. **Buffer-low alert:** if the router can't find a gem that meets the slot's criteria (e.g., no sharp brooder gems for 6h), post a Discord alert to #farm-2026 instead of auto-posting sub-par content. Boss can then either drop iPhone photos to the pickup folder or approve skipping the slot.
 6. **Manual-approval gate stays on** for the first 10 scheduled auto-posts (per earlier plan section). Boss greens/reds each via Discord reaction, 15-min timeout = skip. Flip to auto-trust after the gate proves out.
 
-### iPhone pickup folder (Boss → farm)
+### iPhone input channels (Boss → farm)
 
-Boss already uses `~/Desktop/iphone-today/` as the drop folder. Formalize it:
+Boss has two iPhone channels available. They're complementary, not alternatives:
 
-- Convention: Boss airdrops or saves iPhone shots into `~/Desktop/iphone-today/` (HEIC + JPG pairs are fine; JPG preferred).
-- Pipeline watcher (V2.5): a small launchd script that polls the folder every 10 min, and for each new JPG:
-  - Reads EXIF orientation; runs `sips --rotate` if needed (the 2026-04-19 adult-chickens shots IMG_2150/2151 were rotated 90° — need rotation before posting).
-  - Moves it into `~/Documents/GitHub/farm-2026/public/photos/iphone-drops/{YYYY-MM-DD}/{IMG_XXXX}.jpg`, commits, pushes.
-  - Writes a gem-like entry to the image archive (`source="iphone"`, user-provided caption hint left blank for now).
-  - Posts a Discord preview to #farm-2026 asking Boss for a caption + approval.
-- Opinion: keep iPhone drops in a separate `iphone-drops/` subdir so they don't collide with Guardian gems in the same tree.
+**Channel A — drop folder (already in use):** Boss airdrops iPhone shots into `~/Desktop/iphone-today/` (HEIC + JPG pairs, JPG preferred). Already used for posts #2 (chick-on-laptop) and where post #3's unused candidates currently sit. Low-friction, high-signal — Boss pre-curates what lands here.
+
+**Channel B — direct iPhone AFC via libimobiledevice + pymobiledevice3 (not wired yet, 2026-04-20):** When the iPhone is USB-connected and trusted, we can pull from DCIM directly without Boss moving anything. `libimobiledevice` is installed on this Mac Mini (2026-04-20 via brew). `ifuse` (the FUSE-mount path) is Linux-only — the macOS-compatible approach is `pymobiledevice3` (pure-Python, pip-installable, supports the `afc` multimedia-file protocol). CLI probe:
+
+```bash
+# tools available after brew install libimobiledevice:
+idevice_id -l                    # list connected+trusted devices (UDID)
+idevicepair pair                 # first-time pairing (Boss taps "Trust" on phone)
+
+# Python AFC browsing (pip install pymobiledevice3 in farm-guardian venv):
+pymobiledevice3 afc ls /DCIM/100APPLE/
+pymobiledevice3 afc pull /DCIM/100APPLE/IMG_2156.HEIC /tmp/
+```
+
+**V2.5 work** (not in this plan's V2.0 scope):
+- Install `pymobiledevice3` in the farm-guardian venv
+- Add `tools/pipeline/iphone_pull.py` with:
+  - `list_recent_photos(since_ts: str) -> list[dict]` — queries AFC for DCIM entries newer than last sync
+  - `pull_photo(device_path: str, local_dest: Path) -> Path` — copies one photo to local disk, converts HEIC→JPG via `sips` if needed
+  - `sync_since(since_ts: str, dest_dir: Path) -> list[Path]` — pull everything new into a staging area
+- LaunchAgent polling every 15 min when iPhone is plugged in (detect via `idevice_id -l`)
+- Pulled photos land in `~/Documents/GitHub/farm-2026/public/photos/iphone-drops/{YYYY-MM-DD}/{IMG_XXXX}.jpg`, auto-committed + pushed (reuses the same `git_helper.py` Phase 3 ships)
+- Discord preview posted to #farm-2026 for each new photo asking Boss for a caption + approval
+
+**Prerequisites for Channel B to work:**
+- iPhone plugged into Mini via USB
+- Phone unlocked once for initial pairing (Boss taps "Trust This Computer" when prompted)
+- Pairing cert persists in `~/Library/Lockdown/` — one-time setup
+- Phone doesn't need to be unlocked for subsequent photo reads once trusted
+
+**Both channels stay alive.** The drop folder is still useful for: (a) when the phone isn't plugged in, (b) when Boss wants to curate which specific photos go to the farm-2026 pipeline rather than auto-pulling everything from DCIM. V2.5 adds Channel B; it doesn't replace Channel A.
 
 ## V3 (future — not scoped in this plan)
 
