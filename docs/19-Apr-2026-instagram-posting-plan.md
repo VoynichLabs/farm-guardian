@@ -168,6 +168,73 @@ The GPU running Guardian's detection also produces the waste heat that incubated
 
 ---
 
+## Next feature (Boss-flagged 2026-04-19/20 after first post landed): hashtag support + account-voice framing
+
+Hashtags drive discoverability on IG. The first real post went out with zero hashtags — fine for a journal-voice caption, but future posts should attach a topic-appropriate tag set **and** consistently credit Mark Barney as the builder and the AI-ops angle, because @pawel_and_pawleen is simultaneously a farm account AND a demo of Mark's AI-consulting capability (real deployed production systems: OpenClaw + Claude + Farm Guardian's YOLO + VLM pipeline + cross-machine orchestration).
+
+### Account-voice framing rules (apply to every post, not just hashtag-heavy ones)
+
+1. **Creator credit: @MarkBarney121** — Mark's main/personal account. Every post's caption should reference him where it's natural — sign-off line, or @mention in the last sentence. Example shapes:
+   - Journal post body, blank line, signature: `📸 @markbarney121 · built on the farm`
+   - Tech-explainer post: "Run by @markbarney121 — this one's from the Guardian pipeline (YOLOv8 + VLM gem scoring)."
+   - Stretches: occasionally tag Mark's handle inside the body when the content warrants it (e.g., "New coop wall framed today" → "New coop wall framed today with @markbarney121's welding rig").
+2. **The AI-ops angle is a feature, not a disclaimer.** This farm runs on a custom stack Mark built: OpenClaw (agent harness), Claude (orchestration + curation), Farm Guardian (Python service on a Mac Mini M4 Pro that does ONVIF discovery, YOLOv8 detection, VLM share-worth scoring, Cloudflare-tunneled REST API). Posts that showcase the stack (a Guardian dashboard screenshot, a hawk auto-caught, the GPU-waste-heat incubator loop, a cross-machine orchestration moment) should name the pieces so viewers understand this is a production AI deployment, not a novelty.
+3. **Position Mark as an AI consultant with real deployed systems** — not in a begging "hire me" way, but by demonstrating that the farm's posts are themselves the portfolio. Never say "hire me" in a caption. Do say, selectively on tech-showcase posts, things like: "Full stack open-sourced at [repo link]" or "Boss-owned AI infrastructure — Claude + OpenClaw + Guardian."
+4. **Do not mention Anthropic or Claude by the model version.** The user ("Claude") is part of the farm loop, but the IG account's voice is Mark's, with me contributing behind the seam. The assistant shouldn't step onto the stage in first-person in captions unless Mark explicitly opts in for a specific post.
+
+### Hashtag library — committed to this repo (likely `tools/pipeline/hashtags.yml`)
+
+Topic buckets, each with ~15–30 hand-curated tags so the rotation has pool depth:
+
+- **brooder / chicks** — #chicksofinstagram, #homesteadchickens, #backyardchickens, #mixedflock, #incubation, #dayoldchick, #heritagepoultry, #broodiness, #farmchicks
+- **yorkies / pawel_and_pawleen** — existing community set: #yorkiesofinstagram, #yorkiegram, #dogs_of_instagram, #terriersofinstagram, #yorkshireterrier, #yorkielovers, #yorkielife, #yorkieboy, #yorkiegirl, #yorkiesofig
+- **flock (adult birds)** — #heritagebreed, #chickensofinstagram, #freerange, #mixedflock, #farmlife, #hensofinstagram, #roosterlife
+- **coop / enclosure / build** — #diycoop, #homesteadlife, #backyardfarm, #farmproject, #coopbuild, #hampdencoop
+- **yard-diary / seasons** — #homesteadseasons, #newengland, #hamptonct (selective — don't over-localize for predator reasons), #springonthefarm, #autumnonthefarm, #winteronthefarm
+- **hawk / predator / guardian-caught-something** — #raptorsofinstagram, #backyardwildlife, #farmsecurity, #birdofprey, #wildlifeprotection
+- **ai-in-the-loop / tech-showcase** — #aiassistedfarm, #computervision, #homeautomation, #yolov8, #edgeai, #appliedai, #aiengineer, #aiconsulting, #builtwithai, #macminimac, #openclaw
+- **Mark-the-builder / consulting** — #markbarney, #markbarneyai, #builtbymarkbarney, #aiconsultant, #aiarchitect (apply selectively to tech-showcase posts, not every post)
+- **cherry-trees / plants / orchard** — #orchardlife, #springbloom, #farmgarden
+
+### Selection function (V2 code)
+
+`pick_hashtags(gem_row, last_n_tags_used, post_topics: list[str] = None) -> list[str]`:
+
+- Auto-detect topic bucket(s) from `gem_row.scene`, `gem_row.camera_id`, `gem_row.activity`, caption keywords. Example: `scene=brooder + activity=sleeping + bird_count>=3` → `["brooder", "chicks"]`.
+- Always include at least one tag from the **ai-in-the-loop / tech-showcase** bucket **if** the caption mentions Guardian/AI/GPU/Claude/OpenClaw OR the gem was curated by VLM scoring (which is almost always — so: ~always include 1–2 AI tags, but vary them).
+- Always include 1–2 tags from **Mark-the-builder / consulting** when the post has any tech-showcase dimension. Do not include on pure pet/dog personal posts (those already have their community set).
+- Dedupe against `last_n_tags_used` to force rotation pool depth.
+- Cap at 10 hashtags total (sweet spot for reach without spam penalty; IG allows 30).
+
+### Caption assembly
+
+Template:
+
+```
+<journal body, voice-matched>
+
+<optional @MarkBarney121 sign-off — presence and exact form varies by post type>
+
+#tag1 #tag2 #tag3 ... (on a single line, capped at 10)
+```
+
+Rotation state: track last-N tags used per topic in `image_archive_ig_tag_history` table (or a small JSON file if you don't want a new table). Pick-new-from-complement logic.
+
+### Opt-out + override flags
+
+- `--no-hashtags` — for very personal / off-brand / ephemeral posts. The opt-out is stored in `ig_approval_log` so patterns can be audited later.
+- `--override-tags="#foo,#bar,..."` — Boss-specified exact set, bypassing auto-selection.
+- `--caption-extra="line to append before hashtags"` — for one-off additions without rewriting the generator.
+
+### Open questions for Boss at design time
+
+- Hand-curated library only, or allow VLM-suggested additions on top of the base topic set? Recommendation: **hand-curated only.** Auto-hashtag suggestion usually produces cringe; the base library's rotation pool is deep enough.
+- Sign-off standardization — is `📸 @markbarney121` the signature, or does he prefer plainer `— @markbarney121` or `built by @markbarney121`? Recommend picking one and sticking to it.
+- For the AI-consulting framing — should tech-showcase posts link to Mark's personal site or a GitHub repo, and which? Need a URL Mark approves.
+- Which specific hashtags for Mark's AI-consulting identity have SEO/discoverability value vs. are cold-start niche? — worth a quick search before baking them into the library.
+
+Not built in this plan. File stub to create when starting the hashtag work: `docs/20-Apr-2026-hashtag-library-plan.md`.
+
 ## V3 (future — not scoped in this plan)
 
 **Reels.** 9:16 MP4 stitched from N sharp gems in a time window. Pipeline sketch:
