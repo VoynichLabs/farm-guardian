@@ -1,13 +1,22 @@
-# Author: Claude Opus 4.6 (1M context)
-# Date: 13-April-2026
+# Author: Claude Opus 4.6 (1M context), Claude Opus 4.7 (1M context) — IG columns 20-Apr-2026
+# Date: 13-April-2026 (last touched 20-April-2026)
 # PURPOSE: Persist a captured + enriched image. Writes JPEG to disk per tier
 #          (full-res for share_worth=strong, downscaled for decent, discard
 #          for skip), writes a sidecar .json next to the JPEG, and inserts a
 #          row into Guardian's SQLite image_archive table. Runs the table
 #          migration idempotently on first use so this tool doesn't require
 #          changes to database.py — the pipeline is strictly additive.
+#
+#          As of 20-Apr-2026 also provides the ig_permalink / ig_posted_at /
+#          ig_skip_reason columns on image_archive (added via ALTER-IF-MISSING
+#          for existing DBs). tools/pipeline/ig_poster.py writes these via
+#          UPDATE after a successful Instagram post; the INSERT path here
+#          leaves them NULL — Instagram metadata is post-hoc, not part of
+#          the capture cycle.
 # SRP/DRY check: Pass — single responsibility is durable storage of one
-#                enriched image. No capture, no VLM, no scheduling.
+#                enriched image. No capture, no VLM, no scheduling, no
+#                Instagram network I/O (that lives in ig_poster.py). The
+#                IG columns are schema only; the writes happen elsewhere.
 
 from __future__ import annotations
 
@@ -43,6 +52,9 @@ CREATE TABLE IF NOT EXISTS image_archive (
     any_special_chick INT, apparent_age_days INT, has_concerns INT,
     individuals_visible_csv TEXT,
     retained_until TEXT,
+    ig_permalink TEXT,
+    ig_posted_at TEXT,
+    ig_skip_reason TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_archive_camera_ts ON image_archive(camera_id, ts);
@@ -51,13 +63,52 @@ CREATE INDEX IF NOT EXISTS idx_archive_concerns ON image_archive(has_concerns);
 CREATE INDEX IF NOT EXISTS idx_archive_retain   ON image_archive(retained_until);
 """
 
+# Indexes that depend on late columns must run AFTER the ALTER TABLE step,
+# otherwise executescript fails on pre-existing DBs where the column hasn't
+# been added yet. Kept separate from _SCHEMA_SQL for that reason.
+_LATE_INDEX_SQL = """
+CREATE INDEX IF NOT EXISTS idx_archive_ig_posted ON image_archive(ig_posted_at);
+"""
+
+# Columns added post-initial-schema. Kept as a list so ensure_schema() can
+# idempotently add them to DBs whose image_archive table pre-dates them.
+# Pair each entry with the SQLite ALTER TABLE clause to apply if missing.
+_LATE_COLUMNS = [
+    # (column_name, full_column_def_for_ALTER)
+    ("ig_permalink",    "ig_permalink TEXT"),
+    ("ig_posted_at",    "ig_posted_at TEXT"),
+    ("ig_skip_reason",  "ig_skip_reason TEXT"),
+]
+
 _DB_LOCK = threading.Lock()  # WAL mode still wants serialized writes from this process
+
+
+def _add_column_if_missing(conn: sqlite3.Connection, table: str, column_name: str, column_def: str) -> None:
+    """SQLite lacks ALTER TABLE ... ADD COLUMN IF NOT EXISTS. Emulate it
+    by reading PRAGMA table_info and only running the ALTER when needed.
+    No-op on any error (fresh DBs where the column is already in the
+    CREATE TABLE will have it; nothing to add). Idempotent."""
+    cols = [r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()]
+    if column_name in cols:
+        return
+    conn.execute(f"ALTER TABLE {table} ADD COLUMN {column_def}")
 
 
 def ensure_schema(db_path: Path) -> None:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(str(db_path)) as c:
+        # Step 1: base schema. CREATE TABLE IF NOT EXISTS is idempotent; on a
+        # pre-existing DB the table already exists and this is a no-op. Note
+        # the CREATE TABLE definition includes the late columns — fresh DBs
+        # get them from day one.
         c.executescript(_SCHEMA_SQL)
+        # Step 2: catch up pre-existing DBs that were created before the late
+        # columns joined _SCHEMA_SQL. On a fresh DB these are already present
+        # and the helper is a no-op.
+        for col_name, col_def in _LATE_COLUMNS:
+            _add_column_if_missing(c, "image_archive", col_name, col_def)
+        # Step 3: indexes that reference late columns must run AFTER the ALTER.
+        c.executescript(_LATE_INDEX_SQL)
 
 
 def _downscale_jpeg(jpeg_bytes: bytes, long_edge_px: int, quality: int) -> bytes:
