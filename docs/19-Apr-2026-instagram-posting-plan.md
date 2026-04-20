@@ -235,14 +235,51 @@ Rotation state: track last-N tags used per topic in `image_archive_ig_tag_histor
 
 Not built in this plan. File stub to create when starting the hashtag work: `docs/20-Apr-2026-hashtag-library-plan.md`.
 
+## Every-6-hour posting cadence (Boss target, 2026-04-20)
+
+Boss's cadence target is "post pretty much every 6 hours" = 4 posts/day = ~28/week. The account's historical cadence was roughly monthly; this is a 20–30× ramp. Making it land requires all of:
+
+1. **Sufficient source material.** Three channels:
+   - Farm Guardian gems (tier=strong, quality=sharp) — steady ~5–15/day from live cameras.
+   - Boss's iPhone drops (`~/Desktop/iphone-today/`) — ad-hoc, highest narrative quality.
+   - Scheduled tech-showcase posts — hand-prepped assets (dashboard screenshots, architecture diagrams, gear shots) stored separately.
+2. **Content router** that picks the right channel per slot:
+   - 06:00 — morning: yard-diary seasonal stockpile frame OR brooder early-light gem.
+   - 12:00 — midday: flock/yorkies/garden iPhone content, community-hashtag-heavy.
+   - 18:00 — evening: Guardian-caught-something OR sharp detection gem, tech framing.
+   - 00:00 — late: quieter content (sleeping chicks, nightfall), lighter hashtags.
+3. **LaunchAgent** `com.farmguardian.ig-poster.plist` — fires 4x/day at the slots above; runs `tools/pipeline/ig_poster.py --slot <name>`.
+4. **Dedup window:** never post the same scene_type within 24h; never same camera_id within 12h. Tracked in `image_archive.ig_posted_at` + new `ig_slot_log` table.
+5. **Buffer-low alert:** if the router can't find a gem that meets the slot's criteria (e.g., no sharp brooder gems for 6h), post a Discord alert to #farm-2026 instead of auto-posting sub-par content. Boss can then either drop iPhone photos to the pickup folder or approve skipping the slot.
+6. **Manual-approval gate stays on** for the first 10 scheduled auto-posts (per earlier plan section). Boss greens/reds each via Discord reaction, 15-min timeout = skip. Flip to auto-trust after the gate proves out.
+
+### iPhone pickup folder (Boss → farm)
+
+Boss already uses `~/Desktop/iphone-today/` as the drop folder. Formalize it:
+
+- Convention: Boss airdrops or saves iPhone shots into `~/Desktop/iphone-today/` (HEIC + JPG pairs are fine; JPG preferred).
+- Pipeline watcher (V2.5): a small launchd script that polls the folder every 10 min, and for each new JPG:
+  - Reads EXIF orientation; runs `sips --rotate` if needed (the 2026-04-19 adult-chickens shots IMG_2150/2151 were rotated 90° — need rotation before posting).
+  - Moves it into `~/Documents/GitHub/farm-2026/public/photos/iphone-drops/{YYYY-MM-DD}/{IMG_XXXX}.jpg`, commits, pushes.
+  - Writes a gem-like entry to the image archive (`source="iphone"`, user-provided caption hint left blank for now).
+  - Posts a Discord preview to #farm-2026 asking Boss for a caption + approval.
+- Opinion: keep iPhone drops in a separate `iphone-drops/` subdir so they don't collide with Guardian gems in the same tree.
+
 ## V3 (future — not scoped in this plan)
 
-**Reels.** 9:16 MP4 stitched from N sharp gems in a time window. Pipeline sketch:
-1. Query N gems with similar scene/camera over a time window (e.g., 30-min bursts at sunrise).
-2. ffmpeg concat with crossfade transitions (reuse `capture.py` ffmpeg patterns).
-3. Crop/pad to 1080×1920 (9:16).
-4. Publish to farm-2026/public/video/ (or wherever public video goes — decide at V3 time).
-5. Graph API with `media_type=REELS`, `video_url=<public MP4>`, `caption=...`.
+**Reels.** 9:16 MP4 stitched from N sharp gems in a time window. This is probably the single highest-reach format on IG in 2026 — reels get significantly more distribution than carousels. If we're posting 4x/day per Boss's cadence, at least 1–2 of those slots should be reels.
+
+Pipeline sketch:
+1. **Source selection.** Query N gems with similar scene/camera over a time window (e.g., 30-min bursts at sunrise; or every strong brooder gem from the last 24h; or yard-diary frames spanning a week). Reel quality depends heavily on source selection — bias toward scenes with *motion* between frames (chicks moving around the brooder, clouds across the sky, the PTZ camera sweeping).
+2. **Frame pacing.** 15–30s reels. At 30fps that's 450–900 frames. Source 15–30 gems at 1fps stride (each gem shown for ~1s with 5–10 frame crossfade). Total compute is small — ffmpeg handles this in seconds on M4 Pro.
+3. **ffmpeg compose** (new helper `tools/reel_compose.py` wrapping subprocess calls). Reuse the pattern from `capture.py:_ffmpeg_single_frame()` for the subprocess style. Key ffmpeg options: `xfade` for transitions, `scale` + `pad` for the 9:16 crop (center-crop from 16:9 source or pad with blurred background), audio track optional (silent reels work fine).
+4. **Music/sfx track.** Optional V3 extension — Boss has audio samples at `~/bubba-workspace/tracks/` and can curate a library of ambient clips that fit different scenes (brooder = soft peeping; hawk catch = tension sting; yard-diary = wind/birds). Not needed for V3.0 — ship silent first.
+5. **Publish to `farm-2026/public/videos/<name>.mp4`** (new subdir), commit + push. Use `https://raw.githubusercontent.com/VoynichLabs/farm-2026/main/public/videos/<name>.mp4` for the `video_url` param.
+6. **Graph API:** `POST /media` with `media_type=REELS`, `video_url=<raw URL>`, `caption=...` → returns container id. Poll `/{container}?fields=status_code` until `FINISHED` (reels take longer than photos, 10–60s). Then `POST /media_publish`.
+7. **Candidate early reels:**
+   - "24 hours in the brooder" — stitch 12 sharp brooder gems spanning morning → midday → evening → lights-out, 2s each, captioned with hatch day + current day number.
+   - "A week in the yard" — 7 yard-diary 4K frames in sequence, 3s each. Showcases the seasonal progression (the whole point of the yard-diary stockpile per Boss's 17-Apr note).
+   - "Guardian catches a hawk" (when it happens) — tension-build reel from the PTZ tracking sequence. Strong narrative + aligns with farm-security angle.
 
 **Stories.** Lower bar. Good for "Hawk at 2pm" ephemeral content. Just `media_type=STORIES` on the existing container flow. Could enable on `share_worth=decent` instead of strong.
 
