@@ -369,6 +369,309 @@ def _local_path_for_gem(gem_row: dict, db_path: Path) -> Path:
 
 
 # ---------------------------------------------------------------------------
+# Predicate + hashtag selection (Phase 6)
+# These aren't called from post_gem_to_ig itself — they're preparation for
+# V2.2 auto-posting (orchestrator hook uses should_post_ig to decide whether
+# to fire post_gem_to_ig per gem) and for a future CLI --auto-hashtags flag.
+# Kept here so all IG-policy logic lives in one module.
+# ---------------------------------------------------------------------------
+
+
+def should_post_ig(
+    vlm_metadata: dict,
+    gem_row: dict,
+    last_ig_post_ts: Optional[str] = None,
+    last_same_camera_ts: Optional[str] = None,
+    min_hours_between_posts: int = 3,
+    min_hours_per_camera: int = 12,
+) -> tuple[bool, str]:
+    """Predicate gate for auto-posting to Instagram.
+
+    STRICTER than gem_poster.should_post() because IG is public-facing:
+      - tier == "strong" (share_worth in vlm_metadata)
+      - image_quality == "sharp" (no decent/soft for IG)
+      - bird_count >= 1
+      - has_concerns is false (privacy filter; enforced by images_api
+        too, belt and suspenders here)
+      - No other IG post in the last N hours (default 3h cadence window)
+      - No other IG post from the same camera in the last M hours
+        (default 12h scene dedup — don't post 4 brooder shots in
+        quick succession)
+
+    Returns (should_post: bool, reason: str). The reason string is
+    either "ok" (when should_post is True) or a specific skip reason
+    that gets logged to image_archive.ig_skip_reason so skip patterns
+    can be audited later.
+
+    last_ig_post_ts / last_same_camera_ts are caller-supplied ISO8601
+    timestamps (the orchestrator / CLI queries image_archive for the
+    most recent ig_posted_at values). Pass None on the very first run
+    or when the query returned no rows.
+    """
+    share = vlm_metadata.get("share_worth")
+    if share != "strong":
+        return False, f"tier={share} (need strong)"
+
+    quality = vlm_metadata.get("image_quality")
+    if quality != "sharp":
+        return False, f"quality={quality} (need sharp)"
+
+    bird_count = vlm_metadata.get("bird_count", 0)
+    if not bird_count or bird_count < 1:
+        return False, f"bird_count={bird_count} (need >= 1)"
+
+    # has_concerns might come through as int 0/1 or bool — normalize.
+    concerns = vlm_metadata.get("concerns") or gem_row.get("has_concerns")
+    if concerns and concerns not in (0, False, [], "", None):
+        return False, "has_concerns flagged"
+
+    now = datetime.now(timezone.utc)
+
+    if last_ig_post_ts:
+        try:
+            last_ts = datetime.fromisoformat(last_ig_post_ts.replace("Z", "+00:00"))
+            if last_ts.tzinfo is None:
+                last_ts = last_ts.replace(tzinfo=timezone.utc)
+            age_h = (now - last_ts).total_seconds() / 3600
+            if age_h < min_hours_between_posts:
+                return False, f"last_post_{age_h:.1f}h_ago (min {min_hours_between_posts}h)"
+        except (ValueError, TypeError):
+            log.warning("could not parse last_ig_post_ts=%r; ignoring", last_ig_post_ts)
+
+    if last_same_camera_ts:
+        try:
+            last_cam_ts = datetime.fromisoformat(last_same_camera_ts.replace("Z", "+00:00"))
+            if last_cam_ts.tzinfo is None:
+                last_cam_ts = last_cam_ts.replace(tzinfo=timezone.utc)
+            age_h = (now - last_cam_ts).total_seconds() / 3600
+            if age_h < min_hours_per_camera:
+                return False, (
+                    f"same_camera_post_{age_h:.1f}h_ago "
+                    f"(min {min_hours_per_camera}h per camera)"
+                )
+        except (ValueError, TypeError):
+            log.warning(
+                "could not parse last_same_camera_ts=%r; ignoring",
+                last_same_camera_ts,
+            )
+
+    return True, "ok"
+
+
+def query_last_ig_post_ts(db_path: Path, camera_id: Optional[str] = None) -> Optional[str]:
+    """Helper: look up the most recent ig_posted_at value.
+
+    If camera_id is None, returns the overall most-recent IG post.
+    If camera_id is provided, returns the most-recent IG post from
+    that camera. Used to feed last_ig_post_ts / last_same_camera_ts
+    to should_post_ig().
+
+    Returns None if no gem has ig_posted_at populated yet — i.e. the
+    very first auto-post will always pass the time-gate.
+    """
+    with sqlite3.connect(str(db_path)) as c:
+        if camera_id:
+            row = c.execute(
+                "SELECT MAX(ig_posted_at) FROM image_archive WHERE camera_id = ?",
+                (camera_id,),
+            ).fetchone()
+        else:
+            row = c.execute(
+                "SELECT MAX(ig_posted_at) FROM image_archive"
+            ).fetchone()
+    return row[0] if row and row[0] else None
+
+
+# Scene → hashtag bucket auto-mapping. Extend as the VLM prompt grows
+# new scene types. See docs/19-Apr-2026-instagram-posting-plan.md
+# §_scene_to_buckets for the policy and what's manual-override-only.
+_SCENE_BUCKET_MAP = {
+    "brooder": ["chicks", "chickens", "homestead"],
+    # Coop / yard / orchard buckets are manual-override only today
+    # because the VLM doesn't emit those scene labels yet. The CLI's
+    # --override-tags (Phase 6.5) is the escape hatch for posts whose
+    # content doesn't map cleanly from vlm_metadata.
+}
+
+
+def _scene_to_buckets(vlm_metadata: dict) -> list[str]:
+    """Map gem metadata to relevant hashtag-library buckets.
+
+    Conservative: if the scene isn't in the known map, returns an empty
+    list — the caller should then either fall back to `homestead` as a
+    universal default or require an explicit override.
+    """
+    scene = vlm_metadata.get("scene", "")
+    return list(_SCENE_BUCKET_MAP.get(scene, []))
+
+
+def _load_hashtag_library(path: Path) -> dict:
+    """Load tools/pipeline/hashtags.yml.
+
+    Uses pyyaml (already a transitive dependency via ultralytics, so
+    no new pin in requirements.txt). Returns the full nested dict
+    including the 'forbidden' list. Verifies at load time that no
+    bucket contains a forbidden tag — raises ValueError if so.
+    """
+    import yaml
+
+    data = yaml.safe_load(path.read_text())
+    if not isinstance(data, dict):
+        raise ValueError(f"hashtags.yml did not parse to a dict: got {type(data)}")
+
+    forbidden = set(data.get("forbidden", []) or [])
+
+    for bucket_name, tiers in data.items():
+        if bucket_name == "forbidden":
+            continue
+        if not isinstance(tiers, dict):
+            continue
+        for tier_name, tags in tiers.items():
+            if not tags:
+                continue
+            bad = [t for t in tags if t in forbidden]
+            if bad:
+                raise ValueError(
+                    f"hashtags.yml bucket {bucket_name}.{tier_name} "
+                    f"contains forbidden tags: {bad}"
+                )
+
+    return data
+
+
+def pick_hashtags(
+    vlm_metadata: dict,
+    library: dict,
+    last_n_tags_used: Optional[list[str]] = None,
+    max_tags: int = 10,
+    buckets_override: Optional[list[str]] = None,
+) -> list[str]:
+    """Select up to max_tags hashtags from the library based on the gem's
+    scene/content, weighted toward long-tail for account-size reasons.
+
+    Weighting strategy (verified in docs/19-Apr-2026 §hashtag library):
+      - 1-2 top-tier (algorithmic signal, not reach on a 381-follower
+        account)
+      - 3-4 mid-tier (actual discoverability lane)
+      - 4-5 long-tail (rank potential on "Recent" feed)
+
+    Dedupes against last_n_tags_used to force rotation — IG shadow-bans
+    obvious repeat tag sets.
+
+    Tags returned WITHOUT the leading '#'. The caller appends the '#'
+    when building the caption (to simplify rotation-set comparisons).
+
+    buckets_override lets the caller specify which buckets to draw
+    from (e.g., ["yorkies", "homestead"] for a yorkie post). If None,
+    _scene_to_buckets is consulted.
+    """
+    buckets = buckets_override or _scene_to_buckets(vlm_metadata)
+    # Universal fallback: homestead
+    if not buckets:
+        buckets = ["homestead"]
+
+    last_n = set(last_n_tags_used or [])
+    forbidden = set(library.get("forbidden", []) or [])
+
+    # Collect tiered pools across all relevant buckets, deduped.
+    top_pool: list[str] = []
+    mid_pool: list[str] = []
+    long_pool: list[str] = []
+    for bucket_name in buckets:
+        bucket = library.get(bucket_name, {})
+        if not isinstance(bucket, dict):
+            continue
+        for t in bucket.get("top_tier", []) or []:
+            if t not in top_pool and t not in forbidden:
+                top_pool.append(t)
+        for t in bucket.get("mid_tier", []) or []:
+            if t not in mid_pool and t not in forbidden:
+                mid_pool.append(t)
+        for t in bucket.get("long_tail", []) or []:
+            if t not in long_pool and t not in forbidden:
+                long_pool.append(t)
+
+    # Rotation: prefer tags NOT in last_n_tags_used.
+    def _order_fresh_first(pool: list[str]) -> list[str]:
+        fresh = [t for t in pool if t not in last_n]
+        stale = [t for t in pool if t in last_n]
+        return fresh + stale
+
+    top_pool = _order_fresh_first(top_pool)
+    mid_pool = _order_fresh_first(mid_pool)
+    long_pool = _order_fresh_first(long_pool)
+
+    # Targets: long-tail first (rank lane), then mid (discoverability),
+    # then top (signal).
+    target_long = min(5, len(long_pool))
+    target_mid = min(4, len(mid_pool))
+    target_top = min(2, len(top_pool))
+
+    # If budget allows more and pools have depth, promote into mid/top.
+    selected: list[str] = []
+    selected.extend(long_pool[:target_long])
+    selected.extend(mid_pool[:target_mid])
+    selected.extend(top_pool[:target_top])
+
+    # If we're under max_tags and there's still pool depth, fill from
+    # mid then long (not top — we want to stay long-tail heavy).
+    leftover_mid = mid_pool[target_mid:]
+    leftover_long = long_pool[target_long:]
+    while len(selected) < max_tags and (leftover_mid or leftover_long):
+        if leftover_mid:
+            selected.append(leftover_mid.pop(0))
+            if len(selected) >= max_tags:
+                break
+        if leftover_long:
+            selected.append(leftover_long.pop(0))
+
+    # Final dedup + cap (selected could have duplicates if buckets
+    # overlap — e.g. #backyardchickens appears in both chickens.top_tier
+    # and coop.top_tier)
+    seen = set()
+    out = []
+    for t in selected:
+        if t not in seen and t not in forbidden:
+            out.append(t)
+            seen.add(t)
+    return out[:max_tags]
+
+
+def build_caption(
+    journal_body: str,
+    hashtags: list[str],
+    sign_off: Optional[str] = "📸 @markbarney121",
+) -> str:
+    """Build a full IG caption from journal body + tags + sign-off.
+
+    Layout (matches post #2 and #3):
+      <journal body>
+      <blank line>
+      <sign-off, if provided>
+      <blank line>
+      <#tag1 #tag2 ...>
+
+    If hashtags is empty, the hashtag line is omitted. If sign_off is
+    None or empty, the sign-off line and its blank line are omitted.
+
+    Total length guarded to stay under the 2200-char IG limit; raises
+    ValueError if the caller built something too long.
+    """
+    parts = [journal_body.rstrip()]
+    if sign_off:
+        parts.extend(["", sign_off.strip()])
+    if hashtags:
+        tag_line = " ".join("#" + t.lstrip("#") for t in hashtags)
+        parts.extend(["", tag_line])
+    caption = "\n".join(parts)
+    if len(caption) > _IG_CAPTION_MAX_CHARS:
+        raise ValueError(
+            f"built caption is {len(caption)} chars; IG max is {_IG_CAPTION_MAX_CHARS}"
+        )
+    return caption
+
+
+# ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
 
