@@ -4,6 +4,20 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-04-20
 
+### v2.33.1 — Decommission iphone-cam (Continuity detection was wireless, not USB) (Claude Opus 4.7 (1M context))
+
+The opportunistic `iphone-cam` shipped in v2.28.0 was triggering any time Boss's iPhone came near the Mac Mini, not just when USB-plugged. Root cause: AVFoundation enumerates iPhone via Continuity Camera over AWDL/Bluetooth, not strictly USB — the `USB_CAM_DEVICE_NAME_CONTAINS="iPhone"` gate matched both. Boss's stated preference: cut it entirely rather than add a USB-bus pre-gate, because a cheap used Android (S7/S8-class) running IP Webcam is the chosen replacement path for "phone as camera" going forward.
+
+**What changed:**
+
+- `launchctl bootout` on `com.farmguardian.iphone-cam-host` and `com.farmguardian.iphone-cam-watchdog`; both `~/Library/LaunchAgents/com.farmguardian.iphone-cam-*.plist` files renamed with `.disabled-20apr2026` suffix to survive the LaunchAgents auto-load trap (bootout alone is not durable across login).
+- `scripts/add-camera.py remove iphone-cam` removed the entry from both `config.json` and `tools/pipeline/config.json` atomically.
+- Guardian + pipeline kickstarted; neither now enumerates iphone-cam.
+
+**Not touched:** `tools/usb-cam-host/usb_cam_host.py` name-gating code is left in place — it's still used by `usb-cam` (the generic Logitech on the Mini) and remains the right abstraction for any future named-device camera. The `deploy/iphone-cam-watchdog/` plist template is left in the repo for reference; any agent resurrecting iPhone-via-USB would need to add a `system_profiler SPUSBDataType` pre-gate before re-enabling.
+
+---
+
 ### v2.33.0 — Human-drop ingestion: iPhone photos from Discord flow to IG (Claude Opus 4.7 (1M context))
 
 Closes the remaining gap from v2.32.0: when Boss (or anyone) drops an image into `#farm-2026` Discord and it picks up a reaction, the photo is now pulled into Guardian's `image_archive` as a synthetic row and becomes eligible for the scheduled IG lanes alongside Guardian-captured gems.
