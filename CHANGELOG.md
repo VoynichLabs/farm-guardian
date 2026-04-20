@@ -4,6 +4,55 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-04-20
 
+### v2.29.0 — Instagram posting: code pipeline end-to-end (phases 2–7) (Claude Opus 4.7 (1M context))
+
+Builds on `v2.29.0-phase1` (plan docs + hashtag library). Ships the full V2.0 code path: CLI-driven posting replays the hand-pipeline from 2026-04-19/20, and an auto-posting hook is wired into the orchestrator behind a hard-off flag.
+
+**Delivered in this release (phases 2–7):**
+
+- **Phase 2 — DB migration.** `tools/pipeline/store.py` adds `ig_permalink`, `ig_posted_at`, `ig_skip_reason` columns to `image_archive` + `idx_archive_ig_posted` index. Uses `PRAGMA table_info` + `ALTER TABLE` guard so pre-existing DBs migrate in place. Late-index SQL split from base schema because `CREATE INDEX` fails if the column hasn't been added yet.
+- **Phase 3 — `tools/pipeline/git_helper.py`.** `commit_image_to_farm_2026(local_image, subdir, repo_path, commit_message) → (Path, raw_url)`. Copies a gem's full-res JPEG into `farm-2026/public/photos/<subdir>/`, runs `git add/commit/push` with `GIT_TERMINAL_PROMPT=0` + `GIT_ASKPASS=/bin/echo` so the osxkeychain helper handles auth non-interactively. SHA256 idempotence check skips the commit if the dest already matches. Reason this exists: IG's media fetcher rejects the `guardian.markbarney.net/api/v1/images/gems/{id}/image?size=1920` URL (no file extension → error 9004/2207052); `raw.githubusercontent.com/VoynichLabs/farm-2026/main/public/photos/…/N.jpg` works.
+- **Phase 4 — `tools/pipeline/ig_poster.py` core.** `post_gem_to_ig(gem_id, full_caption, db_path, farm_2026_repo_path, dry_run=False) → dict`. Stdlib-only (urllib + sqlite3). Loads creds from macOS keychain via env-file mirror at `/Users/macmini/bubba-workspace/secrets/farm-guardian-meta.env`. Flow: lookup gem → resolve local JPEG → commit+push via `git_helper` → `_create_container` → `_wait_for_container` (polls FINISHED) → `_publish` → `_write_permalink`. `dry_run=True` has zero side effects (no git push, no Graph API, no DB write) — just predicts the raw URL.
+- **Phase 5 — `scripts/ig-post.py` CLI.** `--gem-id N --caption "..." [--dry-run]`. Pure-stdlib (no venv). Input validation (empty caption, >2200 chars, missing DB). Exit codes: 0 success, 1 runtime failure, 2 user input error, 3 credentials missing.
+- **Phase 6 — `should_post_ig` predicate + `pick_hashtags` selector + `build_caption`.** Predicate gates (stricter than Discord): `tier=strong`, `image_quality=sharp`, `bird_count≥1`, `has_concerns=false`, `min_hours_between_posts=6`, `min_hours_per_camera=12`. `query_last_ig_post_ts(camera_id=None|cam)` reads `MAX(ig_posted_at)` from `image_archive`. `pick_hashtags` is account-size weighted (5 long-tail + 4 mid + 2 top) with rotation dedup against `last_n_tags_used` and a hard runtime check against `hashtags.yml:forbidden`. `build_caption` formats journal body + sign-off + hashtag line into the post #2/#3 layout (≤2200 char guard).
+- **Phase 7-prereq — `store()` returns `gem_id`.** Captures `cursor.lastrowid` after the INSERT so callers can post to IG without re-querying.
+- **Phase 7 — orchestrator auto-post hook.** `_maybe_post_to_ig()` fires in `run_cycle()` after the Discord post attempt. Two-flip gate: `cfg["instagram"]["enabled"]` (default `false`) + `cfg["instagram"]["auto_dry_run"]` (default `true`). Skip reasons from `should_post_ig` are persisted to `ig_skip_reason` for audit. Caption built from `vlm_metadata["caption_draft"]` + `pick_hashtags()`. Failures never break the capture cycle — same try/except wrapper pattern as the Discord post. `_load_configs()` extended to source the meta env file so Graph API creds are on `os.environ` without launchd plist changes.
+
+**Config knobs added to `tools/pipeline/config.json`:**
+
+```json
+"instagram": {
+  "enabled": false,
+  "auto_dry_run": true,
+  "min_hours_between_posts": 6,
+  "min_hours_per_camera": 12,
+  "farm_2026_repo_path": "/Users/macmini/Documents/GitHub/farm-2026",
+  "meta_env_file": "/Users/macmini/bubba-workspace/secrets/farm-guardian-meta.env"
+}
+```
+
+**Enablement path (when Boss is ready):** flip `enabled=true` + `auto_dry_run=false` in `tools/pipeline/config.json` and restart `launchctl kickstart -k gui/$(id -u)/com.farmguardian.pipeline`. No code change, no redeploy. Recommended intermediate step: flip `enabled=true` but leave `auto_dry_run=true` for a day to see what `should_post_ig` picks — the skip-reason audit trail in `ig_skip_reason` plus the "would have posted gem_id=N" log lines tell you whether the predicate is selecting the right gems before anything goes live.
+
+**Verified:**
+- Imports clean under `./venv/bin/python -c 'from tools.pipeline import orchestrator'`.
+- Disabled-by-default hook no-ops silently (result dict unchanged).
+- Predicate-skip persists `ig_skip_reason=tier=decent (need strong)` and returns `result["ig_skipped"]=<reason>`.
+- Missing `gem_id` → defensive warn + skip (shouldn't happen post-Phase-7-prereq).
+- Happy path on real `gem_id=6947` (s7-cam brooder, strong+sharp, 3 birds): hashtags.yml loads, `pick_hashtags` returns, `build_caption` returns `"A small yellow chick looks toward the camera…\n\n📸 @markbarney121\n\n#<tags>"`, `post_gem_to_ig(dry_run=True)` reaches the poster's dry-run log line. Zero DB/FS side effects (permalink/posted_at/skip_reason all `None` after).
+- CLI end-to-end replayed post #3 in prior manual work; no regression.
+
+**Not in this release (still deferred):**
+- LaunchAgent-driven 4x/day cadence bot (V2.2) — current hook is capture-cycle-coupled, gets one gem-quality frame per orchestrator cycle; a separate scheduler that hand-picks from the last N hours of `image_archive` is the cleaner long-term design.
+- Reels (V3) — ffmpeg stitching + 9:16 MP4 + `media_type=REELS` scoped out in `docs/19-Apr-2026-instagram-posting-plan.md`.
+- Rotation state (`last_n_tags_used`) — currently `[]`; add once auto-posts reveal repetition patterns.
+- Phase 7 has NOT been hot-tested with `enabled=true` against a real capture cycle. Boss flips the flag when ready.
+
+**Advisor-blocked blockers addressed before Phase 7 landed:** (1) `store_result` missing `gem_id` → fixed in Phase-7-prereq. (2) Need `query_last_ig_post_ts()` calls in hook → done. (3) Caption built from `caption_draft` + `pick_hashtags()` → done. (4) Rotation state missing → punted with `last_n_tags_used=[]` per advisor. (5) Skip path writes `ig_skip_reason` → done.
+
+**Cross-references:** `~/bubba-workspace/skills/farm-instagram-post/SKILL.md` (CLI runbook — update for `scripts/ig-post.py`), `~/.claude/projects/-Users-macmini-bubba-workspace/memory/farm-instagram.md` (resume-here for fresh sessions), `docs/20-Apr-2026-ig-poster-implementation-plan.md` (phase-by-phase build plan with verification notes).
+
+---
+
 ### v2.29.0-phase1 — Instagram posting: plan docs + hashtag library (Claude Opus 4.7 (1M context))
 
 First phase of a V2 Instagram-posting pipeline. Boss asked for automated posts to `@pawel_and_pawleen` (the farm's IG account — yorkies + chickens + coop + yard). V1 of this work (manual curl-driven posts) happened 2026-04-19 and shipped two carousels; this release brings it into the repo as code and documented plan.
