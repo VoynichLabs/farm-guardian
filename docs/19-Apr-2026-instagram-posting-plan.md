@@ -191,7 +191,7 @@ Topic buckets, each with ~15–30 hand-curated tags so the rotation has pool dep
 - **flock (adult birds)** — #heritagebreed, #chickensofinstagram, #freerange, #mixedflock, #farmlife, #hensofinstagram, #roosterlife
 - **coop / enclosure / build** — #diycoop, #homesteadlife, #backyardfarm, #farmproject, #coopbuild, #hampdencoop
 - **yard-diary / seasons** — #homesteadseasons, #newengland, #hamptonct (selective — don't over-localize for predator reasons), #springonthefarm, #autumnonthefarm, #winteronthefarm
-- **hawk / predator / guardian-caught-something** — #raptorsofinstagram, #backyardwildlife, #farmsecurity, #birdofprey, #wildlifeprotection
+- ~~**hawk / predator / guardian-caught-something**~~ — **removed.** A predator on camera means a bird is dead or being attacked; that's not content, that's a loss. No hashtag bucket for predator detections. If Boss ever wants to post about a real loss it's in his own words, not from a pre-baked template.
 - **ai-in-the-loop / tech-showcase** — #aiassistedfarm, #computervision, #homeautomation, #yolov8, #edgeai, #appliedai, #aiengineer, #aiconsulting, #builtwithai, #macminimac, #openclaw
 - **Mark-the-builder / consulting** — #markbarney, #markbarneyai, #builtbymarkbarney, #aiconsultant, #aiarchitect (apply selectively to tech-showcase posts, not every post)
 - **cherry-trees / plants / orchard** — #orchardlife, #springbloom, #farmgarden
@@ -279,7 +279,11 @@ Pipeline sketch:
 7. **Candidate early reels:**
    - "24 hours in the brooder" — stitch 12 sharp brooder gems spanning morning → midday → evening → lights-out, 2s each, captioned with hatch day + current day number.
    - "A week in the yard" — 7 yard-diary 4K frames in sequence, 3s each. Showcases the seasonal progression (the whole point of the yard-diary stockpile per Boss's 17-Apr note).
-   - "Guardian catches a hawk" (when it happens) — tension-build reel from the PTZ tracking sequence. Strong narrative + aligns with farm-security angle.
+   - "Coop build in timelapse" / "Cherry blossom progression" — passive environment reels from whatever seasonal transition is active.
+
+### Hard rule: do not dramatize predation for content
+
+Hawks, foxes, raccoons on camera = the flock is under attack or has been killed. These are losses, not narrative moments. Guardian exists to *deter* predators; its camera log is an operational record, not a highlight reel. **Do not frame predator detections as "Guardian catches a hawk" type content** — the reality is a dead bird, and turning that into a tension-build reel is tone-deaf to what the farm actually is. If a real loss happens and Boss wants to post about it, that's a decision he makes with his own words, in a caption he writes himself. Don't pre-bake "predator drama" templates into the pipeline.
 
 **Stories.** Lower bar. Good for "Hawk at 2pm" ephemeral content. Just `media_type=STORIES` on the existing container flow. Could enable on `share_worth=decent` instead of strong.
 
