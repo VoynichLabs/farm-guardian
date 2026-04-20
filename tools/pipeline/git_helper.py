@@ -1,14 +1,15 @@
 # Author: Claude Opus 4.7 (1M context)
-# Date: 20-April-2026
-# PURPOSE: Commit a local image into the farm-2026 repo's public/photos/
-#          directory and push to origin, so the image surfaces as a
-#          GitHub raw URL that Instagram's media fetcher will accept.
-#          This solves the IG fetcher's requirement that image_url end
-#          in a recognized extension (.jpg/.png) — the guardian.markbarney.net
-#          tunnel's /api/v1/images/gems/{id}/image?size=1920 path is
-#          rejected by IG even though the response is correct image/jpeg.
-#          See docs/19-Apr-2026-instagram-posting-plan.md for the full
-#          diagnosis.
+# Date: 20-April-2026 (initial 20-Apr-2026; extension whitelist added 20-Apr-2026 for Phase 3 reels)
+# PURPOSE: Commit a local image OR short video into the farm-2026 repo's
+#          public/photos/ directory and push to origin, so the media
+#          surfaces as a GitHub raw URL that Instagram's media fetcher
+#          will accept. This solves the IG fetcher's requirement that
+#          image_url / video_url end in a recognized extension
+#          (.jpg/.jpeg/.png for feed + stories, .mp4 for reels) — the
+#          guardian.markbarney.net tunnel's /api/v1/images/gems/{id}/image
+#          path is rejected by IG even though the response is correct
+#          image/jpeg. See docs/19-Apr-2026-instagram-posting-plan.md
+#          for the full diagnosis.
 #
 #          Runs `git add / git commit / git push` via subprocess with
 #          GIT_TERMINAL_PROMPT=0 so a credential prompt can never hang
@@ -18,12 +19,17 @@
 #          `git push --dry-run` returning rc=0 in a clean Python
 #          subprocess environment.
 #
-# SRP/DRY check: Pass — single responsibility is "move a local image
-#                into farm-2026's public photo tree and make it a
-#                public HTTPS URL." No IG API calls (ig_poster.py does
-#                that), no image selection (ig_poster.py's should_post
-#                path does that), no DB writes (store.py and the
-#                ig_poster UPDATE do that).
+#          Extension whitelist (Phase 3, 20-Apr-2026): the public commit
+#          function rejects anything that isn't in a small allow-list so
+#          we can't accidentally commit a stray .DS_Store, .txt, or
+#          another binary. Self-documenting and catches mistakes early.
+#
+# SRP/DRY check: Pass — single responsibility is "move a local media
+#                file into farm-2026's public tree and make it a public
+#                HTTPS URL." No IG API calls (ig_poster.py does that),
+#                no media selection (ig_poster.py's should_post path
+#                does that), no DB writes (store.py and the ig_poster
+#                UPDATE do that).
 
 from __future__ import annotations
 
@@ -35,6 +41,12 @@ import subprocess
 from pathlib import Path
 
 log = logging.getLogger("pipeline.git_helper")
+
+# Media types farm-2026 is willing to host publicly. Anything else gets
+# rejected at the top of commit_image_to_farm_2026 so we can't
+# accidentally commit a stray .DS_Store, .txt sidecar, or arbitrary
+# binary. Stored lowercase; comparison is case-insensitive.
+_ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".mp4"}
 
 
 class GitHelperError(RuntimeError):
@@ -168,6 +180,16 @@ def commit_image_to_farm_2026(
     local_image = Path(local_image).resolve()
     if not local_image.exists():
         raise FileNotFoundError(f"local_image does not exist: {local_image}")
+
+    # Extension whitelist — reject anything that isn't a supported public
+    # media type (photos for feed + stories, mp4 for reels). Catches
+    # accidents like staging a .DS_Store or a .txt sidecar. Case-insensitive.
+    ext = local_image.suffix.lower()
+    if ext not in _ALLOWED_EXTENSIONS:
+        raise ValueError(
+            f"local_image extension {ext!r} not in allowed set "
+            f"{sorted(_ALLOWED_EXTENSIONS)} (got {local_image.name})"
+        )
 
     # Guard against path traversal. subdir must be a plain relative
     # segment like "brooder" or "iphone-drops/2026-04-20".

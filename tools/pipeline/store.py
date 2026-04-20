@@ -1,4 +1,4 @@
-# Author: Claude Opus 4.6 (1M context), Claude Opus 4.7 (1M context) — IG columns 20-Apr-2026
+# Author: Claude Opus 4.6 (1M context), Claude Opus 4.7 (1M context) — IG columns 20-Apr-2026, story columns 20-Apr-2026 (Phase 2)
 # Date: 13-April-2026 (last touched 20-April-2026)
 # PURPOSE: Persist a captured + enriched image. Writes JPEG to disk per tier
 #          (full-res for share_worth=strong, downscaled for decent, discard
@@ -7,16 +7,23 @@
 #          migration idempotently on first use so this tool doesn't require
 #          changes to database.py — the pipeline is strictly additive.
 #
-#          As of 20-Apr-2026 also provides the ig_permalink / ig_posted_at /
-#          ig_skip_reason columns on image_archive (added via ALTER-IF-MISSING
-#          for existing DBs). tools/pipeline/ig_poster.py writes these via
-#          UPDATE after a successful Instagram post; the INSERT path here
-#          leaves them NULL — Instagram metadata is post-hoc, not part of
-#          the capture cycle.
+#          As of 20-Apr-2026 provides two families of IG metadata columns
+#          on image_archive (both added via ALTER-IF-MISSING for existing
+#          DBs; both live in the CREATE TABLE for fresh DBs):
+#            - Feed-post columns: ig_permalink, ig_posted_at, ig_skip_reason
+#              (written by ig_poster.post_gem_to_ig after a successful post).
+#            - Story columns (Phase 2): ig_story_id, ig_story_posted_at,
+#              ig_story_skip_reason (written by ig_poster.post_gem_to_story
+#              after a successful story post). Stories live separately so a
+#              gem can be both a story and a feed post without collisions.
+#
+#          The INSERT path here leaves all IG columns NULL — Instagram
+#          metadata is post-hoc and lives outside the capture cycle.
 # SRP/DRY check: Pass — single responsibility is durable storage of one
 #                enriched image. No capture, no VLM, no scheduling, no
 #                Instagram network I/O (that lives in ig_poster.py). The
-#                IG columns are schema only; the writes happen elsewhere.
+#                IG / story columns are schema only; the writes happen
+#                elsewhere.
 
 from __future__ import annotations
 
@@ -55,6 +62,9 @@ CREATE TABLE IF NOT EXISTS image_archive (
     ig_permalink TEXT,
     ig_posted_at TEXT,
     ig_skip_reason TEXT,
+    ig_story_id TEXT,
+    ig_story_posted_at TEXT,
+    ig_story_skip_reason TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_archive_camera_ts ON image_archive(camera_id, ts);
@@ -68,6 +78,7 @@ CREATE INDEX IF NOT EXISTS idx_archive_retain   ON image_archive(retained_until)
 # been added yet. Kept separate from _SCHEMA_SQL for that reason.
 _LATE_INDEX_SQL = """
 CREATE INDEX IF NOT EXISTS idx_archive_ig_posted ON image_archive(ig_posted_at);
+CREATE INDEX IF NOT EXISTS idx_archive_ig_story_posted ON image_archive(ig_story_posted_at);
 """
 
 # Columns added post-initial-schema. Kept as a list so ensure_schema() can
@@ -75,9 +86,12 @@ CREATE INDEX IF NOT EXISTS idx_archive_ig_posted ON image_archive(ig_posted_at);
 # Pair each entry with the SQLite ALTER TABLE clause to apply if missing.
 _LATE_COLUMNS = [
     # (column_name, full_column_def_for_ALTER)
-    ("ig_permalink",    "ig_permalink TEXT"),
-    ("ig_posted_at",    "ig_posted_at TEXT"),
-    ("ig_skip_reason",  "ig_skip_reason TEXT"),
+    ("ig_permalink",         "ig_permalink TEXT"),
+    ("ig_posted_at",         "ig_posted_at TEXT"),
+    ("ig_skip_reason",       "ig_skip_reason TEXT"),
+    ("ig_story_id",          "ig_story_id TEXT"),
+    ("ig_story_posted_at",   "ig_story_posted_at TEXT"),
+    ("ig_story_skip_reason", "ig_story_skip_reason TEXT"),
 ]
 
 _DB_LOCK = threading.Lock()  # WAL mode still wants serialized writes from this process
@@ -92,6 +106,52 @@ def _add_column_if_missing(conn: sqlite3.Connection, table: str, column_name: st
     if column_name in cols:
         return
     conn.execute(f"ALTER TABLE {table} ADD COLUMN {column_def}")
+
+
+def resolve_gem_image_path(gem_row: dict, db_path: Path) -> Path:
+    """Resolve the on-disk full-res JPEG for a gem.
+
+    store() writes image_path relative to the archive root's parent
+    directory — e.g. "archive/2026-04/s7-cam/…-strong.jpg". Since db_path
+    typically sits alongside the archive tree (e.g. data/guardian.db with
+    data/archive/…), we reconstruct the absolute path by combining
+    db_path.parent with gem_row["image_path"].
+
+    Fallback: strong-tier gems are hardlinked into a sibling gems/ tree
+    by the store() INSERT path. If the archive path is missing (e.g.
+    the retention sweep pruned it), we retry the same filename under
+    data/gems/YYYY-MM/camera_id/.
+
+    Raises FileNotFoundError if neither path exists. The gem_row may
+    come from a SQLite row_factory=Row (use dict(row) first) or any
+    mapping with at least "image_path" and "id".
+
+    This function is intentionally pure path arithmetic with no DB
+    I/O so callers can share a single query result across multiple
+    lookups without re-querying.
+    """
+    image_path = gem_row.get("image_path")
+    if not image_path:
+        raise FileNotFoundError(
+            f"gem {gem_row.get('id')} has no image_path on disk (skip tier?)"
+        )
+
+    candidate = (db_path.parent / image_path).resolve()
+    if candidate.exists():
+        return candidate
+
+    fname = Path(image_path).name
+    parts = Path(image_path).parts
+    ym = parts[-3] if len(parts) >= 3 else ""
+    cam = parts[-2] if len(parts) >= 2 else ""
+    if ym and cam:
+        alt = (db_path.parent / "gems" / ym / cam / fname).resolve()
+        if alt.exists():
+            return alt
+
+    raise FileNotFoundError(
+        f"gem {gem_row.get('id')}: image not found at {candidate} or gems/ fallback"
+    )
 
 
 def ensure_schema(db_path: Path) -> None:

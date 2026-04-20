@@ -55,10 +55,14 @@ if __package__ in (None, ""):
         build_caption,
         pick_hashtags,
         post_gem_to_ig,
+        post_gem_to_story,
         query_last_ig_post_ts,
+        query_last_story_ts,
         should_post_ig,
+        should_post_story,
         _load_hashtag_library,
         _write_permalink,
+        _write_story_metadata,
         IGPosterError,
     )
 else:
@@ -72,10 +76,14 @@ else:
         build_caption,
         pick_hashtags,
         post_gem_to_ig,
+        post_gem_to_story,
         query_last_ig_post_ts,
+        query_last_story_ts,
         should_post_ig,
+        should_post_story,
         _load_hashtag_library,
         _write_permalink,
+        _write_story_metadata,
         IGPosterError,
     )
 
@@ -284,6 +292,25 @@ def run_cycle(camera_name: str, camera_cfg: dict, cfg: dict, schema: dict,
         )
     except Exception as e:
         log.warning("%s: IG post wrapper failed: %s", camera_name, e)
+
+    # Auto-post to Instagram Stories. Independent of the feed-post lane:
+    # looser predicate (decent+soft allowed), independent cadence
+    # (min_hours_between_stories), no per-camera dedup. A single gem can
+    # in theory trigger both a feed post and a story, but in practice the
+    # tier/quality thresholds differ so they land on different gems.
+    # Gated on config["instagram"]["stories"]["enabled"] (default false).
+    try:
+        _maybe_post_to_story(
+            cfg=cfg,
+            db_path=db_path,
+            camera_name=camera_name,
+            gem_id=store_result.get("gem_id"),
+            vlm_metadata=vlm_result["metadata"],
+            store_result=store_result,
+            result=result,
+        )
+    except Exception as e:
+        log.warning("%s: IG story wrapper failed: %s", camera_name, e)
     return result
 
 
@@ -431,6 +458,112 @@ def _maybe_post_to_ig(
     result["ig_media_id"] = ig_result.get("media_id")
     log.info("%s: IG posted gem_id=%s permalink=%s",
              camera_name, gem_id, ig_result.get("permalink"))
+
+
+def _maybe_post_to_story(
+    cfg: dict,
+    db_path: Path,
+    camera_name: str,
+    gem_id: int | None,
+    vlm_metadata: dict,
+    store_result: dict,
+    result: dict,
+) -> None:
+    """Decide + act on IG Story auto-posting for the current cycle's gem.
+
+    Layered gate (outermost first):
+      1. cfg["instagram"]["stories"]["enabled"] — master switch; default
+         false. Stories ship gated off even though the feed-post lane is
+         live, so the rollout can be staged independently.
+      2. gem_id is present (defensive — should always be set after the
+         store step succeeded).
+      3. should_post_story predicate — looser than the feed predicate
+         (tier in {strong, decent}, image_quality in {sharp, soft},
+         no per-camera dedup, story-specific cadence).
+      4. cfg["instagram"]["stories"]["auto_dry_run"] — if true, call
+         post_gem_to_story with dry_run=True so the hook exercises
+         the full path (9:16 prep + URL prediction) without committing
+         or publishing. Operator flips to false once a day of dry-run
+         audit confirms the predicate is picking reasonable gems.
+
+    Skip reasons from should_post_story go to ig_story_skip_reason for
+    audit. Writes are best-effort — a failure to persist a skip reason
+    is logged and swallowed.
+    """
+    ig_cfg = cfg.get("instagram") or {}
+    stories_cfg = ig_cfg.get("stories") or {}
+    if not stories_cfg.get("enabled", False):
+        return
+
+    if gem_id is None:
+        log.warning("%s: IG story hook: store_result missing gem_id; skipping", camera_name)
+        return
+
+    last_story = query_last_story_ts(db_path)
+
+    gem_row = {
+        "camera_id": camera_name,
+        "has_concerns": store_result.get("has_concerns", False),
+    }
+    ok, reason = should_post_story(
+        vlm_metadata=vlm_metadata,
+        gem_row=gem_row,
+        last_story_ts=last_story,
+        min_hours_between_stories=int(stories_cfg.get("min_hours_between_stories", 2)),
+    )
+    if not ok:
+        log.info("%s: IG story predicate skip (gem_id=%s): %s", camera_name, gem_id, reason)
+        try:
+            _write_story_metadata(
+                db_path=db_path,
+                gem_id=gem_id,
+                story_id=None,
+                posted_at_iso=None,
+                skip_reason=reason,
+            )
+        except Exception as e:
+            log.warning("%s: failed to write ig_story_skip_reason: %s", camera_name, e)
+        result["ig_story_skipped"] = reason
+        return
+
+    farm_2026 = Path(ig_cfg.get("farm_2026_repo_path", "")).expanduser()
+    if not farm_2026.exists():
+        log.warning(
+            "%s: IG story hook: farm_2026_repo_path not found: %s",
+            camera_name, farm_2026,
+        )
+        result["ig_story_skipped"] = "farm_2026_repo_missing"
+        return
+
+    auto_dry_run = bool(stories_cfg.get("auto_dry_run", True))
+    try:
+        story_result = post_gem_to_story(
+            gem_id=gem_id,
+            db_path=db_path,
+            farm_2026_repo_path=farm_2026,
+            dry_run=auto_dry_run,
+        )
+    except IGPosterError as e:
+        log.warning("%s: IG story credential/config error: %s", camera_name, e)
+        result["ig_story_skipped"] = f"credentials: {e}"
+        return
+
+    if story_result.get("error"):
+        log.warning("%s: IG story post failed: %s", camera_name, story_result["error"])
+        result["ig_story_error"] = story_result["error"]
+        return
+
+    if auto_dry_run:
+        log.info("%s: IG story auto_dry_run — would have posted gem_id=%s", camera_name, gem_id)
+        result["ig_story_dry_run"] = True
+        return
+
+    result["ig_story_id"] = story_result.get("story_id")
+    result["ig_story_permalink"] = story_result.get("permalink")
+    log.info(
+        "%s: IG story posted gem_id=%s story_id=%s permalink=%s",
+        camera_name, gem_id, story_result.get("story_id"), story_result.get("permalink"),
+    )
 
 
 def _load_configs():

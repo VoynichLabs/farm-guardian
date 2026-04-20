@@ -1,22 +1,31 @@
 # Author: Claude Opus 4.7 (1M context)
-# Date: 20-April-2026
+# Date: 20-April-2026 (Phase 4 core + Phase 6 predicate/hashtags 20-Apr-2026; Phase 2 stories 20-Apr-2026)
 # PURPOSE: Post curated gems to Instagram @pawel_and_pawleen via Meta
 #          Graph API. Parallels gem_poster.py (which posts to Discord)
 #          but with a multi-step container+publish flow required by
 #          Instagram, plus the farm-2026 git-commit hop that produces
 #          an IG-fetcher-compatible GitHub raw URL.
 #
-#          Phase 4 scope (20-Apr-2026): core posting flow —
+#          Phase 4 scope (20-Apr-2026): core feed-post flow —
 #          _load_credentials, _create_container, _publish,
 #          _wait_for_container, _write_permalink, post_gem_to_ig.
 #          Accepts a pre-built full caption (journal body + hashtags)
 #          from the caller; auto-hashtag selection lives in Phase 6.
 #
+#          Phase 2 scope (20-Apr-2026, appended to this module): Story
+#          posting — 24-hour ephemeral, no caption, 9:16 vertical.
+#          Functions: _prepare_story_image (cv2 center-crop),
+#          _create_story_container (media_type=STORIES), should_post_story
+#          (looser predicate than feed posts — decent+soft allowed),
+#          query_last_story_ts, _write_story_metadata, post_gem_to_story.
+#          Shares the Graph API primitives and credential loader above.
+#
 #          Failures here must NEVER break the pipeline cycle — all
 #          exceptions caught and returned in the `error` field of the
 #          result dict. The only exception that can escape
-#          post_gem_to_ig() is credential-missing at the entry gate
-#          (loud failure on misconfiguration beats silent no-op).
+#          post_gem_to_ig()/post_gem_to_story() is credential-missing
+#          at the entry gate (loud failure on misconfiguration beats
+#          silent no-op).
 #
 #          Credential source: keychain is the source of truth on this
 #          Mac Mini; env file at
@@ -28,17 +37,20 @@
 #          requiring the orchestrator's env-loading).
 #
 # SRP/DRY check: Pass — SRP is orchestrating the Graph API container
-#                + publish flow. DRY: reuses git_helper.py for the
-#                farm-2026 commit hop; reuses the existing .env file
-#                from the 2026-04-19 manual work rather than
-#                reinventing secret storage.
+#                + publish flow (both feed and story lanes). DRY:
+#                reuses git_helper.py for the farm-2026 commit hop;
+#                story posting reuses _graph_request, _wait_for_container,
+#                _publish, _load_credentials, _lookup_gem, and
+#                _local_path_for_gem from the feed-post code above.
 
 from __future__ import annotations
 
 import json
 import logging
 import os
+import shutil
 import sqlite3
+import subprocess
 import time
 import urllib.parse
 import urllib.request
@@ -47,6 +59,7 @@ from pathlib import Path
 from typing import Optional
 
 from tools.pipeline.git_helper import GitHelperError, commit_image_to_farm_2026
+from tools.pipeline.store import resolve_gem_image_path
 
 log = logging.getLogger("pipeline.ig_poster")
 
@@ -334,38 +347,14 @@ def _write_permalink(
 
 
 def _local_path_for_gem(gem_row: dict, db_path: Path) -> Path:
-    """Resolve the on-disk full-res JPEG for a gem.
+    """Backwards-compatible wrapper around store.resolve_gem_image_path.
 
-    store.py writes image_path relative to the archive's parent dir.
-    We reconstruct the absolute path by combining db_path.parent (the
-    data/ dir) with image_path. Raises FileNotFoundError if the file
-    doesn't exist on disk — typically means the archive retention
-    sweep already deleted it.
+    The canonical helper lives in store.py (Phase 3b, 20-Apr-2026) so
+    reel_stitcher.py can share it without importing a private name from
+    ig_poster. This wrapper stays put so existing call sites inside
+    post_gem_to_ig / post_gem_to_story don't change.
     """
-    image_path = gem_row.get("image_path")
-    if not image_path:
-        raise FileNotFoundError(
-            f"gem {gem_row.get('id')} has no image_path on disk (skip tier?)"
-        )
-
-    # image_path is relative to data/ — i.e. starts with "archive/YYYY-MM/..."
-    # db_path is typically data/guardian.db, so db_path.parent is data/.
-    candidate = (db_path.parent / image_path).resolve()
-    if candidate.exists():
-        return candidate
-
-    # Fallback: strong-tier gems also hardlinked into gems/ — try there.
-    fname = Path(image_path).name
-    ym = Path(image_path).parts[-3] if len(Path(image_path).parts) >= 3 else ""
-    cam = Path(image_path).parts[-2] if len(Path(image_path).parts) >= 2 else ""
-    if ym and cam:
-        alt = (db_path.parent / "gems" / ym / cam / fname).resolve()
-        if alt.exists():
-            return alt
-
-    raise FileNotFoundError(
-        f"gem {gem_row.get('id')}: image not found at {candidate} or gems/ fallback"
-    )
+    return resolve_gem_image_path(gem_row, db_path)
 
 
 # ---------------------------------------------------------------------------
@@ -669,6 +658,626 @@ def build_caption(
             f"built caption is {len(caption)} chars; IG max is {_IG_CAPTION_MAX_CHARS}"
         )
     return caption
+
+
+# ---------------------------------------------------------------------------
+# Stories (Phase 2, 20-Apr-2026)
+# ---------------------------------------------------------------------------
+# 24-hour ephemeral posts. Looser quality bar than feed posts (stories
+# disappear, so "good enough" is fine), 9:16 vertical aspect ratio
+# required, NO caption support from the Graph API (passing one returns
+# a cryptic 400). Stories share the Graph API primitives, credential
+# loader, and gem lookup above — only the aspect-ratio prep, the
+# container media_type, the DB columns, and the predicate differ.
+
+# Story images must be 9:16 vertical. Fleet cameras produce 16:9
+# landscape, so _prepare_story_image center-crops on width at the
+# source's native height — no upscaling. 1920x1080 -> 607x1080;
+# 1280x720 -> 405x720.
+_STORY_JPEG_QUALITY = 92
+
+
+def _prepare_story_image(local_path: Path) -> Path:
+    """Center-crop a landscape JPEG to 9:16 vertical and write the
+    result to a new JPEG in a temp location.
+
+    Returns the path to the prepared JPEG. The caller is responsible
+    for deleting it after the commit+post step (post_gem_to_story
+    wraps this in a try/finally with an unlink).
+
+    Strategy — native-height center crop:
+      h, w = img.shape[:2]
+      target_w = h * 9/16
+      if target_w < w:
+          crop middle target_w columns; result is w'=target_w, h'=h.
+      else:
+          source is already narrower than 9:16 (e.g. a portrait phone
+          shot) — pad top/bottom with black bars to reach 9:16 rather
+          than zoom in and lose edges.
+
+    No upscaling path. A 1920x1080 source becomes 607x1080; a 1280x720
+    becomes 405x720. Both are fine for mobile viewing on IG.
+
+    Raises:
+      FileNotFoundError - local_path doesn't exist.
+      ValueError - source cannot be decoded by cv2 or the JPEG
+                   write fails.
+    """
+    # Local imports: cv2 adds ~100ms to cold start and is already pulled
+    # in by store.py in-process; keep it lazy here so scripts/ig-post.py's
+    # argparse path doesn't pay for it on --help.
+    import cv2
+    import tempfile
+    if not local_path.exists():
+        raise FileNotFoundError(f"_prepare_story_image: {local_path} not found")
+
+    img = cv2.imread(str(local_path))
+    if img is None:
+        raise ValueError(f"_prepare_story_image: could not decode {local_path}")
+
+    h, w = img.shape[:2]
+    target_w = int(round(h * 9 / 16))
+    if target_w < w:
+        x0 = (w - target_w) // 2
+        prepared = img[:, x0:x0 + target_w]
+    else:
+        # Source is narrower than 9:16 — pad top/bottom with black bars.
+        target_h = int(round(w * 16 / 9))
+        top = (target_h - h) // 2
+        bottom = target_h - h - top
+        prepared = cv2.copyMakeBorder(
+            img, top, bottom, 0, 0, cv2.BORDER_CONSTANT, value=(0, 0, 0),
+        )
+
+    fd, tmp_path = tempfile.mkstemp(suffix="-story.jpg")
+    os.close(fd)
+    ok = cv2.imwrite(
+        tmp_path,
+        prepared,
+        [int(cv2.IMWRITE_JPEG_QUALITY), _STORY_JPEG_QUALITY],
+    )
+    if not ok:
+        raise ValueError(f"_prepare_story_image: cv2.imwrite failed for {tmp_path}")
+    return Path(tmp_path)
+
+
+def _create_story_container(
+    ig_id: str,
+    image_url: str,
+    user_token: str,
+) -> str:
+    """POST /{ig_id}/media with media_type=STORIES.
+
+    Stories do NOT accept the caption field — Graph API returns a
+    cryptic 400 if one is passed. Text stickers, @mentions, location
+    tags, and swipe-up links all require manual posting from the
+    phone (Graph API doesn't expose them). Returns the container id.
+    """
+    resp = _graph_request(
+        "POST",
+        f"/{ig_id}/media",
+        body={
+            "image_url": image_url,
+            "media_type": "STORIES",
+            "access_token": user_token,
+        },
+    )
+    cid = resp.get("id")
+    if not cid:
+        raise RuntimeError(f"create_story_container returned no id: {resp}")
+    return cid
+
+
+def _write_story_metadata(
+    db_path: Path,
+    gem_id: int,
+    story_id: Optional[str],
+    posted_at_iso: Optional[str],
+    skip_reason: Optional[str] = None,
+) -> None:
+    """UPDATE image_archive.{ig_story_id, ig_story_posted_at,
+    ig_story_skip_reason} for the given gem.
+
+    Mirrors _write_permalink's COALESCE pattern — pass None to leave
+    a field untouched. Strictly does not modify ig_permalink or the
+    other feed-post columns; a gem can be both a story and a feed
+    post without collisions.
+    """
+    with sqlite3.connect(str(db_path)) as c:
+        c.execute(
+            """
+            UPDATE image_archive
+               SET ig_story_id = COALESCE(?, ig_story_id),
+                   ig_story_posted_at = COALESCE(?, ig_story_posted_at),
+                   ig_story_skip_reason = COALESCE(?, ig_story_skip_reason)
+             WHERE id = ?
+            """,
+            (story_id, posted_at_iso, skip_reason, gem_id),
+        )
+        c.commit()
+
+
+def should_post_story(
+    vlm_metadata: dict,
+    gem_row: dict,
+    last_story_ts: Optional[str] = None,
+    min_hours_between_stories: int = 2,
+) -> tuple[bool, str]:
+    """Predicate gate for posting a gem as an Instagram Story.
+
+    LOOSER than should_post_ig because stories expire in 24h:
+      - tier in {"strong", "decent"}   (feed requires "strong")
+      - image_quality in {"sharp", "soft"}  (feed requires "sharp")
+      - bird_count >= 1
+      - has_concerns is falsy (privacy belt-and-suspenders)
+      - no other story in the last N hours (default 2; feed is 3)
+
+    No per-camera dedup — stories are casual, repeat-camera content
+    is fine.
+
+    Returns (should_post, reason). The reason is either "ok" (True)
+    or a specific skip string (False) that gets logged to
+    image_archive.ig_story_skip_reason for audit.
+
+    last_story_ts is a caller-supplied ISO8601 timestamp from
+    query_last_story_ts(). Pass None on first run.
+    """
+    share = vlm_metadata.get("share_worth")
+    if share not in ("strong", "decent"):
+        return False, f"tier={share} (need strong/decent for story)"
+
+    quality = vlm_metadata.get("image_quality")
+    if quality not in ("sharp", "soft"):
+        return False, f"quality={quality} (need sharp/soft for story)"
+
+    bird_count = vlm_metadata.get("bird_count", 0)
+    if not bird_count or bird_count < 1:
+        return False, f"bird_count={bird_count} (need >= 1)"
+
+    concerns = vlm_metadata.get("concerns") or gem_row.get("has_concerns")
+    if concerns and concerns not in (0, False, [], "", None):
+        return False, "has_concerns flagged"
+
+    now = datetime.now(timezone.utc)
+    if last_story_ts:
+        try:
+            last_ts = datetime.fromisoformat(last_story_ts.replace("Z", "+00:00"))
+            if last_ts.tzinfo is None:
+                last_ts = last_ts.replace(tzinfo=timezone.utc)
+            age_h = (now - last_ts).total_seconds() / 3600
+            if age_h < min_hours_between_stories:
+                return False, (
+                    f"last_story_{age_h:.1f}h_ago "
+                    f"(min {min_hours_between_stories}h)"
+                )
+        except (ValueError, TypeError):
+            log.warning("could not parse last_story_ts=%r; ignoring", last_story_ts)
+
+    return True, "ok"
+
+
+def query_last_story_ts(db_path: Path) -> Optional[str]:
+    """Return the most recent ig_story_posted_at across all gems, or
+    None if no stories have been posted yet.
+
+    Stories don't use per-camera dedup (casual content, repeat-camera
+    is fine), so this helper has no camera_id variant — unlike
+    query_last_ig_post_ts.
+    """
+    with sqlite3.connect(str(db_path)) as c:
+        row = c.execute(
+            "SELECT MAX(ig_story_posted_at) FROM image_archive"
+        ).fetchone()
+    return row[0] if row and row[0] else None
+
+
+def post_gem_to_story(
+    gem_id: int,
+    db_path: Path,
+    farm_2026_repo_path: Path,
+    dry_run: bool = False,
+) -> dict:
+    """Post a gem to Instagram as a 24-hour Story. No caption (Graph
+    API rejects caption on story containers with a cryptic 400).
+
+    Flow:
+      1. Look up the gem row.
+      2. Resolve local full-res JPEG.
+      3. _prepare_story_image center-crops to 9:16 (native height,
+         no upscale).
+      4. Commit the 9:16 JPEG to farm-2026/public/photos/stories/ and
+         derive the GitHub raw URL.
+      5. _load_credentials.
+      6. _create_story_container — media_type=STORIES, no caption.
+      7. _wait_for_container — standard 30s timeout works for stories
+         (same latency as feed photos).
+      8. _publish → media_id + permalink.
+      9. _write_story_metadata writes ig_story_id + ig_story_posted_at
+         back to the gem row. Does NOT touch ig_permalink.
+
+    dry_run=True stops BEFORE the git commit AND before any Graph API
+    call — predicts the raw URL and returns. Still runs
+    _prepare_story_image to exercise the 9:16 prep path? No: skip the
+    prep too (there's no output path to predict on the prep, and we
+    want dry-run to be zero side effects). The dry-run return still
+    includes a predicted raw_url so operators can audit.
+
+    Returns (never raises except IGPosterError at credential gate):
+      {
+        "gem_id": int,
+        "dry_run": bool,
+        "raw_url": str | None,
+        "caption": None,          # stories have no caption
+        "story_id": str | None,
+        "permalink": str | None,
+        "posted_at": str | None,
+        "error": str | None,
+      }
+    """
+    result: dict = {
+        "gem_id": gem_id,
+        "dry_run": dry_run,
+        "raw_url": None,
+        "caption": None,
+        "story_id": None,
+        "permalink": None,
+        "posted_at": None,
+        "error": None,
+    }
+
+    try:
+        gem = _lookup_gem(db_path, gem_id)
+        if not gem:
+            raise ValueError(f"gem_id {gem_id} not found in image_archive")
+
+        local_path = _local_path_for_gem(gem, db_path)
+
+        subdir = "stories"
+        stamped_name = (
+            f"{datetime.now(timezone.utc).strftime('%Y-%m-%d')}"
+            f"-gem{gem_id}-story.jpg"
+        )
+
+        if dry_run:
+            result["raw_url"] = (
+                f"https://raw.githubusercontent.com/VoynichLabs/farm-2026/main/"
+                f"public/photos/{subdir}/{stamped_name}"
+            )
+            log.info(
+                "ig_poster STORY DRY RUN: would prepare+commit %s -> %s and post as story",
+                local_path, result["raw_url"],
+            )
+            return result
+
+        # 3-4. Prepare 9:16 image, stage under the stamped name, commit+push.
+        import shutil as _shutil
+        import tempfile
+        prepared = _prepare_story_image(local_path)
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                staging = Path(td) / stamped_name
+                _shutil.copy2(prepared, staging)
+                committed_path, raw_url = commit_image_to_farm_2026(
+                    local_image=staging,
+                    subdir=subdir,
+                    repo_path=farm_2026_repo_path,
+                    commit_message=f"public/photos/{subdir}: gem {gem_id} story (ig auto)",
+                )
+        finally:
+            try:
+                prepared.unlink()
+            except OSError:
+                pass
+        result["raw_url"] = raw_url
+
+        # 5. Credentials
+        creds = _load_credentials()
+
+        # 6. Story container
+        container_id = _create_story_container(
+            ig_id=creds["ig_id"],
+            image_url=raw_url,
+            user_token=creds["user_token"],
+        )
+        log.info("ig_poster: story container created %s", container_id)
+
+        # 7. Wait for FINISHED (stories are images, same 30s timeout)
+        status = _wait_for_container(container_id, creds["user_token"])
+        if status != "FINISHED":
+            raise RuntimeError(
+                f"story container {container_id} ended in status={status} (expected FINISHED)"
+            )
+
+        # 8. Publish
+        pub = _publish(creds["ig_id"], container_id, creds["user_token"])
+        result["story_id"] = pub["media_id"]
+        result["permalink"] = pub["permalink"]
+        result["posted_at"] = pub["timestamp"]
+
+        # 9. Write back to DB (story columns only)
+        _write_story_metadata(
+            db_path,
+            gem_id,
+            story_id=pub["media_id"],
+            posted_at_iso=pub["timestamp"],
+        )
+        log.info(
+            "ig_poster: posted gem %s as story -> %s", gem_id, pub["permalink"],
+        )
+
+    except IGPosterError:
+        # Credential missing — loud failure, escape the caught-all path.
+        raise
+    except Exception as e:
+        result["error"] = f"{type(e).__name__}: {e}"
+        log.exception("ig_poster: gem %s story post failed", gem_id)
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Reels (Phase 3, 20-Apr-2026)
+# ---------------------------------------------------------------------------
+# Short-form video, 9:16 vertical. The stitching work lives in
+# tools/pipeline/reel_stitcher.py (ffmpeg subprocess + cv2 pre-crop);
+# this module's responsibility is the Graph API container+publish flow
+# for an already-stitched MP4.
+#
+# Reels differ from photos on the Graph side in three ways:
+#   1. media_type="REELS" on the container create.
+#   2. video_url replaces image_url.
+#   3. Container processing takes 30–60s (photos are 2–5s). The shared
+#      _wait_for_container helper takes a timeout_s argument; we call
+#      it with timeout_s=180 and poll_interval_s=5 at the reel call
+#      site rather than changing the default.
+#
+# Associated gem_ids: a reel is stitched from N source gems. After a
+# successful publish, we write the reel's permalink + posted_at to
+# EACH source gem's image_archive row. Downstream effect: the feed
+# predicate (should_post_ig) will naturally short-circuit future
+# attempts to re-post those frames as standalone photos. For v1,
+# ig_permalink is a single column; if the same gem later participates
+# in a second post, the newer permalink overwrites the older one. A
+# per-media-type column split (ig_reel_permalink) is v1.1 territory.
+
+# Reels need extra runway: container processing routinely runs 30-60s.
+# Photos are ~2-5s. Both timeout/poll are applied at the call site;
+# the defaults in _wait_for_container stay tuned for the photo path.
+_REEL_CONTAINER_TIMEOUT_S = 180
+_REEL_CONTAINER_POLL_S = 5
+
+
+def _create_reel_container(
+    ig_id: str,
+    video_url: str,
+    caption: str,
+    user_token: str,
+) -> str:
+    """POST /{ig_id}/media with media_type=REELS.
+
+    Returns the container id. Reels carry a caption (unlike stories).
+    The video_url must end in .mp4 and be publicly accessible — the
+    GitHub raw URL path via commit_image_to_farm_2026 is what we use.
+    """
+    resp = _graph_request(
+        "POST",
+        f"/{ig_id}/media",
+        body={
+            "media_type": "REELS",
+            "video_url": video_url,
+            "caption": caption,
+            "access_token": user_token,
+        },
+        timeout=60,  # reel container POST is slower than photos
+    )
+    cid = resp.get("id")
+    if not cid:
+        raise RuntimeError(f"create_reel_container returned no id: {resp}")
+    return cid
+
+
+def _ffprobe_sanity(mp4_path: Path) -> None:
+    """Quick ffprobe-based sanity check: the file is readable, has ≥1
+    video stream, and isn't empty.
+
+    Not exhaustive — we don't enforce specific codec/resolution here
+    (the stitcher is responsible for producing a valid MP4). This just
+    catches gross failures like a 0-byte file or a corrupt container
+    before we hand the URL to the Graph API.
+    """
+    exe = shutil.which("ffprobe")
+    if not exe:
+        # ffprobe is part of the ffmpeg package; if it's missing,
+        # ffmpeg almost certainly is too and the stitch step would
+        # have already failed. Don't hard-fail here — the Graph API
+        # side-path will catch a bad MP4 with a clear error.
+        log.warning("ffprobe not on PATH; skipping MP4 sanity check")
+        return
+    if mp4_path.stat().st_size == 0:
+        raise RuntimeError(f"reel MP4 is 0 bytes: {mp4_path}")
+    cmd = [
+        exe, "-v", "error", "-select_streams", "v:0",
+        "-show_entries", "stream=codec_name,width,height",
+        "-of", "default=nw=1:nk=1", str(mp4_path),
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    if proc.returncode != 0 or not proc.stdout.strip():
+        raise RuntimeError(
+            f"ffprobe rejected {mp4_path}: rc={proc.returncode} "
+            f"stderr={proc.stderr.strip()}"
+        )
+
+
+def post_reel_to_ig(
+    reel_mp4_path: Optional[Path],
+    caption: str,
+    db_path: Path,
+    farm_2026_repo_path: Path,
+    associated_gem_ids: Optional[list[int]] = None,
+    dry_run: bool = False,
+) -> dict:
+    """Post a stitched MP4 to Instagram as a Reel.
+
+    Parameters:
+      reel_mp4_path
+          Path to the MP4 produced by reel_stitcher.stitch_gems_to_reel.
+          Required on live runs; optional on dry-run (a synthetic URL
+          is predicted in that case).
+      caption
+          Full caption (journal body + hashtags + sign-off). Same
+          2200-char limit as feed posts.
+      db_path, farm_2026_repo_path
+          Same semantics as post_gem_to_ig.
+      associated_gem_ids
+          Source gem ids used to stitch the reel. On a successful live
+          post, each gem's image_archive row gets the reel's permalink
+          and posted_at written to ig_permalink / ig_posted_at so
+          downstream predicates (should_post_ig's cadence gate)
+          short-circuit future attempts to re-post those frames.
+          Pass [] or None to skip the write-back.
+      dry_run
+          Skip the git commit AND the Graph API calls. Predict a raw
+          URL from the MP4 filename (or a synthetic name if mp4_path
+          is None). Return shape identical to live path.
+
+    Returns:
+      {
+        "reel_path": str | None,
+        "associated_gem_ids": list[int],
+        "dry_run": bool,
+        "raw_url": str | None,
+        "caption": str,
+        "media_id": str | None,
+        "permalink": str | None,
+        "posted_at": str | None,
+        "error": str | None,
+      }
+
+    Never raises except IGPosterError at the credential gate.
+    """
+    gem_ids = list(associated_gem_ids or [])
+    result: dict = {
+        "reel_path": str(reel_mp4_path) if reel_mp4_path else None,
+        "associated_gem_ids": gem_ids,
+        "dry_run": dry_run,
+        "raw_url": None,
+        "caption": caption,
+        "media_id": None,
+        "permalink": None,
+        "posted_at": None,
+        "error": None,
+    }
+
+    try:
+        if len(caption) > _IG_CAPTION_MAX_CHARS:
+            raise ValueError(
+                f"caption is {len(caption)} chars; IG max is {_IG_CAPTION_MAX_CHARS}"
+            )
+
+        # Predict the URL subdir + filename regardless of dry-vs-live so
+        # dry-run can return a realistic raw_url.
+        ym = datetime.now(timezone.utc).strftime("%Y-%m")
+        subdir = f"reels/{ym}"
+        if reel_mp4_path is None:
+            # Dry-run without a real MP4 — synthesize a filename. Operator
+            # won't see this file; the URL exists purely for audit.
+            stamped = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%S")
+            stamped_name = f"reel-{stamped}-dryrun.mp4"
+        else:
+            reel_mp4_path = Path(reel_mp4_path)
+            stamped_name = reel_mp4_path.name
+
+        if dry_run:
+            result["raw_url"] = (
+                f"https://raw.githubusercontent.com/VoynichLabs/farm-2026/main/"
+                f"public/photos/{subdir}/{stamped_name}"
+            )
+            log.info(
+                "ig_poster REEL DRY RUN: would commit %s -> %s and post reel",
+                reel_mp4_path or "(synthetic)", result["raw_url"],
+            )
+            return result
+
+        # Live path: real MP4 path is required.
+        if reel_mp4_path is None:
+            raise ValueError("reel_mp4_path is required for a live (non-dry-run) post")
+        if not reel_mp4_path.exists():
+            raise FileNotFoundError(f"reel MP4 not found: {reel_mp4_path}")
+        if reel_mp4_path.suffix.lower() != ".mp4":
+            raise ValueError(f"reel path must be .mp4: {reel_mp4_path}")
+
+        # Sanity-check the MP4 before handing its URL to IG; catches
+        # a 0-byte or corrupt file without burning a Graph API call.
+        _ffprobe_sanity(reel_mp4_path)
+
+        # Commit the MP4 to farm-2026 + push. Reuses the same helper
+        # as photos/stories; its extension whitelist now includes .mp4.
+        committed_path, raw_url = commit_image_to_farm_2026(
+            local_image=reel_mp4_path,
+            subdir=subdir,
+            repo_path=farm_2026_repo_path,
+            commit_message=(
+                f"public/photos/{subdir}: reel from gems "
+                f"{gem_ids[:3]}{'...' if len(gem_ids) > 3 else ''} (ig auto)"
+            ),
+        )
+        result["raw_url"] = raw_url
+
+        creds = _load_credentials()
+
+        container_id = _create_reel_container(
+            ig_id=creds["ig_id"],
+            video_url=raw_url,
+            caption=caption,
+            user_token=creds["user_token"],
+        )
+        log.info("ig_poster: reel container created %s", container_id)
+
+        # Reels take 30–60s to reach FINISHED; use the longer window
+        # and a larger poll interval to avoid hammering the endpoint.
+        status = _wait_for_container(
+            container_id,
+            creds["user_token"],
+            timeout_s=_REEL_CONTAINER_TIMEOUT_S,
+            poll_interval_s=_REEL_CONTAINER_POLL_S,
+        )
+        if status != "FINISHED":
+            raise RuntimeError(
+                f"reel container {container_id} ended in status={status} (expected FINISHED)"
+            )
+
+        pub = _publish(creds["ig_id"], container_id, creds["user_token"])
+        result["media_id"] = pub["media_id"]
+        result["permalink"] = pub["permalink"]
+        result["posted_at"] = pub["timestamp"]
+
+        # Propagate the reel's permalink + posted_at to each source gem
+        # so should_post_ig's 3h/12h cadence gates naturally prevent
+        # re-posting those frames as standalone photos. Best-effort:
+        # a DB write failure here doesn't invalidate the already-live
+        # IG post.
+        for gid in gem_ids:
+            try:
+                _write_permalink(
+                    db_path=db_path,
+                    gem_id=gid,
+                    permalink=pub["permalink"],
+                    posted_at_iso=pub["timestamp"],
+                )
+            except Exception as e:
+                log.warning(
+                    "ig_poster: failed to write reel permalink to gem %s: %s",
+                    gid, e,
+                )
+        log.info("ig_poster: posted reel -> %s", pub["permalink"])
+
+    except IGPosterError:
+        raise
+    except Exception as e:
+        result["error"] = f"{type(e).__name__}: {e}"
+        log.exception("ig_poster: reel post failed")
+
+    return result
 
 
 # ---------------------------------------------------------------------------

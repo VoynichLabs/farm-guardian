@@ -4,6 +4,70 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-04-20
 
+### v2.31.0 — Instagram posting: Stories (Phase 2) + Reels (Phase 3) (Claude Opus 4.7 (1M context))
+
+Builds on `v2.29.0` (single-photo auto-posting). Extends the pipeline with two new Instagram media types — Stories (24-hour ephemeral) and Reels (short-form video) — both additive on top of the existing feed-post path. No existing primitive is removed or refactored; the one shared-code change is promoting `_local_path_for_gem` from `ig_poster.py` to a public `resolve_gem_image_path` in `store.py` so `reel_stitcher.py` can share it.
+
+**Delivered in this release:**
+
+- **Phase 2 — Stories.** New public entry `post_gem_to_story(gem_id, db_path, farm_2026_repo_path, dry_run=False)` in [`tools/pipeline/ig_poster.py`](tools/pipeline/ig_poster.py). 9:16 vertical (native-height center-crop via `_prepare_story_image`, cv2; 1920×1080 → 608×1080; 1280×720 → 405×720; no upscale). `media_type=STORIES` on the container create (no caption field — IG rejects it). New predicate `should_post_story` is looser than `should_post_ig`: `tier ∈ {strong, decent}`, `image_quality ∈ {sharp, soft}`, no per-camera dedup, story-specific cadence (`min_hours_between_stories`, default 2). DB migration adds `ig_story_id`, `ig_story_posted_at`, `ig_story_skip_reason` columns + an `idx_archive_ig_story_posted` index to `image_archive`. Orchestrator hook `_maybe_post_to_story()` parallels `_maybe_post_to_ig()` at `run_cycle():292`, gated on `cfg["instagram"]["stories"]["enabled"]` (default `false`) + `cfg["instagram"]["stories"]["auto_dry_run"]` (default `true`). Stories ship gated off even though the feed-post lane is live.
+- **Phase 3 — Reels.** New module [`tools/pipeline/reel_stitcher.py`](tools/pipeline/reel_stitcher.py): `stitch_gems_to_reel(gem_ids, db_path, config, output_path=None) → Path`. Pure ffmpeg subprocess + cv2 pre-crop. Chains `xfade` filters across N image inputs (2–10) in one `-filter_complex` expression; adds an `anullsrc` silent AAC track sized to the exact computed duration (IG's fetcher occasionally rejects pure-video files). Output at the cropped-native resolution (608×1080 for s7/iphone/usb/mba sources; 405×720 for gwtc) — explicitly not upscaled to 1080×1920, per [the plan §3 Gotchas](docs/20-Apr-2026-ig-next-phases-plan.md). New public entry `post_reel_to_ig(reel_mp4_path, caption, db_path, farm_2026_repo_path, associated_gem_ids, dry_run=False)` in `ig_poster.py`: `media_type=REELS`, `video_url` replaces `image_url`, `_wait_for_container` called with `timeout_s=180, poll_interval_s=5` at the site (reels take 30–60s to process; defaults stay tuned for photos). After publish, each `associated_gem_ids` row gets the reel's `ig_permalink` + `ig_posted_at` written so `should_post_ig`'s 3h/12h cooldowns prevent re-posting reel frames as standalone photos. `_ffprobe_sanity` pre-check guards against 0-byte / corrupt MP4s before the Graph API sees the URL.
+- **Shared — `resolve_gem_image_path` promoted** from the private `_local_path_for_gem` in `ig_poster.py` to a public helper in [`tools/pipeline/store.py`](tools/pipeline/store.py). Behavior identical; `ig_poster._local_path_for_gem` is now a one-line wrapper so existing callers don't change.
+- **Shared — git_helper extension whitelist.** [`tools/pipeline/git_helper.py`](tools/pipeline/git_helper.py) now rejects file extensions outside `{.jpg, .jpeg, .png, .mp4}` at the top of `commit_image_to_farm_2026`. Self-documents what the public photo tree is willing to host; catches accidents like a stray `.DS_Store` before `git add` sees it.
+- **CLI — `scripts/ig-post.py` refactored** to mode dispatch. `--mode {photo,story,reel}` with `photo` default (preserves every prior CLI invocation verbatim). Post-parse validation enforces mode-specific required/forbidden arg combinations (argparse can't express "required unless mode=X"). Example reel invocation:
+  ```
+  python3 scripts/ig-post.py --mode reel \
+    --gem-ids 6849,6850,6853,6858,6860,6863 \
+    --caption "$(cat caption.txt)" [--dry-run]
+  ```
+
+**Config knobs added to `tools/pipeline/config.json`:**
+
+```json
+"instagram": {
+  "...": "(existing keys)",
+  "stories": {
+    "enabled": false,
+    "auto_dry_run": true,
+    "min_hours_between_stories": 2
+  },
+  "reels": {
+    "enabled": false,
+    "auto_dry_run": true,
+    "output_root": "data/reels",
+    "seconds_per_frame": 1.0,
+    "crossfade_seconds": 0.15,
+    "frames_per_reel_default": 6
+  }
+}
+```
+
+**Verified offline (no Graph API side effects):**
+
+- `py_compile` clean on every touched file (store, ig_poster, orchestrator, git_helper, reel_stitcher, ig-post).
+- Schema migration idempotent: `ensure_schema()` on a live DB adds the three story columns without disturbing existing rows.
+- `_prepare_story_image` on a 1920×1080 s7-cam gem produces a 1080×608 JPEG (ratio 0.5630 vs 9:16 target 0.5625; off by one pixel due to `round(1080 × 9/16) = 608`).
+- `stitch_gems_to_reel` on 6 s7-cam strong/decent-tier sharp gems produces a 1.6 MB MP4 in <1 second. `ffprobe`: `h264, 608x1080, yuvj420p, duration=5.233s`; audio: `aac, 48kHz stereo, duration=5.226s`. Matches the computed `6 × 1.0 − 5 × 0.15 = 5.25s`.
+- `scripts/ig-post.py --mode story --gem-id N --dry-run` emits the expected raw URL shape (`.../public/photos/stories/YYYY-MM-DD-gemN-story.jpg`) with no git push and no Graph API call.
+- `scripts/ig-post.py --mode reel --gem-ids N,N,N,N,N,N --caption ... --dry-run` stitches the MP4, emits the expected raw URL shape (`.../public/photos/reels/YYYY-MM/reel-<stamp>-<slug>.mp4`) with no git push and no Graph API call.
+- `scripts/ig-post.py --gem-id N --caption "..." --dry-run` (photo mode via default) still works unchanged — V2.0 back-compat preserved.
+
+**Not in this release (deferred):**
+
+- Carousels (§2.1 of the next-phases plan) — batches 2–10 gems into one feed post. Plan explicitly flagged this as "biggest immediate ROI" but Boss scoped this session to Stories + Reels.
+- Orchestrator auto-reels hook (§3.1) — reel stitching is manual-CLI only for v1. Auto-selection predicate `should_post_reel` is not shipped.
+- Real video capture (pipeline stays still-only).
+- Licensed / royalty-free audio — silent reels only (IG fetcher rejects pure-video, so a silent AAC track is stitched in; a music-track slot exists conceptually but is unwired).
+- Cover-frame customization for reels (v1 uses the first frame).
+- Real IG post verification — Phase 2 and Phase 3 end-to-end paths have been validated offline only. Boss's first real story and first real reel are pending sign-off.
+
+**Dedup semantics — read this if you're confused later why a gem won't auto-post as a photo after being in a reel.** When a reel publishes, each `associated_gem_ids` row has its `ig_permalink` + `ig_posted_at` set. That means the next time `should_post_ig` sees that gem, its 3h/12h cooldown gates fire and it skips — intended. A gem in a reel shouldn't also be posted as a standalone feed photo. If Boss wants to separate the two (reel-usage shouldn't block feed-usage), we add an `ig_reel_permalink` column in v1.1.
+
+**Cross-references:**
+- [`docs/20-Apr-2026-ig-phase-2-3-stories-reels-plan.md`](docs/20-Apr-2026-ig-phase-2-3-stories-reels-plan.md) — this release's implementation plan.
+- [`docs/20-Apr-2026-ig-next-phases-plan.md`](docs/20-Apr-2026-ig-next-phases-plan.md) — spec (covers carousels too).
+- [`docs/19-Apr-2026-instagram-posting-plan.md`](docs/19-Apr-2026-instagram-posting-plan.md) — account voice / hashtag / framing rules.
+
 ### v2.29.0 — Instagram posting: code pipeline end-to-end (phases 2–7) (Claude Opus 4.7 (1M context))
 
 Builds on `v2.29.0-phase1` (plan docs + hashtag library). Ships the full V2.0 code path: CLI-driven posting replays the hand-pipeline from 2026-04-19/20, and an auto-posting hook is wired into the orchestrator behind a hard-off flag.
