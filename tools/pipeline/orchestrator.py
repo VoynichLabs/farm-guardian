@@ -319,8 +319,21 @@ def run_daemon() -> int:
 
     while not _STOP.is_set():
         now = time.monotonic()
-        # Find cameras whose next_due has passed
-        ready = [n for n, due in next_due.items() if due <= now]
+        # Find cameras whose next_due has passed. Sort by (priority asc,
+        # how-overdue desc) so higher-priority cameras (lower numeric value)
+        # get the VLM slot when multiple fire in the same 1-second tick.
+        # Default priority is 5; s7-cam carries priority=1 because it's the
+        # sharpest source in the fleet and we want to bias gems toward it.
+        # Ties broken by how long the camera has been waiting past its
+        # next_due so no camera starves.
+        def _sort_key(n: str) -> tuple[int, float]:
+            prio = int(cfg["cameras"][n].get("priority", 5))
+            overdue = now - next_due[n]
+            return (prio, -overdue)
+        ready = sorted(
+            (n for n, due in next_due.items() if due <= now),
+            key=_sort_key,
+        )
         for name in ready:
             if _STOP.is_set():
                 break
