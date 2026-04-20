@@ -184,17 +184,131 @@ Hashtags drive discoverability on IG. The first real post went out with zero has
 
 ### Hashtag library — committed to this repo (likely `tools/pipeline/hashtags.yml`)
 
-Topic buckets, each with ~15–30 hand-curated tags so the rotation has pool depth:
+**Rewritten 2026-04-20 (second pass) after Boss flagged the first-draft library as trash and advisor caught my second-draft padding.** History to remember:
 
-- **brooder / chicks** — #chicksofinstagram, #homesteadchickens, #backyardchickens, #mixedflock, #incubation, #dayoldchick, #heritagepoultry, #broodiness, #farmchicks
-- **yorkies / pawel_and_pawleen** — existing community set: #yorkiesofinstagram, #yorkiegram, #dogs_of_instagram, #terriersofinstagram, #yorkshireterrier, #yorkielovers, #yorkielife, #yorkieboy, #yorkiegirl, #yorkiesofig
-- **flock (adult birds)** — #heritagebreed, #chickensofinstagram, #freerange, #mixedflock, #farmlife, #hensofinstagram, #roosterlife
-- **coop / enclosure / build** — #diycoop, #homesteadlife, #backyardfarm, #farmproject, #coopbuild, #hampdencoop
-- **yard-diary / seasons** — #homesteadseasons, #newengland, #hamptonct (selective — don't over-localize for predator reasons), #springonthefarm, #autumnonthefarm, #winteronthefarm
-- ~~**hawk / predator / guardian-caught-something**~~ — **removed.** A predator on camera means a bird is dead or being attacked; that's not content, that's a loss. No hashtag bucket for predator detections. If Boss ever wants to post about a real loss it's in his own words, not from a pre-baked template.
-- **ai-in-the-loop / tech-showcase** — #aiassistedfarm, #computervision, #homeautomation, #yolov8, #edgeai, #appliedai, #aiengineer, #aiconsulting, #builtwithai, #macminimac, #openclaw
-- **Mark-the-builder / consulting** — #markbarney, #markbarneyai, #builtbymarkbarney, #aiconsultant, #aiarchitect (apply selectively to tech-showcase posts, not every post)
-- **cherry-trees / plants / orchard** — #orchardlife, #springbloom, #farmgarden
+- First draft (2026-04-19) used creator-branded tags (`#markbarney`, `#markbarneyai`, `#builtbymarkbarney`, `#builtwithai`, `#aiassistedfarm`) — all DEAD. Personal-name tags only work for people already famous. Never use these.
+- Second draft (earlier 2026-04-20) included tags I hadn't verified (invented-sounding like `#yorkieterrier`, `#yorkiesmile`, `#hatchday`, `#heritagechickens`, `#coopgoals`, `#farmingforbeginners`). Advisor caught it. **Only use tags that appear in at least 2 hashtag-analytics sources (best-hashtags.com, top-hashtags.com, displaypurposes.com).**
+
+**Strategy for a small account (@pawel_and_pawleen has 381 followers):** giant tags (>10M posts, e.g., `#dogsofinstagram`, `#farmlife` as a whole) are algorithmic dead zones — your post drowns in seconds. Real reach on this account comes from long-tail niche tags where you can actually surface on the "Recent" feed. Formula per post: **1–2 top-tier** (signal to IG's algorithm, not reach) + **3–4 mid-tier** (your actual discoverability lane) + **4–5 long-tail** (rank potential). Cap at 10 total.
+
+**No AI/tech hashtag bucket.** Removed entirely. Tech tags don't reach the farm audience and don't reach the ML audience from a 381-follower farm account — it's dead weight either way. If a specific post warrants AI-audience reach, Boss specifies exact tags for that post himself. The tech-showcase CONTENT (chick-on-laptop etc.) stays; the tag strategy is pure community-latch.
+
+#### Yorkies bucket — source-verified community tags
+
+Primary community-pool tags, confirmed across 2+ analytics sources:
+
+- #yorkiesofinstagram (top of the community, 3M+ posts)
+- #yorkshireterrier
+- #yorkie
+- #yorkies
+- #yorkielove
+- #yorkielife
+- #yorkiegram
+- #yorkielovers
+- #yorkiepuppy
+- #terriersofinstagram
+
+Dog-adjacent support tags (use sparingly — 1, not more, because they're giant):
+
+- #puppy, #puppylove, #doglover, #dogstagram, #dogoftheday, #puppiesofinstagram, #petsofinstagram
+
+Avoid as primary driver on this account: #dogsofinstagram (100M+, dead zone for small accounts — include only if all other slots are filled and you want a signal tag).
+
+#### Chickens / adult flock bucket
+
+- #chickensofinstagram
+- #backyardchickens
+- #backyardpoultry
+- #chickens
+- #hens
+- #hensofinstagram
+- #chickenlife
+- #petchickens
+- #chooks
+- #freerangechickens
+- #happychickens
+- #chickensofig
+- #chickencoop
+- #crazychickenlady (community identity tag, strong engagement)
+
+#### Baby chicks / brooder bucket
+
+- #babychicks
+- #babychick
+- #babychickens
+- #chicks
+- #chickmath (real backyard-chicken community slang, verified)
+- #raisingchickens
+- #hatchingeggs
+
+Note: do NOT add silkie-specific tags (`#silkies`, `#silkiechicken`) unless the flock actually has silkies — they don't, based on what I can see in the photos. Tag accuracy matters; community will notice.
+
+#### Homestead / farm life bucket (add on top of content-specific tags)
+
+- #homesteading (verified as larger than `#homestead` in search results)
+- #homestead
+- #farmlife
+- #farming
+- #homesteadlife
+- #farm
+
+#### Coop / enclosure / build bucket (sparse — only well-verified)
+
+- #chickencoop
+- #backyardchickens (overlap with flock bucket, fine)
+- #homesteading
+
+Do NOT use: `#coopgoals`, `#chickencooplife`, `#backyardbuild`, `#farmbuild`, `#homesteaddiy` (all unverified from my research).
+
+#### Yard-diary / seasonal bucket
+
+- #farmlife
+- #homesteading
+- #countrylife (verified in farm-life tag searches)
+
+OPSEC note: don't over-localize with `#hamptonct` type tags. State-level (`#newengland`) is OK if the content is clearly regional; town-level is a predator-disclosure risk and farm identity risk.
+
+Do NOT use: `#springonthefarm`, `#autumnonthefarm`, `#winteronthefarm`, `#homesteadseasons`, `#farmstagram`, `#seasonsonthefarm` (all unverified).
+
+#### Orchard / garden bucket
+
+- #gardening
+- #garden
+- #homegarden
+- #orchard (verify this is active before use — smaller community)
+
+Do NOT invent: `#orchardlife`, `#cherryblossom` for bloom-specific posts is OK (large established tag from cherry-blossom photography community) but don't combine with farm tags in a way that feels grafted.
+
+### Per-post selection rule of thumb (revised for this account's size)
+
+For a brooder post (the account's current primary content):
+- 3 Chick/Brooder (mid-tier)
+- 3 Chicken/Flock (mid + long-tail)
+- 2 Homestead
+- 1–2 content-specific (e.g., `#raisingchickens` for a feeding shot)
+= 9–10 tags.
+
+For a yorkie post:
+- 5 Yorkies bucket (top + mid-tier)
+- 1 Dog-adjacent support (rotate which one — puppy/doglover/etc)
+- 2 Homestead/Farm (ties to the account's farm identity so the yorkie content doesn't feel disconnected from the rest)
+- 1–2 content-specific
+= 9–10 tags.
+
+For a flock/coop/yard post:
+- 3 Chicken/Flock
+- 3 Homestead/Farm
+- 2 content-specific (coop or yard)
+- 2 community tags
+= 10 tags.
+
+### Rotation rule
+
+Track last-N tags used per bucket in a small state file (`ig_tag_history.json` alongside the pipeline). Never post the same 10 tags in a row — IG's spam detection flags repeated identical tag sets. Pick new tags from the bucket's pool complement each post. Pool depth per bucket is intentionally 7–14 tags so rotation has room.
+
+### The one thing I keep getting wrong, flagged for future me
+
+I keep wanting to include hashtags that "sound right" but aren't actually in any community tag pool. Invented-sounding tags are AI slop in hashtag form. The rule: **if it's not in best-hashtags.com OR top-hashtags.com OR displaypurposes.com as an existing tag with a verified post count, don't use it.** Don't compose tags. Don't merge words to make a new tag. Only use what already exists.
 
 ### Selection function (V2 code)
 
