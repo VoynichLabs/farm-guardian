@@ -38,6 +38,10 @@ Per-cycle auto-posting from the pipeline orchestrator is **dead** (config flag `
 
 ## How the quality gate works
 
+Two ingest paths feed the same reaction gate:
+
+**(A) Guardian-captured gems (the main pipeline)**
+
 ```
 [capture cycle] ──► VLM tags it strong+sharp+birds≥1
                               │
@@ -63,6 +67,37 @@ Per-cycle auto-posting from the pipeline orchestrator is **dead** (config flag `
                               ▼
               [post to Instagram as story/carousel/reel]
 ```
+
+**(B) Human drops (Boss's iPhone photos, shares from anyone) — added v2.33.0**
+
+```
+Boss drops a photo into #farm-2026 (iPhone → Discord app)
+                              │
+                              ▼
+              humans react with emoji (Boss can self-react)
+                              │
+                              ▼
+   [discord-reaction-sync.py] same 30-min pass:
+     - author is NOT a Guardian webhook identity
+     - attachments include a .jpg/.jpeg/.png
+     - download to data/discord-drops/YYYY-MM/
+     - sha256 dedup (no duplicate rows on re-runs)
+     - INSERT synthetic image_archive row:
+         camera_id='discord-drop', strong+sharp+bird_count=1,
+         caption_draft = msg.content (Boss's typed caption)
+                              │
+                              ▼
+   [ig_selection.py] same gate, same diversity bucket
+   treatment (drops bucket among themselves since
+   camera_id='discord-drop' for all)
+                              │
+                              ▼
+              [post to Instagram as story/carousel/reel]
+```
+
+**Larry, Bubba, Egon** are Claude instances on other machines. Their Discord user IDs are in [`tools/discord_harvester.py`](../tools/discord_harvester.py) `BOT_USER_IDS`. Their reactions do NOT count. Only actual humans.
+
+**VLM tags (share_worth, image_quality, bird_count) are inputs to the Discord-post gate**, not the Instagram-post gate. They filter out obvious junk before humans see it, but a strong+sharp VLM tag does NOT mean Instagram-worthy. Boss has seen the VLM tag heat-lamp-orange-cast clipped frames as `strong+sharp`. The reaction gate is the backstop. Drops skip the VLM entirely — they're synthetic rows with default fields, only reactions matter.
 
 **Larry, Bubba, Egon** are Claude instances on other machines. Their Discord user IDs are in [`tools/discord_harvester.py`](../tools/discord_harvester.py) `BOT_USER_IDS`. Their reactions do NOT count. Only actual humans.
 
@@ -186,7 +221,9 @@ Logs:
 - SQL: find the image_archive row with `camera_id = <mapped>` and `ts` closest to `msg.timestamp`, require delta ≤ 60s.
 - Writes reaction count back.
 
-**Cross-reference caveat:** sha256 matching does NOT work because Discord's CDN re-encodes uploaded JPEGs. The timestamp+camera match is the only reliable link. If you ever change `gem_poster` to post with different timing (e.g., batched or delayed), update the sync's tolerance window.
+**Cross-reference caveat:** sha256 matching does NOT work for Guardian-posted gems because Discord's CDN re-encodes uploaded JPEGs. The timestamp+camera match is the only reliable link. If you ever change `gem_poster` to post with different timing (e.g., batched or delayed), update the sync's tolerance window.
+
+**Human drops use sha256 instead.** Boss's iPhone → Discord drops are identified by author NOT being a Guardian webhook, and they're downloaded fresh into `data/discord-drops/YYYY-MM/`. The Discord CDN re-encoding is now on OUR side (we download from the CDN), so the sha256 is stable across sync runs — re-running the sync always sees the same hash and hits the UPDATE path instead of inserting a duplicate. A Guardian-captured gem that Boss later re-shares from his phone WILL register two rows (one via Guardian capture at the moment of capture, one via drop ingest after Boss shares) because the re-encoded Discord copy has a different sha256 than the original Guardian JPEG. That's fine — they share reaction counts eventually since Boss probably reacts to only one of them, and the selection diversity filter prevents both from ending up in the same carousel.
 
 ---
 
@@ -219,11 +256,12 @@ venv/bin/python scripts/discord-reaction-sync.py --backfill
 
 ## Known unresolved items (as of 2026-04-20)
 
-1. **51 reacted gems sitting unposted as stories.** Today's batch posted the top 20 by reactions. The other 51 (single-reaction, older dates) are still eligible. The 2h story LaunchAgent will pick from the 2h window, so these older gems will not auto-post unless their ts is recent. If Boss wants a bigger catch-up sweep, run the inline script from today's transcript.
-2. **No auto-reel orchestration history yet.** The first weekly reel fires Sunday 19:00 local. Watch `/tmp/ig-weekly-reel.*.log` for the first real run. ffmpeg stitch tested offline; Graph API publish tested via the manual CLI but not via LaunchAgent.
+1. **Backlog of reacted gems is an asset, not a problem.** Boss explicitly wants a queue of content waiting to be posted — the scheduled lanes draw from it over time. Don't try to "drain" the backlog unless Boss asks; the 2h story lane will naturally keep flowing fresh content while older reacted gems remain available for carousels and reels.
+2. **No auto-reel orchestration history yet.** The first weekly reel fires Sunday 19:00 local. Watch `/tmp/ig-weekly-reel.err.log` for the first real run. ffmpeg stitch tested offline; Graph API publish tested via the manual CLI but not via LaunchAgent.
 3. **The stale CLI — [`scripts/ig-post.py`](../scripts/ig-post.py)** — still works and still takes `--mode {photo,story,reel}`. It's not used by any scheduled lane. Keep it around for emergencies (e.g., Boss wants to force-post a specific gem); don't use it in automation.
 4. **Orchestrator-internal hooks — `_maybe_post_to_ig`, `_maybe_post_to_story`** — still exist in [`orchestrator.py`](../tools/pipeline/orchestrator.py) but are `cfg["instagram"]["enabled"]=false`-gated. Left in place so the code doesn't bitrot; if a future design reverts to per-cycle posting, the plumbing is there.
-5. **CLAUDE.md's Instagram section was last synced to the pre-scheduled design.** Out of date — it claims photo auto-posting is live. Fix: update the bullet that describes the IG architecture to point here. Do NOT rewrite the hard rules (1–7 above), those are still authoritative.
+5. **Video drops (MP4/MOV) are skipped.** `_ingest_drop` only handles still-image extensions. If Boss wants videos he drops into Discord to flow to IG Reels, that's a new pipeline — the reel_stitcher currently only stitches stills.
+6. **Logs are in `.err.log`, not `.out.log`.** Python's `logging.basicConfig` writes to stderr by default. A future agent looking at `/tmp/ig-*.out.log` will see empty files and think the agents never ran. Always check `/tmp/ig-*.err.log`.
 
 ---
 

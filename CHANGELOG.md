@@ -4,6 +4,85 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-04-20
 
+### v2.33.0 — Human-drop ingestion: iPhone photos from Discord flow to IG (Claude Opus 4.7 (1M context))
+
+Closes the remaining gap from v2.32.0: when Boss (or anyone) drops an image into `#farm-2026` Discord and it picks up a reaction, the photo is now pulled into Guardian's `image_archive` as a synthetic row and becomes eligible for the scheduled IG lanes alongside Guardian-captured gems.
+
+**What changed:**
+
+- [`scripts/discord-reaction-sync.py`](scripts/discord-reaction-sync.py) extended with a second pass: for every reacted message whose author is NOT a Guardian webhook identity (not in `_USERNAME_BY_CAMERA` reverse map), AND whose attachments include a `.jpg`/`.jpeg`/`.png`, the script:
+  - Downloads the image to `data/discord-drops/YYYY-MM/discord-{msg_id}-{idx}.<ext>`.
+  - Computes sha256; dedups against existing `image_archive` rows (handles the case of a gem re-shared by Boss, and the case of re-runs).
+  - Inserts a synthetic row: `camera_id='discord-drop'`, `ts=msg.timestamp`, `image_tier='strong'`, `image_quality='sharp'`, `share_worth='strong'`, `bird_count=1`, `has_concerns=0`. Defaults chosen so the row passes all three IG selection predicates once it has a reaction.
+  - `vlm_json.caption_draft` is populated from the Discord message body (`msg.content`). Boss-written captions flow straight through to IG — no VLM re-analysis.
+  - `retained_until=NULL` (kept forever; these are human-curated).
+
+- New helpers in the sync module: `_drop_dest`, `_download_attachment`, `_sha256`, `_ingest_drop`. Reuses `cv2` for dimension check + "can we even decode this" sanity. Reuses `requests` from the existing Discord client.
+
+**Selection impact:** All three IG lanes (daily carousel, 2h story, weekly reel) now see drops in their candidate pools because they gate on `discord_reactions >= 1`, not `camera_id`. Diversity filter still buckets by `(camera_id, time-bucket)` so drops (all one `camera_id='discord-drop'`) bucket among themselves; won't crowd Guardian frames out of a carousel, won't be crowded out either.
+
+**Dedup semantics:** on re-runs of the sync, `sha256` matching short-circuits re-insertion. A drop's reaction count is re-read every sync, so the count stays fresh. If a Guardian-captured gem was re-shared by Boss and matches by sha256, its existing row gets the reaction update (no new row).
+
+**Verified:** backfill run at 2026-04-20T17:00 ingested 49 drops + updated 3 drops with existing sha256 + updated 83 Guardian gem reaction counts. Ts range of ingested drops: 2026-03-21 to 2026-04-20. First sample: [`data/discord-drops/2026-04/discord-1484957626549796865-0.png`](data/discord-drops/2026-04/discord-1484957626549796865-0.png) (8.8 MB, resolves via `resolve_gem_image_path`).
+
+**Not in this release:** video attachments (Boss-drop MP4/MOV is a separate pipeline, not built). Reel stitcher's diversity filter still groups drops together; if you want drops interleaved with Guardian frames in the reel, that's a future `_score_gem` tweak.
+
+---
+
+### v2.32.0 — Reaction-gated scheduled posting (Claude Opus 4.7 (1M context))
+
+Complete redesign of the IG posting architecture. Per-cycle auto-posting (one photo per 6h gated by VLM tags) is DEAD. Replaced by four LaunchAgents that run on wall-clock schedules, gated entirely on human reactions in `#farm-2026` Discord. Boss's direction: the VLM tier/quality tags alone are not a sufficient quality filter — they tagged a heat-lamp-orange-cast clipped frame as `strong+sharp`. The ONLY reliable signal is whether a real human reacted to the Discord post.
+
+**Architecture (see [`docs/20-Apr-2026-ig-scheduled-posting-architecture.md`](docs/20-Apr-2026-ig-scheduled-posting-architecture.md)):**
+
+```
+LaunchAgent                               Script                              Cadence
+─────────────────────────────────────────────────────────────────────────────────────
+com.farmguardian.discord-reaction-sync    scripts/discord-reaction-sync.py    30 min
+com.farmguardian.ig-2hr-story             scripts/ig-2hr-story.py             2 hours
+com.farmguardian.ig-daily-carousel        scripts/ig-daily-carousel.py        daily 18:00
+com.farmguardian.ig-weekly-reel           scripts/ig-weekly-reel.py           Sun 19:00
+```
+
+**Delivered:**
+
+- **Reaction sync** — `scripts/discord-reaction-sync.py` paginates `#farm-2026` via Discord Bot API, counts unique non-bot reactors per message (excluding Larry/Bubba/Egon Claude-instance user IDs), and matches each message back to the image_archive row that produced it by `(camera_id, ts ±60s)` — sha256 matching does not work because Discord CDN re-encodes the JPEG. Reaction count is written to `image_archive.discord_reactions`. Every 30 minutes via LaunchAgent.
+- **Selection module** — `tools/pipeline/ig_selection.py` with three helpers:
+  - `select_daily_carousel_gems` (today UTC, strong+sharp, 15-min bucket diversity).
+  - `select_best_story_gem` (last N min, strong-or-decent+sharp-or-soft, picks single best).
+  - `select_weekly_reel_gems` (last N days, strong+sharp, 6-hour bucket diversity).
+  - All gate on `discord_reactions >= 1`. `_score_gem` puts reaction count first in the rank tuple so more-reacted gems always beat less-reacted ones regardless of VLM tags.
+- **Carousel primitives** in `ig_poster.py`: `_create_carousel_child` (is_carousel_item=true, no caption), `_create_carousel_parent` (media_type=CAROUSEL + children csv), `post_carousel_to_ig` (fan-out → wait all FINISHED → fan-in → publish → write permalink to every source gem row so cadence gates propagate correctly).
+- **Three scheduler scripts** — thin argparse + dispatch wrappers around the selection helpers plus the posting primitives. Exit 0 on no-candidates (skip slot gracefully), 1 on runtime failure, 3 on credentials missing.
+- **Four LaunchAgent plists** in [`deploy/ig-scheduled/`](deploy/ig-scheduled/). `com.farmguardian.*` label family for TCC compatibility. Logs at `/tmp/ig-*.{out,err}.log` (note: Python's `logging.basicConfig` writes to stderr, so the useful logs are in `.err.log`, not `.out.log`).
+
+**Schema migration:**
+
+```sql
+ALTER TABLE image_archive ADD COLUMN discord_message_id TEXT;
+ALTER TABLE image_archive ADD COLUMN discord_reactions INT DEFAULT 0;
+ALTER TABLE image_archive ADD COLUMN discord_reactions_checked_at TEXT;
+CREATE INDEX idx_archive_discord_reactions ON image_archive(discord_reactions);
+CREATE INDEX idx_archive_discord_message ON image_archive(discord_message_id);
+```
+
+Idempotent via the existing `_add_column_if_missing` pattern.
+
+**Deployment config:** `instagram.enabled=false` in `tools/pipeline/config.json` — per-cycle hooks stay dormant. `instagram.scheduled.*` sub-block carries the new knobs (cadences, diversity buckets, max items per lane).
+
+**Verified live:**
+- Backfill synced 57 Guardian gems with existing human reactions.
+- Reaction-gated carousel posted: `https://www.instagram.com/p/DXXUSxHE-dx/` (7 reacted gems, diversity-filtered).
+- Story lane posted 21 stories total today (1 pre-gate proof-of-life + 20 top-reacted backlog batch).
+- 2h LaunchAgent kickstart verified: picks best reacted gem in last 2h, posts, exits 0.
+- All 4 LaunchAgents bootstrapped and visible in `launchctl list`.
+
+**Cross-references:**
+- [`docs/20-Apr-2026-ig-scheduled-posting-architecture.md`](docs/20-Apr-2026-ig-scheduled-posting-architecture.md) — canonical handoff doc.
+- [`tools/discord_harvester.py`](tools/discord_harvester.py) — pre-existing website-gallery ingest (separate from this flow; reused its Discord API client).
+
+---
+
 ### v2.31.0 — Instagram posting: Stories (Phase 2) + Reels (Phase 3) (Claude Opus 4.7 (1M context))
 
 Builds on `v2.29.0` (single-photo auto-posting). Extends the pipeline with two new Instagram media types — Stories (24-hour ephemeral) and Reels (short-form video) — both additive on top of the existing feed-post path. No existing primitive is removed or refactored; the one shared-code change is promoting `_local_path_for_gem` from `ig_poster.py` to a public `resolve_gem_image_path` in `store.py` so `reel_stitcher.py` can share it.

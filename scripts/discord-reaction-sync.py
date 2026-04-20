@@ -1,26 +1,36 @@
 #!/usr/bin/env python3
 # Author: Claude Opus 4.7 (1M context)
-# Date: 20-April-2026
-# PURPOSE: Scrape #farm-2026 Discord channel for human reactions on
-#          gem posts, match each reacted message back to the
-#          Guardian image_archive row that produced it (by camera +
-#          timestamp within ±60s), write the reaction count back to
-#          image_archive.discord_reactions. This is the quality
-#          signal the IG selection helpers gate on — only reacted
-#          gems make it to posts / stories / reels.
+# Date: 20-April-2026 (initial); extended 2026-04-20 to ingest human
+#       drops alongside Guardian-webhook gem reactions.
+# PURPOSE: Two jobs, run in one pass over #farm-2026:
+#
+#          1. GUARDIAN GEMS — for every reacted message whose author is
+#             a Guardian webhook identity (mapped via gem_poster's
+#             _USERNAME_BY_CAMERA), find the matching image_archive row
+#             by (camera_id, ts ±60s) and write the human-reactor count
+#             to image_archive.discord_reactions.
+#
+#          2. HUMAN DROPS — for every reacted message whose author is
+#             NOT a Guardian camera AND whose attachments include an
+#             image (.jpg/.jpeg/.png), download the image to
+#             data/discord-drops/YYYY-MM/ and ingest a synthetic row
+#             into image_archive so the image becomes eligible for the
+#             scheduled IG lanes. sha256 dedup: re-runs don't create
+#             duplicate rows. camera_id='discord-drop'. vlm_json's
+#             caption_draft is populated from the Discord message text
+#             so the IG caption builder has something narrative to use.
 #
 #          Bot reactions (Larry, Bubba, Egon — other Claude instances)
-#          are excluded; only real-human reactions count.
+#          are excluded from BOTH paths; only real-human reactions count.
 #
 #          Reuses the Discord API plumbing + BOT_USER_IDS from
 #          tools/discord_harvester.py so we don't fork two Discord
 #          clients.
 #
 # SRP/DRY check: Pass — single responsibility is "Discord reactions ->
-#                image_archive.discord_reactions". Reuses channel id,
-#                bot exclusion list, and paginated message fetch from
-#                discord_harvester; reuses gem_poster's camera ->
-#                username map for reverse lookup.
+#                image_archive". Guardian-gem updates and human-drop
+#                inserts are two sides of the same coin (both use the
+#                same reactor-counting + match/insert policy).
 
 """
 discord-reaction-sync.py — pull human reaction counts from
@@ -191,6 +201,192 @@ def _update_gem_reactions(
     )
 
 
+# ---------------------------------------------------------------------------
+# Human-drop ingestion (Boss's iPhone drops, Larry's shares, etc.)
+# ---------------------------------------------------------------------------
+
+# Only still images are in-scope for IG posting. Videos from drops are
+# a separate pipeline (not built yet).
+_DROP_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png"}
+
+# Where downloaded drops live under data/. Relative to REPO_ROOT. Matches
+# the rest of Guardian's data/ layout (gitignored).
+_DROP_SUBDIR = "discord-drops"
+
+
+def _drop_dest(msg: dict, attachment: dict, idx: int) -> tuple[Path, str, str]:
+    """Compute (absolute_path, path_relative_to_data_root, extension)
+    for a downloaded drop. Relative path is what gets written to
+    image_archive.image_path so the shared resolve_gem_image_path
+    helper can locate it later.
+    """
+    filename = attachment.get("filename", "") or ""
+    ext = Path(filename).suffix.lower() or ".jpg"
+    ts_iso = msg["timestamp"]
+    dt = datetime.fromisoformat(ts_iso.replace("Z", "+00:00"))
+    ym = dt.strftime("%Y-%m")
+    out_name = f"discord-{msg['id']}-{idx}{ext}"
+    rel = f"{_DROP_SUBDIR}/{ym}/{out_name}"
+    abs_path = REPO_ROOT / "data" / rel
+    return abs_path, rel, ext
+
+
+def _download_attachment(url: str, dest: Path) -> bool:
+    """Pull a Discord CDN attachment to dest. Returns True on success.
+    Does NOT overwrite if dest already exists (idempotent re-runs)."""
+    import requests
+    if dest.exists():
+        return True
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        resp = requests.get(url, stream=True, timeout=30)
+        resp.raise_for_status()
+        with open(dest, "wb") as f:
+            for chunk in resp.iter_content(chunk_size=8192):
+                f.write(chunk)
+        return True
+    except Exception as e:
+        log = logging.getLogger("discord-reaction-sync")
+        log.warning("drop download failed url=%s: %s", url, e)
+        if dest.exists():
+            try:
+                dest.unlink()
+            except OSError:
+                pass
+        return False
+
+
+def _sha256(path: Path) -> str:
+    import hashlib
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _ingest_drop(
+    conn: sqlite3.Connection,
+    msg: dict,
+    attachment: dict,
+    idx: int,
+    reaction_count: int,
+) -> Optional[tuple[str, int]]:
+    """Ensure this drop attachment is represented in image_archive with
+    the latest reaction count.
+
+    Idempotent: dedups against existing rows by sha256. If the image is
+    already a row (e.g. a Guardian gem that was re-shared, or a
+    previously-ingested drop), UPDATE its reactions; otherwise INSERT
+    a synthetic row.
+
+    Returns (action, gem_id) where action is 'insert' | 'update' | 'skip',
+    or None for fatal skip (download failed, unsupported type).
+    """
+    filename = attachment.get("filename", "") or ""
+    ext = Path(filename).suffix.lower()
+    if ext not in _DROP_IMAGE_EXTENSIONS:
+        return None
+
+    abs_path, rel_path, _ = _drop_dest(msg, attachment, idx)
+    url = attachment.get("url")
+    if not url:
+        return None
+
+    if not _download_attachment(url, abs_path):
+        return None
+
+    # Verify cv2 can decode before we commit to inserting — catches the
+    # "CDN returned an HTML error page instead of the image" case.
+    try:
+        import cv2
+        img = cv2.imread(str(abs_path))
+        if img is None:
+            raise ValueError("cv2 returned None")
+        height, width = img.shape[:2]
+    except Exception as e:
+        logging.getLogger("discord-reaction-sync").warning(
+            "drop decode failed, removing %s: %s", abs_path, e,
+        )
+        try:
+            abs_path.unlink()
+        except OSError:
+            pass
+        return None
+
+    sha = _sha256(abs_path)
+    now_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+    existing = conn.execute(
+        "SELECT id FROM image_archive WHERE sha256 = ?", (sha,),
+    ).fetchone()
+    if existing:
+        gid = int(existing[0])
+        conn.execute(
+            """
+            UPDATE image_archive
+               SET discord_message_id = ?,
+                   discord_reactions = ?,
+                   discord_reactions_checked_at = ?
+             WHERE id = ?
+            """,
+            (str(msg["id"]), int(reaction_count), now_iso, gid),
+        )
+        return ("update", gid)
+
+    # New drop — insert a synthetic row. Defaults set so the three
+    # IG selection helpers treat it as post-eligible once it has
+    # reactions: strong+sharp+bird_count=1+no concerns.
+    import json as _json
+    caption_draft = (msg.get("content") or "").strip()
+    vlm_meta = {
+        "scene": "brooder",
+        "bird_count": 1,
+        "activity": "unknown",
+        "lighting": "unknown",
+        "composition": "unknown",
+        "image_quality": "sharp",
+        "share_worth": "strong",
+        "any_special_chick": False,
+        "apparent_age_days": None,
+        "has_concerns": False,
+        "concerns": [],
+        "individuals_visible": [],
+        "caption_draft": caption_draft,
+    }
+
+    cur = conn.execute(
+        """
+        INSERT INTO image_archive (
+            camera_id, ts, image_path, image_tier, sha256,
+            width, height, bytes,
+            vlm_model, vlm_inference_ms, vlm_prompt_hash, vlm_json,
+            scene, bird_count, activity, lighting, composition,
+            image_quality, share_worth, any_special_chick, apparent_age_days,
+            has_concerns, individuals_visible_csv, retained_until,
+            discord_message_id, discord_reactions, discord_reactions_checked_at
+        ) VALUES (
+            ?, ?, ?, ?, ?,
+            ?, ?, ?,
+            ?, ?, ?, ?,
+            ?, ?, ?, ?, ?,
+            ?, ?, ?, ?, ?, ?, ?,
+            ?, ?, ?
+        )
+        """,
+        (
+            "discord-drop", msg["timestamp"], rel_path, "strong", sha,
+            int(width), int(height), abs_path.stat().st_size,
+            "discord-drop", 0, "", _json.dumps(vlm_meta),
+            "brooder", 1, "unknown", "unknown", "unknown",
+            "sharp", "strong", 0, None,
+            0, "", None,
+            str(msg["id"]), int(reaction_count), now_iso,
+        ),
+    )
+    return ("insert", int(cur.lastrowid))
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Sync Discord reaction counts into image_archive.",
@@ -237,29 +433,47 @@ def main(argv: list[str] | None = None) -> int:
         messages = [m for m in messages if _msg_dt(m) >= cutoff]
         log.info("after --since-hours filter: %d messages", len(messages))
 
-    # Only messages with at least one reaction + known Guardian sender
-    candidates: list[dict] = []
+    # Bucket reacted messages into Guardian-gem updates vs human drops.
+    # A message qualifies as a drop when: author is not a Guardian camera
+    # AND at least one attachment is a still image.
+    guardian_msgs: list[dict] = []
+    drop_msgs: list[dict] = []
     for m in messages:
         if not m.get("reactions"):
             continue
         author = (m.get("author") or {}).get("username") or ""
         cam = _camera_for_username(author)
-        if cam is None:
+        if cam is not None:
+            guardian_msgs.append(m)
             continue
-        candidates.append(m)
-    log.info("messages with reactions from Guardian cameras: %d", len(candidates))
+        attachments = m.get("attachments") or []
+        has_image = any(
+            Path((a.get("filename") or "")).suffix.lower() in _DROP_IMAGE_EXTENSIONS
+            for a in attachments
+        )
+        if has_image:
+            drop_msgs.append(m)
 
-    if not candidates:
+    log.info(
+        "messages with reactions: %d (guardian gems) + %d (human drops)",
+        len(guardian_msgs), len(drop_msgs),
+    )
+
+    if not guardian_msgs and not drop_msgs:
         log.info("nothing to sync")
         return 0
 
-    updated = 0
-    unmatched = 0
+    updated_gems = 0
+    unmatched_gems = 0
+    drops_inserted = 0
+    drops_updated = 0
+    drops_skipped = 0
     conn = sqlite3.connect(str(db_path))
     try:
-        for i, msg in enumerate(candidates):
+        # ---- 1. Guardian-gem reaction updates ----
+        for i, msg in enumerate(guardian_msgs):
             if i > 0:
-                time.sleep(0.5)  # spread the per-message reaction-user fetches
+                time.sleep(0.5)  # spread per-message reaction-user fetches
             author = (msg.get("author") or {}).get("username") or ""
             cam = _camera_for_username(author)
             if cam is None:
@@ -269,25 +483,59 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             gem_id = _find_matching_gem(conn, cam, msg["timestamp"])
             if gem_id is None:
-                unmatched += 1
+                unmatched_gems += 1
                 log.debug(
                     "unmatched: msg=%s cam=%s ts=%s (no gem within 60s)",
                     msg["id"], cam, msg["timestamp"],
                 )
                 continue
             _update_gem_reactions(conn, gem_id, msg["id"], human_count)
-            updated += 1
+            updated_gems += 1
             log.info(
                 "updated gem_id=%s discord_reactions=%d (msg=%s cam=%s)",
                 gem_id, human_count, msg["id"], cam,
             )
+
+        # ---- 2. Human-drop ingestion ----
+        for i, msg in enumerate(drop_msgs):
+            if i > 0:
+                time.sleep(0.5)
+            human_count = _count_human_reactions(msg, token, dh)
+            if human_count == 0:
+                continue
+            attachments = msg.get("attachments") or []
+            author = (msg.get("author") or {}).get("username") or "(unknown)"
+            for idx, att in enumerate(attachments):
+                ext = Path((att.get("filename") or "")).suffix.lower()
+                if ext not in _DROP_IMAGE_EXTENSIONS:
+                    continue
+                result = _ingest_drop(conn, msg, att, idx, human_count)
+                if result is None:
+                    drops_skipped += 1
+                    continue
+                action, gem_id = result
+                if action == "insert":
+                    drops_inserted += 1
+                    log.info(
+                        "inserted drop gem_id=%s reactions=%d (msg=%s author=%s idx=%d)",
+                        gem_id, human_count, msg["id"], author, idx,
+                    )
+                elif action == "update":
+                    drops_updated += 1
+                    log.info(
+                        "updated drop gem_id=%s reactions=%d (msg=%s author=%s idx=%d)",
+                        gem_id, human_count, msg["id"], author, idx,
+                    )
+
         conn.commit()
     finally:
         conn.close()
 
     log.info(
-        "sync complete: updated=%d unmatched=%d candidates=%d",
-        updated, unmatched, len(candidates),
+        "sync complete: guardian_updated=%d guardian_unmatched=%d "
+        "drops_inserted=%d drops_updated=%d drops_skipped=%d",
+        updated_gems, unmatched_gems,
+        drops_inserted, drops_updated, drops_skipped,
     )
     return 0
 
