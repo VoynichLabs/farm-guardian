@@ -13,8 +13,6 @@ Known birds in this flock as of {today}:
 - ~22 brooder chicks, currently 1-3 weeks old, mixed exotic-island-fowl variants and rare breeds. Most are visually similar; flag anything that stands out from its siblings.
 - Older-chick cohort in the coop (previous brooder group): larger, more feathered-out, starting to look adult-shaped. Separate from the current brooder chicks.
 
-Output ONLY a single JSON object that conforms to the provided schema. No prose, no commentary, no markdown fences. The system will reject your response if it does not parse as valid JSON matching the schema.
-
 Guidance on specific fields:
 - `scene`: pick the best match for what's visible; "other" only if nothing else fits.
 - `bird_count`: your best estimate; 0 if none visible.
