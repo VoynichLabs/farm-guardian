@@ -1,0 +1,142 @@
+# Instagram hashtag library for @pawel_and_pawleen
+# Source of truth for tag selection in tools/pipeline/ig_poster.py
+# Companion narrative doc: docs/19-Apr-2026-instagram-posting-plan.md §hashtag library
+#
+# RULES (enforced at load time — see _load_hashtag_library in ig_poster.py):
+#   1. Every tag in this file must appear in at least TWO of:
+#      best-hashtags.com, top-hashtags.com, displaypurposes.com.
+#      If a tag isn't verified, do NOT add it. No composing tags from scratch.
+#   2. No creator-branded tags. The `forbidden` list at the bottom is a
+#      runtime safety net — if any tag in the buckets matches one there,
+#      the loader raises. Do not remove or shrink `forbidden`.
+#   3. Tiers are RELATIVE weighting buckets for the selector ("bigger
+#      community" → "smaller niche"), NOT claims of exact post count.
+#   4. Account-size strategy: this is a 381-follower account. Long-tail
+#      and mid-tier are where posts actually rank on the "Recent" feed.
+#      Top-tier is signal to IG's algorithm, not reach. The selector is
+#      weighted 4-5 long-tail + 3-4 mid-tier + 1-2 top-tier.
+#
+# History:
+#   - 19-Apr-2026 first draft: used creator-branded tags (#markbarneyai,
+#     #builtwithai, etc.) — all DEAD. Removed by Boss feedback.
+#   - 20-Apr-2026 second draft: had invented-sounding tags (#yorkieterrier,
+#     #coopgoals, #hatchday, etc.) not in any analytics source — caught by
+#     advisor, removed.
+#   - 20-Apr-2026 third draft (this file): only verified tags. AI/tech
+#     bucket removed entirely — doesn't reach farm or ML audience from
+#     this account size.
+
+yorkies:
+  top_tier:
+    - yorkiesofinstagram
+    - yorkshireterrier
+    - yorkie
+    - yorkies
+  mid_tier:
+    - yorkielove
+    - yorkielife
+    - yorkiegram
+    - yorkielovers
+    - yorkiepuppy
+    - terriersofinstagram
+  long_tail: []
+  # Dog-adjacent support tags. Use 1 of these at most per post —
+  # they're large communities where this account won't rank; they're
+  # included for algorithmic signal, not reach.
+  dog_support:
+    - puppy
+    - puppylove
+    - doglover
+    - dogstagram
+    - dogoftheday
+    - puppiesofinstagram
+    - petsofinstagram
+
+chickens:
+  top_tier:
+    - chickensofinstagram
+    - backyardchickens
+    - chickens
+  mid_tier:
+    - hens
+    - hensofinstagram
+    - chickenlife
+    - petchickens
+    - chooks
+    - freerangechickens
+    - happychickens
+    - chickensofig
+    - chickencoop
+    - backyardpoultry
+  long_tail:
+    - crazychickenlady
+
+chicks:
+  top_tier:
+    - babychicks
+    - chicks
+  mid_tier:
+    - babychick
+    - babychickens
+    - raisingchickens
+    - hatchingeggs
+  long_tail:
+    - chickmath
+
+homestead:
+  top_tier:
+    - homesteading
+    - homestead
+    - farmlife
+  mid_tier:
+    - farming
+    - homesteadlife
+    - farm
+  long_tail: []
+
+coop:
+  top_tier:
+    - backyardchickens  # overlaps with `chickens.top_tier` on purpose
+  mid_tier:
+    - chickencoop
+    - homesteading
+  long_tail: []
+
+yard_diary:
+  top_tier:
+    - farmlife
+  mid_tier:
+    - homesteading
+    - countrylife
+  long_tail: []
+  # OPSEC: do NOT use town-level tags (#hamptonct, etc.). State-level
+  # (#newengland) is OK IF the content is clearly regional, but not
+  # default.
+
+orchard:
+  top_tier:
+    - gardening
+    - garden
+  mid_tier:
+    - homegarden
+  long_tail:
+    - orchard
+
+# FORBIDDEN — runtime safety net, enforced at load time.
+# Any of these appearing in a bucket above is a loader error.
+# Any of these appearing in a caption from --override-tags is a CLI warning.
+forbidden:
+  - markbarney
+  - markbarneyai
+  - builtbymarkbarney
+  - builtwithai
+  - aiassistedfarm
+  - aiconsultant
+  - aiarchitect
+  - aiengineer  # was in the second-draft tech bucket — no farm audience
+  - edgeai
+  - computervision  # real tag but wrong audience for this account
+  - yolov8  # tiny community, ML-only audience
+  - openclaw  # creator-branded
+  - macminimac  # invented
+  - homeautomation  # wrong audience (smart-home, not farm)
