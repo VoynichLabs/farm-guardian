@@ -2,7 +2,34 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] - 2026-04-19
+## [Unreleased] - 2026-04-20
+
+### v2.29.0-phase1 — Instagram posting: plan docs + hashtag library (Claude Opus 4.7 (1M context))
+
+First phase of a V2 Instagram-posting pipeline. Boss asked for automated posts to `@pawel_and_pawleen` (the farm's IG account — yorkies + chickens + coop + yard). V1 of this work (manual curl-driven posts) happened 2026-04-19 and shipped two carousels; this release brings it into the repo as code and documented plan.
+
+**Delivered in this phase:**
+
+- **`docs/19-Apr-2026-instagram-posting-plan.md`** — narrative/architecture plan. Scope, token storage (macOS keychain, never-expire), hashtag library rules, account-voice conventions, 4x/day cadence, iPhone-drop pickup, reels scope. Hashtag library went through three drafts after Boss flagged creator-branded tags (`#markbarneyai`, `#builtwithai`, etc.) as dead-zone slop — final version is verified against best-hashtags.com / top-hashtags.com / displaypurposes.com (≥2 sources per tag).
+- **`docs/20-Apr-2026-ig-poster-implementation-plan.md`** — code implementation plan. Phased 1–8 (hashtag library → DB migration → `git_helper.py` → `ig_poster.py` core → `scripts/ig-post.py` CLI → predicate+hashtag-selection → orchestrator hook → CHANGELOG). V2.0's delivered capability is the CLI; auto-posting is V2.1+.
+- **`tools/pipeline/hashtags.yml`** — 54 verified tags across 7 buckets (yorkies, chickens, chicks, homestead, coop, yard_diary, orchard) + `forbidden` list runtime safety net. No code reads it yet (loader lands in Phase 4); useful for now as an eyeball reference for hand-posting.
+
+**Not in this phase (deferred to fresh session):**
+
+- Phases 2–8: DB columns (`ig_permalink`/`ig_posted_at`/`ig_skip_reason`), `tools/pipeline/git_helper.py`, `tools/pipeline/ig_poster.py`, `scripts/ig-post.py` CLI, `should_post_ig()` predicate, orchestrator hook at `run_cycle():248`.
+- Auto-posting (V2.1), LaunchAgent-driven 4x/day schedule (V2.2), reels (V3).
+
+**Hard rules baked into docs for future agents:**
+
+- Do NOT frame Farm Guardian as a security/predator system in IG captions. Predator detection as coded doesn't work; even if it did, predator-on-camera = dead bird, not content.
+- Do NOT use creator-branded hashtags (`#markbarney*`, `#builtwithai`, invented composites). The `forbidden` list in `hashtags.yml` is a runtime safety net — don't remove or shrink it.
+- Call `advisor` before substantive edits. Boss's explicit directive after the 2026-04-20 mistake-cascade.
+
+**Round-trip verified:** `./venv/bin/python3 -c "import yaml; d=yaml.safe_load(open('tools/pipeline/hashtags.yml')); ..."` loads cleanly, 54 tags across 7 buckets, zero tags matching the forbidden list. Post #1 (`https://www.instagram.com/p/DXVpa4Ek4Lb/`) and Post #2 (`https://www.instagram.com/p/DXVumJjExmr/`) shipped via the hand-pipeline before the code landed — they are the empirical reference the CLI will replay. Post #2 has a stale caption with false security framing (edit didn't propagate); do not re-attempt without Boss's direction.
+
+**Cross-references:** `~/bubba-workspace/skills/farm-instagram-post/SKILL.md` (operational runbook), `~/.claude/projects/-Users-macmini-bubba-workspace/memory/farm-instagram.md` (credential pointer + resume-here for fresh sessions), `CLAUDE.md` "Operational skills" section (repo-local pointer).
+
+---
 
 ### v2.28.1 — `scripts/add-camera.py` atomic camera CLI (Claude Opus 4.7 (1M context))
 
