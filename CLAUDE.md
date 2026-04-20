@@ -2,6 +2,10 @@
 
 This file provides guidance to AI coding agents working in this repository.
 
+## First thing to read if you are new here
+
+**[`docs/HOW_IT_ALL_FITS.md`](docs/HOW_IT_ALL_FITS.md)** — 10,000-ft view of where every photo on this Mac Mini lives, how the tagging pipeline works, how images land on Instagram `@pawel_and_pawleen`, and where the secrets actually live (reference only, never committed). If someone asks "how does this all fit together," that's the document that answers them.
+
 ## Related Repositories
 
 This project is part of a two-repo system:
