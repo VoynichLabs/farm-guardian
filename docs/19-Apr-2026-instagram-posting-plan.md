@@ -30,16 +30,22 @@ Verified 2026-04-19. The URL returns a correct 1920×1080 `image/jpeg` with prop
 
 The heuristic appears to be URL-extension-based: URLs that don't end in `.jpg`/`.jpeg`/`.png`/`.mp4` are rejected without being fetched. `picsum.photos/...` (redirects, no extension) also fails. Wikipedia Commons URLs ending in `1280px-Cat03.jpg` succeed immediately.
 
-**Workaround (the V1 working pipeline):**
+**Workaround (the V1 working pipeline — verified 2026-04-19, first real post at `https://www.instagram.com/p/DXVpa4Ek4Lb/`):**
 
 1. Pick a gem via `GET guardian.markbarney.net/api/v1/images/gems?limit=30`
 2. Download it locally: `curl -o /tmp/gem-{id}.jpg "https://guardian.markbarney.net/api/v1/images/gems/{id}/image?size=1920"`
 3. Copy to `~/Documents/GitHub/farm-2026/public/photos/<subdir>/<name>.jpg`
 4. `git add && git commit && git push`
-5. Wait 2–5 min for Railway to deploy
-6. Use `https://farm.markbarney.net/photos/<subdir>/<name>.jpg` as the `image_url` param to Graph API
+5. **Use the GitHub raw URL immediately — no deploy wait needed:**
+   ```
+   https://raw.githubusercontent.com/VoynichLabs/farm-2026/main/public/photos/<subdir>/<name>.jpg
+   ```
 
-This reuses the existing yard-diary publishing pattern (`scripts/yard-diary-capture.py` v17-Apr-2026) — photos are already committed to farm-2026 via Railway-triggered deploy for public exposure. IG posting just piggybacks on that path.
+IG's fetcher accepts this URL because it ends in `.jpg` and is served by GitHub's CDN with `content-type: image/jpeg`. IG fetches the image once at container-create time and caches it on Meta's CDN — the raw URL is not re-used, so we never need to worry about long-term URL stability (if the file is later renamed/moved, the existing post still works).
+
+`farm.markbarney.net/photos/...` (Railway-deployed) is an available fallback but not on the critical path — the 2–5 min Next.js rebuild is not worth waiting for when the raw URL works instantly.
+
+This reuses the existing yard-diary publishing pattern (`scripts/yard-diary-capture.py` v17-Apr-2026) — photos are already committed to farm-2026 for public exposure. IG posting just piggybacks on that path.
 
 ---
 
@@ -89,6 +95,15 @@ Either:
 - Direct keychain read with `security find-generic-password -s <svc> -w` via subprocess — one fewer file dependency
 
 **Preference: keychain.** Avoids env-file drift between workspace and repo. Boss keeps everything keychain-sourced; Farm Guardian already shells out to `security` elsewhere.
+
+### Image hosting helper: `farm_2026_commit(local_jpg, subdir) -> str`
+
+Responsibilities (SRP):
+- Copy local JPEG to `~/Documents/GitHub/farm-2026/public/photos/<subdir>/<basename>`
+- `git add` + commit with a descriptive message + `git push`
+- Return the `https://raw.githubusercontent.com/...` URL
+
+No polling for Railway deploy needed — raw URL is live the instant push completes.
 
 ### Orchestrator wiring
 
