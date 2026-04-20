@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  iphone-cam-host watchdog LaunchAgent.
+
+  Why this exists:
+    Continuity Camera disconnects (iPhone goes to sleep, USB glitch, phone
+    unplugged) sometimes leave `usb-cam-host` in a "stale handle" state —
+    cap.read() keeps returning (True, <last cached frame>) so internal
+    read-failure counts never cross the reconnect threshold, but the
+    buffered frame stops aging forward. `/health` correctly reports
+    `"ok": false` once `latest_frame_age_ms > max_frame_age_s * 1000`,
+    so this watchdog polls /health every 120s and kickstarts the service
+    whenever ok is not true.
+
+    When the iPhone is genuinely absent, the service idles cleanly
+    (USB_CAM_DEVICE_NAME_CONTAINS="iPhone" makes _open() return None
+    until the device re-appears). The watchdog will kick the service
+    periodically anyway — that's a cheap ~1s restart, harmless, and it
+    guarantees the first fresh frame after a replug without waiting for
+    the next scheduled restart.
+
+  Pattern: inline `/bin/sh -c` command in the plist, NOT a separate
+  script file under ~/Documents. TCC on macOS blocks launchd from
+  executing scripts under ~/Documents/, per the earlier S7 settings
+  watchdog incident; inlined commands avoid the limitation entirely.
+
+  Install on Mac Mini:
+    cp com.farmguardian.iphone-cam-watchdog.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.farmguardian.iphone-cam-watchdog.plist
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.farmguardian.iphone-cam-watchdog</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/sh</string>
+        <string>-c</string>
+        <string>if ! /usr/bin/curl -s --max-time 3 http://127.0.0.1:8091/health | /usr/bin/grep -q '"ok": true'; then /bin/launchctl kickstart -k "gui/$(id -u)/com.farmguardian.iphone-cam-host"; /bin/echo "$(/bin/date -u +%FT%TZ) iphone-cam-watchdog: kicked iphone-cam-host"; fi</string>
+    </array>
+
+    <key>StartInterval</key>
+    <integer>120</integer>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/iphone-cam-watchdog.out.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/tmp/iphone-cam-watchdog.err.log</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>
