@@ -118,13 +118,14 @@ Every 1–2 weeks an agent sees orange / red brooder frames on `usb-cam`, `mba-c
 
 The single source of truth for what every camera *is*, what device hosts it, where its frames flow, and the device-not-location naming rule with worked examples lives in **`HARDWARE_INVENTORY.md`** at the repo root. Read it before adding, renaming, or moving any camera. The frontend devs and the next backend agent both depend on it.
 
-## Operational skills — read before working with the S7 or Discord
+## Operational skills — read before working with the S7, Discord, or Instagram
 
-Two runbooks capture the how-to for cross-agent operations on this repo. Any agent picking up S7 or Discord work should read the relevant one first rather than re-deriving it:
+Runbooks capture the how-to for cross-agent operations on this repo. Any agent picking up S7, Discord, or IG-posting work should read the relevant one first rather than re-deriving it:
 
 - **`docs/skills-farm-2026-discord-post.md`** — how to post a camera frame from Guardian to the `#farm-2026` Discord channel. Webhook wiring, channel ID, a copy-paste-ready `post.sh`, failure modes, what not to post. **No credentials in the doc** — the webhook URL lives in `.env` (gitignored).
 - **`docs/skills-s7-adb-operations.md`** — how to check the Samsung S7's battery, temperature, charging state, screen state, and IP Webcam app activity via ADB on the MacBook Air (where the phone lives). The phone has a specific USB-composite quirk (`adb reconnect offline` is required between commands) and a specific failure mode (IP Webcam on Configuration = server stopped); the runbook pre-buries the dead ends I already walked down on 2026-04-16.
 - **`docs/16-Apr-2026-s7-ipwebcam-frozen-incident.md`** — the incident post-mortem those two runbooks reference. 30-second human recovery recipe.
+- **`docs/19-Apr-2026-instagram-posting-plan.md`** + the full operational runbook at **`~/bubba-workspace/skills/farm-instagram-post/SKILL.md`** — how to post a curated gem to Instagram **@pawel_and_pawleen**. Tokens live in macOS keychain, never expire. **Key architectural gotcha:** IG's media fetcher rejects `guardian.markbarney.net/api/v1/images/gems/{id}/image?size=1920` (fetcher requires URLs ending in `.jpg`/`.png`), so the working path commits the image to `farm-2026/public/photos/<subdir>/<name>.jpg`, pushes, waits for Railway, then feeds `farm.markbarney.net/photos/...` to Graph API. V1 (manual posting via the skill) is live as of 19-Apr-2026; V2 (auto-posting from `orchestrator.py:run_cycle()` behind `instagram.enabled` config flag + Discord-approval gate) is scoped in the plan doc but not yet built.
 
 ## Project
 
