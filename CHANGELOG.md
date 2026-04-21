@@ -4,6 +4,32 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-04-21
 
+### v2.36.0 — On-this-day → Facebook pipeline (historical iPhone archive) (Claude Opus 4.7 (1M context))
+
+New tool: [`tools/on_this_day/`](tools/on_this_day/) — mines the Qwen-described iPhone photo catalog at `~/bubba-workspace/projects/photos-curation/photo-catalog/master-catalog.csv` for photos taken on today's calendar date in **2022, 2024, or 2025** (2023 deliberately skipped per Boss), ranks by aesthetic/farm-content signals, and publishes the top candidate to the Yorkies FB Page via the existing `fb_poster.crosspost_photo`. Purpose is audience-building around brooder/yorkie/flock/coop/yard-diary content — not business, not money, not hawks/predator framing.
+
+**New modules** (all under `tools/on_this_day/`):
+
+- `selector.py` — opens `Photos.sqlite` in SQLite `mode=ro` (avoids contending with Photos.app's writer lock), enumerates assets whose local-time `ZDATECREATED` falls on the target month-day in eligible years, joins against the 21,639-row master catalog CSV by UUID, hard-rejects `hawk`/`predator`/`accident`/`receipt`/`screenshot`/`text-heavy` content via both `aesthetic_tags` and `scene_description` keyword lists, and ranks survivors by farm-content hits (+2), good aesthetic tags (+1), golden-hour/sunset lighting (+2), soft/warm lighting (+1), subject-forward composition (+1).
+- `caption.py` — deterministic composer. Format: `"On this day, {YYYY} — {first_sentence_from_qwen_scene_description}"`. No LLM call at post time. Banned-keyword sanity gate runs *post-composition* so scorer oversights can't leak bad content to the Page.
+- `catalog_backfill.py` — thin wrapper around the existing `run_all_folders.py` vision pipeline in `~/bubba-workspace/…/photo-catalog/`. `--status` reports the catalog-vs-library delta (currently 78,499 library photos vs 21,639 catalog rows → 56,860 uncatalogued). `--run` pre-checks LM Studio reachability, then shells out to the existing describer (resumable per-UUID). We deliberately do not re-implement the Qwen vision call — there is one canonical describer.
+- `post_daily.py` — CLI orchestrator. Dry-run (default) writes `data/on-this-day/YYYY-MM-DD-candidates.json` for human review; `--publish` exports the Photos master via `osxphotos`, HEIC→JPEG via `sips`, commits to `farm-2026/public/photos/on-this-day/YYYY-MM-DD/` via the existing `git_helper.commit_image_to_farm_2026`, calls `fb_poster.crosspost_photo(raw_url, caption)`, and persists a publish-result JSON alongside the candidate JSON for audit.
+
+**Existing modules unchanged:** `tools/pipeline/fb_poster.py`, `tools/pipeline/git_helper.py`, `~/bubba-workspace/…/photo-catalog/run_all_folders.py`. SRP'd cleanly — this pipeline is a historical-archive consumer that plugs into the same FB publishing surface the camera-gem IG pipeline uses.
+
+**Smoke-tested 2026-04-21:** 143 photo assets matched 04-21 across 2022/2024/2025; 114 accepted, 21 content-rejected, 8 not-in-catalog. Top candidate was a 2024 garden-plot-with-chickens shot (`score=14`, caption auto-composed from the Qwen description and passes the safety gate).
+
+**Gotchas pre-buried** (full list in [`tools/on_this_day/README.md`](tools/on_this_day/README.md)):
+
+- `ZSAVEDASSETTYPE` enum drifts between Photos versions; this library uses 3/4/6 where older ones used 0/1/2. We dropped the filter entirely and lean on `aesthetic_tags` to reject screenshots instead.
+- `Photos.sqlite` is opened read-only (`file:…?mode=ro`) so Photos.app's writer lock can't conflict. Never open in write mode.
+- `astimezone()` with no arg is used for month/day comparison so "today" matches Photos.app's calendar view — not UTC.
+- The FB cross-post path is the same one unblocked in v2.35.1; tokens are live and non-expiring. No Meta-side work needed.
+
+**Plan:** [`docs/21-Apr-2026-on-this-day-fb-pipeline-plan.md`](docs/21-Apr-2026-on-this-day-fb-pipeline-plan.md).
+
+**Not yet live / operational TODOs:** (1) full catalog backfill run (56k uncatalogued photos, multi-hour LM Studio job); (2) LaunchAgent for a daily 07:00 dry-run so Boss can spot-check and decide whether to promote to `--publish`. Both are scheduling decisions, not code gaps.
+
 ### v2.35.1 — FB cross-post LIVE: tokens current, full publish access granted (Claude Opus 4.7 (1M context))
 
 The v2.35.0 FB cross-post pipeline is now live. First real FB post: https://www.facebook.com/122176308710784044/posts/122176308566784044 (mirrors IG `DXXpbw7k31l`, fired via `fb_poster.crosspost_photo()` — the same entry point `ig_poster.py` calls in production).
