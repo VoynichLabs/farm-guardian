@@ -2,7 +2,23 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] - 2026-04-20
+## [Unreleased] - 2026-04-21
+
+### v2.35.1 — FB cross-post LIVE: tokens current, full publish access granted (Claude Opus 4.7 (1M context))
+
+The v2.35.0 FB cross-post pipeline is now live. First real FB post: https://www.facebook.com/122176308710784044/posts/122176308566784044 (mirrors IG `DXXpbw7k31l`, fired via `fb_poster.crosspost_photo()` — the same entry point `ig_poster.py` calls in production).
+
+**What the next assistant needs to know:**
+
+- **Tokens are set and current.** `/Users/macmini/bubba-workspace/secrets/farm-guardian-meta.env` holds `LONG_LIVED_USER_TOKEN` + `LONG_LIVED_PAGE_TOKEN`, both non-expiring. `fb_poster.py` loads them automatically.
+- **Full publish permissions are granted.** Page token carries `pages_manage_posts`, `pages_read_engagement`, `pages_show_list`, `pages_read_user_content`, `read_insights`, plus the full Instagram suite on the linked IG business account. Assume full access — there is nothing to enable, nothing to request, nothing to review.
+- **To post, just call `fb_poster.crosspost_photo(image_url, caption)`** (or the carousel / story / reel variant). No restart needed — the module sources the env file on demand.
+- **No code changed in v2.35.1.** The unblock was token-side only; the v2.35.0 module works unmodified.
+- **Next scheduled IG lane dual-posts automatically** (2-hour-story, 18:00 daily-carousel, Sunday reel).
+
+**Previous env backed up** at `farm-guardian-meta.env.bak.2026-04-21` for the first ~week in case anything surprising surfaces. Skill doc at `~/bubba-workspace/skills/farm-facebook-crosspost/SKILL.md` has the current status front and center; the token-regen steps in that doc are archaeology and will rot the next time Meta reshuffles the dashboard — don't trust them as a forward-looking script.
+
+**One quiet test-harness gotcha** (production path is fine): IG Graph API returns captions with `\uXXXX` surrogate-pair escapes in the JSON response. If you copy-paste one of those into a Python string literal as a manual FB test, encoding to UTF-8 fails inside `urlencode`. The live pipeline is unaffected because ig_poster → fb_poster passes already-decoded strings. Only relevant if you're hand-feeding captions from a pasted `curl | json.tool` blob — use real emoji glyphs or `\U0001F4F8`-style 8-hex escapes, never `\ud83d\udcf8`.
 
 ### v2.35.0 — FB cross-post: dual-post every IG to Yorkies FB Page (Claude Opus 4.7 (1M context))
 

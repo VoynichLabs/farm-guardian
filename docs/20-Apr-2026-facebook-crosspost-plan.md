@@ -2,7 +2,15 @@
 
 **Date:** 20-April-2026
 **Author:** Claude Opus 4.7 (1M context)
-**Status:** Shipped; FB publish dark until Boss regenerates the page token with `pages_manage_posts`.
+**Status:** **LIVE as of 21-Apr-2026 19:06 UTC.** First real FB post at https://www.facebook.com/122176308710784044/posts/122176308566784044 (mirrors IG `DXXpbw7k31l`). See CHANGELOG v2.35.1.
+
+## 21-Apr-2026 update — LIVE, full access
+
+Pipeline is live. First real FB post: https://www.facebook.com/122176308710784044/posts/122176308566784044.
+
+**For the next assistant:** tokens are in `/Users/macmini/bubba-workspace/secrets/farm-guardian-meta.env`, non-expiring, full publish scopes granted (`pages_manage_posts` + dependencies + full IG suite). Nothing to enable. Call `fb_poster.crosspost_photo(url, caption)` and it posts. The "one blocker" section below is historical — keep reading only if something actually breaks.
+
+---
 
 ## Goal
 
