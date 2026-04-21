@@ -4,6 +4,39 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-04-20
 
+### v2.34.0 — Archive throwback: slow-day content pump (Claude Opus 4.7 (1M context))
+
+Fills the "Boss is sick / traveling / quiet brooder day" gap in the scheduled posting architecture. A fifth LaunchAgent (`com.farmguardian.archive-throwback`) fires daily at 08:00 local and drops 5 candidate photos into `#farm-2026` Discord for Boss to react to. Reactions flow through the existing drop-ingest path (v2.33.0) and from there into the scheduled IG lanes. No curation work required — Boss reacts to what he wants up, system does the rest.
+
+**Two content sources per run (both live):**
+
+- **Photos Library catalog** — `/Users/macmini/bubba-workspace/projects/photos-curation/photo-catalog/master-catalog.csv`. 21,640 photos previously run through LM Studio + Qwen with full VLM metadata. Filtered to farm/pet content via keyword-score across `scene_description`, `primary_subjects`, and `aesthetic_tags`. Scoring tiers:
+  - `pawel`/`pawleen`: +10 each (money-tier; 20 photos total across the catalog)
+  - `yorkie`/`yorkshire`/`chicken`/`chick`/`rooster`/`hen`/`coop`/`brooder`: +5 each
+  - `farm`/`barn`/`dog`/`puppy`/`kitten`/`cat`/`garden`/`orchard`/`field`/`tractor`/`rural`/`goat`/`cow`/`horse`: +2 each
+  - Minimum score 2 to qualify. 18,294 of 21,640 pass the filter.
+  - Top-scoring pool shuffled for variety so the same high-score photos don't dominate every day.
+  - HEIC source files converted to JPEG via macOS `sips` before posting.
+  - TCC: requires Claude Code Full Disk Access (System Settings → Privacy & Security); granted 2026-04-20.
+- **farm-2026 public photo gallery** — `~/Documents/GitHub/farm-2026/public/photos/`. Already-harvested Boss-curated content from the discord_harvester flow. Permitted subdirs: `<month>-<year>` (harvester output) + `birds`, `coop`, `enclosure`, `history` (manually curated). Blocked: `brooder`, `carousel`, `stories`, `yard-diary`, `guardian-detections` (IG output / year-end stockpile).
+
+**State tracking:** `data/archive-throwback-state.json` records `sent_catalog_uuids` + `sent_gallery_paths` so re-runs never duplicate. Grows over time; eventually the catalog exhausts and throwbacks fall back to gallery-only, which also eventually exhausts. At current rates (3 catalog + 2 gallery per day, 18k catalog candidates, 74 gallery candidates): roughly 6000+ days of catalog + 37 days of gallery.
+
+**Discord author:** `Archive`. Not in `gem_poster._USERNAME_BY_CAMERA`, so `discord-reaction-sync` treats reacted throwback posts as human drops (v2.33.0 path) — no new code in the sync.
+
+**Verified live:** dry-run found 18,294 catalog + 74 gallery candidates. First real run posted 4/5 (one catalog source file was an iCloud stub missing from local disk; graceful skip, logged). Scheduled agent bootstrapped at 2026-04-20T20:47 UTC — first auto-fire is tomorrow 08:00 local.
+
+**New files:**
+- [`scripts/archive-throwback.py`](scripts/archive-throwback.py)
+- [`deploy/ig-scheduled/com.farmguardian.archive-throwback.plist`](deploy/ig-scheduled/com.farmguardian.archive-throwback.plist)
+
+**Not in this release:**
+- Per-season filtering (winter/spring/summer/autumn) — could restrict throwbacks to the current season for seasonal relevance. Currently all-seasons mixed.
+- Gallery metadata-to-caption: gallery picks use a generic "From the archive — <month>" caption because the VLM metadata that accompanied the original Discord post isn't retrievable. Catalog picks get the full VLM `scene_description` as their caption.
+- Auto-tuning of daily count based on live brooder activity (more throwbacks when the pipeline's slow).
+
+---
+
 ### v2.33.1 — Decommission iphone-cam (Continuity detection was wireless, not USB) (Claude Opus 4.7 (1M context))
 
 The opportunistic `iphone-cam` shipped in v2.28.0 was triggering any time Boss's iPhone came near the Mac Mini, not just when USB-plugged. Root cause: AVFoundation enumerates iPhone via Continuity Camera over AWDL/Bluetooth, not strictly USB — the `USB_CAM_DEVICE_NAME_CONTAINS="iPhone"` gate matched both. Boss's stated preference: cut it entirely rather than add a USB-bus pre-gate, because a cheap used Android (S7/S8-class) running IP Webcam is the chosen replacement path for "phone as camera" going forward.

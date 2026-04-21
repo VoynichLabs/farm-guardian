@@ -14,6 +14,7 @@ Four LaunchAgents run the whole thing. Humans react on Discord `#farm-2026`; tho
 LaunchAgent                                      Script                              Cadence
 ────────────────────────────────────────────────────────────────────────────────────────────────
 com.farmguardian.discord-reaction-sync           scripts/discord-reaction-sync.py    every 30 min
+com.farmguardian.archive-throwback               scripts/archive-throwback.py        daily 08:00 local
 com.farmguardian.ig-2hr-story                    scripts/ig-2hr-story.py             every 2 hours
 com.farmguardian.ig-daily-carousel               scripts/ig-daily-carousel.py        daily 18:00 local
 com.farmguardian.ig-weekly-reel                  scripts/ig-weekly-reel.py           Sundays 19:00 local
@@ -67,6 +68,38 @@ Two ingest paths feed the same reaction gate:
                               ▼
               [post to Instagram as story/carousel/reel]
 ```
+
+**(C) Archive throwback (slow-day content pump) — added v2.34.0**
+
+```
+Daily at 08:00 local, [archive-throwback.py] picks N candidates:
+  - N=3 from the Photos Library catalog
+    (~/bubba-workspace/projects/photos-curation/photo-catalog/
+     master-catalog.csv — 21,640 photos with Qwen VLM metadata,
+     filtered by farm/pet keyword score)
+  - N=2 from farm-2026/public/photos/<month>/ and curated dirs
+    (birds, coop, enclosure, history — NOT brooder/carousel/
+     stories/yard-diary which are IG output dirs)
+                              │
+                              ▼
+State file data/archive-throwback-state.json tracks already-
+sent UUIDs + gallery paths so re-runs don't repeat.
+HEIC -> JPEG via macOS `sips`.
+                              │
+                              ▼
+Posts to Discord #farm-2026 with author="Archive" (NOT a
+Guardian camera). Scene description from the VLM catalog
+becomes the Discord message body — which later becomes the
+IG caption_draft if Boss reacts.
+                              │
+                              ▼
+Boss reacts to the ones he wants on IG. Existing drop-ingest
+path (B) takes over. No other plumbing needed.
+```
+
+Purpose: on quiet brooder days OR when Boss isn't actively reacting, Discord keeps getting fresh archive material for curation. The scheduled IG lanes draw from whatever reacted gems exist, so the reaction gate stays the sole quality filter. Boss just has to react to what he likes; nothing else is required from him.
+
+**TCC note:** this lane requires Claude Code to have Full Disk Access granted in System Settings → Privacy & Security (so the Photos Library reads don't fail). The harvester-gallery source works without it.
 
 **(B) Human drops (Boss's iPhone photos, shares from anyone) — added v2.33.0**
 
