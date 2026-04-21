@@ -4,6 +4,27 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-04-20
 
+### v2.35.0 — FB cross-post: dual-post every IG to Yorkies FB Page (Claude Opus 4.7 (1M context))
+
+Every successful IG publish now also publishes to the linked Facebook Page *Yorkies App* (`page_id=614607655061302`) via Graph API v25.0. Four lanes wired (photo / carousel / story / reel), all feeding from the same `raw.githubusercontent.com/VoynichLabs/farm-2026/...` URLs IG already accepted. FB failures **never** poison IG success — the dispatcher swallows everything into a log warning and returns `ok=false`.
+
+**New module:** [`tools/pipeline/fb_poster.py`](tools/pipeline/fb_poster.py) — SRP: Graph-API v25.0 publish to the Page, nothing else. Four public entries (`crosspost_photo`, `crosspost_carousel`, `crosspost_photo_story`, `crosspost_reel`) + a `maybe_crosspost` dispatcher called from `ig_poster.py`. Reads `FB_PAGE_ID` + `LONG_LIVED_PAGE_TOKEN` from `os.environ` with a fallback to sourcing the keychain-mirror env file directly (consistent with `ig_poster`'s credential pattern). Endpoint choices:
+- Photo: `POST /{page-id}/photos` (`caption=`, not deprecated `message=`).
+- Carousel: 2-step — unpublished `/photos` × N, then `/feed` with `attached_media[i]={"media_fbid":"…"}`. FB renders as a photo-grid Page post.
+- Story: 2-step — unpublished `/photos`, then `POST /{page-id}/photo_stories` with `photo_id=`. No caption (same as IG Stories).
+- Reel: `POST /{page-id}/videos` with `file_url=` + `description=`. FB labels it "Video" not "Reel"; visually identical; skips the resumable-upload dance. Acceptable tradeoff for our 5-15MB reels.
+
+**ig_poster hooks:** tail of each successful publish branch now calls `fb_poster.maybe_crosspost(...)`, stashes `fb_post_id` in the result dict. New field `fb_post_id: str|None` on all four result shapes.
+
+**Gating:** env var `FB_CROSSPOST_ENABLED` (default `"1"`). `launchctl setenv FB_CROSSPOST_ENABLED 0 && launchctl kickstart -k gui/$(id -u)/com.farmguardian.pipeline` to disable without code edit.
+
+**Known blocker:** current `yorkies-page-token` lacks `pages_manage_posts`. Every attempt today returns `(#200) The permission(s) pages_manage_posts are not available.` — swallowed by the dispatcher, IG keeps working. Token regen recipe lives in `~/bubba-workspace/skills/farm-facebook-crosspost/SKILL.md` (Graph Explorer → add scope → exchange for long-lived → fetch page token → update keychain + env file → `launchctl kickstart` pipeline). Once regenerated, dual-post goes live with zero code changes.
+
+**New docs:**
+- [`docs/20-Apr-2026-facebook-crosspost-plan.md`](docs/20-Apr-2026-facebook-crosspost-plan.md) — the plan doc.
+- `~/bubba-workspace/skills/farm-facebook-crosspost/SKILL.md` — the runbook, including the token regen recipe.
+- Updated `~/bubba-workspace/skills/farm-instagram-post/SKILL.md` with a cross-reference to the new skill.
+
 ### v2.34.0 — Archive throwback: slow-day content pump (Claude Opus 4.7 (1M context))
 
 Fills the "Boss is sick / traveling / quiet brooder day" gap in the scheduled posting architecture. A fifth LaunchAgent (`com.farmguardian.archive-throwback`) fires daily at 08:00 local and drops 5 candidate photos into `#farm-2026` Discord for Boss to react to. Reactions flow through the existing drop-ingest path (v2.33.0) and from there into the scheduled IG lanes. No curation work required — Boss reacts to what he wants up, system does the rest.

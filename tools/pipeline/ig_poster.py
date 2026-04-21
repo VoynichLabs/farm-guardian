@@ -1,5 +1,5 @@
 # Author: Claude Opus 4.7 (1M context)
-# Date: 20-April-2026 (Phase 4 core + Phase 6 predicate/hashtags 20-Apr-2026; Phase 2 stories 20-Apr-2026)
+# Date: 20-April-2026 (Phase 4 core + Phase 6 predicate/hashtags 20-Apr-2026; Phase 2 stories 20-Apr-2026; FB crosspost hooks 20-Apr-2026)
 # PURPOSE: Post curated gems to Instagram @pawel_and_pawleen via Meta
 #          Graph API. Parallels gem_poster.py (which posts to Discord)
 #          but with a multi-step container+publish flow required by
@@ -58,6 +58,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from tools.pipeline import fb_poster
 from tools.pipeline.git_helper import GitHelperError, commit_image_to_farm_2026
 from tools.pipeline.store import resolve_gem_image_path
 
@@ -922,6 +923,7 @@ def post_gem_to_story(
         "story_id": None,
         "permalink": None,
         "posted_at": None,
+        "fb_post_id": None,
         "error": None,
     }
 
@@ -1004,6 +1006,11 @@ def post_gem_to_story(
         log.info(
             "ig_poster: posted gem %s as story -> %s", gem_id, pub["permalink"],
         )
+
+        # Cross-post to FB Page as a Page Story. Stories have no caption
+        # on either platform.
+        fb = fb_poster.maybe_crosspost("story", image_url=raw_url)
+        result["fb_post_id"] = fb.get("fb_post_id")
 
     except IGPosterError:
         # Credential missing — loud failure, escape the caught-all path.
@@ -1165,6 +1172,7 @@ def post_reel_to_ig(
         "media_id": None,
         "permalink": None,
         "posted_at": None,
+        "fb_post_id": None,
         "error": None,
     }
 
@@ -1271,6 +1279,13 @@ def post_reel_to_ig(
                 )
         log.info("ig_poster: posted reel -> %s", pub["permalink"])
 
+        # Cross-post to FB Page as a video. FB tags it "Video" rather
+        # than "Reel" — visually identical; simpler API path.
+        fb = fb_poster.maybe_crosspost(
+            "reel", video_url=raw_url, caption=caption,
+        )
+        result["fb_post_id"] = fb.get("fb_post_id")
+
     except IGPosterError:
         raise
     except Exception as e:
@@ -1332,6 +1347,7 @@ def post_gem_to_ig(
         "media_id": None,
         "permalink": None,
         "posted_at": None,
+        "fb_post_id": None,
         "error": None,
     }
 
@@ -1416,6 +1432,13 @@ def post_gem_to_ig(
             posted_at_iso=pub["timestamp"],
         )
         log.info("ig_poster: posted gem %s -> %s", gem_id, pub["permalink"])
+
+        # 9. Cross-post to FB Page. Never break the IG success path — the
+        # dispatcher swallows all errors internally.
+        fb = fb_poster.maybe_crosspost(
+            "photo", image_url=raw_url, caption=full_caption,
+        )
+        result["fb_post_id"] = fb.get("fb_post_id")
 
     except IGPosterError:
         # Credential missing — loud failure, escape the caught-all path.
@@ -1552,6 +1575,7 @@ def post_carousel_to_ig(
         "media_id": None,
         "permalink": None,
         "posted_at": None,
+        "fb_post_id": None,
         "error": None,
     }
 
@@ -1685,6 +1709,12 @@ def post_carousel_to_ig(
             "ig_poster: posted carousel of %d gems -> %s",
             n, pub["permalink"],
         )
+
+        # Cross-post to FB Page as a multi-image /feed post.
+        fb = fb_poster.maybe_crosspost(
+            "carousel", image_urls=raw_urls, caption=full_caption,
+        )
+        result["fb_post_id"] = fb.get("fb_post_id")
 
     except IGPosterError:
         raise
