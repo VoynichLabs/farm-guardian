@@ -4,6 +4,23 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-04-22
 
+### v2.36.4 — per-camera sharpness tolerance in the Discord-post gate (Claude Opus 4.7 (1M context))
+
+Boss flagged that usb-cam / mba-cam / gwtc produce "a little blurry but pretty good" frames — faces visible, multiple birds, clearly worth posting — that the `image_quality=='sharp'` gate was silently rejecting. S7-cam, meanwhile, produces consistently sharp frames and should stay strict (it's the trusted source).
+
+**Gate change** in [`tools/pipeline/gem_poster.py:should_post`](tools/pipeline/gem_poster.py):
+
+- New optional param `camera_id` (orchestrator now passes `camera_name`).
+- `s7-cam` (or when camera_id is omitted): unchanged — `image_quality` must be `sharp`. The "strict camera" Boss trusts.
+- Every other camera (`usb-cam`, `mba-cam`, `gwtc`, `house-yard`, `iphone-cam`): `sharp` still posts; `soft` posts only if `bird_face_visible=True` OR `bird_count>=2` (proxy for "crowd, some face is likely visible"). `blurred` still rejected universally.
+- Pre-existing gates unchanged: `share_worth != 'skip'`, `bird_count >= 1`.
+
+**Why `bird_face_visible` is back** after v2.28.6 pulled it: that version was on Gemma-4, which was noisy on the flag. We've been on qwen3.6-35b-a3b for a while and Boss has been eyeballing output — the flag is acceptable now. Plus the `bird_count>=2` fallback means a wrong-False face flag doesn't block content when there's a crowd.
+
+**Tests:** 8 inline assertions in the session verified every branch (s7 strict, non-s7 soft+face, non-s7 soft+crowd, non-s7 soft+neither rejects, blurred always rejects, skip verdict overrides, empty frame rejects). All pass.
+
+Pipeline kickstarted to load the new gate; pre-existing posting cadence unchanged.
+
 ### v2.36.3 — Discord gem gate honors VLM `share_worth=skip` (Claude Opus 4.7 (1M context))
 
 One-line predicate tightening in [`tools/pipeline/gem_poster.py`](tools/pipeline/gem_poster.py) `should_post`: auto-posts to `#farm-2026` now additionally require `share_worth != "skip"`. The gate previously only checked `image_quality=sharp` + `bird_count>=1` and ignored the VLM's holistic share verdict, so Gemma-4 frames it explicitly tagged `skip` (butt-forward huddles, no-subject frames — the prompt's skip-demote clause) were still posting as long as they were sharp with any bird present. Triggered by a sharp-but-butt-forward s7-cam brooder frame Boss flagged on 2026-04-22.
