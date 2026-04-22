@@ -1,5 +1,5 @@
 # Author: Claude Opus 4.7 (1M context)
-# Date: 16-April-2026
+# Date: 22-April-2026
 # PURPOSE: Post strong-tier frames to the #farm-2026 Discord channel as they
 #          land. Called from orchestrator.run_cycle whenever store returns
 #          tier=strong. Failures here must NEVER break the pipeline cycle —
@@ -36,30 +36,37 @@ def should_post(vlm_metadata: dict, tier: str) -> bool:
       v2.28.3  tier=strong OR (tier=decent + bird_count>=2)  'multiple faces'
       v2.28.5  sharp + bird_count>=1  (dropped tier gate)    'nothing posts'
       v2.28.6  + bird_face_visible                           'not its fluffy ass'
-      v2.28.7  (this)  drop face requirement                 'VLM cannot reliably tell what a face is'
+      v2.28.7           drop face requirement                'VLM cannot reliably tell what a face is'
+      v2.36.3  (this)   + share_worth != 'skip'              'butts still slipping through; lean on VLM skip judgment'
 
-    Boss's observation: Gemma-4's `bird_face_visible` flag is noisy —
-    it tags False on obviously-good foraging shots and True on ambiguous
-    rear-views. Gating on a noisy field means good gems get blocked
-    arbitrarily. Pulled it out of the filter entirely. The schema field
-    still exists (it's useful metadata for downstream analysis) but is
-    NOT load-bearing for auto-post.
+    2026-04-22: Boss flagged a sharp-but-butt-forward s7-cam frame landing
+    in #farm-2026. Root cause: predicate checked image_quality + bird_count
+    but ignored the VLM's holistic `share_worth` verdict, even though the
+    prompt explicitly tells Gemma-4 that butt-forward huddles are a
+    skip-demote regardless of sharpness. We're not re-adding
+    bird_face_visible (v2.28.6's failure mode still applies — the flag is
+    noisy per-frame). Instead we use `share_worth` because:
+      - it's a holistic judgment the VLM already makes
+      - the prompt's skip rules already call out fluffy-butt piles
+      - we've already paid the VLM call; this is a free extra signal
+    Accepted risk: if the VLM mis-tags a butt shot as 'decent' or
+    'strong', it still posts. Next lever if that recurs is prompt-side
+    (sharpen the skip clause), not more code gates.
 
-      - image_quality NOT 'sharp'  → skip (compression-artifact defense,
-        this is the only remaining load-bearing gate — it blocks the
-        H.264 decode-smear frames; see the burst-median and prompt
-        defenses in capture.py + prompt.md)
+      - image_quality NOT 'sharp'  → skip (compression-artifact defense)
       - bird_count < 1             → skip (empty frame)
-      - sharp + >=1 bird           → post
-
-    The 'fluffy ass' failure mode from v2.28.6 is accepted as a small
-    price for not blocking legitimate foraging / group / candid shots.
-    Boss has said he'll raise the bar if volume is too high."""
+      - share_worth == 'skip'      → skip (VLM's own 'not archive-worthy'
+                                          verdict — catches butt-forward
+                                          and no-subject frames)
+      - otherwise                  → post"""
     iq = vlm_metadata.get("image_quality")
     bc = vlm_metadata.get("bird_count", 0)
+    sw = vlm_metadata.get("share_worth")
     if iq != "sharp":
         return False
     if not isinstance(bc, int) or bc < 1:
+        return False
+    if sw == "skip":
         return False
     return True
 

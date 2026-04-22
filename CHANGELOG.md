@@ -4,6 +4,14 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-04-22
 
+### v2.36.3 — Discord gem gate honors VLM `share_worth=skip` (Claude Opus 4.7 (1M context))
+
+One-line predicate tightening in [`tools/pipeline/gem_poster.py`](tools/pipeline/gem_poster.py) `should_post`: auto-posts to `#farm-2026` now additionally require `share_worth != "skip"`. The gate previously only checked `image_quality=sharp` + `bird_count>=1` and ignored the VLM's holistic share verdict, so Gemma-4 frames it explicitly tagged `skip` (butt-forward huddles, no-subject frames — the prompt's skip-demote clause) were still posting as long as they were sharp with any bird present. Triggered by a sharp-but-butt-forward s7-cam brooder frame Boss flagged on 2026-04-22.
+
+**Why `share_worth=skip` and not the 2026-04-16 `bird_face_visible` gate (v2.28.6 → v2.28.7 reversion):** that field was noisy per-frame — tagged False on obviously-good foraging shots and True on ambiguous rear-views — and was removed deliberately. `share_worth` is a holistic verdict the VLM is already making against prompt rules that specifically call out fluffy-butt piles as `skip` triggers. It's free extra signal from a VLM call we've already paid for. Accepted risk: a VLM that mis-tags a butt shot as `strong`/`decent` still posts; next lever in that case is prompt-side, not more code gates.
+
+**No other files touched.** Schema field `bird_face_visible` stays in the VLM output (useful downstream metadata) but remains non-load-bearing for auto-post. `ig_poster` / `fb_poster` are unaffected — they gate on human Discord reactions, which is a strictly stronger filter than this Discord admission gate. This only changes which frames land in `#farm-2026` for reaction-voting.
+
 ### v2.36.2 — On-this-day defaults to Stories; carousel is the "best-of" promotion lane (Claude Opus 4.7 (1M context))
 
 Boss feedback 2026-04-22: "Post most of these as stories rather than posts, because we can post lots and lots of stories and then later look at what did best and make those into a post."
