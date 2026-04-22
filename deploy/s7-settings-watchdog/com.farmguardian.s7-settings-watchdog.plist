@@ -9,7 +9,7 @@
     <array>
         <string>/bin/sh</string>
         <string>-c</string>
-        <string>ts=$(date -u +%Y-%m-%dT%H:%M:%SZ); wb_code=$(/usr/bin/curl -sS -m 5 -o /dev/null -w '%{http_code}' 'http://192.168.0.249:8080/settings/whitebalance?set=incandescent'); fm_code=$(/usr/bin/curl -sS -m 5 -o /dev/null -w '%{http_code}' 'http://192.168.0.249:8080/settings/focusmode?set=continuous-picture'); echo "$ts wb=$wb_code fm=$fm_code" &gt;&gt; /tmp/s7-settings-watchdog.log</string>
+        <string>ts=$(date -u +%Y-%m-%dT%H:%M:%SZ); wb_code=$(/usr/bin/curl -sS -m 5 -o /dev/null -w '%{http_code}' 'http://192.168.0.249:8080/settings/whitebalance?set=incandescent'); fm_code=$(/usr/bin/curl -sS -m 5 -o /dev/null -w '%{http_code}' 'http://192.168.0.249:8080/settings/focusmode?set=continuous-picture'); or_code=$(/usr/bin/curl -sS -m 5 -o /dev/null -w '%{http_code}' 'http://192.168.0.249:8080/settings/orientation?set=portrait'); pr_code=$(/usr/bin/curl -sS -m 5 -o /dev/null -w '%{http_code}' 'http://192.168.0.249:8080/settings/photo_rotation?set=90'); echo "$ts wb=$wb_code fm=$fm_code or=$or_code pr=$pr_code" &gt;&gt; /tmp/s7-settings-watchdog.log</string>
     </array>
 
     <key>StartInterval</key>
