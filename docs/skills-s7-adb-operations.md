@@ -1,7 +1,50 @@
-# S7 Operations via ADB
+# S7 Operations via ADB (and via IP Webcam's HTTP settings API)
 
-**Last updated:** 16-April-2026
-**Cross-refs:** `CHANGELOG.md` (v2.27.7 camera tuning, v2.27.8 battery monitor, v2.27.9 freeze incident) · `docs/16-Apr-2026-s7-ipwebcam-frozen-incident.md` · `tools/s7-battery-monitor/monitor.py`
+**Last updated:** 21-April-2026 (orientation section added — phone is fixed PORTRAIT as of v2.35.2)
+**Cross-refs:** `CHANGELOG.md` (v2.27.7 camera tuning, v2.27.8 battery monitor, v2.27.9 freeze incident, v2.35.2 EXIF orientation fix) · `docs/16-Apr-2026-s7-ipwebcam-frozen-incident.md` · `tools/s7-battery-monitor/monitor.py`
+
+## Orientation — PORTRAIT (fixed, deliberate, 2026-04-21)
+
+The s7-cam stream is **locked to portrait** on the phone side. This is a conscious decision, not a default. Do not "fix" it by flipping the phone back to landscape unless Boss explicitly asks — the IG stories / FB stories / IG reels lanes consume s7-cam content and all three are native 9:16 (portrait). Landscape frames get center-cropped into 9:16, throwing away most of the image.
+
+**How it works:**
+
+- **Phone side** (persistent across IP Webcam restarts and phone reboots): `curvals.orientation=portrait` + `curvals.photo_rotation=90`. Set via the app's settings or remotely via the HTTP settings API — no ADB needed.
+- **Pixel behavior:** IP Webcam always emits sensor-native **1920×1080** pixels with an EXIF `Orientation=6` tag. It does NOT physically rotate the pixels.
+- **Backend:** `capture.py:_apply_exif_rotation` + `tools/pipeline/capture.py:_apply_exif_rotation` (both added in v2.35.2) use Pillow's `ImageOps.exif_transpose` to bake the rotation in before `cv2.imdecode`. Every consumer sees a true 1080×1920 portrait frame and the EXIF tag is stripped on re-encode to prevent double-rotation.
+- **Physical phone rotation does NOT affect the stream.** The orientation setting is configured in IP Webcam, not driven by the phone's accelerometer. If Boss physically flips the phone upside-down, change the setting to `upsidedown_portrait` (see below).
+
+**Remote orientation control via the IP Webcam HTTP settings API** (no ADB needed — the app exposes every setting as a GET):
+
+```bash
+# Inspect current orientation
+curl -s "http://192.168.0.249:8080/status.json" | python3 -c "import sys,json; d=json.load(sys.stdin)['curvals']; print('orientation:', d['orientation']); print('photo_rotation:', d['photo_rotation'])"
+
+# Four supported values for orientation
+curl "http://192.168.0.249:8080/settings/orientation?set=portrait"
+curl "http://192.168.0.249:8080/settings/orientation?set=landscape"
+curl "http://192.168.0.249:8080/settings/orientation?set=upsidedown"              # inverted landscape
+curl "http://192.168.0.249:8080/settings/orientation?set=upsidedown_portrait"      # phone hanging from a perch
+
+# Four supported values for photo_rotation (post-capture EXIF tag for /photo.jpg)
+curl "http://192.168.0.249:8080/settings/photo_rotation?set=0"    # no EXIF tag (landscape)
+curl "http://192.168.0.249:8080/settings/photo_rotation?set=90"   # EXIF Orientation=6 (portrait right-side-up)
+curl "http://192.168.0.249:8080/settings/photo_rotation?set=180"  # EXIF Orientation=3 (upside down)
+curl "http://192.168.0.249:8080/settings/photo_rotation?set=270"  # EXIF Orientation=8 (portrait upside-down)
+```
+
+**Backend behavior is semi-adaptive.** `_apply_exif_rotation` reads whatever EXIF tag the JPEG carries and rotates accordingly. So if you later set the phone back to landscape (`orientation=landscape` + `photo_rotation=0`), the helper no-ops (EXIF Orientation=1) and the pipeline serves landscape frames again with zero code change. Portrait is the phone-side choice, not a backend hard-code.
+
+**Why portrait was chosen (so a future agent doesn't try to revert it):** s7-cam's primary content destination is the Instagram stories + reels lanes, plus FB stories. All three are 9:16 native. Landscape frames reached those surfaces as center-crops that discarded ~45% of the image. With portrait, the frame fills the 9:16 surface edge-to-edge. The tradeoff is that the carousel/feed lanes post portrait-aspect images for s7-cam-sourced gems, which is fine (portraits in a mixed carousel render well) and preferable to mangled stories.
+
+**When orientation actually matters vs doesn't:**
+
+- IG stories / FB stories / IG reels: **portrait is correct**; landscape gets cropped hard.
+- IG carousel / feed: portrait and landscape both work; IG auto-fits.
+- Guardian dashboard tile: renders whatever aspect it's handed; no rework needed.
+- VLM / YOLO: aspect-ratio-agnostic.
+
+---
 
 ## Purpose
 
