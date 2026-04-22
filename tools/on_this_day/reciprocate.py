@@ -54,10 +54,13 @@ from tools.pipeline.fb_poster import (  # noqa: E402
 
 log = logging.getLogger("on_this_day.reciprocate")
 
-# Discord webhook — reused from the farm-2026 channel pattern. Env var
-# is set on the Mac Mini as DISCORD_FARM_2026_WEBHOOK (same key the
-# existing archive-throwback + discord-reaction-sync scripts read).
-DISCORD_WEBHOOK_ENV = "DISCORD_FARM_2026_WEBHOOK"
+# Discord webhook — reused from the farm-2026 channel pattern. Env
+# var name matches what the existing archive-throwback + gem_poster
+# scripts read (DISCORD_WEBHOOK_URL, loaded from .env via
+# tools.pipeline.gem_poster.load_dotenv). That dotenv loader is the
+# canonical way to get this on the Mac Mini — LaunchAgent env blocks
+# don't inherit shell env, so we source the file explicitly.
+DISCORD_WEBHOOK_ENV = "DISCORD_WEBHOOK_URL"
 
 # How far back to scan. The Page is new (first FB post 2026-04-21), so
 # 7 days is ample for now; widen later if we start scheduling fewer
@@ -307,10 +310,15 @@ def post_to_discord(webhook_url: str, content: str) -> None:
     if len(content) > 1900:
         content = content[:1900].rsplit("\n", 1)[0] + "\n…(truncated)"
     body = json.dumps({"content": content}).encode("utf-8")
+    # Discord 403s the default Python-urllib User-Agent. Any non-bot
+    # UA satisfies Cloudflare's WAF on the webhook endpoint.
     req = urllib.request.Request(
         webhook_url,
         data=body,
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            "User-Agent": "farm-guardian-reciprocate/1.0",
+        },
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=10) as resp:
@@ -323,8 +331,20 @@ def post_to_discord(webhook_url: str, content: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _load_dotenv_if_available() -> None:
+    """Source .env so DISCORD_WEBHOOK_URL is available inside a
+    LaunchAgent (which inherits a bare environment). Reuses the
+    canonical loader from tools.pipeline.gem_poster."""
+    try:
+        from tools.pipeline.gem_poster import load_dotenv as _ld
+        _ld(_REPO_ROOT / ".env")
+    except Exception as e:  # noqa: BLE001 — loader absence is non-fatal
+        log.debug("dotenv loader unavailable: %s", e)
+
+
 def run(lookback_days: int, top_n: int, notify: bool) -> int:
     _source_meta_env_file()
+    _load_dotenv_if_available()
     creds = _load_fb_credentials()
     page_id = creds["page_id"]
     token = creds["page_token"]
