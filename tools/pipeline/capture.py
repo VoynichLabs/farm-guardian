@@ -1,4 +1,4 @@
-# Author: Claude Opus 4.6 (1M context)
+# Author: Claude Opus 4.7 (edits 21-April-2026 — bake EXIF Orientation into ip_webcam returns so rotated S7 frames aren't sideways downstream)
 # Date: 13-April-2026
 # PURPOSE: Per-camera high-quality frame capture for the multi-cam image
 #          pipeline. Each camera has a different focus/capture reality; this
@@ -9,7 +9,9 @@
 #              a sharp 4K JPEG — reuses Guardian's auth, no duplication)
 #            - usb_avfoundation: OpenCV VideoCapture with autofocus warmup
 #            - rtsp_burst: ffmpeg one-shot burst, Laplacian-ranked winner
-#            - ip_webcam: HTTP /photo.jpg with optional AF trigger
+#            - ip_webcam: HTTP /photo.jpg with optional AF trigger; bakes
+#              any EXIF Orientation tag into the pixels before returning,
+#              since downstream consumers decode via cv2 (EXIF-unaware).
 # SRP/DRY check: Pass — single responsibility is turning a camera + recipe
 #                into sharp JPEG bytes in memory. No archiving, no VLM, no DB.
 
@@ -221,7 +223,25 @@ def capture_ip_webcam(base_url: str, photo_path: str = "/photo.jpg",
     r.raise_for_status()
     if not r.content or r.content[:2] != b"\xff\xd8":
         raise CaptureError(f"IP Webcam returned non-JPEG: {base_url}{photo_path}")
-    return r.content
+    return _apply_exif_rotation(r.content)
+
+
+def _apply_exif_rotation(jpeg_bytes: bytes) -> bytes:
+    # IP Webcam emits sensor-native 1920×1080 with EXIF Orientation=6 when
+    # photo_rotation=90 is set on the phone (portrait mount). cv2.imdecode
+    # ignores EXIF — without this, every pipeline consumer sees a sideways
+    # frame. No-op for Orientation=1 / missing EXIF. Fail-safe to original.
+    try:
+        from PIL import Image, ImageOps
+        im = Image.open(io.BytesIO(jpeg_bytes))
+        if im.getexif().get(274, 1) == 1:
+            return jpeg_bytes
+        rotated = ImageOps.exif_transpose(im)
+        out = io.BytesIO()
+        rotated.save(out, format="JPEG", quality=95)
+        return out.getvalue()
+    except Exception:
+        return jpeg_bytes
 
 
 # ---------------------------------------------------------------------------

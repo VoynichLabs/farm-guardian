@@ -1,4 +1,4 @@
-# Author: Claude Opus 4.7 (edits 16-April-2026 — startup_gets on HttpUrlSnapshotSource for IP Webcam settings reapply)
+# Author: Claude Opus 4.7 (edits 21-April-2026 — bake EXIF Orientation at HTTP capture boundary so rotated S7 frames aren't sideways downstream)
 # Date: 13-April-2026 (v2.24.0 — HttpUrlSnapshotSource for generic /photo.jpg cameras, S7 battery path)
 # PURPOSE: Frame acquisition for Farm Guardian. Two parallel acquisition modes share the
 #          same FrameResult/ring-buffer/dispatch surface so FrameCaptureManager can treat
@@ -43,6 +43,35 @@ log = logging.getLogger("guardian.capture")
 
 # Downscale target: 1080p width (preserving aspect ratio)
 _TARGET_WIDTH = 1920
+
+
+def _apply_exif_rotation(jpeg_bytes: bytes) -> bytes:
+    """Physically bake any EXIF Orientation into the JPEG pixels.
+
+    IP Webcam on the S7 emits sensor-native 1920×1080 pixels and encodes
+    portrait mode via an EXIF Orientation tag (6 = rotate 90° CW for
+    display). `cv2.imdecode` discards EXIF, so Guardian + the VLM pipeline
+    + every gem JPEG that gets committed downstream would see a sideways
+    frame. Rotating once at the capture boundary means every consumer
+    (numpy array AND the preserved `jpeg_bytes`) gets upright pixels.
+
+    No-op for Orientation=1 or absent EXIF — safe to call on any JPEG.
+    Catches all exceptions and returns the original bytes on failure,
+    since an orientation bug must never kill the capture loop.
+    """
+    try:
+        from io import BytesIO
+        from PIL import Image, ImageOps
+        im = Image.open(BytesIO(jpeg_bytes))
+        orient = im.getexif().get(274, 1)  # 274 is the EXIF Orientation tag
+        if orient == 1:
+            return jpeg_bytes
+        rotated = ImageOps.exif_transpose(im)
+        out = BytesIO()
+        rotated.save(out, format="JPEG", quality=95)
+        return out.getvalue()
+    except Exception:
+        return jpeg_bytes
 
 # Reconnection backoff parameters
 _BACKOFF_BASE = 2.0
@@ -788,6 +817,7 @@ class CameraSnapshotPoller:
                 self._wait_remaining(t_start, interval)
                 continue
 
+            jpeg = _apply_exif_rotation(jpeg)
             arr = np.frombuffer(jpeg, np.uint8)
             raw = cv2.imdecode(arr, cv2.IMREAD_COLOR)
             if raw is None:
