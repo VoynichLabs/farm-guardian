@@ -93,6 +93,36 @@ Top-N is score-desc, ties broken by year-desc (2025 beats 2024 beats 2022).
 | farm-2026 public drop | `farm-2026/public/photos/on-this-day/YYYY-MM-DD/` (committed + pushed live) |
 | FB token path | `/Users/macmini/bubba-workspace/secrets/farm-guardian-meta.env` (handled by `fb_poster`, non-expiring as of 2026-04-21) |
 
+## Automation (v2.36.3) — you never type these commands
+
+Two LaunchAgents run this pipeline with zero human touch:
+
+| Label | Cadence | Script | What it does |
+|---|---|---|---|
+| `com.farmguardian.on-this-day` | daily 09:00 local | `scripts/on-this-day-stories.py` | Fires `post_daily.py --publish` (stories lane) for today's calendar date. Top 8 stories post silently. |
+| `com.farmguardian.reciprocate` | every 4 hours | `scripts/reciprocate-harvest.py` | Scans last 2 days of posts + stories, aggregates reactors/commenters, writes `data/on-this-day/engagers-YYYY-MM-DD.json`, posts a clickable top-15 summary to Discord `#farm-2026` so Boss can follow/friend/like-back manually. |
+
+**Install (one-time, already done on this Mac Mini):**
+
+```bash
+cp deploy/ig-scheduled/com.farmguardian.on-this-day.plist  ~/Library/LaunchAgents/
+cp deploy/ig-scheduled/com.farmguardian.reciprocate.plist  ~/Library/LaunchAgents/
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.farmguardian.on-this-day.plist
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.farmguardian.reciprocate.plist
+```
+
+**Manual fire (debugging only):**
+
+```bash
+launchctl kickstart -k gui/$(id -u)/com.farmguardian.on-this-day
+launchctl kickstart -k gui/$(id -u)/com.farmguardian.reciprocate
+tail -f /tmp/on-this-day.out.log /tmp/reciprocate.out.log
+```
+
+**Why Graph API doesn't auto-follow-back:** Meta does not expose a "Page likes user" or "Page follows user profile" action to Page access tokens. It's asymmetric by design; only a Page→Page follow is possible programmatically, and even that requires elevated scopes we don't hold. So the reciprocate tool surfaces the *click list* — profile name + FB URL + engagement summary — and Boss follows/friends manually from the Discord DM. If Meta ever opens the API for reciprocal follows, the list is ready.
+
+**Graph API identity quirk you'll hit:** for Page-post reactions, FB suppresses reactor `id`/`name` unless the reactor has granted the Page's app visibility (typically: Page admins, previous commenters, people who've messaged the Page). Strangers liking the Page show up in the `summary.total_count` but NOT in `data[]`. Comments always expose `from{id,name}` because comments are public content. If Boss sees "10 likes, 0 named engagers" — that's the API, not a bug.
+
 ## Publishing strategy (v2.36.2)
 
 Three lanes, one shared selector:

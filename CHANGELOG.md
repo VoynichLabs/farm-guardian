@@ -29,6 +29,33 @@ One-line predicate tightening in [`tools/pipeline/gem_poster.py`](tools/pipeline
 
 **No other files touched.** Schema field `bird_face_visible` stays in the VLM output (useful downstream metadata) but remains non-load-bearing for auto-post. `ig_poster` / `fb_poster` are unaffected — they gate on human Discord reactions, which is a strictly stronger filter than this Discord admission gate. This only changes which frames land in `#farm-2026` for reaction-voting.
 
+### v2.36.3 — On-this-day fully automated + FB engager-reciprocation tool (Claude Opus 4.7 (1M context))
+
+Boss feedback 2026-04-22: "What the fuck do you mean to fire today's stories? You expect me to type that in the fucking terminal? What about tomorrow? This needs a system, I'm not managing this. Moreover, how can I like or follow back users who liked my stuff?"
+
+Two LaunchAgents closed the loop so Boss never touches a terminal for this:
+
+| Label | Cadence | Source |
+|---|---|---|
+| `com.farmguardian.on-this-day` | daily 09:00 local | `scripts/on-this-day-stories.py` → `post_daily.py --publish` (story lane) |
+| `com.farmguardian.reciprocate` | every 4 hours (14400s `StartInterval`) | `scripts/reciprocate-harvest.py` → new `tools/on_this_day/reciprocate.py` |
+
+Both plists committed at `deploy/ig-scheduled/com.farmguardian.{on-this-day,reciprocate}.plist` alongside the existing `com.farmguardian.ig-*` plists. Installed + bootstrapped on the Mac Mini 2026-04-22; `launchctl list | grep -E "on-this-day|reciprocate"` shows both loaded and pending their next fire.
+
+**New module — `tools/on_this_day/reciprocate.py`** (SRP: list the humans engaging with the Page so Boss can reciprocate):
+
+- Hits `GET /{page-id}/posts?fields=reactions{name,id,type,username,link},comments{from{id,name},message}` for the last 2 days of feed posts (v25.0 Graph API, existing non-expiring page token; no new scopes required).
+- Hits `GET /{page-id}/stories` then `GET /{story-id}/reactions` + `/comments` per story (stories don't expose engagement as first-class edges on the parent object as of v25.0; absorbs the 2-step dance).
+- Aggregates per-user: reaction count, reaction types breakdown, comment count, up-to-3 comment samples. Sorts by total interactions desc.
+- Writes canonical `data/on-this-day/engagers-YYYY-MM-DD.json` every run.
+- Posts a Discord summary to `#farm-2026` via the existing `DISCORD_FARM_2026_WEBHOOK` env var — top-15 engagers with clickable `https://www.facebook.com/{id}` profile links. Boss follows/friends/likes-back manually from there.
+
+**Why manual reciprocation and not auto-follow:** FB Graph API does NOT expose a Page-follows-user or Page-likes-user-post action to Page tokens — Meta keeps engagement one-directional from the Page's side by design. Only Page→Page follows exist programmatically and those need elevated scopes we don't hold. The tool surfaces the click list; Boss clicks. Documented in the module header and in [`tools/on_this_day/README.md`](tools/on_this_day/README.md).
+
+**Graph API identity quirk surfaced in the output:** for Page-post reactions, FB suppresses reactor `id`/`name` unless the reactor has granted the Page's app visibility (admins, previous commenters, messaged-before users). Strangers liking the Page appear in `summary.total_count` but not in `data[]`. Comments always expose `from{id,name}`. This is a Meta constraint, not a bug — the JSON + Discord summary show what the API actually returns and anonymous likes still show up as `(identity hidden by API)` rows so Boss can see totals.
+
+**No new scripts to run manually.** README section "Automation (v2.36.3) — you never type these commands" is the canonical reference for the next assistant.
+
 ### v2.36.2 — On-this-day defaults to Stories; carousel is the "best-of" promotion lane (Claude Opus 4.7 (1M context))
 
 Boss feedback 2026-04-22: "Post most of these as stories rather than posts, because we can post lots and lots of stories and then later look at what did best and make those into a post."
