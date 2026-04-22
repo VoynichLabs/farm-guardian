@@ -36,10 +36,12 @@ def main() -> int:
         level=logging.INFO,
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
     )
-    # Synthesize the argv post_daily.main() expects. --publish (no
-    # --carousel / --single flags) → story lane, which is what Boss
-    # wants fired daily. --publish-n stays at the module default (8).
-    sys.argv = [sys.argv[0], "--publish"]
+    # --auto-story: one cycle, picks the top unposted candidate
+    # (today's on-this-day pool first, back-catalog fallback next),
+    # publishes as FB + IG Story, records to the posted ledger. The
+    # LaunchAgent fires this every 90 min so Boss sees a steady drip
+    # without the terminal-typing he refuses to do.
+    sys.argv = [sys.argv[0], "--auto-story"]
     return post_daily.main()
 
 

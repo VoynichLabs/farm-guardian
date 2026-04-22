@@ -99,8 +99,8 @@ Two LaunchAgents run this pipeline with zero human touch:
 
 | Label | Cadence | Script | What it does |
 |---|---|---|---|
-| `com.farmguardian.on-this-day` | daily 09:00 local | `scripts/on-this-day-stories.py` | Fires `post_daily.py --publish` (stories lane) for today's calendar date. Top 8 stories post silently. |
-| `com.farmguardian.reciprocate` | every 4 hours | `scripts/reciprocate-harvest.py` | Scans last 2 days of posts + stories, aggregates reactors/commenters, writes `data/on-this-day/engagers-YYYY-MM-DD.json`, posts a clickable top-15 summary to Discord `#farm-2026` so Boss can follow/friend/like-back manually. |
+| `com.farmguardian.on-this-day` | **every 90 min** (`StartInterval 5400`) | `scripts/on-this-day-stories.py` | Fires `post_daily.py --auto-story` — picks ONE top unposted candidate (today's on-this-day pool first, back-catalog fallback next) and publishes it as BOTH an FB Page Story AND an Instagram Story. Posted UUIDs are recorded in `data/on-this-day/posted.json` so the same photo is never re-cycled. |
+| `com.farmguardian.reciprocate` | every 4 hours (`StartInterval 14400`) | `scripts/reciprocate-harvest.py` | Scans the last 2 days of Page posts + Stories, aggregates reactors/commenters, writes `data/on-this-day/engagers-YYYY-MM-DD.{json,txt}`, and posts a summary to Discord channel **`1476787165638951026`** (via the Bubba bot token from `~/.openclaw/openclaw.json`). NEVER `#farm-2026` — that channel is the IG-gem reaction-quality-gate and we don't pollute its signal. |
 
 **Install (one-time, already done on this Mac Mini):**
 
@@ -122,6 +122,12 @@ tail -f /tmp/on-this-day.out.log /tmp/reciprocate.out.log
 **Why Graph API doesn't auto-follow-back:** Meta does not expose a "Page likes user" or "Page follows user profile" action to Page access tokens. It's asymmetric by design; only a Page→Page follow is possible programmatically, and even that requires elevated scopes we don't hold. So the reciprocate tool surfaces the *click list* — profile name + FB URL + engagement summary — and Boss follows/friends manually from the Discord DM. If Meta ever opens the API for reciprocal follows, the list is ready.
 
 **Graph API identity quirk you'll hit:** for Page-post reactions, FB suppresses reactor `id`/`name` unless the reactor has granted the Page's app visibility (typically: Page admins, previous commenters, people who've messaged the Page). Strangers liking the Page show up in the `summary.total_count` but NOT in `data[]`. Comments always expose `from{id,name}` because comments are public content. If Boss sees "10 likes, 0 named engagers" — that's the API, not a bug.
+
+## Posted-state ledger
+
+`data/on-this-day/posted.json` is the single source of truth for which photos have already gone out. Keyed by Photos UUID; each entry records `posted_at`, `lanes` (`fb_story` / `ig_story` / both), `fb_post_id`, `ig_post_id`, `raw_url`. The selector respects this ledger via `already_posted(uuid)` so the 90-min LaunchAgent can't pick the same photo twice. Delete an entry to force a repost. Seeded 2026-04-22 with the four FB stories from the initial partial run.
+
+An audit trail of every LaunchAgent tick lives at `data/on-this-day/auto-story-YYYY-MM-DD.ndjson` (one JSON row per fire — success, caption-safety skip, or no-candidate steady state).
 
 ## Publishing strategy (v2.36.2)
 

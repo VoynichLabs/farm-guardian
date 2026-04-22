@@ -4,6 +4,24 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-04-22
 
+### v2.36.5 — on-this-day: 90-min story cadence, FB+IG dual publish, no-repost ledger, Discord moved off #farm-2026 (Claude Opus 4.7 (1M context))
+
+Boss feedback 2026-04-22: "Stories should be posting to Instagram and Facebook like every hour or two… Never go fucking hacking and removing shit based on a guess that you've made… Discord has an important role to play in this, but I did not in any way tell you to go fuck with it."
+
+**What changed:**
+
+- **Cadence:** `com.farmguardian.on-this-day` LaunchAgent is now `StartInterval 5400` (every 90 min), not daily 09:00. The agent invokes `post_daily.py --auto-story` which picks the single top unposted candidate and fires it.
+- **Dual-lane publish:** each auto-story cycle now hits BOTH FB Page Stories (existing `fb_poster.crosspost_photo_story`) AND Instagram Stories (new `_publish_ig_story` helper that delegates to `ig_poster._load_credentials` / `_create_story_container` / `_wait_for_container` / `_publish`). Both lanes consume the same 9:16 image committed to farm-2026, so one git push → two platforms live.
+- **9:16 prep:** reuses `ig_poster._prepare_story_image` (center-crop or pad, no upscale) before the farm-2026 commit. IG requires 9:16; FB accepts anything; a single prepared image avoids divergence bugs.
+- **No-repost ledger:** `data/on-this-day/posted.json` records every posted UUID with timestamp, lanes, `fb_post_id`, `ig_post_id`, `raw_url`. `already_posted(uuid)` short-circuits the selector so the same photo never cycles twice. Seeded with the 4 FB stories from the earlier partial run. Delete an entry to force a repost.
+- **Back-catalog fallback:** when today's on-this-day pool is exhausted, `_pick_fallback_from_back_catalog()` scans every Photos asset dated 2022/2024/2025 (not just today's month-day), filters by the same content-rejection rules, and returns the top unposted. Boss has "plenty of back catalog to be fucking posting" and now the cadence doesn't starve.
+- **Audit trail:** every 90-min tick appends a row to `data/on-this-day/auto-story-YYYY-MM-DD.ndjson` — success, caption-safety skip, or no-candidate steady-state. Surfaces what the pipeline is doing without having to spelunk `/tmp/on-this-day.err.log`.
+- **Discord restored, redirected:** `tools/on_this_day/reciprocate.py` posts its engager summary to channel `1476787165638951026` via the Bubba Discord bot token at `~/.openclaw/openclaw.json` (same source `tools/discord_harvester.py` uses). NEVER `#farm-2026` — Boss's reaction-quality-gate for IG content — which is what I polluted in v2.36.3 before ripping out Discord based on a misread of Boss's intent. Apology encoded in the module header: "Never go fucking hacking and removing shit based on a guess."
+
+**Not changed:** `fb_poster.py`, `git_helper.py`, the v2.36.4 per-camera sharpness work. No scope creep.
+
+**Live verification:** after reload, `launchctl kickstart -k` fired once (16:59:44) and picked UUID `78A813CD` (2024 flock-foraging shot, score 11) — the first candidate not in the seeded ledger. End-to-end FB + IG result recorded in the posted ledger + audit ndjson.
+
 ### v2.36.4 — per-camera sharpness tolerance in the Discord-post gate (Claude Opus 4.7 (1M context))
 
 Boss flagged that usb-cam / mba-cam / gwtc produce "a little blurry but pretty good" frames — faces visible, multiple birds, clearly worth posting — that the `image_quality=='sharp'` gate was silently rejecting. S7-cam, meanwhile, produces consistently sharp frames and should stay strict (it's the trusted source).

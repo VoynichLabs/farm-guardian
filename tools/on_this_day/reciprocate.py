@@ -54,13 +54,17 @@ from tools.pipeline.fb_poster import (  # noqa: E402
 
 log = logging.getLogger("on_this_day.reciprocate")
 
-# Discord webhook — reused from the farm-2026 channel pattern. Env
-# var name matches what the existing archive-throwback + gem_poster
-# scripts read (DISCORD_WEBHOOK_URL, loaded from .env via
-# tools.pipeline.gem_poster.load_dotenv). That dotenv loader is the
-# canonical way to get this on the Mac Mini — LaunchAgent env blocks
-# don't inherit shell env, so we source the file explicitly.
-DISCORD_WEBHOOK_ENV = "DISCORD_WEBHOOK_URL"
+# Discord destination for the engager summary. This is NOT
+# `#farm-2026` — that channel is the IG-gem reaction-quality-gate
+# (Boss's reactions there trip the IG pipeline, see CLAUDE.md
+# "Instagram posting" section). Per Boss 2026-04-22, engager
+# worklists go to a separate channel in the same guild. We post via
+# the Bubba bot token (already in ~/.openclaw/openclaw.json under
+# channels.discord.token — same source discord_harvester.py reads)
+# rather than via a webhook, so no new webhook setup is required.
+DISCORD_ENGAGERS_CHANNEL_ID = "1476787165638951026"
+DISCORD_API = "https://discord.com/api/v10"
+OPENCLAW_CONFIG = Path.home() / ".openclaw" / "openclaw.json"
 
 # How far back to scan. The Page is new (first FB post 2026-04-21), so
 # 7 days is ample for now; widen later if we start scheduling fewer
@@ -72,10 +76,9 @@ DEFAULT_LOOKBACK_DAYS = 2
 REACTION_PAGE_SIZE = 25
 COMMENT_PAGE_SIZE = 25
 
-# Top-N engagers to surface to Discord. Anything lower is unlikely to
-# matter for reciprocation (they skimmed without clicking reactor
-# ID); anything higher is Discord-message-length overkill.
-DISCORD_TOP_N = 15
+# Top-N engagers to surface in the plain-text summary. Anything lower
+# is unlikely to matter for reciprocation; anything higher is noise.
+PLAINTEXT_TOP_N = 15
 
 OUTPUT_DIR = _REPO_ROOT / "data" / "on-this-day"
 
@@ -266,21 +269,84 @@ def aggregate_engagers(
 # ---------------------------------------------------------------------------
 
 
-def format_discord_summary(
+def _load_bot_token() -> Optional[str]:
+    """Read the shared Bubba Discord bot token from OpenClaw config.
+
+    Returns None if the config is absent or malformed — the caller
+    treats that as "skip Discord post this run" rather than failing
+    the whole harvest.
+    """
+    if not OPENCLAW_CONFIG.exists():
+        log.warning("Discord bot token: %s missing — skipping notify", OPENCLAW_CONFIG)
+        return None
+    try:
+        cfg = json.loads(OPENCLAW_CONFIG.read_text())
+    except (json.JSONDecodeError, OSError) as e:
+        log.warning("Discord bot token: failed to read %s (%s)", OPENCLAW_CONFIG, e)
+        return None
+    token = cfg.get("channels", {}).get("discord", {}).get("token")
+    if not token:
+        log.warning("Discord bot token: channels.discord.token missing in config")
+        return None
+    return token
+
+
+def post_bot_message(channel_id: str, content: str) -> bool:
+    """Send a plain-content message to a Discord channel via the bot
+    API. Returns True on 2xx, False on anything else. Never raises."""
+    token = _load_bot_token()
+    if not token:
+        return False
+
+    # Discord channel messages cap at 2000 characters. Trim politely
+    # at the last newline we can find before the limit.
+    if len(content) > 1990:
+        content = content[:1990].rsplit("\n", 1)[0] + "\n…(truncated)"
+
+    url = f"{DISCORD_API}/channels/{channel_id}/messages"
+    body = json.dumps({"content": content}).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=body,
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bot {token}",
+            "User-Agent": "farm-guardian-reciprocate (https://github.com/VoynichLabs/farm-guardian, 1.0)",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return 200 <= resp.status < 300
+    except urllib.error.HTTPError as e:
+        body_err = e.read().decode("utf-8", errors="replace")
+        log.warning("Discord post %s: %s %s", channel_id, e.code, body_err)
+        return False
+    except (urllib.error.URLError, ConnectionError, TimeoutError) as e:
+        log.warning("Discord post %s: %s", channel_id, e)
+        return False
+
+
+def _plaintext_summary(
     engagers: list[dict],
     top_n: int,
     window_days: int,
 ) -> str:
+    """Human-readable engager worklist written alongside the JSON so
+    Boss can skim it without a JSON viewer. Lives at
+    data/on-this-day/engagers-YYYY-MM-DD.txt. NO Discord output."""
     if not engagers:
         return (
-            f"**Reciprocate worklist** · past {window_days}d · "
-            "no identifiable engagers yet. (Likes without reactor identity "
-            "don't expose name/profile-link via Graph API.)"
+            f"Reciprocate worklist — past {window_days}d\n"
+            "No identifiable engagers yet. (FB Graph suppresses reactor\n"
+            "id/name for non-app-connected users; likes still tally in\n"
+            "post summary.total_count but not in data[].)\n"
         )
 
     lines = [
-        f"**Reciprocate worklist** · past {window_days}d · "
-        f"{len(engagers)} engager(s) · top {min(top_n, len(engagers))} below."
+        f"Reciprocate worklist — past {window_days}d",
+        f"{len(engagers)} engager(s) · top {min(top_n, len(engagers))} below.",
+        "",
     ]
     for row in engagers[:top_n]:
         name = row.get("name") or "(identity hidden by API)"
@@ -290,40 +356,20 @@ def format_discord_summary(
         badge = []
         if r:
             rt = ",".join(f"{k}:{v}" for k, v in row["reaction_types"].items())
-            badge.append(f"{r}× reactions ({rt})")
+            badge.append(f"{r} reactions ({rt})")
         if c:
-            badge.append(f"{c}× comments")
-        sample = ""
-        if row["comment_samples"]:
-            sample = f"  _“{row['comment_samples'][0]}”_"
-        lines.append(f"• **{name}** — {' / '.join(badge)} · <{url}>{sample}")
+            badge.append(f"{c} comments")
+        lines.append(f"• {name} — {' / '.join(badge)}")
+        lines.append(f"    {url}")
+        for sample in row["comment_samples"]:
+            lines.append(f'    "{sample}"')
+        lines.append("")
 
     lines.append(
-        "\n_Click through to follow / friend / like-back manually — "
-        "FB Graph does not expose those actions to Page tokens._"
+        "FB Graph does not expose Page→user follows or likes — "
+        "click through and act manually in the FB app."
     )
     return "\n".join(lines)
-
-
-def post_to_discord(webhook_url: str, content: str) -> None:
-    # Discord caps message content at 2000 chars — trim politely.
-    if len(content) > 1900:
-        content = content[:1900].rsplit("\n", 1)[0] + "\n…(truncated)"
-    body = json.dumps({"content": content}).encode("utf-8")
-    # Discord 403s the default Python-urllib User-Agent. Any non-bot
-    # UA satisfies Cloudflare's WAF on the webhook endpoint.
-    req = urllib.request.Request(
-        webhook_url,
-        data=body,
-        headers={
-            "Content-Type": "application/json",
-            "User-Agent": "farm-guardian-reciprocate/1.0",
-        },
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=10) as resp:
-        if resp.status >= 300:
-            raise RuntimeError(f"Discord webhook returned {resp.status}")
 
 
 # ---------------------------------------------------------------------------
@@ -331,20 +377,8 @@ def post_to_discord(webhook_url: str, content: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _load_dotenv_if_available() -> None:
-    """Source .env so DISCORD_WEBHOOK_URL is available inside a
-    LaunchAgent (which inherits a bare environment). Reuses the
-    canonical loader from tools.pipeline.gem_poster."""
-    try:
-        from tools.pipeline.gem_poster import load_dotenv as _ld
-        _ld(_REPO_ROOT / ".env")
-    except Exception as e:  # noqa: BLE001 — loader absence is non-fatal
-        log.debug("dotenv loader unavailable: %s", e)
-
-
-def run(lookback_days: int, top_n: int, notify: bool) -> int:
+def run(lookback_days: int, top_n: int) -> int:
     _source_meta_env_file()
-    _load_dotenv_if_available()
     creds = _load_fb_credentials()
     page_id = creds["page_id"]
     token = creds["page_token"]
@@ -374,18 +408,20 @@ def run(lookback_days: int, top_n: int, notify: bool) -> int:
     out_path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
     log.info("wrote %s", out_path)
 
-    if notify:
-        webhook = os.environ.get(DISCORD_WEBHOOK_ENV)
-        if not webhook:
-            log.warning(
-                "%s not set in env; Discord summary skipped", DISCORD_WEBHOOK_ENV,
-            )
-        else:
-            try:
-                post_to_discord(webhook, format_discord_summary(engagers, top_n, lookback_days))
-                log.info("posted Discord summary (top %d)", top_n)
-            except Exception:
-                log.exception("Discord webhook failed")
+    # Plain-text summary alongside the JSON so a human browsing
+    # data/on-this-day/ can read the worklist at a glance without
+    # a JSON viewer. NO Discord side-channel — #farm-2026 is the
+    # IG-gem curation channel and this content doesn't belong there.
+    summary_text = _plaintext_summary(engagers, top_n, lookback_days)
+    summary_path = OUTPUT_DIR / f"engagers-{today}.txt"
+    summary_path.write_text(summary_text, encoding="utf-8")
+    log.info("wrote %s", summary_path)
+
+    # Notify Discord — engager channel only. Never #farm-2026.
+    if post_bot_message(DISCORD_ENGAGERS_CHANNEL_ID, summary_text):
+        log.info("posted summary to Discord channel %s", DISCORD_ENGAGERS_CHANNEL_ID)
+    else:
+        log.info("Discord notify skipped (bot token missing or post failed)")
 
     return 0
 
@@ -396,10 +432,9 @@ def _parse_args() -> argparse.Namespace:
     )
     p.add_argument("--lookback-days", type=int, default=DEFAULT_LOOKBACK_DAYS,
                    help=f"How many days back to scan. Default: {DEFAULT_LOOKBACK_DAYS}.")
-    p.add_argument("--top-n", type=int, default=DISCORD_TOP_N,
-                   help=f"How many engagers to surface to Discord. Default: {DISCORD_TOP_N}.")
-    p.add_argument("--no-notify", action="store_true",
-                   help="Skip Discord webhook; only write the JSON.")
+    p.add_argument("--top-n", type=int, default=PLAINTEXT_TOP_N,
+                   help=f"How many engagers to include in the plain-text "
+                        f"summary. Default: {PLAINTEXT_TOP_N}.")
     return p.parse_args()
 
 
@@ -412,7 +447,6 @@ def main() -> int:
     return run(
         lookback_days=args.lookback_days,
         top_n=args.top_n,
-        notify=not args.no_notify,
     )
 
 

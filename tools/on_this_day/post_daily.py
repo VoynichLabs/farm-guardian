@@ -62,6 +62,12 @@ FARM_2026_REPO = Path("/Users/macmini/Documents/GitHub/farm-2026")
 CANDIDATES_DIR = FARM_GUARDIAN_ROOT / "data" / "on-this-day"
 OSXPHOTOS_BIN = Path("/Users/macmini/.local/bin/osxphotos")
 
+# Posted-state ledger. Each UUID we've ever posted as a story is
+# recorded here with the timestamp and lanes hit, so the --auto-story
+# cadence loop doesn't cycle the same photo twice. Never auto-pruned;
+# a human can hand-delete entries to force a repost.
+POSTED_LEDGER = CANDIDATES_DIR / "posted.json"
+
 # Boss strategy (2026-04-22): publish day-to-day as FB *stories*, not
 # feed posts. Stories are cheap (24-hour lifespan, no feed dilution,
 # 0–N per day is fine) and give us a performance signal — later we
@@ -199,6 +205,92 @@ def write_candidates_json(
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Posted-state ledger
+# ---------------------------------------------------------------------------
+
+
+def _load_posted_ledger() -> dict:
+    if not POSTED_LEDGER.exists():
+        return {}
+    try:
+        return json.loads(POSTED_LEDGER.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        log.warning("posted ledger at %s unreadable; treating as empty", POSTED_LEDGER)
+        return {}
+
+
+def _mark_posted(uuid: str, lanes: list[str], fb_post_id: Optional[str],
+                 ig_post_id: Optional[str], raw_url: Optional[str]) -> None:
+    POSTED_LEDGER.parent.mkdir(parents=True, exist_ok=True)
+    ledger = _load_posted_ledger()
+    ledger[uuid] = {
+        "posted_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "lanes": lanes,
+        "fb_post_id": fb_post_id,
+        "ig_post_id": ig_post_id,
+        "raw_url": raw_url,
+    }
+    # Atomic write so a concurrent LaunchAgent kickstart can't
+    # truncate the ledger mid-rewrite.
+    tmp = POSTED_LEDGER.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(ledger, indent=2, default=str), encoding="utf-8")
+    tmp.replace(POSTED_LEDGER)
+
+
+def already_posted(uuid: str) -> bool:
+    return uuid in _load_posted_ledger()
+
+
+# ---------------------------------------------------------------------------
+# IG story publishing — reuses tools.pipeline.ig_poster helpers
+# ---------------------------------------------------------------------------
+
+
+def _publish_ig_story(image_url: str) -> dict:
+    """Post a 9:16 image to Instagram as a 24-hour Story.
+
+    Delegates to the existing ig_poster helpers rather than
+    reimplementing the Graph API dance. Never raises: returns
+    {ok, ig_post_id, permalink, error}. Image must already be 9:16
+    and publicly reachable at image_url (same contract as
+    fb_poster.crosspost_photo_story).
+    """
+    result = {"ok": False, "ig_post_id": None, "permalink": None, "error": None}
+    try:
+        from tools.pipeline import ig_poster
+        creds = ig_poster._load_credentials()
+        container_id = ig_poster._create_story_container(
+            ig_id=creds["ig_id"],
+            image_url=image_url,
+            user_token=creds["user_token"],
+        )
+        ig_poster._wait_for_container(container_id, creds["user_token"])
+        publish_resp = ig_poster._publish(
+            ig_id=creds["ig_id"],
+            container_id=container_id,
+            user_token=creds["user_token"],
+        )
+        result["ig_post_id"] = publish_resp.get("id")
+        result["permalink"] = publish_resp.get("permalink")
+        result["ok"] = bool(result["ig_post_id"])
+        if not result["ok"]:
+            result["error"] = f"ig_poster._publish returned no id: {publish_resp}"
+    except Exception as e:  # noqa: BLE001 — surface any failure as error field
+        result["error"] = f"{type(e).__name__}: {e}"
+        log.warning("ig story publish failed: %s", result["error"])
+    return result
+
+
+def _prepare_9x16(src: Path) -> Path:
+    """Return a path to a 9:16 center-cropped JPEG derived from src.
+    Reuses ig_poster._prepare_story_image so FB + IG consume the same
+    aspect ratio (IG requires it; FB accepts anything; unifying
+    avoids divergence bugs)."""
+    from tools.pipeline import ig_poster
+    return ig_poster._prepare_story_image(src)
+
+
 def _export_and_stage(
     candidate: Candidate,
     target_date: dt.date,
@@ -306,6 +398,127 @@ def publish_carousel(
         }
 
 
+def _publish_one_story(
+    cand: Candidate,
+    target_date: dt.date,
+    workdir: Path,
+    dry_commit: bool,
+    fb: bool = True,
+    ig: bool = True,
+) -> dict:
+    """Export a single candidate, prep 9:16, commit to farm-2026, and
+    publish as Story on FB and/or IG. Returns a result dict — always,
+    never raises. Records to the posted ledger on any successful lane.
+    """
+    result: dict = {
+        "uuid": cand.uuid, "year": cand.year, "score": cand.score,
+        "caption": None, "image_url": None,
+        "fb_post_id": None, "ig_post_id": None, "ig_permalink": None,
+        "lanes": [], "error": None, "lane": "story",
+    }
+
+    try:
+        result["caption"] = compose_caption(cand)
+    except CaptionSafetyError as e:
+        result["error"] = f"CaptionSafetyError: {e}"
+        log.warning("story: skipping %s (unsafe caption): %s", cand.uuid, e)
+        return result
+
+    try:
+        raw_master = _osxphotos_export_uuid(cand.uuid, workdir / cand.uuid)
+        source_jpeg = _to_jpeg_if_needed(raw_master)
+    except Exception as e:
+        result["error"] = f"export: {e!r}"
+        log.exception("story export failed for %s", cand.uuid)
+        return result
+
+    # Prepare 9:16. Both FB Page Stories and IG Stories render as
+    # 9:16; using a single prepared image keeps the published URL
+    # identical for both lanes.
+    try:
+        staged_9x16 = _prepare_9x16(source_jpeg)
+    except Exception as e:
+        result["error"] = f"9:16 prep: {e!r}"
+        log.exception("9:16 prep failed for %s", cand.uuid)
+        return result
+
+    stable_name = (
+        f"{target_date.isoformat()}-{cand.year}-{cand.uuid}-9x16.jpg"
+    )
+    staged = workdir / stable_name
+    shutil.copy2(staged_9x16, staged)
+    try:
+        staged_9x16.unlink(missing_ok=True)
+    except Exception:  # noqa: BLE001
+        pass
+
+    if dry_commit:
+        log.info("dry_commit: 9:16 staged at %s; skipping farm-2026 + FB + IG", staged)
+        return result
+
+    subdir = f"on-this-day/{target_date.isoformat()}/stories"
+    commit_msg = (
+        f"on-this-day story: {target_date.isoformat()} — "
+        f"{cand.year} {cand.uuid[:8]} [score={cand.score}]"
+    )
+    try:
+        _, raw_url = git_helper.commit_image_to_farm_2026(
+            local_image=staged,
+            subdir=subdir,
+            repo_path=FARM_2026_REPO,
+            commit_message=commit_msg,
+        )
+    except Exception as e:
+        result["error"] = f"git_helper: {e!r}"
+        log.exception("farm-2026 commit failed for %s", cand.uuid)
+        return result
+    result["image_url"] = raw_url
+
+    # Lane A: FB Page Story.
+    if fb:
+        fb_result = fb_poster.crosspost_photo_story(image_url=raw_url)
+        log.info(
+            "FB story %s → ok=%s fb_post_id=%s",
+            cand.uuid[:8], fb_result.get("ok"), fb_result.get("fb_post_id"),
+        )
+        if fb_result.get("fb_post_id"):
+            result["fb_post_id"] = fb_result["fb_post_id"]
+            result["lanes"].append("fb_story")
+        elif fb_result.get("error"):
+            # Capture FB error but keep attempting IG — one lane's
+            # failure should not gate the other.
+            result["error"] = f"fb: {fb_result['error']}"
+
+    # Lane B: IG Story.
+    if ig:
+        ig_result = _publish_ig_story(image_url=raw_url)
+        log.info(
+            "IG story %s → ok=%s ig_post_id=%s",
+            cand.uuid[:8], ig_result.get("ok"), ig_result.get("ig_post_id"),
+        )
+        if ig_result.get("ig_post_id"):
+            result["ig_post_id"] = ig_result["ig_post_id"]
+            result["ig_permalink"] = ig_result.get("permalink")
+            result["lanes"].append("ig_story")
+        elif ig_result.get("error"):
+            prior = result["error"]
+            result["error"] = (
+                f"{prior} | ig: {ig_result['error']}" if prior
+                else f"ig: {ig_result['error']}"
+            )
+
+    if result["lanes"]:
+        _mark_posted(
+            uuid=cand.uuid,
+            lanes=result["lanes"],
+            fb_post_id=result["fb_post_id"],
+            ig_post_id=result["ig_post_id"],
+            raw_url=raw_url,
+        )
+
+    return result
+
+
 def publish_stories(
     candidates: list[Candidate],
     target_date: dt.date,
@@ -331,71 +544,9 @@ def publish_stories(
     with tempfile.TemporaryDirectory(prefix="on-this-day-stories-") as tmpdir:
         tmpdir_path = Path(tmpdir)
         for cand in candidates:
-            try:
-                per_photo_caption = compose_caption(cand)
-            except CaptionSafetyError as e:
-                log.warning("story: skipping %s (unsafe caption): %s", cand.uuid, e)
-                results.append({
-                    "uuid": cand.uuid, "year": cand.year, "score": cand.score,
-                    "caption": None, "image_url": None,
-                    "fb_post_id": None, "error": f"CaptionSafetyError: {e}",
-                    "lane": "story",
-                })
-                continue
-
-            try:
-                staged = _export_and_stage(cand, target_date, tmpdir_path)
-            except Exception as e:
-                log.exception("story: export failed for %s", cand.uuid)
-                results.append({
-                    "uuid": cand.uuid, "year": cand.year, "score": cand.score,
-                    "caption": per_photo_caption, "image_url": None,
-                    "fb_post_id": None, "error": repr(e), "lane": "story",
-                })
-                continue
-
-            if dry_commit:
-                results.append({
-                    "uuid": cand.uuid, "year": cand.year, "score": cand.score,
-                    "caption": per_photo_caption, "image_url": None,
-                    "fb_post_id": None, "error": None,
-                    "lane": "story", "dry_commit": True,
-                })
-                continue
-
-            subdir = f"on-this-day/{target_date.isoformat()}/stories"
-            commit_msg = (
-                f"on-this-day story: {target_date.isoformat()} — "
-                f"{cand.year} {cand.uuid[:8]} [score={cand.score}]"
+            results.append(
+                _publish_one_story(cand, target_date, tmpdir_path, dry_commit=dry_commit)
             )
-            try:
-                _, raw_url = git_helper.commit_image_to_farm_2026(
-                    local_image=staged,
-                    subdir=subdir,
-                    repo_path=FARM_2026_REPO,
-                    commit_message=commit_msg,
-                )
-            except Exception as e:
-                log.exception("story: farm-2026 commit failed for %s", cand.uuid)
-                results.append({
-                    "uuid": cand.uuid, "year": cand.year, "score": cand.score,
-                    "caption": per_photo_caption, "image_url": None,
-                    "fb_post_id": None, "error": f"git_helper: {e}", "lane": "story",
-                })
-                continue
-
-            fb_result = fb_poster.crosspost_photo_story(image_url=raw_url)
-            log.info(
-                "story %s → ok=%s fb_post_id=%s",
-                cand.uuid[:8], fb_result.get("ok"), fb_result.get("fb_post_id"),
-            )
-            results.append({
-                "uuid": cand.uuid, "year": cand.year, "score": cand.score,
-                "caption": per_photo_caption, "image_url": raw_url,
-                "fb_post_id": fb_result.get("fb_post_id"),
-                "error": fb_result.get("error"),
-                "lane": "story",
-            })
 
     return results
 
@@ -456,6 +607,128 @@ def publish_candidate(
 # ---------------------------------------------------------------------------
 
 
+def _pick_next_unposted_for_today(
+    target_date: dt.date, top_n: int,
+) -> Optional[Candidate]:
+    """Return the highest-scoring unposted on-this-day candidate for
+    target_date, or None if every eligible row has already been posted.
+    """
+    candidates = select_candidates(target_date=target_date, top_n=top_n, include_rejected=False)
+    for cand in candidates:
+        if not already_posted(cand.uuid):
+            return cand
+    return None
+
+
+def _pick_fallback_from_back_catalog() -> Optional[Candidate]:
+    """When today's on-this-day pool is exhausted, pick the
+    highest-scoring unposted catalog row from any date in 2022/2024/2025.
+
+    Scans ALL Photos.sqlite assets with a date in the eligible years
+    (no month-day filter), joins the catalog, filters-and-ranks via
+    the same selector scoring path, and returns the top unposted.
+
+    Heavier than the normal on-this-day query (full table scan over
+    ~78k rows) but we only pay it when the daily pool is dry — and the
+    posted ledger shrinks the usable set over time, so "exhausted" is
+    the eventual steady state.
+    """
+    from .selector import (
+        _open_photos_db_readonly,
+        _cocoa_to_datetime,
+        _score_row,
+        load_catalog_index,
+        ELIGIBLE_YEARS,
+    )
+    catalog = load_catalog_index()
+    ledger = _load_posted_ledger()
+    eligible_years = set(ELIGIBLE_YEARS)
+
+    scored: list[tuple[int, str, dt.datetime, dict]] = []  # (score, uuid, taken, row)
+    with _open_photos_db_readonly() as conn:
+        rows = conn.execute(
+            "SELECT ZUUID, ZDATECREATED FROM ZASSET "
+            "WHERE ZTRASHEDDATE IS NULL AND ZHIDDEN = 0 AND ZKIND = 0 "
+            "  AND ZDATECREATED IS NOT NULL"
+        )
+        for row in rows:
+            uuid = row["ZUUID"]
+            if not uuid or uuid in ledger:
+                continue
+            cat_row = catalog.get(uuid)
+            if cat_row is None:
+                continue
+            try:
+                taken_local = _cocoa_to_datetime(row["ZDATECREATED"]).astimezone()
+            except (TypeError, ValueError, OSError):
+                continue
+            if taken_local.year not in eligible_years:
+                continue
+            score, reason = _score_row(cat_row)
+            if reason is not None or score <= 0:
+                continue
+            scored.append((score, uuid, taken_local, cat_row))
+
+    if not scored:
+        return None
+    scored.sort(key=lambda t: (t[0], t[2].year), reverse=True)
+    top_score, uuid, taken_local, cat_row = scored[0]
+    source_path = Path(cat_row.get("source_path", ""))
+    return Candidate(
+        uuid=uuid,
+        date_taken=taken_local,
+        year=taken_local.year,
+        source_path=source_path,
+        catalog_row=cat_row,
+        score=top_score,
+    )
+
+
+def run_auto_story_cycle(dry_commit: bool = False) -> dict:
+    """One LaunchAgent tick. Pick the top unposted candidate (today's
+    on-this-day pool first, back-catalog fallback next), publish as
+    FB + IG Story, record to the posted ledger.
+
+    Always returns a dict describing what happened; never raises. An
+    empty return (no_candidate=True) is a normal steady-state result
+    when the back catalog is exhausted.
+    """
+    target_date = dt.date.today()
+    cand = _pick_next_unposted_for_today(target_date, top_n=15)
+    source = "on-this-day"
+    if cand is None:
+        cand = _pick_fallback_from_back_catalog()
+        source = "back-catalog"
+    if cand is None:
+        log.info("auto-story: no unposted candidates anywhere — nothing to do")
+        return {"posted": False, "no_candidate": True, "target_date": target_date.isoformat()}
+
+    log.info(
+        "auto-story: picked %s source=%s year=%s score=%s",
+        cand.uuid[:8], source, cand.year, cand.score,
+    )
+    with tempfile.TemporaryDirectory(prefix="on-this-day-auto-") as tmpdir:
+        result = _publish_one_story(
+            cand, target_date, Path(tmpdir), dry_commit=dry_commit,
+        )
+    result["posted"] = bool(result.get("lanes"))
+    result["no_candidate"] = False
+    result["source"] = source
+    result["target_date"] = target_date.isoformat()
+
+    # Append to a rolling audit log so successive 90-min fires leave a
+    # visible trail without overwriting each other.
+    audit_path = CANDIDATES_DIR / f"auto-story-{target_date.isoformat()}.ndjson"
+    audit_path.parent.mkdir(parents=True, exist_ok=True)
+    with audit_path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps({
+            "fired_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+            **result,
+        }, default=str) + "\n")
+    log.info("auto-story: appended audit row to %s", audit_path)
+    return result
+
+
 def _parse_date(s: str) -> dt.date:
     try:
         return dt.date.fromisoformat(s)
@@ -493,6 +766,11 @@ def _parse_args() -> argparse.Namespace:
                    help="Dry-run only: include filtered rows with rejection_reason.")
     p.add_argument("--dry-commit", action="store_true",
                    help="Publish path: export + caption but skip farm-2026 push + FB call.")
+    p.add_argument("--auto-story", action="store_true",
+                   help="One-cycle mode: pick the top unposted candidate and "
+                        "post it as a FB+IG Story. Respects the posted ledger "
+                        "so the same photo isn't published twice. This is what "
+                        "the LaunchAgent fires every 90 minutes.")
     return p.parse_args()
 
 
@@ -502,6 +780,13 @@ def main() -> int:
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
     )
     args = _parse_args()
+
+    # Auto-story short-circuits before the candidate write-JSON path
+    # because it's driven by the posted ledger, not by top-N selection.
+    if args.auto_story:
+        cycle = run_auto_story_cycle(dry_commit=args.dry_commit)
+        return 0 if (cycle.get("posted") or cycle.get("no_candidate")) else 1
+
     target_date = args.date or dt.date.today()
 
     candidates = select_candidates(
