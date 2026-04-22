@@ -263,7 +263,7 @@ def run_cycle(camera_name: str, camera_cfg: dict, cfg: dict, schema: dict,
 
     # Auto-post gems to Discord. Never break the cycle on a failed post.
     try:
-        if should_post(vlm_result["metadata"], store_result["tier"]):
+        if should_post(vlm_result["metadata"], store_result["tier"], camera_id=camera_name):
             import os as _os
             webhook = _os.environ.get("DISCORD_WEBHOOK_URL", "")
             post_gem(

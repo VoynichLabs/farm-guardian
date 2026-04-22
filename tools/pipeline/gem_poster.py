@@ -30,45 +30,66 @@ _USERNAME_BY_CAMERA = {
 }
 
 
-def should_post(vlm_metadata: dict, tier: str) -> bool:
+def should_post(vlm_metadata: dict, tier: str, camera_id: Optional[str] = None) -> bool:
     """Gem predicate, refined across the 2026-04-16 evening session:
 
       v2.28.3  tier=strong OR (tier=decent + bird_count>=2)  'multiple faces'
       v2.28.5  sharp + bird_count>=1  (dropped tier gate)    'nothing posts'
       v2.28.6  + bird_face_visible                           'not its fluffy ass'
       v2.28.7           drop face requirement                'VLM cannot reliably tell what a face is'
-      v2.36.3  (this)   + share_worth != 'skip'              'butts still slipping through; lean on VLM skip judgment'
+      v2.36.3           + share_worth != 'skip'              'butts still slipping through; lean on VLM skip judgment'
+      v2.36.4  (this)   per-camera sharpness tolerance       's7 strict; others allow soft when faces or >=2 birds'
 
-    2026-04-22: Boss flagged a sharp-but-butt-forward s7-cam frame landing
-    in #farm-2026. Root cause: predicate checked image_quality + bird_count
-    but ignored the VLM's holistic `share_worth` verdict, even though the
-    prompt explicitly tells Gemma-4 that butt-forward huddles are a
-    skip-demote regardless of sharpness. We're not re-adding
-    bird_face_visible (v2.28.6's failure mode still applies — the flag is
-    noisy per-frame). Instead we use `share_worth` because:
-      - it's a holistic judgment the VLM already makes
-      - the prompt's skip rules already call out fluffy-butt piles
-      - we've already paid the VLM call; this is a free extra signal
-    Accepted risk: if the VLM mis-tags a butt shot as 'decent' or
-    'strong', it still posts. Next lever if that recurs is prompt-side
-    (sharpen the skip clause), not more code gates.
+    2026-04-22: Boss flagged that usb-cam / mba-cam / gwtc gems that are
+    'a little blurry but pretty good' (faces visible, multiple birds) never
+    reach Discord because the sharp-only gate rejects them. s7-cam, by
+    contrast, produces consistently sharp frames — leave it alone. So the
+    gate now branches on camera_id:
 
-      - image_quality NOT 'sharp'  → skip (compression-artifact defense)
-      - bird_count < 1             → skip (empty frame)
-      - share_worth == 'skip'      → skip (VLM's own 'not archive-worthy'
-                                          verdict — catches butt-forward
-                                          and no-subject frames)
-      - otherwise                  → post"""
+      - s7-cam (+ any camera_id we don't recognize as non-s7):
+          image_quality must be 'sharp'. Unchanged.
+      - every other camera (usb-cam, mba-cam, gwtc, house-yard, iphone-cam):
+          image_quality may be 'sharp' OR 'soft', but if 'soft' we also
+          require a face signal — either bird_face_visible=True, or
+          bird_count>=2 (proxy for 'crowd, some face is likely visible').
+          'blurred' still rejected; soft-without-faces still rejected.
+
+    bird_face_visible was pulled in v2.28.6 because Gemma-4's flag was
+    noisy. We're on qwen3.6-35b-a3b now and Boss has been eyeballing
+    output for weeks — the flag is acceptable to him. And the multi-bird
+    fallback (bird_count>=2) keeps content flowing even if the face flag
+    is wrong on a given frame.
+
+    share_worth != 'skip' still applies universally — the VLM's own
+    butt-forward / not-archive-worthy verdict wins.
+
+    Non-sharp rules:
+      - image_quality 'blurred' → reject (always)
+      - image_quality 'soft'     → reject for s7-cam; on others, require
+                                   bird_face_visible OR bird_count>=2
+      - image_quality 'sharp'    → accept (subject to other gates)
+    Bird rules:
+      - bird_count < 1           → reject
+    Holistic:
+      - share_worth == 'skip'    → reject"""
     iq = vlm_metadata.get("image_quality")
     bc = vlm_metadata.get("bird_count", 0)
     sw = vlm_metadata.get("share_worth")
-    if iq != "sharp":
+    face_visible = bool(vlm_metadata.get("bird_face_visible"))
+
+    if sw == "skip":
         return False
     if not isinstance(bc, int) or bc < 1:
         return False
-    if sw == "skip":
-        return False
-    return True
+
+    # Camera-specific sharpness tolerance. s7-cam (the consistently-sharp
+    # source Boss trusts) keeps the strict rule; other cameras get a
+    # face-signal fallback on 'soft' frames.
+    if iq == "sharp":
+        return True
+    if iq == "soft" and camera_id != "s7-cam" and camera_id is not None:
+        return face_visible or bc >= 2
+    return False
 
 
 def load_dotenv(path: Path) -> None:
