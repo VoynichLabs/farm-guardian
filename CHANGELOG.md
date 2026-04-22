@@ -30,6 +30,27 @@ New tool: [`tools/on_this_day/`](tools/on_this_day/) — mines the Qwen-describe
 
 **Not yet live / operational TODOs:** (1) full catalog backfill run (56k uncatalogued photos, multi-hour LM Studio job); (2) LaunchAgent for a daily 07:00 dry-run so Boss can spot-check and decide whether to promote to `--publish`. Both are scheduling decisions, not code gaps.
 
+### v2.35.2 — s7-cam honors EXIF Orientation; portrait phone emits portrait frames (Claude Opus 4.7 (1M context))
+
+Boss stood the S7 upright for portrait IG/FB stories and found Guardian was still streaming landscape. Root cause: IP Webcam always emits sensor-native 1920×1080 landscape pixels, encoding portrait via an EXIF `Orientation=6` tag. `cv2.imdecode` ignores EXIF, so every Python consumer (Guardian capture, VLM pipeline, gem JPEG committer, IG/FB publishers) saw a sideways frame. Browsers respected the EXIF tag, but the backend didn't — silent mismatch.
+
+**Fix:** a small helper `_apply_exif_rotation(jpeg_bytes)` added in two places, both at the earliest possible capture boundary:
+
+- [`capture.py`](capture.py) — called inside `HttpUrlSnapshotSource._loop` **before** `cv2.imdecode`. Covers Guardian's s7-cam feed, the dashboard snapshot, and anyone pulling `/api/cameras/s7-cam/frame`. The preserved `jpeg_bytes` on the `FrameResult` is now the rotated version too, so downstream consumers of either the numpy array or the raw JPEG agree on orientation.
+- [`tools/pipeline/capture.py`](tools/pipeline/capture.py) — called at the tail of `capture_ip_webcam()` before returning. Covers the VLM pipeline's dedicated pull path that feeds `image_archive`, gem storage, and the IG/FB publishers.
+
+The helper uses Pillow's `ImageOps.exif_transpose` to physically rotate the pixels, strips the EXIF tag on re-encode (prevents double-rotation by any downstream viewer that does respect EXIF), and is a no-op for Orientation=1 / absent EXIF. Failures catch-all back to the original bytes so an orientation bug can never kill the capture loop.
+
+**Phone-side setup applied the same session:**
+- `curl http://192.168.0.249:8080/settings/orientation?set=portrait`
+- `curl http://192.168.0.249:8080/settings/photo_rotation?set=90`
+
+Verified live: `GET /api/cameras/s7-cam/frame` now returns 1080×1920. Next gem committed to `farm-2026/public/photos/...` will be portrait-native; IG stories will fill the 9:16 surface edge-to-edge instead of center-cropping a landscape shot.
+
+**Performance:** adds ~15-25ms per s7-cam snapshot for the Pillow decode + re-encode. At 5s capture cadence, negligible. Helper is universal on `HttpUrlSnapshotSource` (so usb-cam and iphone-cam also flow through it), but those sources emit Orientation=1 / no-EXIF JPEGs, so it returns early and costs nothing.
+
+**If a future agent sees "s7-cam is sideways" in a dashboard tile or gem**, check in order: (1) IP Webcam `status.json` for `curvals.photo_rotation`, (2) whether the capture module's `_apply_exif_rotation` ran (Pillow import failure would skip it via except-all, log nothing). Don't flip the phone — the rotation is deliberate.
+
 ### v2.35.1 — FB cross-post LIVE: tokens current, full publish access granted (Claude Opus 4.7 (1M context))
 
 The v2.35.0 FB cross-post pipeline is now live. First real FB post: https://www.facebook.com/122176308710784044/posts/122176308566784044 (mirrors IG `DXXpbw7k31l`, fired via `fb_poster.crosspost_photo()` — the same entry point `ig_poster.py` calls in production).
