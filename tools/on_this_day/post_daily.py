@@ -75,23 +75,19 @@ POSTED_LEDGER = CANDIDATES_DIR / "posted.json"
 # that iCloud has usually warmed up.
 EXPORT_FAILURE_LEDGER = CANDIDATES_DIR / "export-failures.json"
 
-# osxphotos download ceiling. Empirically calibrated over the
-# 2026-04-22 rollout: 4K HEICs that were offloaded to iCloud during
-# low-disk-space reclaim can take 4-10 minutes to re-download on the
-# residential uplink. 300s was too tight (blacklisted usable photos);
-# 240s blacklisted every photo in one cycle. 600s (10 min) is long
-# enough for essentially every real photo while still letting us
-# give up on genuinely-stuck cases. Worst-case per cycle:
-#   3 attempts × 600s = 1800s = 30 min — comfortably inside the
-#   90-min LaunchAgent cadence (5400s).
-# Photos that fail within this window get another shot tomorrow when
-# the export-failure blacklist resets.
-OSXPHOTOS_EXPORT_TIMEOUT = 600
+# osxphotos export timeout. Since we dropped --download-missing
+# (see the long comment in _osxphotos_export_uuid), a local-materialised
+# photo exports in 15-20s and a cloud-only one fails immediately.
+# 120s is ample for any legitimate local export including HEIC→JPEG
+# resamples osxphotos does internally. Stuck-in-iCloud photos no
+# longer drive the timeout budget.
+OSXPHOTOS_EXPORT_TIMEOUT = 120
 
-# Max candidates to try within one auto-story cycle. 3 attempts at
-# 600s each is the right ratio for the 90-min cadence — tolerates a
-# couple of stuck UUIDs without overlapping the next tick.
-AUTO_STORY_MAX_ATTEMPTS = 3
+# Max candidates to try within one auto-story cycle. With fast local
+# exports, we can afford to skip through a handful of cloud-only
+# misses before giving up. 8 attempts × 120s = 16 min worst case —
+# well inside the 90-min cadence.
+AUTO_STORY_MAX_ATTEMPTS = 8
 
 # Boss strategy (2026-04-22): publish day-to-day as FB *stories*, not
 # feed posts. Stories are cheap (24-hour lifespan, no feed dilution,
@@ -132,15 +128,21 @@ def _osxphotos_export_uuid(uuid: str, dest_dir: Path) -> Path:
         )
     dest_dir.mkdir(parents=True, exist_ok=True)
 
-    # --download-missing pulls cloud-only originals from iCloud on
-    # demand. --skip-original-if-edited keeps the edited version when
-    # Boss has curated a shot. --touch-file sets the filesystem mtime
-    # to match EXIF so downstream tools see the real capture date.
+    # --download-missing is DELIBERATELY NOT PASSED. It was causing
+    # 10-minute iCloud-verification hangs even for locally-materialised
+    # photos (verified 2026-04-22: same UUID that timed out at 600s
+    # exported in 17s without the flag). When a photo is truly
+    # cloud-only, osxphotos will skip it (reporting `missing: 1`) and
+    # we'll get zero files in dest_dir; the caller raises RuntimeError,
+    # the cycle blacklists the UUID, and the retry loop moves on to
+    # the next candidate. Photos.app's background iCloud sync usually
+    # has the photo local by the next day.
+    # --skip-original-if-edited keeps the edited version when Boss has
+    # curated a shot. --touch-file sets filesystem mtime to match EXIF.
     cmd = [
         str(OSXPHOTOS_BIN), "export",
         str(dest_dir),
         "--uuid", uuid,
-        "--download-missing",
         "--skip-original-if-edited",
         "--touch-file",
         "--no-progress",
