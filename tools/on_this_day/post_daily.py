@@ -60,7 +60,6 @@ log = logging.getLogger("on_this_day.post_daily")
 FARM_GUARDIAN_ROOT = Path(__file__).resolve().parents[2]
 FARM_2026_REPO = Path("/Users/macmini/Documents/GitHub/farm-2026")
 CANDIDATES_DIR = FARM_GUARDIAN_ROOT / "data" / "on-this-day"
-OSXPHOTOS_BIN = Path("/Users/macmini/.local/bin/osxphotos")
 
 # Posted-state ledger. Each UUID we've ever posted as a story is
 # recorded here with the timestamp and lanes hit, so the --auto-story
@@ -75,18 +74,11 @@ POSTED_LEDGER = CANDIDATES_DIR / "posted.json"
 # that iCloud has usually warmed up.
 EXPORT_FAILURE_LEDGER = CANDIDATES_DIR / "export-failures.json"
 
-# osxphotos export timeout. Since we dropped --download-missing
-# (see the long comment in _osxphotos_export_uuid), a local-materialised
-# photo exports in 15-20s and a cloud-only one fails immediately.
-# 120s is ample for any legitimate local export including HEIC→JPEG
-# resamples osxphotos does internally. Stuck-in-iCloud photos no
-# longer drive the timeout budget.
-OSXPHOTOS_EXPORT_TIMEOUT = 120
-
-# Max candidates to try within one auto-story cycle. With fast local
-# exports, we can afford to skip through a handful of cloud-only
-# misses before giving up. 8 attempts × 120s = 16 min worst case —
-# well inside the 90-min cadence.
+# Max candidates to try within one auto-story cycle. Direct-read
+# exports (see _copy_photos_original) either succeed immediately or
+# FileNotFoundError in <1s, so attempts are cheap. 8 attempts lets
+# us skip past a handful of cloud-only photos without overlapping
+# the next 90-min tick.
 AUTO_STORY_MAX_ATTEMPTS = 8
 
 # Boss strategy (2026-04-22): publish day-to-day as FB *stories*, not
@@ -110,63 +102,40 @@ MAX_CAROUSEL_SIZE = 10
 # ---------------------------------------------------------------------------
 
 
-def _osxphotos_export_uuid(uuid: str, dest_dir: Path) -> Path:
-    """Export one Photos asset by UUID to dest_dir and return the path
-    to the exported file. Raises RuntimeError on osxphotos failure.
+def _copy_photos_original(source_path: Path, dest_dir: Path) -> Path:
+    """Direct read of a Photos Library original and copy into dest_dir.
+    Returns the path to the copied file.
 
-    We use osxphotos rather than reading the source_path from the
-    catalog directly because the catalog path points at the Photos
-    Library package internals, which Apple treats as private (TCC may
-    or may not let a subprocess read it depending on the LaunchAgent
-    label's TCC history — see feedback_launchd_tcc_label_rename.md).
-    osxphotos handles that permission dance correctly.
+    Replaces the earlier osxphotos-subprocess path (see commit
+    history). The osxphotos CLI invokes `uv tools`' own Python
+    interpreter, which does NOT hold a kTCCServicePhotos grant, and
+    launchd would hang it indefinitely waiting on a TCC prompt that
+    never surfaces (verified 2026-04-22 with zero-byte stderr tails).
+    The venv python DOES hold the grant — that's why the selector
+    reads Photos.sqlite successfully — so a direct file copy sidesteps
+    the whole TCC cross-process mess.
+
+    The catalog CSV already carries the canonical
+    `source_path` for every indexed photo, pointing at
+    `/Users/macmini/Pictures/Photos Library.photoslibrary/originals/
+    {folder}/{UUID}.{heic|jpeg|png}`. We read from there directly.
+    If the file isn't locally materialised (cloud-only), open() fails
+    fast and the retry loop moves on.
+
+    Raises:
+      FileNotFoundError — source isn't on disk (cloud-only or deleted).
+      OSError — any other read failure (treat as a non-retriable
+                export issue; caller blacklists).
     """
-    if not OSXPHOTOS_BIN.exists():
-        raise FileNotFoundError(
-            f"osxphotos not found at {OSXPHOTOS_BIN}. Install via "
-            "`uv tool install osxphotos` or update the constant."
-        )
+    if not source_path:
+        raise FileNotFoundError("catalog row has empty source_path")
+    if not source_path.exists():
+        raise FileNotFoundError(f"photo not local: {source_path}")
+
     dest_dir.mkdir(parents=True, exist_ok=True)
-
-    # --download-missing is DELIBERATELY NOT PASSED. It was causing
-    # 10-minute iCloud-verification hangs even for locally-materialised
-    # photos (verified 2026-04-22: same UUID that timed out at 600s
-    # exported in 17s without the flag). When a photo is truly
-    # cloud-only, osxphotos will skip it (reporting `missing: 1`) and
-    # we'll get zero files in dest_dir; the caller raises RuntimeError,
-    # the cycle blacklists the UUID, and the retry loop moves on to
-    # the next candidate. Photos.app's background iCloud sync usually
-    # has the photo local by the next day.
-    # --skip-original-if-edited keeps the edited version when Boss has
-    # curated a shot. --touch-file sets filesystem mtime to match EXIF.
-    cmd = [
-        str(OSXPHOTOS_BIN), "export",
-        str(dest_dir),
-        "--uuid", uuid,
-        "--skip-original-if-edited",
-        "--touch-file",
-        "--no-progress",
-    ]
-    log.info("osxphotos export %s → %s", uuid, dest_dir)
-    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=OSXPHOTOS_EXPORT_TIMEOUT)
-    if proc.returncode != 0:
-        raise RuntimeError(
-            f"osxphotos export failed (rc={proc.returncode}): "
-            f"{proc.stderr.strip() or proc.stdout.strip()}"
-        )
-
-    # Find the exported file. osxphotos uses the original filename by
-    # default — we don't assume the extension because HEIC/JPEG/PNG
-    # are all possible.
-    candidates = [p for p in dest_dir.iterdir() if p.is_file() and not p.name.startswith(".")]
-    if not candidates:
-        raise RuntimeError(f"osxphotos export produced no files for uuid {uuid}")
-    if len(candidates) > 1:
-        # Pick the largest; Live Photo exports sometimes drop a
-        # sidecar .mov + .jpg pair. The JPEG is always the bigger one
-        # for modern iPhone photos, but we sort by size defensively.
-        candidates.sort(key=lambda p: p.stat().st_size, reverse=True)
-    return candidates[0]
+    dest = dest_dir / source_path.name
+    shutil.copy2(source_path, dest)
+    return dest
 
 
 def _to_jpeg_if_needed(src: Path) -> Path:
@@ -356,11 +325,12 @@ def _export_and_stage(
     target_date: dt.date,
     workdir: Path,
 ) -> Path:
-    """Export the Photos master for candidate into workdir, convert
-    HEIC→JPEG if needed, rename to a stable public-friendly filename,
-    return the staged path. Pure side-effect-on-disk; no git, no FB."""
+    """Copy the Photos Library original for candidate into workdir,
+    convert HEIC→JPEG if needed, rename to a stable public-friendly
+    filename, return the staged path. Pure side-effect-on-disk; no
+    git, no FB."""
     export_subdir = workdir / candidate.uuid
-    raw_master = _osxphotos_export_uuid(candidate.uuid, export_subdir)
+    raw_master = _copy_photos_original(candidate.source_path, export_subdir)
     jpeg = _to_jpeg_if_needed(raw_master)
     stable_name = (
         f"{target_date.isoformat()}-{candidate.year}-"
@@ -485,16 +455,18 @@ def _publish_one_story(
         return result
 
     try:
-        raw_master = _osxphotos_export_uuid(cand.uuid, workdir / cand.uuid)
+        raw_master = _copy_photos_original(cand.source_path, workdir / cand.uuid)
         source_jpeg = _to_jpeg_if_needed(raw_master)
-    except subprocess.TimeoutExpired as e:
-        result["error"] = f"osxphotos timeout after {OSXPHOTOS_EXPORT_TIMEOUT}s"
-        log.warning("export timeout for %s — blacklisting until tomorrow", cand.uuid)
-        _record_export_failure(cand.uuid, result["error"])
+    except FileNotFoundError as e:
+        # Cloud-only / missing-from-disk. Blacklist for today; tomorrow
+        # Photos.app's background sync may have pulled it down.
+        result["error"] = f"photo not local: {e}"
+        log.warning("photo not local for %s — blacklisting until tomorrow", cand.uuid)
+        _record_export_failure(cand.uuid, str(e))
         return result
     except Exception as e:
         result["error"] = f"export: {e!r}"
-        log.exception("story export failed for %s", cand.uuid)
+        log.exception("export failed for %s", cand.uuid)
         _record_export_failure(cand.uuid, repr(e))
         return result
 
