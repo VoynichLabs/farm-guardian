@@ -18,6 +18,12 @@
     <dict>
         <key>PATH</key>
         <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <!-- HOME is NOT inherited by LaunchAgents by default. osxphotos
+             silently hangs on its internal sqlite cache when HOME is
+             unset (verified 2026-04-22: same UUIDs that timed out
+             under launchd exported in 20s interactively). -->
+        <key>HOME</key>
+        <string>/Users/macmini</string>
     </dict>
 
     <key>StandardOutPath</key>
