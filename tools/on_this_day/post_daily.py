@@ -327,11 +327,13 @@ def _publish_ig_story(image_url: str) -> dict:
             container_id=container_id,
             user_token=creds["user_token"],
         )
-        result["ig_post_id"] = publish_resp.get("id")
+        # ig_poster._publish returns {"media_id": ..., "permalink": ...}.
+        # Fallback to "id" defensively in case the wrapper shape ever drifts.
+        result["ig_post_id"] = publish_resp.get("media_id") or publish_resp.get("id")
         result["permalink"] = publish_resp.get("permalink")
         result["ok"] = bool(result["ig_post_id"])
         if not result["ok"]:
-            result["error"] = f"ig_poster._publish returned no id: {publish_resp}"
+            result["error"] = f"ig_poster._publish returned no media_id: {publish_resp}"
     except Exception as e:  # noqa: BLE001 — surface any failure as error field
         result["error"] = f"{type(e).__name__}: {e}"
         log.warning("ig story publish failed: %s", result["error"])
