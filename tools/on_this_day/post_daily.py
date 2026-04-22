@@ -68,6 +68,31 @@ OSXPHOTOS_BIN = Path("/Users/macmini/.local/bin/osxphotos")
 # a human can hand-delete entries to force a repost.
 POSTED_LEDGER = CANDIDATES_DIR / "posted.json"
 
+# Transient export-failure blacklist. iCloud-only photos occasionally
+# miss the osxphotos 10-minute download window; without this, the
+# 90-min LaunchAgent would re-pick the same slow UUID on every fire
+# and make zero progress. Entries live until midnight local — after
+# that iCloud has usually warmed up.
+EXPORT_FAILURE_LEDGER = CANDIDATES_DIR / "export-failures.json"
+
+# osxphotos download ceiling, optimised for the auto-story retry
+# loop. 240s (4 min) is intentionally tight: most locally materialised
+# photos export in under 30s, cloud-only photos that take longer than
+# 4 min get blacklisted for the day so we can try the NEXT candidate
+# within the same cycle. Worst-case per cycle is
+# AUTO_STORY_MAX_ATTEMPTS * OSXPHOTOS_EXPORT_TIMEOUT seconds, which
+# must fit inside the 90-min LaunchAgent cadence:
+#   5 attempts × 240s = 1200s = 20 min — comfortably under 5400s.
+# A photo that genuinely needs more time than the timeout gets another
+# shot tomorrow when the export-failure blacklist resets.
+OSXPHOTOS_EXPORT_TIMEOUT = 240
+
+# Max candidates to try within one auto-story cycle before giving up.
+# Protects against a pathological "every photo is stuck in iCloud"
+# state while still being generous enough to skip past 3-4 bad
+# neighbours without human intervention.
+AUTO_STORY_MAX_ATTEMPTS = 5
+
 # Boss strategy (2026-04-22): publish day-to-day as FB *stories*, not
 # feed posts. Stories are cheap (24-hour lifespan, no feed dilution,
 # 0–N per day is fine) and give us a performance signal — later we
@@ -121,7 +146,7 @@ def _osxphotos_export_uuid(uuid: str, dest_dir: Path) -> Path:
         "--no-progress",
     ]
     log.info("osxphotos export %s → %s", uuid, dest_dir)
-    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=OSXPHOTOS_EXPORT_TIMEOUT)
     if proc.returncode != 0:
         raise RuntimeError(
             f"osxphotos export failed (rc={proc.returncode}): "
@@ -240,6 +265,37 @@ def _mark_posted(uuid: str, lanes: list[str], fb_post_id: Optional[str],
 
 def already_posted(uuid: str) -> bool:
     return uuid in _load_posted_ledger()
+
+
+def _load_export_failures() -> dict:
+    if not EXPORT_FAILURE_LEDGER.exists():
+        return {}
+    try:
+        return json.loads(EXPORT_FAILURE_LEDGER.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _record_export_failure(uuid: str, reason: str) -> None:
+    EXPORT_FAILURE_LEDGER.parent.mkdir(parents=True, exist_ok=True)
+    failures = _load_export_failures()
+    failures[uuid] = {
+        "failed_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "local_date": dt.date.today().isoformat(),
+        "reason": reason[:500],
+    }
+    tmp = EXPORT_FAILURE_LEDGER.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(failures, indent=2, default=str), encoding="utf-8")
+    tmp.replace(EXPORT_FAILURE_LEDGER)
+
+
+def _export_failed_today(uuid: str) -> bool:
+    """Treat a failure as blocking only within the same local day.
+    By the next sunrise iCloud has usually caught up."""
+    entry = _load_export_failures().get(uuid)
+    if not entry:
+        return False
+    return entry.get("local_date") == dt.date.today().isoformat()
 
 
 # ---------------------------------------------------------------------------
@@ -427,9 +483,15 @@ def _publish_one_story(
     try:
         raw_master = _osxphotos_export_uuid(cand.uuid, workdir / cand.uuid)
         source_jpeg = _to_jpeg_if_needed(raw_master)
+    except subprocess.TimeoutExpired as e:
+        result["error"] = f"osxphotos timeout after {OSXPHOTOS_EXPORT_TIMEOUT}s"
+        log.warning("export timeout for %s — blacklisting until tomorrow", cand.uuid)
+        _record_export_failure(cand.uuid, result["error"])
+        return result
     except Exception as e:
         result["error"] = f"export: {e!r}"
         log.exception("story export failed for %s", cand.uuid)
+        _record_export_failure(cand.uuid, repr(e))
         return result
 
     # Prepare 9:16. Both FB Page Stories and IG Stories render as
@@ -608,19 +670,22 @@ def publish_candidate(
 
 
 def _pick_next_unposted_for_today(
-    target_date: dt.date, top_n: int,
+    target_date: dt.date, top_n: int, exclude: set[str] | None = None,
 ) -> Optional[Candidate]:
-    """Return the highest-scoring unposted on-this-day candidate for
-    target_date, or None if every eligible row has already been posted.
+    """Return the highest-scoring candidate for target_date that is
+    NOT in the posted ledger, the today-failed export blacklist, or
+    the in-cycle exclude set (UUIDs we've already tried this fire).
     """
+    exclude = exclude or set()
     candidates = select_candidates(target_date=target_date, top_n=top_n, include_rejected=False)
     for cand in candidates:
-        if not already_posted(cand.uuid):
-            return cand
+        if cand.uuid in exclude or already_posted(cand.uuid) or _export_failed_today(cand.uuid):
+            continue
+        return cand
     return None
 
 
-def _pick_fallback_from_back_catalog() -> Optional[Candidate]:
+def _pick_fallback_from_back_catalog(exclude: set[str] | None = None) -> Optional[Candidate]:
     """When today's on-this-day pool is exhausted, pick the
     highest-scoring unposted catalog row from any date in 2022/2024/2025.
 
@@ -640,8 +705,14 @@ def _pick_fallback_from_back_catalog() -> Optional[Candidate]:
         load_catalog_index,
         ELIGIBLE_YEARS,
     )
+    exclude = exclude or set()
     catalog = load_catalog_index()
     ledger = _load_posted_ledger()
+    failed_today = {
+        u for u, v in _load_export_failures().items()
+        if v.get("local_date") == dt.date.today().isoformat()
+    }
+    skip = exclude | set(ledger.keys()) | failed_today
     eligible_years = set(ELIGIBLE_YEARS)
 
     scored: list[tuple[int, str, dt.datetime, dict]] = []  # (score, uuid, taken, row)
@@ -653,7 +724,7 @@ def _pick_fallback_from_back_catalog() -> Optional[Candidate]:
         )
         for row in rows:
             uuid = row["ZUUID"]
-            if not uuid or uuid in ledger:
+            if not uuid or uuid in skip:
                 continue
             cat_row = catalog.get(uuid)
             if cat_row is None:
@@ -685,48 +756,97 @@ def _pick_fallback_from_back_catalog() -> Optional[Candidate]:
 
 
 def run_auto_story_cycle(dry_commit: bool = False) -> dict:
-    """One LaunchAgent tick. Pick the top unposted candidate (today's
-    on-this-day pool first, back-catalog fallback next), publish as
-    FB + IG Story, record to the posted ledger.
+    """One LaunchAgent tick. Walks the candidate queue top-down
+    (today's on-this-day pool first, back-catalog fallback next),
+    skipping UUIDs already posted or failed-today. Publishes the first
+    candidate that exports successfully as a FB + IG Story and records
+    it to the posted ledger. Retries up to AUTO_STORY_MAX_ATTEMPTS
+    times within a single cycle so one slow iCloud download doesn't
+    block the whole run.
 
     Always returns a dict describing what happened; never raises. An
     empty return (no_candidate=True) is a normal steady-state result
-    when the back catalog is exhausted.
+    when the catalog is genuinely exhausted.
     """
     target_date = dt.date.today()
-    cand = _pick_next_unposted_for_today(target_date, top_n=15)
-    source = "on-this-day"
-    if cand is None:
-        cand = _pick_fallback_from_back_catalog()
-        source = "back-catalog"
-    if cand is None:
-        log.info("auto-story: no unposted candidates anywhere — nothing to do")
-        return {"posted": False, "no_candidate": True, "target_date": target_date.isoformat()}
+    tried: set[str] = set()
+    attempts: list[dict] = []
+    final_result: Optional[dict] = None
 
-    log.info(
-        "auto-story: picked %s source=%s year=%s score=%s",
-        cand.uuid[:8], source, cand.year, cand.score,
-    )
-    with tempfile.TemporaryDirectory(prefix="on-this-day-auto-") as tmpdir:
-        result = _publish_one_story(
-            cand, target_date, Path(tmpdir), dry_commit=dry_commit,
+    for attempt in range(AUTO_STORY_MAX_ATTEMPTS):
+        cand = _pick_next_unposted_for_today(target_date, top_n=15, exclude=tried)
+        source = "on-this-day"
+        if cand is None:
+            cand = _pick_fallback_from_back_catalog(exclude=tried)
+            source = "back-catalog"
+        if cand is None:
+            log.info("auto-story: no more unposted candidates — nothing to do")
+            if attempt == 0:
+                final_result = {
+                    "posted": False,
+                    "no_candidate": True,
+                    "target_date": target_date.isoformat(),
+                    "attempts": attempts,
+                }
+            break
+
+        tried.add(cand.uuid)
+        log.info(
+            "auto-story attempt %d: %s source=%s year=%s score=%s",
+            attempt + 1, cand.uuid[:8], source, cand.year, cand.score,
         )
-    result["posted"] = bool(result.get("lanes"))
-    result["no_candidate"] = False
-    result["source"] = source
-    result["target_date"] = target_date.isoformat()
+        with tempfile.TemporaryDirectory(prefix="on-this-day-auto-") as tmpdir:
+            result = _publish_one_story(
+                cand, target_date, Path(tmpdir), dry_commit=dry_commit,
+            )
+        result["source"] = source
+        attempts.append({
+            "uuid": cand.uuid, "source": source, "year": cand.year, "score": cand.score,
+            "lanes": result.get("lanes"), "error": result.get("error"),
+        })
 
-    # Append to a rolling audit log so successive 90-min fires leave a
-    # visible trail without overwriting each other.
+        if result.get("lanes"):
+            result["posted"] = True
+            result["no_candidate"] = False
+            result["target_date"] = target_date.isoformat()
+            result["attempts"] = attempts
+            final_result = result
+            break
+
+        # Dry-commit deliberately stops before git/FB/IG, but the
+        # export succeeded — treat it as "done for this cycle" so the
+        # smoke-test path doesn't hammer 5 candidates.
+        if dry_commit and not result.get("error"):
+            result["posted"] = False
+            result["no_candidate"] = False
+            result["target_date"] = target_date.isoformat()
+            result["attempts"] = attempts
+            final_result = result
+            break
+
+        log.warning(
+            "auto-story attempt %d failed (%s); trying next candidate",
+            attempt + 1, result.get("error"),
+        )
+
+    if final_result is None:
+        final_result = {
+            "posted": False,
+            "no_candidate": False,
+            "exhausted_attempts": True,
+            "target_date": target_date.isoformat(),
+            "attempts": attempts,
+        }
+
     audit_path = CANDIDATES_DIR / f"auto-story-{target_date.isoformat()}.ndjson"
     audit_path.parent.mkdir(parents=True, exist_ok=True)
     with audit_path.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps({
             "fired_at": dt.datetime.now(dt.timezone.utc).isoformat(),
-            **result,
+            **final_result,
         }, default=str) + "\n")
     log.info("auto-story: appended audit row to %s", audit_path)
-    return result
+    return final_result
 
 
 def _parse_date(s: str) -> dt.date:
