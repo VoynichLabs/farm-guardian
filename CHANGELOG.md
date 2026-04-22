@@ -2,7 +2,22 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] - 2026-04-21
+## [Unreleased] - 2026-04-22
+
+### v2.36.1 — On-this-day publishes as a carousel (Claude Opus 4.7 (1M context))
+
+Default publish path on `tools/on_this_day/post_daily.py` is now a single FB carousel of up to 6 photos (cap 10, per FB's `attached_media` limit), not a single-photo post. Boss requested "more than one picture" per day (2026-04-22 feedback); the Qwen catalog regularly surfaces 5–15 on-date candidates across 2024/2025 alone once the screenshot/receipt filter fires, so a carousel matches the signal.
+
+**What changed:**
+
+- `DEFAULT_TOP_N` 5 → 15, `DEFAULT_PUBLISH_N` 1 → 6.
+- New `publish_carousel(candidates, target_date)` — exports each candidate via `osxphotos`, HEIC→JPEG via `sips`, commits all staged JPEGs into `farm-2026/public/photos/on-this-day/YYYY-MM-DD/` via `git_helper.commit_image_to_farm_2026`, then calls the existing `fb_poster.crosspost_carousel(image_urls, caption)` — which is the same entry point the live IG carousel lane already uses.
+- Carousel-level caption is deliberately different from per-photo captions: `"On this day — {Month Day}, from {years}."` rather than a Qwen sentence. FB only renders the /feed `message` once per carousel, so the per-photo sentences would be thrown away anyway.
+- `publish_candidate()` kept for `--uuid` overrides and the new `--single` flag. `--uuid` implies `--single`.
+
+Smoke-tested 2026-04-22: 80 assets matched 04-22 across 2022/2024/2025; 38 accepted; top-15 breakdown was 9 from 2024 (flock/coop/foraging shots, scores 6–11) + 6 from 2025 (hand-held chick portraits, scores 6–7). A publish run with the new defaults would carousel the top 6 (five 2024s + one 2025 by ranking) as one post.
+
+No token or credential changes; rides on the v2.35.x FB cross-post plumbing.
 
 ### v2.36.0 — On-this-day → Facebook pipeline (historical iPhone archive) (Claude Opus 4.7 (1M context))
 

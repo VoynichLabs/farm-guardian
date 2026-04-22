@@ -28,10 +28,16 @@ python3 -m tools.on_this_day.post_daily
 # Dry-run for a specific date — also shows filtered rows with reasons.
 python3 -m tools.on_this_day.post_daily --date 2026-04-21 --include-rejected
 
-# Publish the top-1 candidate to the Yorkies FB Page.
+# Publish the top-6 as a single FB carousel (the default since v2.36.1).
 python3 -m tools.on_this_day.post_daily --publish
 
-# Publish a specific UUID from today's candidate pool.
+# Publish a different number in the carousel (max 10 per FB's limit).
+python3 -m tools.on_this_day.post_daily --publish --publish-n 8
+
+# Publish top-N as SEPARATE single-photo posts instead of a carousel.
+python3 -m tools.on_this_day.post_daily --publish --single --publish-n 3
+
+# Publish a specific UUID from today's candidate pool (implies --single).
 python3 -m tools.on_this_day.post_daily --publish --uuid <ZUUID>
 
 # Export + caption locally, skip the farm-2026 push + FB call. For smoke-testing.

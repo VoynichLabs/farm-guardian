@@ -62,9 +62,14 @@ FARM_2026_REPO = Path("/Users/macmini/Documents/GitHub/farm-2026")
 CANDIDATES_DIR = FARM_GUARDIAN_ROOT / "data" / "on-this-day"
 OSXPHOTOS_BIN = Path("/Users/macmini/.local/bin/osxphotos")
 
-# Commit cap — one FB post a day is the cadence Boss wants.
-DEFAULT_TOP_N = 5
-DEFAULT_PUBLISH_N = 1
+# Commit cap — one FB post a day, but that post should be a carousel
+# of up to ~6 photos so the feed isn't a single-shot trickle. Boss
+# explicitly asked for "more than one picture" per day (2026-04-22).
+DEFAULT_TOP_N = 15
+DEFAULT_PUBLISH_N = 6
+
+# FB Page posts via /feed + attached_media cap at 10 photos per post.
+MAX_CAROUSEL_SIZE = 10
 
 
 # ---------------------------------------------------------------------------
@@ -188,28 +193,126 @@ def write_candidates_json(
 # ---------------------------------------------------------------------------
 
 
+def _export_and_stage(
+    candidate: Candidate,
+    target_date: dt.date,
+    workdir: Path,
+) -> Path:
+    """Export the Photos master for candidate into workdir, convert
+    HEIC→JPEG if needed, rename to a stable public-friendly filename,
+    return the staged path. Pure side-effect-on-disk; no git, no FB."""
+    export_subdir = workdir / candidate.uuid
+    raw_master = _osxphotos_export_uuid(candidate.uuid, export_subdir)
+    jpeg = _to_jpeg_if_needed(raw_master)
+    stable_name = (
+        f"{target_date.isoformat()}-{candidate.year}-"
+        f"{candidate.uuid}{jpeg.suffix.lower()}"
+    )
+    staged = workdir / stable_name
+    shutil.copy2(jpeg, staged)
+    return staged
+
+
+def _compose_carousel_caption(
+    candidates: list[Candidate], target_date: dt.date
+) -> str:
+    """Build a single carousel-level caption summarising the set. The
+    per-image scene descriptions aren't shown once you have a grid post
+    — FB only renders the /feed message. We lead with the date, then
+    list the years present so Boss's friends see 'From 2024 & 2025'
+    type framing."""
+    years = sorted({c.year for c in candidates})
+    year_phrase = " & ".join(str(y) for y in years) if years else "the archive"
+    month_day = target_date.strftime("%B %-d")
+    return f"On this day — {month_day}, from {year_phrase}."
+
+
+def publish_carousel(
+    candidates: list[Candidate],
+    target_date: dt.date,
+    dry_commit: bool = False,
+) -> dict:
+    """Export + commit every candidate, then publish one FB carousel
+    post with all of them. Returns a dict describing the result.
+
+    This is the default publish path (2026-04-22 onward). The
+    single-photo lane is still available via publish_candidate() for
+    callers that want granular control — but day-to-day, carousels
+    are what Boss wants to see on the Page.
+    """
+    if not candidates:
+        raise ValueError("publish_carousel: no candidates to publish")
+    if len(candidates) > MAX_CAROUSEL_SIZE:
+        log.warning(
+            "carousel clipped to %d (FB /feed attached_media cap)", MAX_CAROUSEL_SIZE
+        )
+        candidates = candidates[:MAX_CAROUSEL_SIZE]
+
+    caption = _compose_carousel_caption(candidates, target_date)
+
+    with tempfile.TemporaryDirectory(prefix="on-this-day-carousel-") as tmpdir:
+        tmpdir_path = Path(tmpdir)
+        staged_paths: list[Path] = []
+        for cand in candidates:
+            staged = _export_and_stage(cand, target_date, tmpdir_path)
+            staged_paths.append(staged)
+
+        if dry_commit:
+            log.info(
+                "dry_commit: %d photos staged at %s, skipping farm-2026 + FB",
+                len(staged_paths), tmpdir_path,
+            )
+            return {
+                "uuids": [c.uuid for c in candidates],
+                "caption": caption,
+                "image_urls": [],
+                "fb_post_id": None,
+                "error": None,
+                "dry_commit": True,
+            }
+
+        subdir = f"on-this-day/{target_date.isoformat()}"
+        raw_urls: list[str] = []
+        for cand, staged in zip(candidates, staged_paths):
+            commit_msg = (
+                f"on-this-day: {target_date.isoformat()} carousel — "
+                f"{cand.year} {cand.uuid[:8]} [score={cand.score}]"
+            )
+            _, raw_url = git_helper.commit_image_to_farm_2026(
+                local_image=staged,
+                subdir=subdir,
+                repo_path=FARM_2026_REPO,
+                commit_message=commit_msg,
+            )
+            raw_urls.append(raw_url)
+        log.info("committed %d photos to farm-2026", len(raw_urls))
+
+        fb_result = fb_poster.crosspost_carousel(image_urls=raw_urls, caption=caption)
+        log.info("fb_poster carousel result: %s", fb_result)
+
+        return {
+            "uuids": [c.uuid for c in candidates],
+            "caption": caption,
+            "image_urls": raw_urls,
+            "fb_post_id": fb_result.get("fb_post_id"),
+            "error": fb_result.get("error"),
+            "dry_commit": False,
+        }
+
+
 def publish_candidate(
     candidate: Candidate,
     target_date: dt.date,
     dry_commit: bool = False,
 ) -> dict:
-    """Export the candidate, commit to farm-2026, call fb_poster.
-    Returns a dict with uuid, caption, image_url, fb_post_id, error.
-    dry_commit=True exports the master locally but skips the
-    farm-2026 git push + FB call — useful for smoke tests without
-    creating a public artifact."""
-    caption = compose_caption(candidate)  # raises CaptionSafetyError
+    """Single-photo publish (legacy path — kept for --uuid overrides).
+    Export the candidate, commit to farm-2026, call fb_poster.
+    Returns a dict with uuid, caption, image_url, fb_post_id, error."""
+    caption = compose_caption(candidate)
 
     with tempfile.TemporaryDirectory(prefix="on-this-day-") as tmpdir:
         tmpdir_path = Path(tmpdir)
-        raw_master = _osxphotos_export_uuid(candidate.uuid, tmpdir_path)
-        jpeg = _to_jpeg_if_needed(raw_master)
-
-        # Rename to a stable, descriptive filename for farm-2026. The
-        # UUID prefix guarantees uniqueness across years.
-        stable_name = f"{target_date.isoformat()}-{candidate.year}-{candidate.uuid}{jpeg.suffix.lower()}"
-        staged = tmpdir_path / stable_name
-        shutil.copy2(jpeg, staged)
+        staged = _export_and_stage(candidate, target_date, tmpdir_path)
 
         if dry_commit:
             log.info("dry_commit: skipping farm-2026 push. exported=%s", staged)
@@ -272,10 +375,14 @@ def _parse_args() -> argparse.Namespace:
                    help="Actually post to FB. Without this, --dry-run is implied.")
     p.add_argument("--publish-n", type=int, default=DEFAULT_PUBLISH_N,
                    help=f"How many of the top candidates to publish when --publish. "
-                        f"Default: {DEFAULT_PUBLISH_N}.")
+                        f"Default: {DEFAULT_PUBLISH_N} (carousel). Capped at "
+                        f"{MAX_CAROUSEL_SIZE} by FB's attached_media limit.")
+    p.add_argument("--single", action="store_true",
+                   help="Publish as single-photo posts (one per candidate) instead "
+                        "of one carousel. Rarely wanted; default is carousel.")
     p.add_argument("--uuid", type=str, default=None,
                    help="Publish a specific UUID (must be in today's candidate pool "
-                        "AND be catalogued). Requires --publish.")
+                        "AND be catalogued). Implies --single. Requires --publish.")
     p.add_argument("--include-rejected", action="store_true",
                    help="Dry-run only: include filtered rows with rejection_reason.")
     p.add_argument("--dry-commit", action="store_true",
@@ -314,6 +421,7 @@ def main() -> int:
 
     # Publish path.
     to_publish: list[Candidate]
+    force_single = args.single or bool(args.uuid)
     if args.uuid:
         matched = [c for c in candidates if c.uuid == args.uuid]
         if not matched:
@@ -321,21 +429,35 @@ def main() -> int:
             return 4
         to_publish = matched
     else:
-        # Only publish rows we didn't mark rejected.
         to_publish = [c for c in candidates if not c.rejected][: args.publish_n]
+
+    if not to_publish:
+        log.warning("publish: no eligible candidates after rejection filter")
+        return 0
 
     results: list[dict] = []
     any_error = False
-    for cand in to_publish:
+
+    if force_single:
+        for cand in to_publish:
+            try:
+                results.append(publish_candidate(cand, target_date, dry_commit=args.dry_commit))
+            except CaptionSafetyError as e:
+                log.warning("skipping %s: caption unsafe (%s)", cand.uuid, e)
+                results.append({"uuid": cand.uuid, "error": str(e), "fb_post_id": None})
+                any_error = True
+            except Exception as e:
+                log.exception("publish failed for %s", cand.uuid)
+                results.append({"uuid": cand.uuid, "error": repr(e), "fb_post_id": None})
+                any_error = True
+    else:
         try:
-            results.append(publish_candidate(cand, target_date, dry_commit=args.dry_commit))
-        except CaptionSafetyError as e:
-            log.warning("skipping %s: caption unsafe (%s)", cand.uuid, e)
-            results.append({"uuid": cand.uuid, "error": str(e), "fb_post_id": None})
-            any_error = True
+            results.append(publish_carousel(to_publish, target_date, dry_commit=args.dry_commit))
+            if results[0].get("error"):
+                any_error = True
         except Exception as e:
-            log.exception("publish failed for %s", cand.uuid)
-            results.append({"uuid": cand.uuid, "error": repr(e), "fb_post_id": None})
+            log.exception("carousel publish failed")
+            results.append({"uuids": [c.uuid for c in to_publish], "error": repr(e)})
             any_error = True
 
     # Persist the publish result alongside the dry-run artifact so
