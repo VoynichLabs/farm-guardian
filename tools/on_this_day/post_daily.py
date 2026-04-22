@@ -75,23 +75,23 @@ POSTED_LEDGER = CANDIDATES_DIR / "posted.json"
 # that iCloud has usually warmed up.
 EXPORT_FAILURE_LEDGER = CANDIDATES_DIR / "export-failures.json"
 
-# osxphotos download ceiling, optimised for the auto-story retry
-# loop. 240s (4 min) is intentionally tight: most locally materialised
-# photos export in under 30s, cloud-only photos that take longer than
-# 4 min get blacklisted for the day so we can try the NEXT candidate
-# within the same cycle. Worst-case per cycle is
-# AUTO_STORY_MAX_ATTEMPTS * OSXPHOTOS_EXPORT_TIMEOUT seconds, which
-# must fit inside the 90-min LaunchAgent cadence:
-#   5 attempts × 240s = 1200s = 20 min — comfortably under 5400s.
-# A photo that genuinely needs more time than the timeout gets another
-# shot tomorrow when the export-failure blacklist resets.
-OSXPHOTOS_EXPORT_TIMEOUT = 240
+# osxphotos download ceiling. Empirically calibrated over the
+# 2026-04-22 rollout: 4K HEICs that were offloaded to iCloud during
+# low-disk-space reclaim can take 4-10 minutes to re-download on the
+# residential uplink. 300s was too tight (blacklisted usable photos);
+# 240s blacklisted every photo in one cycle. 600s (10 min) is long
+# enough for essentially every real photo while still letting us
+# give up on genuinely-stuck cases. Worst-case per cycle:
+#   3 attempts × 600s = 1800s = 30 min — comfortably inside the
+#   90-min LaunchAgent cadence (5400s).
+# Photos that fail within this window get another shot tomorrow when
+# the export-failure blacklist resets.
+OSXPHOTOS_EXPORT_TIMEOUT = 600
 
-# Max candidates to try within one auto-story cycle before giving up.
-# Protects against a pathological "every photo is stuck in iCloud"
-# state while still being generous enough to skip past 3-4 bad
-# neighbours without human intervention.
-AUTO_STORY_MAX_ATTEMPTS = 5
+# Max candidates to try within one auto-story cycle. 3 attempts at
+# 600s each is the right ratio for the 90-min cadence — tolerates a
+# couple of stuck UUIDs without overlapping the next tick.
+AUTO_STORY_MAX_ATTEMPTS = 3
 
 # Boss strategy (2026-04-22): publish day-to-day as FB *stories*, not
 # feed posts. Stories are cheap (24-hour lifespan, no feed dilution,
