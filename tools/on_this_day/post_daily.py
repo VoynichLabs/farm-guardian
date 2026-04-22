@@ -62,13 +62,19 @@ FARM_2026_REPO = Path("/Users/macmini/Documents/GitHub/farm-2026")
 CANDIDATES_DIR = FARM_GUARDIAN_ROOT / "data" / "on-this-day"
 OSXPHOTOS_BIN = Path("/Users/macmini/.local/bin/osxphotos")
 
-# Commit cap — one FB post a day, but that post should be a carousel
-# of up to ~6 photos so the feed isn't a single-shot trickle. Boss
-# explicitly asked for "more than one picture" per day (2026-04-22).
+# Boss strategy (2026-04-22): publish day-to-day as FB *stories*, not
+# feed posts. Stories are cheap (24-hour lifespan, no feed dilution,
+# 0–N per day is fine) and give us a performance signal — later we
+# promote the winning stories to a curated feed post or carousel.
+# So:
+#   - `--publish` default → post every top candidate as its own Story
+#   - `--carousel` → compose one feed carousel (the "best-of" promotion)
+#   - `--single`   → one-feed-post-per-candidate (legacy)
+#   - `--uuid`     → implies `--single`
 DEFAULT_TOP_N = 15
-DEFAULT_PUBLISH_N = 6
+DEFAULT_PUBLISH_N = 8  # stories are cheap; default to a wider set
 
-# FB Page posts via /feed + attached_media cap at 10 photos per post.
+# FB Page /feed + attached_media cap at 10 photos per post.
 MAX_CAROUSEL_SIZE = 10
 
 
@@ -300,6 +306,100 @@ def publish_carousel(
         }
 
 
+def publish_stories(
+    candidates: list[Candidate],
+    target_date: dt.date,
+    dry_commit: bool = False,
+) -> list[dict]:
+    """Publish each candidate as its own 24-hour FB Page Story.
+
+    This is the default publish path as of 2026-04-22. Stories are
+    cheap — they don't dilute the feed and they give us a per-photo
+    performance signal (impressions / reactions / taps) that a carousel
+    doesn't. The promotion loop is: post many stories → read insights
+    → pick winners → re-publish those as a curated feed carousel via
+    `--carousel` on the chosen date.
+
+    Stories don't take captions (FB Graph API limitation, same as IG).
+    The per-photo Qwen caption still flows into the audit JSON so Boss
+    has the semantic context when reviewing what won.
+    """
+    results: list[dict] = []
+    if not candidates:
+        return results
+
+    with tempfile.TemporaryDirectory(prefix="on-this-day-stories-") as tmpdir:
+        tmpdir_path = Path(tmpdir)
+        for cand in candidates:
+            try:
+                per_photo_caption = compose_caption(cand)
+            except CaptionSafetyError as e:
+                log.warning("story: skipping %s (unsafe caption): %s", cand.uuid, e)
+                results.append({
+                    "uuid": cand.uuid, "year": cand.year, "score": cand.score,
+                    "caption": None, "image_url": None,
+                    "fb_post_id": None, "error": f"CaptionSafetyError: {e}",
+                    "lane": "story",
+                })
+                continue
+
+            try:
+                staged = _export_and_stage(cand, target_date, tmpdir_path)
+            except Exception as e:
+                log.exception("story: export failed for %s", cand.uuid)
+                results.append({
+                    "uuid": cand.uuid, "year": cand.year, "score": cand.score,
+                    "caption": per_photo_caption, "image_url": None,
+                    "fb_post_id": None, "error": repr(e), "lane": "story",
+                })
+                continue
+
+            if dry_commit:
+                results.append({
+                    "uuid": cand.uuid, "year": cand.year, "score": cand.score,
+                    "caption": per_photo_caption, "image_url": None,
+                    "fb_post_id": None, "error": None,
+                    "lane": "story", "dry_commit": True,
+                })
+                continue
+
+            subdir = f"on-this-day/{target_date.isoformat()}/stories"
+            commit_msg = (
+                f"on-this-day story: {target_date.isoformat()} — "
+                f"{cand.year} {cand.uuid[:8]} [score={cand.score}]"
+            )
+            try:
+                _, raw_url = git_helper.commit_image_to_farm_2026(
+                    local_image=staged,
+                    subdir=subdir,
+                    repo_path=FARM_2026_REPO,
+                    commit_message=commit_msg,
+                )
+            except Exception as e:
+                log.exception("story: farm-2026 commit failed for %s", cand.uuid)
+                results.append({
+                    "uuid": cand.uuid, "year": cand.year, "score": cand.score,
+                    "caption": per_photo_caption, "image_url": None,
+                    "fb_post_id": None, "error": f"git_helper: {e}", "lane": "story",
+                })
+                continue
+
+            fb_result = fb_poster.crosspost_photo_story(image_url=raw_url)
+            log.info(
+                "story %s → ok=%s fb_post_id=%s",
+                cand.uuid[:8], fb_result.get("ok"), fb_result.get("fb_post_id"),
+            )
+            results.append({
+                "uuid": cand.uuid, "year": cand.year, "score": cand.score,
+                "caption": per_photo_caption, "image_url": raw_url,
+                "fb_post_id": fb_result.get("fb_post_id"),
+                "error": fb_result.get("error"),
+                "lane": "story",
+            })
+
+    return results
+
+
 def publish_candidate(
     candidate: Candidate,
     target_date: dt.date,
@@ -375,14 +475,20 @@ def _parse_args() -> argparse.Namespace:
                    help="Actually post to FB. Without this, --dry-run is implied.")
     p.add_argument("--publish-n", type=int, default=DEFAULT_PUBLISH_N,
                    help=f"How many of the top candidates to publish when --publish. "
-                        f"Default: {DEFAULT_PUBLISH_N} (carousel). Capped at "
-                        f"{MAX_CAROUSEL_SIZE} by FB's attached_media limit.")
-    p.add_argument("--single", action="store_true",
-                   help="Publish as single-photo posts (one per candidate) instead "
-                        "of one carousel. Rarely wanted; default is carousel.")
+                        f"Default: {DEFAULT_PUBLISH_N}. Carousel lane caps at "
+                        f"{MAX_CAROUSEL_SIZE} by FB's attached_media limit; story "
+                        f"lane has no hard cap but be reasonable.")
+    lane = p.add_mutually_exclusive_group()
+    lane.add_argument("--carousel", action="store_true",
+                      help="Publish the top candidates as one FB feed carousel "
+                           "(the 'best-of' promotion lane). Use this after "
+                           "reviewing story insights to curate a keeper post.")
+    lane.add_argument("--single", action="store_true",
+                      help="Publish as separate feed posts (one per candidate). "
+                           "Rarely wanted; prefer stories or carousel.")
     p.add_argument("--uuid", type=str, default=None,
-                   help="Publish a specific UUID (must be in today's candidate pool "
-                        "AND be catalogued). Implies --single. Requires --publish.")
+                   help="Publish a specific UUID (must be in today's candidate pool). "
+                        "Implies --single. Requires --publish.")
     p.add_argument("--include-rejected", action="store_true",
                    help="Dry-run only: include filtered rows with rejection_reason.")
     p.add_argument("--dry-commit", action="store_true",
@@ -422,6 +528,9 @@ def main() -> int:
     # Publish path.
     to_publish: list[Candidate]
     force_single = args.single or bool(args.uuid)
+    use_carousel = args.carousel and not force_single
+    use_stories = not force_single and not use_carousel  # default lane
+
     if args.uuid:
         matched = [c for c in candidates if c.uuid == args.uuid]
         if not matched:
@@ -437,8 +546,25 @@ def main() -> int:
 
     results: list[dict] = []
     any_error = False
+    lane_name: str
 
-    if force_single:
+    if use_stories:
+        lane_name = "story"
+        story_results = publish_stories(to_publish, target_date, dry_commit=args.dry_commit)
+        results.extend(story_results)
+        any_error = any(r.get("error") for r in story_results)
+    elif use_carousel:
+        lane_name = "carousel"
+        try:
+            results.append(publish_carousel(to_publish, target_date, dry_commit=args.dry_commit))
+            if results[0].get("error"):
+                any_error = True
+        except Exception as e:
+            log.exception("carousel publish failed")
+            results.append({"uuids": [c.uuid for c in to_publish], "error": repr(e)})
+            any_error = True
+    else:
+        lane_name = "single"
         for cand in to_publish:
             try:
                 results.append(publish_candidate(cand, target_date, dry_commit=args.dry_commit))
@@ -450,15 +576,6 @@ def main() -> int:
                 log.exception("publish failed for %s", cand.uuid)
                 results.append({"uuid": cand.uuid, "error": repr(e), "fb_post_id": None})
                 any_error = True
-    else:
-        try:
-            results.append(publish_carousel(to_publish, target_date, dry_commit=args.dry_commit))
-            if results[0].get("error"):
-                any_error = True
-        except Exception as e:
-            log.exception("carousel publish failed")
-            results.append({"uuids": [c.uuid for c in to_publish], "error": repr(e)})
-            any_error = True
 
     # Persist the publish result alongside the dry-run artifact so
     # there's an audit trail.
@@ -467,6 +584,7 @@ def main() -> int:
     result_path.write_text(json.dumps({
         "target_date": target_date.isoformat(),
         "published_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "lane": lane_name,
         "dry_commit": args.dry_commit,
         "results": results,
     }, indent=2, default=str), encoding="utf-8")

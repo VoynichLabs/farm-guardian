@@ -28,16 +28,22 @@ python3 -m tools.on_this_day.post_daily
 # Dry-run for a specific date — also shows filtered rows with reasons.
 python3 -m tools.on_this_day.post_daily --date 2026-04-21 --include-rejected
 
-# Publish the top-6 as a single FB carousel (the default since v2.36.1).
+# DEFAULT (v2.36.2+): publish top-8 as separate 24-hour FB Stories,
+# one story per photo. Stories don't dilute the feed and give us
+# per-photo engagement signals for the later "best-of" promotion step.
 python3 -m tools.on_this_day.post_daily --publish
 
-# Publish a different number in the carousel (max 10 per FB's limit).
-python3 -m tools.on_this_day.post_daily --publish --publish-n 8
+# Post more stories (no hard cap; the default is 8).
+python3 -m tools.on_this_day.post_daily --publish --publish-n 15
 
-# Publish top-N as SEPARATE single-photo posts instead of a carousel.
+# Promote the top candidates to a single FB feed carousel — use this
+# AFTER reviewing which stories performed well, as the "best-of" post.
+python3 -m tools.on_this_day.post_daily --publish --carousel
+
+# Separate feed posts (rarely wanted; prefer stories or carousel).
 python3 -m tools.on_this_day.post_daily --publish --single --publish-n 3
 
-# Publish a specific UUID from today's candidate pool (implies --single).
+# Publish one specific UUID as a single feed post.
 python3 -m tools.on_this_day.post_daily --publish --uuid <ZUUID>
 
 # Export + caption locally, skip the farm-2026 push + FB call. For smoke-testing.
@@ -86,6 +92,16 @@ Top-N is score-desc, ties broken by year-desc (2025 beats 2024 beats 2022).
 | Publish result JSON | `data/on-this-day/YYYY-MM-DD-publish-result.json` (this repo) |
 | farm-2026 public drop | `farm-2026/public/photos/on-this-day/YYYY-MM-DD/` (committed + pushed live) |
 | FB token path | `/Users/macmini/bubba-workspace/secrets/farm-guardian-meta.env` (handled by `fb_poster`, non-expiring as of 2026-04-21) |
+
+## Publishing strategy (v2.36.2)
+
+Three lanes, one shared selector:
+
+1. **Story lane (default, `--publish`)** — every top candidate goes out as its own 24-hour FB Page Story. Stories are cheap: they don't compete for feed real estate, Boss can post many per day, and each one produces its own performance signal (impressions, reactions, taps-forward/backward). This is the firehose.
+2. **Carousel lane (`--publish --carousel`)** — curated "best-of" feed post. Use this AFTER letting the stories run for a day or two, reading insights, and picking the winners. One carousel per chosen date. Per-photo captions are dropped (FB only renders the /feed message once per carousel); the carousel-level caption is `"On this day — {Month Day}, from {years}."`.
+3. **Single lane (`--publish --single` or `--uuid`)** — one feed post per photo. Rarely wanted; lives for granular manual control.
+
+The loop Boss described: **post many stories → harvest insights → promote the winners to a carousel**. That's why the story lane writes each `fb_post_id` + caption + UUID + score into `data/on-this-day/YYYY-MM-DD-publish-result.json` — future insight-scraping code reads that file to know which posts to pull metrics for.
 
 ## Content policy — non-negotiables
 

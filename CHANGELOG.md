@@ -4,6 +4,24 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-04-22
 
+### v2.36.2 — On-this-day defaults to Stories; carousel is the "best-of" promotion lane (Claude Opus 4.7 (1M context))
+
+Boss feedback 2026-04-22: "Post most of these as stories rather than posts, because we can post lots and lots of stories and then later look at what did best and make those into a post."
+
+Rewired `tools/on_this_day/post_daily.py` so `--publish` (no other flags) now emits each top candidate as its own 24-hour FB Page Story via `fb_poster.crosspost_photo_story(image_url)`. Stories are cheap: no feed dilution, no cap per day, and each one produces its own engagement signal (impressions / reactions / taps). The carousel path from v2.36.1 is now explicitly `--publish --carousel` — Boss uses it after reading story insights to promote the winners to a curated feed post.
+
+**New lane structure:**
+
+- **Story (default)** — `publish_stories(candidates)`. One story per candidate. Per-photo Qwen caption still composed and written to the audit JSON for later review, but not sent to FB (stories don't support captions). `--publish-n 15` to go wider; no hard cap.
+- **Carousel (best-of promotion)** — `--carousel`. Unchanged from v2.36.1. Feed post, max 10 photos, carousel-level caption only.
+- **Single (legacy)** — `--single`. One feed post per photo. Implied by `--uuid`.
+
+**Audit trail for the harvest loop:** each story's `fb_post_id`, `uuid`, `year`, `score`, and `caption` (the would-be caption, for context) are written into `data/on-this-day/YYYY-MM-DD-publish-result.json` under `lane: "story"`. Future insight-scraping code reads that file to pull Graph API metrics for the posted `fb_post_id`s and rank by performance; winners feed back into `--carousel` on a later date.
+
+**Unchanged:** `fb_poster.py`, `git_helper.py`, selector, caption. Rides on existing FB Graph v25.0 `/page-id/photo_stories` endpoint.
+
+**DEFAULT_PUBLISH_N:** 6 → 8 (stories are cheap; wider default makes sense).
+
 ### v2.36.1 — On-this-day publishes as a carousel (Claude Opus 4.7 (1M context))
 
 Default publish path on `tools/on_this_day/post_daily.py` is now a single FB carousel of up to 6 photos (cap 10, per FB's `attached_media` limit), not a single-photo post. Boss requested "more than one picture" per day (2026-04-22 feedback); the Qwen catalog regularly surfaces 5–15 on-date candidates across 2024/2025 alone once the screenshot/receipt filter fires, so a carousel matches the signal.
