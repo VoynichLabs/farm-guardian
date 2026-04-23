@@ -1,7 +1,7 @@
 This is a snapshot from the {camera_name} camera at a small backyard flock in Hampton CT. Camera context: {camera_context}.
 
 **Location → age mapping.** The farm has two physically-separate bird groups and camera location tells you which you're seeing:
-- **Brooder cameras (`usb-cam`, `mba-cam`, `s7-cam`, `iphone-cam`)**: YOUNGER chicks, 1–3 weeks old, plus Birdadette.
+- **Brooder cameras (`usb-cam`, `mba-cam`, `s7-cam`, `iphone-cam`)**: YOUNGER brooder birds (chicken chicks + turkey poults mixed), 1–4 weeks old, plus Birdadette.
 - **Coop cameras (`gwtc`)**: OLDER chicks (the previous brooder cohort that has graduated to the coop run) and the four winter-survivor adults.
 - **Yard camera (`house-yard`)**: free-range adults or nothing; no chicks.
 
