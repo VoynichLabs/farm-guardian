@@ -4,6 +4,38 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-04-23
 
+### v2.37.3 — Nextdoor primitives: real selectors captured from live DOM (Claude Opus 4.7 (1M context))
+
+Replaces the `tools/nextdoor/primitives.py` placeholders with real `data-testid`-keyed selectors captured live on 2026-04-23 via the `chrome-devtools` MCP against Boss's logged-in Nextdoor session on this Mac Mini. All 13 selectors from `skills/farm-nextdoor-engage/claude-for-chrome-brief.md` are now filled in as a top-level `NEXTDOOR_SELECTORS` dict, and every primitive reads from that dict instead of the old "informed guess" fallback chains.
+
+**What was captured (feed + opened composer on `nextdoor.com/news_feed/`):**
+- `FEED_POST_CARD` → `[data-testid="feed-item-card"]`
+- `POST_LIKE_BUTTON` → `[data-testid="reaction-button"]` (aria-label "React"; default icon is the "Like" heart — plain click = Like; long-press opens the reaction picker we don't use)
+- `POST_LIKED_INDICATOR` → `[data-testid="reaction-button"][aria-pressed="true"]` (`aria-pressed` flips when the current user has reacted; used to skip already-liked posts)
+- `POST_REPLY_BUTTON` → `[data-testid="post-reply-button"]` (div with role=button; clicking reveals the inline comment input)
+- `POST_COMMENT_INPUT` → `textarea[data-testid="comment-add-reply-input"]`
+- `POST_COMMENT_SUBMIT` → `[data-testid="inline-composer-reply-button"]`
+- `POST_IMAGE` → `[data-testid="resized-image"]` (first-party photo; smartlink previews use a different `smartlink-image` testid we deliberately ignore)
+- `POST_CAPTION_TEXT` → `[data-testid="post-body"]`
+- `CREATE_POST_ENTRYPOINT` → `[data-testid="prompt-container"]` (the "What's happening, neighbor?" strip at feed top)
+- `COMPOSER_DIALOG` → `[data-testid="content-composer-dialog"]` (aria-label "create post composer")
+- `COMPOSER_BODY_INPUT` → `textarea[data-testid="composer-text-field"]`
+- `COMPOSER_PHOTO_INPUT` → `input[data-testid="uploader-fileinput"]` (accept=image+video, multiple)
+- `COMPOSER_AUDIENCE_PICKER` → `[data-testid="neighbor-audience-visibility-button"]`
+- `COMPOSER_AUDIENCE_NEIGHBORHOOD_OPTION` → `[data-testid="visibility-menu-option-2"]` — the narrowest audience ("Your neighborhood · Hampton only"). Option 0 is "Anyone" (on/off Nextdoor), option 1 is "Nearby neighborhoods" (your hood + 21 others); the skill doc's hard safety rule bans both of those.
+- `COMPOSER_SUBMIT` → `[data-testid="composer-submit-button"]`
+- `COMPOSER_CLOSE` → `[data-testid="composer-close-button"]`
+
+**Primitives rewritten to use the dict:** `goto_feed`, `find_feed_posts`, `like_post`, `comment_on_post`, `open_create_post_dialog`, `attach_photo`, `type_post_body`, `set_audience_neighborhood`, `submit_post`, plus a new `close_composer` helper. `goto_feed` now does a proper `wait_for_selector(FEED_POST_CARD, timeout=10000)` so we don't race React hydration. `like_post` now checks `POST_LIKED_INDICATOR` before clicking and skips already-reacted posts. `comment_on_post` clicks `POST_REPLY_BUTTON` first to reveal the comment textarea (it's not always rendered).
+
+**Verification:** `python tools/nextdoor/engage.py --headed --dry-run --max-actions 3 --max-minutes 2.0` — summary: `{"likes_done": 3, "comments_done": 0, "posts_seen": 5, "ended_reason": "complete"}`. Feed parses cleanly, no challenge detection, three dry-run "would like" decisions made.
+
+**Safety posture unchanged** — no neighbor-request/friend primitive, no DM primitive, audience floor is `visibility-menu-option-2`. The set-audience primitive refuses to submit if the narrowest option is missing (it doesn't silently fall back to a wider audience).
+
+**How this was captured** (for the next agent who needs to refresh selectors after a Nextdoor UI shuffle): `chrome-devtools` MCP surfaced `mcp__chrome-devtools__evaluate_script` inside a Claude Code session; Boss logged into Nextdoor in the MCP Chrome tab, then the agent ran a handful of `document.querySelectorAll('[data-testid]')` scans on the feed and then on the opened composer dialog. The brief at `skills/farm-nextdoor-engage/claude-for-chrome-brief.md` is still the canonical prompt for Boss's Claude-for-Chrome extension; either path produces the same output shape.
+
+**Branch:** `nextdoor-selectors-23apr2026`. **Version note:** originally slated for v2.37.2 per Boss's directive, but that slot was claimed by the gem-gate-tightening work on main (commit `b6eee60`) before this branch cut, so this lands as v2.37.3 instead.
+
 ### v2.37.2 — Gem gate: semantic filters for the Discord curation lane (Claude Opus 4.7 (1M context))
 
 Tightens `tools/pipeline/gem_poster.py::should_post` so that `mba-cam`, `gwtc`, `usb-cam`, and `house-yard` stop flooding `#farm-2026` with huddle-pile, sleeping-bird, and generic-caption frames. `s7-cam` logic is unchanged (already strict on `sharp + bird_face_visible`, and Boss has explicitly asked not to touch it).
