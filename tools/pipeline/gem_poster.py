@@ -1,12 +1,18 @@
 # Author: Claude Opus 4.7 (1M context)
-# Date: 22-April-2026
+# Date: 23-April-2026
 # PURPOSE: Post strong-tier frames to the #farm-2026 Discord channel as they
 #          land. Called from orchestrator.run_cycle whenever store returns
 #          tier=strong. Failures here must NEVER break the pipeline cycle —
 #          the post is fire-and-log.
-# SRP/DRY check: Pass — single responsibility is building the multipart post.
-#                Reuses the webhook+payload shape documented in
-#                docs/skills-farm-2026-discord-post.md.
+#
+#          v2.37.0 adds a strict per-camera gate for the laptop webcams
+#          (mba-cam, gwtc) — Boss flagged that they were flooding Discord
+#          with sleeping-chick frames. The strict gate is shadow-logged
+#          alongside the legacy gate so both decisions can be reviewed
+#          before flipping `strict_gate_enabled: true` in config.json.
+# SRP/DRY check: Pass — single responsibility is building the multipart post
+#                and deciding whether to send it. Reuses the webhook+payload
+#                shape documented in docs/skills-farm-2026-discord-post.md.
 
 from __future__ import annotations
 
@@ -30,48 +36,70 @@ _USERNAME_BY_CAMERA = {
 }
 
 
-def should_post(vlm_metadata: dict, tier: str, camera_id: Optional[str] = None) -> bool:
-    """Gem predicate, refined across the 2026-04-16 evening session:
+_CONFIG_PATH = Path(__file__).parent / "config.json"
 
-      v2.28.3  tier=strong OR (tier=decent + bird_count>=2)  'multiple faces'
-      v2.28.5  sharp + bird_count>=1  (dropped tier gate)    'nothing posts'
-      v2.28.6  + bird_face_visible                           'not its fluffy ass'
-      v2.28.7           drop face requirement                'VLM cannot reliably tell what a face is'
-      v2.36.3           + share_worth != 'skip'              'butts still slipping through; lean on VLM skip judgment'
-      v2.36.4  (this)   per-camera sharpness tolerance       's7 strict; others allow soft when faces or >=2 birds'
+# Default per-camera strict rules. Used when `per_camera_rules` is absent
+# from the live config.json. Only mba-cam and gwtc (the two laptop webcams
+# that flood Discord with sleeping-chick frames) are tightened; every other
+# camera has NO entry and therefore falls through to the legacy gate.
+_DEFAULT_PER_CAMERA_RULES: dict[str, dict] = {
+    "mba-cam": {
+        "require_face": True,
+        "allowed_quality": ["sharp"],
+        "reject_activities": ["sleeping", "resting", "unclear"],
+        "interesting_activities": [
+            "huddled", "calling", "scuffling", "active",
+            "alert", "eating", "drinking", "preening",
+        ],
+        "require_interest": True,
+        "min_bird_count_if_no_interest": 2,
+    },
+    "gwtc": {
+        "require_face": True,
+        "allowed_quality": ["sharp"],
+        "reject_activities": ["sleeping", "resting", "unclear"],
+        "interesting_activities": [
+            "huddled", "calling", "scuffling", "active",
+            "alert", "eating", "drinking", "preening",
+        ],
+        "require_interest": True,
+        "min_bird_count_if_no_interest": 2,
+    },
+}
 
-    2026-04-22: Boss flagged that usb-cam / mba-cam / gwtc gems that are
-    'a little blurry but pretty good' (faces visible, multiple birds) never
-    reach Discord because the sharp-only gate rejects them. s7-cam, by
-    contrast, produces consistently sharp frames — leave it alone. So the
-    gate now branches on camera_id:
 
-      - s7-cam (+ any camera_id we don't recognize as non-s7):
-          image_quality must be 'sharp'. Unchanged.
-      - every other camera (usb-cam, mba-cam, gwtc, house-yard, iphone-cam):
-          image_quality may be 'sharp' OR 'soft', but if 'soft' we also
-          require a face signal — either bird_face_visible=True, or
-          bird_count>=2 (proxy for 'crowd, some face is likely visible').
-          'blurred' still rejected; soft-without-faces still rejected.
+def _load_pipeline_config() -> dict:
+    """Read tools/pipeline/config.json once per call. File is tiny; skipping
+    the cache keeps tests trivially overridable via monkeypatching this
+    function, and keeps the live process always-current if the boss edits
+    config at runtime."""
+    try:
+        return json.loads(_CONFIG_PATH.read_text())
+    except (OSError, json.JSONDecodeError):
+        return {}
 
-    bird_face_visible was pulled in v2.28.6 because Gemma-4's flag was
-    noisy. We're on qwen3.6-35b-a3b now and Boss has been eyeballing
-    output for weeks — the flag is acceptable to him. And the multi-bird
-    fallback (bird_count>=2) keeps content flowing even if the face flag
-    is wrong on a given frame.
 
-    share_worth != 'skip' still applies universally — the VLM's own
-    butt-forward / not-archive-worthy verdict wins.
+def _get_per_camera_rules() -> dict[str, dict]:
+    """Merged rules: config.json's `per_camera_rules` overrides the
+    defaults per-camera. A camera absent from both falls through to the
+    legacy gate (no strict rule applied)."""
+    cfg_rules = _load_pipeline_config().get("per_camera_rules") or {}
+    if not isinstance(cfg_rules, dict):
+        return _DEFAULT_PER_CAMERA_RULES
+    merged = dict(_DEFAULT_PER_CAMERA_RULES)
+    for cam, rules in cfg_rules.items():
+        if isinstance(rules, dict):
+            merged[cam] = rules
+    return merged
 
-    Non-sharp rules:
-      - image_quality 'blurred' → reject (always)
-      - image_quality 'soft'     → reject for s7-cam; on others, require
-                                   bird_face_visible OR bird_count>=2
-      - image_quality 'sharp'    → accept (subject to other gates)
-    Bird rules:
-      - bird_count < 1           → reject
-    Holistic:
-      - share_worth == 'skip'    → reject"""
+
+def _strict_gate_enabled() -> bool:
+    return bool(_load_pipeline_config().get("strict_gate_enabled", False))
+
+
+def _evaluate_legacy(vlm_metadata: dict, camera_id: Optional[str]) -> bool:
+    """v2.36.4 legacy gate. Preserved verbatim so shadow-logging gives a
+    clean apples-to-apples comparison against the strict path."""
     iq = vlm_metadata.get("image_quality")
     bc = vlm_metadata.get("bird_count", 0)
     sw = vlm_metadata.get("share_worth")
@@ -81,15 +109,113 @@ def should_post(vlm_metadata: dict, tier: str, camera_id: Optional[str] = None) 
         return False
     if not isinstance(bc, int) or bc < 1:
         return False
-
-    # Camera-specific sharpness tolerance. s7-cam (the consistently-sharp
-    # source Boss trusts) keeps the strict rule; other cameras get a
-    # face-signal fallback on 'soft' frames.
     if iq == "sharp":
         return True
     if iq == "soft" and camera_id != "s7-cam" and camera_id is not None:
         return face_visible or bc >= 2
     return False
+
+
+def _evaluate_strict(vlm_metadata: dict, camera_id: Optional[str]) -> bool:
+    """Strict per-camera gate for the laptop webcams (mba-cam, gwtc).
+
+    If the camera has no rule entry, return True — we don't shadow-gate
+    cameras we aren't trying to tighten. The caller decides whether to
+    act on that True (strict_gate_enabled flag + should_post fall-through
+    to legacy for un-ruled cameras)."""
+    rules = _get_per_camera_rules().get(camera_id or "")
+    if rules is None:
+        return True
+
+    sw = vlm_metadata.get("share_worth")
+    if sw == "skip":
+        return False
+
+    bc = vlm_metadata.get("bird_count", 0)
+    if not isinstance(bc, int) or bc < 1:
+        return False
+
+    iq = vlm_metadata.get("image_quality")
+    allowed_quality = rules.get("allowed_quality", ["sharp"])
+    if iq not in allowed_quality:
+        return False
+
+    if rules.get("require_face") and not bool(vlm_metadata.get("bird_face_visible")):
+        return False
+
+    # Backward-compat defaults: if the VLM hasn't been redeployed with the
+    # new schema, these fields are missing and we lean conservative —
+    # `unclear` activity is in the default reject list; `medium` interest
+    # neither saves nor kills a frame on its own.
+    activity = vlm_metadata.get("bird_activity", "unclear")
+    reject_activities = rules.get("reject_activities", [])
+    if activity in reject_activities:
+        return False
+
+    if rules.get("require_interest"):
+        interest = vlm_metadata.get("scene_interest", "medium")
+        interesting = rules.get("interesting_activities", [])
+        min_crowd = rules.get("min_bird_count_if_no_interest", 2)
+        if activity in interesting:
+            return True
+        if interest == "high":
+            return True
+        if bc >= min_crowd and interest != "low":
+            return True
+        return False
+
+    return True
+
+
+def would_post_strict(vlm_metadata: dict, tier: str, camera_id: Optional[str] = None) -> bool:
+    """Strict-gate decision regardless of feature-flag state. Used for
+    shadow-logging and for direct callers that want the new semantics
+    without toggling the global flag."""
+    return _evaluate_strict(vlm_metadata, camera_id)
+
+
+def should_post(vlm_metadata: dict, tier: str, camera_id: Optional[str] = None) -> bool:
+    """Discord-post predicate. Runs BOTH the legacy v2.36.4 gate and the
+    new strict per-camera gate every call, logs both decisions for later
+    validation, then returns whichever the `strict_gate_enabled` flag
+    selects.
+
+    Strict gate (v2.37.0) — only active for cameras listed in
+    `per_camera_rules` (defaults: mba-cam, gwtc). For every other camera
+    the strict path returns True (i.e. permissive), so when the flag is
+    flipped on, only the tightened cameras see behavior change; s7-cam /
+    usb-cam / house-yard continue to post as before.
+
+    Legacy gate (v2.36.4, preserved):
+      - share_worth != 'skip'
+      - bird_count >= 1
+      - image_quality 'sharp' accepts universally
+      - image_quality 'soft' accepts on non-s7-cam IFF face OR bird_count>=2
+      - image_quality 'blurred' rejects
+
+    Shadow-logging: every call emits one INFO line with camera_id, both
+    decisions, and the five metadata fields the gate looks at. Boss flips
+    strict_gate_enabled=True in tools/pipeline/config.json once the logs
+    look right."""
+    legacy_decision = _evaluate_legacy(vlm_metadata, camera_id)
+    strict_decision = _evaluate_strict(vlm_metadata, camera_id)
+
+    log.info(
+        "gate: camera=%s legacy=%s strict=%s iq=%s bc=%s face=%s activity=%s interest=%s share_worth=%s",
+        camera_id,
+        legacy_decision,
+        strict_decision,
+        vlm_metadata.get("image_quality"),
+        vlm_metadata.get("bird_count"),
+        vlm_metadata.get("bird_face_visible"),
+        vlm_metadata.get("bird_activity", "unclear"),
+        vlm_metadata.get("scene_interest", "medium"),
+        vlm_metadata.get("share_worth"),
+    )
+
+    if _strict_gate_enabled():
+        return strict_decision
+    return legacy_decision
 
 
 def load_dotenv(path: Path) -> None:

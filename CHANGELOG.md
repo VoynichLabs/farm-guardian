@@ -2,6 +2,32 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased] - 2026-04-23
+
+### v2.37.0 — strict per-camera Discord-post gate for laptop webcams + shadow-logging (Claude Opus 4.7 (1M context))
+
+Boss feedback 2026-04-23: `mba-cam` and `gwtc` (the two laptop webcams — MacBook Air on 60s cadence, Gateway coop laptop on 20s cadence) have been flooding `#farm-2026` with sleeping-chick frames. The v2.36.4 gate accepted anything sharp + face + bird_count>=1 + share_worth!=skip, which still let through a lot of still-life fluff-piles. The other cameras (s7-cam, usb-cam, house-yard) don't have this problem and should keep their current behavior.
+
+**What changed:**
+
+- **VLM schema** — `tools/pipeline/schema.json` gains two enum fields:
+  - `bird_activity` — dominant behavior of the most visible bird(s): `sleeping|resting|standing|alert|calling|eating|drinking|preening|huddled|scuffling|active|unclear`. Separate from the existing `activity` field (which categorizes the scene).
+  - `scene_interest` — `low|medium|high` — the VLM's independent visual-interest rating, orthogonal to `share_worth`.
+  Both added to `required` + `prompt.md` gets field-guidance paragraphs consistent with the existing schema rubric.
+- **Gate rewrite** — `tools/pipeline/gem_poster.should_post` now runs BOTH the legacy v2.36.4 path AND a new strict per-camera path every call, logs both decisions (INFO level, one line per call with camera_id + key metadata), and returns whichever `strict_gate_enabled` in `config.json` selects. Default is `False` — shadow-log only — so the boss can review log output before flipping the flag and changing behavior.
+- **Strict rules** — hardcoded defaults in `gem_poster._DEFAULT_PER_CAMERA_RULES` for `mba-cam` and `gwtc`: require_face, sharp-only, reject `sleeping|resting|unclear` activities, require either an interesting-activity bucket OR `scene_interest=high` OR `bird_count>=2` with `scene_interest!=low`. Cameras not in the dict fall through to legacy semantics even when the flag is flipped, so `s7-cam`/`usb-cam`/`house-yard` are untouched.
+- **Config override** — live `tools/pipeline/config.json` can add `per_camera_rules` and `strict_gate_enabled` to override defaults; neither key is required (file is gitignored, so the rules live in code as the authoritative source).
+- **New helper** — `gem_poster.would_post_strict(meta, tier, camera_id)` runs the strict path regardless of the feature flag, for callers that want the new semantics directly.
+- **Tests** — new `tools/pipeline/test_should_post.py`, 18 cases, covers legacy-unchanged paths, strict mba-cam/gwtc acceptance+rejection, backward-compat defaults (missing `bird_activity`), shadow-logging, and the `strict_gate_enabled=False` flag behavior. `python3 -m pytest tools/pipeline/test_should_post.py` → 18 passed.
+
+**Rollout:**
+
+1. Merge + pipeline restart — new schema flows; legacy gate still wins; shadow logs start accumulating.
+2. Review pipeline logs for lines matching `gate: camera=mba-cam` / `camera=gwtc` for a day or two, compare legacy-vs-strict decisions on real frames.
+3. When satisfied, add `"strict_gate_enabled": true` to `tools/pipeline/config.json` and kick the pipeline LaunchAgent. No redeploy needed — the loader re-reads the file every call.
+
+**Not changed:** orchestrator wiring, VLM client invocation, IG/FB posters, s7-cam behavior, usb-cam behavior, house-yard behavior.
+
 ## [Unreleased] - 2026-04-22
 
 ### v2.36.5 — on-this-day: 90-min story cadence, FB+IG dual publish, no-repost ledger, Discord moved off #farm-2026 (Claude Opus 4.7 (1M context))
