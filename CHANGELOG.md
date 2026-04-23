@@ -4,6 +4,51 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-04-23
 
+### v2.37.4 — Nextdoor outbound cross-post: two-lane daily cadence (Claude Opus 4.7 (1M context))
+
+Ships the outbound Nextdoor cross-post pipeline Boss asked for: two posts a day to his Hampton CT neighborhood feed, one per lane, captions drafted fresh by whatever VLM is loaded on LM Studio.
+
+**Lanes + cadence:**
+- `throwback` — 08:00 local, pulls one unposted reacted `camera_id='discord-drop'` row from `image_archive` (photos surfaced via `scripts/archive-throwback.py` that Boss reacted to on Discord).
+- `today` — 18:30 local, pulls one unposted reacted LIVE-CAM gem (`camera_id IN ('s7-cam','gwtc','mba-cam','usb-cam','house-yard','iphone-cam')`) from today's `image_archive`. If today has zero reacted live-cam gems, the tick skips silently — no filler.
+
+Both lanes share the same dedup column, primitives, audience-floor enforcement, challenge detector, and kill switch. One LaunchAgent, two `StartCalendarInterval` entries; lane is auto-inferred from the local hour (morning → throwback, afternoon/evening → today).
+
+**Hard safety (unchanged from v2.37.3):**
+- Audience floor = `visibility-menu-option-2` ("Your neighborhood · Hampton only"). `primitives.set_audience_neighborhood` refuses to submit if that option can't be selected and reads the picker label back post-selection; `crosspost.run_tick` aborts pre-submit if the label doesn't contain "Hampton" or "neighborhood".
+- No neighbor-request primitive, no DM primitive, no carousels.
+- `touch /tmp/nextdoor-off` still stops everything.
+- Challenge detection still sets `/tmp/nextdoor-cooldown-until`, which gates both lanes.
+
+**Captioning — live VLM, not hardcoded openers:** `tools/nextdoor/caption_writer.py` reads `GET /api/v0/models`, grabs the first model whose `state=="loaded"`, and posts a multimodal `chat/completions` request with the gem's image bytes and a lane-specific system prompt (60s timeout). Current loaded model (2026-04-23): `qwen/qwen3.6-35b-a3b`. System prompt enforces: 1–3 sentences, mixed case, ≤1 tame emoji (🐣☀️❤️🌱), no hashtags/URLs/@-mentions/Boss's name or address, throwback lane opens with "Throwback —"/"Flashback to —"/etc. Output is scrubbed of URLs/hashtags/mentions and trimmed to 3 sentences on return. LM Studio down or output <20 chars → falls back to a small static library (3 strings per lane). Never fails a post over the caption.
+
+**Per-lane budget (per-UTC-day):** `tools/nextdoor/budget.py::DEFAULT_CAPS` gains `post_today: 1` and `post_throwback: 1`; the old 7-day `POST_COOLDOWN_SECONDS` + `can_post()` is removed in favor of the per-lane daily bucket. Counts reset at UTC midnight same as the like/comment/react buckets. `record_post()` kept as an audit helper; actual daily enforcement is via `counts[f"post_{lane}"]`.
+
+**Dedup + audit:** Three new columns added idempotently to `image_archive` via `ALTER TABLE` at module import (single-host DB, no migration script needed): `nextdoor_posted_at TEXT`, `nextdoor_share_url TEXT`, `nextdoor_lane TEXT`. Post-submit, the success-modal scan pulls the canonical share URL out of the X-share button's `intent/tweet` href (the `url=` query param, URL-decoded and stripped of tracking params) — logged to both `image_archive` and `data/nextdoor/posts.json` alongside caption, audience-label readback, camera_id, and local image path.
+
+**Files shipped:**
+- `tools/nextdoor/caption_writer.py` — new.
+- `tools/nextdoor/crosspost.py` — rewrite; `run_tick(lane, dry_run, headed)` entrypoint.
+- `tools/nextdoor/budget.py` — per-lane daily caps.
+- `scripts/nextdoor-crosspost.py` — launcher; CLI `--lane {today|throwback}` + `--dry-run` + `--headed`/`--headless`.
+- `deploy/launchagents/com.farmguardian.nextdoor-crosspost.plist` — label `com.farmguardian.nextdoor-crosspost`, logs to `/tmp/nextdoor-crosspost.out.log` + `.err.log`, 60s throttle.
+- `docs/23-Apr-2026-nextdoor-crosspost-plan.md` — plan doc.
+- `~/bubba-workspace/skills/farm-nextdoor-engage/SKILL.md` — cross-post section rewritten from weekly-Sunday to this two-lane design.
+
+**Install:** copy the plist into `~/Library/LaunchAgents/` and `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.farmguardian.nextdoor-crosspost.plist`. Unload with `launchctl bootout gui/$(id -u)/com.farmguardian.nextdoor-crosspost`.
+
+**Manual use:** `venv/bin/python scripts/nextdoor-crosspost.py --lane today --headed` (explicit lane + visible browser). `--dry-run` goes through composer/attach/audience/readback and then **closes via `primitives.close_composer`** rather than submitting; note that early-in-session empirical evidence was that close-with-discard consistently worked, but test on a throwaway before trusting it on busy composer state.
+
+**Verification (2026-04-23 evening):**
+- `--dry-run --lane throwback`: gem 7794 picked (discord-drop from 2026-04), fallback caption (VLM first-call timeout at old 20s limit — reason TIMEOUT_S bumped to 60s), composer cycle complete, audience label read back as "Your neighborhood", closed without submit.
+- `--dry-run --lane today`: gem 17041 picked, VLM caption *"The chicks are doing great in the brooder today! ☀️ Anyone else got baby chickens going right now?"* — correct Nextdoor voice.
+- First live today-lane fire recorded caption + share URL to `data/nextdoor/posts.json`.
+
+**Known rough edges worth flagging:**
+- The close-composer flow may not always discard cleanly on Nextdoor's side; if you see ghost posts on close-without-submit, prefer real submit only.
+- Lane caps are UTC-day, not local-day. For Hampton (US/Eastern), this means a late-evening post that lands in a new UTC day could permit a second fire the same local day. Acceptable for 2/day; revisit if it surprises.
+- `camera_id` for archive-throwback drops is currently `discord-drop`; if the harvester ever starts tagging throwbacks with a distinct camera_id, the throwback selector in `pick_gem` will need to follow.
+
 ### v2.37.3 — Nextdoor primitives: real selectors captured from live DOM (Claude Opus 4.7 (1M context))
 
 Replaces the `tools/nextdoor/primitives.py` placeholders with real `data-testid`-keyed selectors captured live on 2026-04-23 via the `chrome-devtools` MCP against Boss's logged-in Nextdoor session on this Mac Mini. All 13 selectors from `skills/farm-nextdoor-engage/claude-for-chrome-brief.md` are now filled in as a top-level `NEXTDOOR_SELECTORS` dict, and every primitive reads from that dict instead of the old "informed guess" fallback chains.

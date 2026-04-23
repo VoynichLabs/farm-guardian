@@ -6,11 +6,11 @@
 #          and an extra "post" bucket for the weekly cross-post lane.
 #
 #          Caps (per UTC day unless noted):
-#            like         — 10
-#            comment      — 3
-#            react        — 5   (post-reactions, not story reactions)
-#            post         — 1 per 7-day window (separate accounting, not
-#                             a daily bucket; tracked via last_post_ts)
+#            like          — 10
+#            comment       — 3
+#            react         — 5   (post-reactions, not story reactions)
+#            post_today    — 1   (outbound live-cam reacted gem; 18:30 local)
+#            post_throwback — 1  (outbound archive-throwback drop; 08:00 local)
 #
 #          Kill switch file: /tmp/nextdoor-off
 #          Challenge cooldown file: /tmp/nextdoor-cooldown-until (epoch)
@@ -33,15 +33,15 @@ DATA_DIR = Path("/Users/macmini/Documents/GitHub/farm-guardian/data/nextdoor")
 KILL_SWITCH = Path("/tmp/nextdoor-off")
 COOLDOWN_FLAG = Path("/tmp/nextdoor-cooldown-until")
 
-ActionKind = Literal["like", "comment", "react"]
+ActionKind = Literal["like", "comment", "react", "post_today", "post_throwback"]
 
 DEFAULT_CAPS = {
     "like": 10,
     "comment": 3,
     "react": 5,
+    "post_today": 1,
+    "post_throwback": 1,
 }
-
-POST_COOLDOWN_SECONDS = 7 * 24 * 60 * 60  # 7 days between cross-posts
 
 
 @dataclass
@@ -76,8 +76,8 @@ def load_state() -> BudgetState:
         raw = json.loads(p.read_text())
         last_post_ts = int(raw.get("last_post_ts", 0))
         if raw.get("day") != today:
-            # New UTC day: reset daily counters but KEEP last_post_ts
-            # because the 7-day post cooldown crosses days.
+            # New UTC day: reset all daily counters including post_today /
+            # post_throwback (each lane gets one fire per day).
             return BudgetState(day=today, last_post_ts=last_post_ts)
         return BudgetState(
             day=raw["day"],
@@ -104,18 +104,8 @@ def record(state: BudgetState, kind: ActionKind) -> None:
     save_state(state)
 
 
-def can_post(state: BudgetState, now_ts: int | None = None) -> tuple[bool, int]:
-    """Returns (allowed, seconds_until_next_post_allowed)."""
-    now_ts = now_ts or int(time.time())
-    if not state.last_post_ts:
-        return (True, 0)
-    elapsed = now_ts - state.last_post_ts
-    if elapsed >= POST_COOLDOWN_SECONDS:
-        return (True, 0)
-    return (False, POST_COOLDOWN_SECONDS - elapsed)
-
-
 def record_post(state: BudgetState, now_ts: int | None = None) -> None:
+    """Bump last_post_ts for audit (lane caps are tracked via counts)."""
     state.last_post_ts = now_ts or int(time.time())
     save_state(state)
 
