@@ -134,12 +134,28 @@ The exact thresholds are config (`tools/social/config.json`), not code:
 - `tools/on_this_day/README.md` → note the archive lane is now fallback-only; the `--publish` CLI still works for manual force-posts.
 - New: `tools/social/README.md` — the publisher's canonical doc.
 
-## Open questions — ASK BOSS
+## Boss decisions (2026-04-23, post-review)
 
-1. **Stale cutoff.** Publish reacted gems older than 30 days? 60? Forever? Boss's words — "anything reacted is worthy" — suggests forever, but the feed experience of a March photo in late April is stale. Default = forever (no cutoff) until Boss says otherwise; I think 30 days is right but won't decide it.
-2. **FB-only overflow.** When IG is maxed for the day, should we keep posting to FB alone (which has no 25/day cap)? My instinct: yes — Boss's reactions are commitments across both platforms, and FB gets more reach for his audience anyway. But it creates a content-mismatch (some gems on both, some FB-only). Needs his call.
-3. **Gem-queue freshness tie-break.** When gem queue has 5 items queued and we can only post 1 this tick, do we FIFO (oldest first, matches today's behaviour) or LIFO (freshest first, better for "today's brooder")? I lean LIFO for recency, but FIFO ensures the backlog eventually drains. Maybe FIFO within the last 6 h, LIFO beyond? Boss's call.
-4. **Carousel content overlap.** The daily 18:00 carousel picks reacted gems from today. If those same gems already went out as stories this morning, do we post the carousel anyway (it's a different format, people see it differently) or exclude-already-storied? Default today is "post anyway"; I'd keep that but flag it.
+1. **Stale cutoff: NONE.** Any reacted gem is kept forever and eligible for posting regardless of age. No `STALE_DAYS` constant — remove it from the plan.
+2. **FB-only overflow: NO.** Assume FB has a cap too (Meta doesn't publish a public number but behaves as if one exists). If IG is maxed, stop the cycle. Both platforms or neither.
+3. **Gem queue always first.** Archive lane is reached only when gem queue is empty. Already the design; just confirming.
+4. **Freshness tie-break: doesn't matter, make it robust.** Going with FIFO (oldest first) — simplest, proves the backlog drains, no preference between recent and old.
+5. **Carousel-overlap, per-hour soft limits, exact cadence: Boss doesn't care.** A few duplicate or "extra" posts are fine. Don't over-engineer.
+
+## Locked-in decisions (no more asking)
+
+| Setting | Value |
+|---|---|
+| Cadence | **Every 60 min** |
+| `IG_ROLLING_24H_QUOTA` | **25** (Meta's hard cap) |
+| `ARCHIVE_RESERVE_FLOOR` | **5** (never auto-post archive with fewer slots remaining) |
+| `MAX_PER_TICK` | **5** |
+| Ordering | **FIFO — oldest first** |
+| Stale cutoff | **None — every reacted gem forever** |
+| FB-only overflow | **Never — both or neither** |
+| Carousel/reel lanes | **Bypass publisher, let them consume quota naturally** |
+
+Implementation proceeds immediately on these settings.
 
 ## What the next Claude should NOT do
 
