@@ -1,38 +1,48 @@
 #!/usr/bin/env python3
 # Author: Claude Opus 4.7 (1M context)
-# Date: 20-April-2026
-# PURPOSE: LaunchAgent entry point for the 2-hour Instagram story slot.
+# Date: 23-April-2026 (rewritten for all-reacted-gems FIFO loop)
+# PURPOSE: LaunchAgent entry point for the reacted-gem story lane.
 #          Runs every 2 hours via com.farmguardian.ig-2hr-story.plist.
-#          Finds the single best strong-or-decent sharp-or-soft gem
-#          from the last 2 hours that isn't already a story; posts
-#          it as a Story (24h ephemeral, 9:16 center-crop, no caption).
+#          Finds EVERY gem with a Discord reaction that has not yet
+#          been posted as a Story (no time window — backlog-aware),
+#          and posts each one as a Story (24h ephemeral, 9:16
+#          center-crop, no caption) on IG + FB.
 #
-#          No-action paths exit 0:
-#            - No qualifying gem in the 2h window (cameras were quiet,
-#              VLM rejected everything, etc.) — skip slot cleanly.
+#          This is the gem lane, parallel to the archive lane at
+#          tools/on_this_day/ which posts historical iPhone photos.
+#          They share fb_poster + git_helper + ig_poster helpers and
+#          run simultaneously without interference.
 #
+#          Boss directive 2026-04-23: every reacted gem is worthy.
+#          No limit per tick, no "best only" filter — post them all.
+#          The previous one-winner-per-window behaviour silently
+#          dropped reacted gems that didn't score highest in their
+#          window; that's been replaced with FIFO-all-reacted.
+#
+#          No-action paths exit 0 (nothing reacted but not yet posted).
 #          Real failures exit 1. Credential-missing exits 3.
+#          Partial success (some posted, some failed) exits 1 AFTER
+#          logging every result so ops can see what went through.
 #
-# SRP/DRY check: Pass — single responsibility is "pick the best gem
-#                in the window and post it as a story." Selection in
-#                ig_selection.select_best_story_gem; posting in
-#                ig_poster.post_gem_to_story. 9:16 prep + STORIES
-#                media_type + DB writeback all live there.
+# SRP/DRY check: Pass — orchestration only. Selection in
+#                ig_selection.select_all_unposted_story_gems; posting
+#                (9:16 prep + STORIES media_type + DB writeback +
+#                FB dual-post) lives in ig_poster.post_gem_to_story.
 
 """
-ig-2hr-story.py — post the best gem from the last 2 hours to
-@pawel_and_pawleen as a Story.
+ig-2hr-story.py — post every reacted gem that hasn't been
+storied yet to @pawel_and_pawleen (+ linked FB Page).
 
 Invocation:
-  $LaunchAgent cadence: every 2 hours (see
-  deploy/launchd/com.farmguardian.ig-2hr-story.plist).
+  LaunchAgent cadence: every 2 hours (see
+  deploy/ig-scheduled/com.farmguardian.ig-2hr-story.plist).
 
   Manual invocation (testing):
     venv/bin/python scripts/ig-2hr-story.py [--dry-run]
 
 Exit codes:
-  0 — posted successfully, OR no-action (nothing to post this window)
-  1 — runtime failure
+  0 — all reacted gems posted (or nothing to post this tick)
+  1 — runtime failure on at least one gem
   3 — credentials missing
 """
 
@@ -87,40 +97,72 @@ def main(argv: list[str] | None = None) -> int:
         log.error("farm_2026 repo not found: %s", farm_2026)
         return 1
 
-    from tools.pipeline.ig_selection import select_best_story_gem
+    from tools.pipeline.ig_selection import select_all_unposted_story_gems
     from tools.pipeline.ig_poster import post_gem_to_story, IGPosterError
 
-    gem_id = select_best_story_gem(db_path=db_path, cfg=sched_cfg)
-    if gem_id is None:
-        log.info("2hr-story: no candidates in window; skipping slot")
+    # Instagram Graph API caps Business publishes at 25 per rolling
+    # 24h window (media + stories, combined). Above that the API
+    # returns a (code=4) rate-limit error and the rest of the batch
+    # fails. Cap here so we drain large backlogs cleanly over successive
+    # ticks instead of burning the whole day's quota in one burst.
+    # Override via config.instagram.scheduled.story_max_per_tick.
+    max_per_tick = int(sched_cfg.get("story_max_per_tick", 25))
+
+    all_gem_ids = select_all_unposted_story_gems(db_path=db_path, cfg=sched_cfg)
+    if not all_gem_ids:
+        log.info("2hr-story: no unposted reacted gems; slot idle")
         return 0
 
-    log.info("2hr-story: posting gem_id=%s (dry_run=%s)", gem_id, args.dry_run)
-
-    try:
-        result = post_gem_to_story(
-            gem_id=gem_id,
-            db_path=db_path,
-            farm_2026_repo_path=farm_2026,
-            dry_run=args.dry_run,
+    gem_ids = all_gem_ids[:max_per_tick]
+    if len(all_gem_ids) > max_per_tick:
+        log.info(
+            "2hr-story: %d reacted gem(s) awaiting publish; posting oldest %d "
+            "this tick (cap=%d). Remaining %d will drain on subsequent ticks.",
+            len(all_gem_ids), len(gem_ids), max_per_tick,
+            len(all_gem_ids) - max_per_tick,
         )
-    except IGPosterError as e:
-        log.error("2hr-story: credentials missing: %s", e)
-        return 3
+    else:
+        log.info(
+            "2hr-story: %d reacted gem(s) to publish (dry_run=%s)",
+            len(gem_ids), args.dry_run,
+        )
 
-    if result.get("error"):
-        log.error("2hr-story: post failed: %s", result["error"])
-        return 1
+    any_error = False
+    for gem_id in gem_ids:
+        try:
+            result = post_gem_to_story(
+                gem_id=gem_id,
+                db_path=db_path,
+                farm_2026_repo_path=farm_2026,
+                dry_run=args.dry_run,
+            )
+        except IGPosterError as e:
+            # Credentials missing is a hard stop — the remaining gems
+            # won't post either, and we shouldn't keep retrying.
+            log.error("2hr-story: credentials missing (stopping batch): %s", e)
+            return 3
+        except Exception as e:
+            log.exception("2hr-story: unexpected failure on gem %s", gem_id)
+            any_error = True
+            continue
 
-    if args.dry_run:
-        log.info("2hr-story: dry-run OK. Would have posted -> %s", result.get("raw_url"))
-        return 0
+        if result.get("error"):
+            log.error("2hr-story: gem %s post failed: %s", gem_id, result["error"])
+            any_error = True
+            continue
 
-    log.info(
-        "2hr-story: posted gem %s -> story_id=%s permalink=%s",
-        gem_id, result.get("story_id"), result.get("permalink"),
-    )
-    return 0
+        if args.dry_run:
+            log.info(
+                "2hr-story: dry-run OK gem %s -> would post %s",
+                gem_id, result.get("raw_url"),
+            )
+        else:
+            log.info(
+                "2hr-story: posted gem %s -> story_id=%s permalink=%s",
+                gem_id, result.get("story_id"), result.get("permalink"),
+            )
+
+    return 1 if any_error else 0
 
 
 if __name__ == "__main__":

@@ -251,6 +251,64 @@ def select_best_story_gem(
     return winner["id"]
 
 
+def select_all_unposted_story_gems(
+    db_path: Path,
+    cfg: dict,
+    now: Optional[datetime] = None,
+) -> list[int]:
+    """Return EVERY gem_id that has a Discord reaction and has not yet
+    been posted as a Story — ordered oldest-first so the caller posts
+    them FIFO.
+
+    This is the backstop against gem loss. Boss's directive (2026-04-23):
+    "Anything that gets a reaction in that channel is worthy of posting on
+    Instagram and Facebook. There's no limit to the number of stories we
+    can post." The earlier select_best_story_gem picked one winner per
+    window and silently dropped every other reacted gem that didn't score
+    highest — that's the behaviour being replaced.
+
+    Criteria (same predicate as select_best_story_gem MINUS the time
+    window):
+      - share_worth in ('strong', 'decent')
+      - image_quality in ('sharp', 'soft')
+      - bird_count >= 1
+      - has_concerns false
+      - image_path populated
+      - ig_story_id NULL  (not already posted as a story)
+      - discord_reactions >= 1  (Boss gave it a thumbs-up)
+
+    No ts cutoff: a gem that got reacted 4 days ago but wasn't posted
+    (agent was down, IG API hiccuped, etc.) will still be picked up on
+    the next tick. That's the whole point of the backstop.
+
+    Returns [] when every reacted gem has already been posted.
+    """
+    with sqlite3.connect(str(db_path)) as c:
+        c.row_factory = sqlite3.Row
+        rows = c.execute(
+            """
+            SELECT id, camera_id, ts, share_worth, image_quality, bird_count,
+                   discord_reactions
+              FROM image_archive
+             WHERE share_worth IN ('strong', 'decent')
+               AND image_quality IN ('sharp', 'soft')
+               AND bird_count >= 1
+               AND (has_concerns = 0 OR has_concerns IS NULL)
+               AND image_path IS NOT NULL
+               AND ig_story_id IS NULL
+               AND discord_reactions >= 1
+             ORDER BY ts ASC
+            """,
+        ).fetchall()
+
+    gem_ids = [row["id"] for row in rows]
+    log.info(
+        "select_all_unposted_stories: %d reacted gem(s) awaiting story publish",
+        len(gem_ids),
+    )
+    return gem_ids
+
+
 def select_weekly_reel_gems(
     db_path: Path,
     cfg: dict,

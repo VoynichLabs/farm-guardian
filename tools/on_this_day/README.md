@@ -93,6 +93,19 @@ Top-N is score-desc, ties broken by year-desc (2025 beats 2024 beats 2022).
 | farm-2026 public drop | `farm-2026/public/photos/on-this-day/YYYY-MM-DD/` (committed + pushed live) |
 | FB token path | `/Users/macmini/bubba-workspace/secrets/farm-guardian-meta.env` (handled by `fb_poster`, non-expiring as of 2026-04-21) |
 
+## Two social-posting pipelines on this Mini (don't confuse them)
+
+| Lane | Source of photos | Quality gate | Destination | Canonical code |
+|---|---|---|---|---|
+| **Gem lane** | Live cameras via `com.farmguardian.pipeline` | Boss's reactions on Discord `#farm-2026` (human-in-the-loop) | IG (`@pawel_and_pawleen`) + FB Page (*Yorkies App*) — stories every 2h, carousel daily 18:00, reel Sun 19:00 | `tools/pipeline/` (this repo), state in `data/image_archive.db` |
+| **Archive lane** (this doc) | Qwen-catalogued iPhone archive at `~/bubba-workspace/projects/photos-curation/photo-catalog/` | Automated content filter (farm/pet keywords in; hawks/receipts/etc. out) | Same IG + FB Page — stories every 90 min | `tools/on_this_day/` (this folder), state in `data/on-this-day/posted.json` |
+
+They share `fb_poster.py`, `git_helper.py`, and `ig_poster.py` helpers but have independent selectors, LaunchAgents, and state files. Both commit into `farm-2026/public/photos/` and use `raw.githubusercontent.com` URLs to feed Meta's media fetcher. Don't merge them — different content policies, different schemas.
+
+**Zero-loss invariants:**
+- Gem lane: `select_all_unposted_story_gems` runs every 2h with **no time window**. Anything with `discord_reactions >= 1` and `ig_story_id IS NULL` gets FIFO-drained. Capped at 25/tick to respect IG's 24h publish quota; large backlogs drain over subsequent ticks.
+- Archive lane: posted UUIDs are recorded in `data/on-this-day/posted.json`, never reposted. Cloud-only photos blacklist until tomorrow and retry on next day's ticks.
+
 ## Automation (v2.36.3) — you never type these commands
 
 Two LaunchAgents run this pipeline with zero human touch:
