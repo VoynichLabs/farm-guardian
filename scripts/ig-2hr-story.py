@@ -128,6 +128,7 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     any_error = False
+    posted_count = 0
     for gem_id in gem_ids:
         try:
             result = post_gem_to_story(
@@ -146,6 +147,24 @@ def main(argv: list[str] | None = None) -> int:
             any_error = True
             continue
 
+        # Detect IG's 25-publish-per-24h rate limit (shared across
+        # every lane hitting @pawel_and_pawleen — this gem pipeline AND
+        # the on_this_day archive story pipeline). Graph returns
+        # HTTP 403 on container-status polls once the quota is burned.
+        # Continuing the batch would waste compute hitting the wall
+        # for every remaining gem; stop cleanly, next 2h tick picks
+        # up where we left off (quota is rolling, slots free up as
+        # the oldest publishes age past 24h).
+        if result.get("error") and ("403" in str(result["error"]) or
+                                    "rate" in str(result["error"]).lower() or
+                                    "limit" in str(result["error"]).lower()):
+            log.warning(
+                "2hr-story: IG 24h publish quota exhausted after %d gem(s); "
+                "stopping batch. %d gem(s) remain queued for next tick.",
+                posted_count, len(gem_ids) - posted_count - 1,
+            )
+            break
+
         if result.get("error"):
             log.error("2hr-story: gem %s post failed: %s", gem_id, result["error"])
             any_error = True
@@ -161,6 +180,7 @@ def main(argv: list[str] | None = None) -> int:
                 "2hr-story: posted gem %s -> story_id=%s permalink=%s",
                 gem_id, result.get("story_id"), result.get("permalink"),
             )
+            posted_count += 1
 
     return 1 if any_error else 0
 

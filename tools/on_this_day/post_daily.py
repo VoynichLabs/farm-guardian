@@ -789,6 +789,24 @@ def run_auto_story_cycle(dry_commit: bool = False) -> dict:
             final_result = result
             break
 
+        # IG's 25-publish-per-rolling-24h quota is shared with the
+        # gem-pipeline story lane. When it's exhausted Graph 403s;
+        # further retries in this tick would be wasted compute. Bail
+        # cleanly so the next 90-min tick can retry once the rolling
+        # window has freed a slot.
+        err_str = str(result.get("error") or "")
+        if "403" in err_str or "rate" in err_str.lower() or "limit" in err_str.lower():
+            log.warning(
+                "auto-story: IG/FB publish quota exhausted; stopping batch"
+            )
+            result["posted"] = False
+            result["no_candidate"] = False
+            result["quota_exhausted"] = True
+            result["target_date"] = target_date.isoformat()
+            result["attempts"] = attempts
+            final_result = result
+            break
+
         # Dry-commit deliberately stops before git/FB/IG, but the
         # export succeeded — treat it as "done for this cycle" so the
         # smoke-test path doesn't hammer 5 candidates.
