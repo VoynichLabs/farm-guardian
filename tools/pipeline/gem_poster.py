@@ -37,6 +37,20 @@ _USERNAME_BY_CAMERA = {
 _REJECT_ACTIVITIES_NON_S7 = frozenset({"huddling", "sleeping", "none-visible", "other"})
 _REJECT_COMPOSITIONS_NON_S7 = frozenset({"cluttered", "empty"})
 
+# Minimum "biggest-bird percent of frame" for each camera. Per Boss
+# 2026-04-23: "I'm seeing a lot of images where the bird is 20% and
+# 80% is background, especially from MBA and GWTC." Thresholds are
+# per-camera because the rigs see different distances:
+#   mba-cam = brooder overhead, close — birds should be at least 15%
+#   gwtc    = coop, birds are further from the lens — require 25%
+#             because anything smaller reads as "distant coop shot"
+# Cameras not in this dict are NOT gated on subject size.
+# s7-cam is intentionally absent (Boss said don't touch it).
+_LARGEST_SUBJECT_PCT_MIN = {
+    "mba-cam": 15,
+    "gwtc":    25,
+}
+
 # Caption hygiene. The prompt already lists "bad captions to avoid"; the
 # gate enforces three specific patterns Boss has flagged:
 #   - "A group of [adj]* chicks/birds/chickens/poults..."       (the
@@ -149,6 +163,20 @@ def should_post(vlm_metadata: dict, tier: str, camera_id: Optional[str] = None) 
         clean, why = _caption_is_clean(caption)
         if not clean:
             return _reject(camera_id, f"{why}: {caption[:60]!r}")
+
+        # Subject-size gate (added 2026-04-23 per Boss — "I'm seeing
+        # images where a bird is 20% of the frame and the other 80%
+        # is empty coop"). Uses the VLM's largest_subject_pct field.
+        # Missing field (pre-v2.38 VLM output) → treated as pass so
+        # we don't mass-reject while the schema rolls out.
+        threshold = _LARGEST_SUBJECT_PCT_MIN.get(camera_id)
+        if threshold is not None:
+            largest = vlm_metadata.get("largest_subject_pct")
+            if isinstance(largest, int) and largest < threshold:
+                return _reject(
+                    camera_id,
+                    f"largest_subject_pct={largest} < {threshold}",
+                )
 
     # Sharpness branch (unchanged from v2.36.4).
     if iq == "sharp":

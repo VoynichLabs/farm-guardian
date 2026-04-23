@@ -205,9 +205,16 @@ def _update_gem_reactions(
 # Human-drop ingestion (Boss's iPhone drops, Larry's shares, etc.)
 # ---------------------------------------------------------------------------
 
-# Only still images are in-scope for IG posting. Videos from drops are
-# a separate pipeline (not built yet).
+# Only still images are in-scope for IG posting. Videos from direct
+# posts are a separate pipeline (not built yet).
 _DROP_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png"}
+
+# Boss's Discord user id. Any message he posts in #farm-2026 with an
+# image attachment is auto-ingested — no human reaction needed.
+# Rationale (2026-04-23): his act of posting the photo IS the
+# quality-gate signal; requiring a self-reaction is friction. Other
+# non-bot users still need at least one real-human reaction.
+BOSS_DISCORD_USER_ID = "293569238386606080"
 
 # Where downloaded drops live under data/. Relative to REPO_ROOT. Matches
 # the rest of Guardian's data/ layout (gitignored).
@@ -496,11 +503,18 @@ def main(argv: list[str] | None = None) -> int:
                 gem_id, human_count, msg["id"], cam,
             )
 
-        # ---- 2. Human-drop ingestion ----
+        # ---- 2. Human-posted image ingestion ----
         for i, msg in enumerate(drop_msgs):
             if i > 0:
                 time.sleep(0.5)
-            human_count = _count_human_reactions(msg, token, dh)
+            author_id = (msg.get("author") or {}).get("id") or ""
+            # Boss's posts qualify automatically (the act of posting
+            # IS his quality signal — no self-reaction required).
+            # Everyone else still needs at least one real-human react.
+            if author_id == BOSS_DISCORD_USER_ID:
+                human_count = max(1, _count_human_reactions(msg, token, dh))
+            else:
+                human_count = _count_human_reactions(msg, token, dh)
             if human_count == 0:
                 continue
             attachments = msg.get("attachments") or []
