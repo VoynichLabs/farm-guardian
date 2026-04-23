@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.farmguardian.ig-engage</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/macmini/Documents/GitHub/farm-guardian/venv/bin/python</string>
+        <string>/Users/macmini/Documents/GitHub/farm-guardian/tools/ig-engage/engage.py</string>
+        <string>--headless</string>
+        <string>--max-actions</string>
+        <string>20</string>
+        <string>--max-minutes</string>
+        <string>4.5</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/macmini/Documents/GitHub/farm-guardian</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/ig-engage.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/ig-engage.err.log</string>
+
+    <!-- Three plausible-human windows per day: morning coffee, lunch, evening.
+         StartCalendarInterval fires in local time (America/New_York on the
+         Mini). Hours intentionally staggered in odd minutes to look less
+         machine-scheduled. -->
+    <key>StartCalendarInterval</key>
+    <array>
+        <dict>
+            <key>Hour</key><integer>9</integer>
+            <key>Minute</key><integer>17</integer>
+        </dict>
+        <dict>
+            <key>Hour</key><integer>13</integer>
+            <key>Minute</key><integer>42</integer>
+        </dict>
+        <dict>
+            <key>Hour</key><integer>19</integer>
+            <key>Minute</key><integer>28</integer>
+        </dict>
+    </array>
+
+    <key>RunAtLoad</key>
+    <false/>
+    <key>ThrottleInterval</key>
+    <integer>60</integer>
+</dict>
+</plist>
