@@ -1,5 +1,5 @@
 # Author: Claude Opus 4.7 (1M context)
-# Date: 22-April-2026
+# Date: 23-April-2026
 # PURPOSE: Post strong-tier frames to the #farm-2026 Discord channel as they
 #          land. Called from orchestrator.run_cycle whenever store returns
 #          tier=strong. Failures here must NEVER break the pipeline cycle —
@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -30,70 +31,135 @@ _USERNAME_BY_CAMERA = {
 }
 
 
-def should_post(vlm_metadata: dict, tier: str, camera_id: Optional[str] = None) -> bool:
-    """Gem predicate, refined across the 2026-04-16 evening session:
+# Non-s7 cameras rejected at these activity/composition tags even when the
+# VLM self-approves them as strong. Huddle/sleep/empty frames are the
+# single largest noise source in #farm-2026 per 23-Apr-2026 review.
+_REJECT_ACTIVITIES_NON_S7 = frozenset({"huddling", "sleeping", "none-visible", "other"})
+_REJECT_COMPOSITIONS_NON_S7 = frozenset({"cluttered", "empty"})
 
+# Caption hygiene. The prompt already lists "bad captions to avoid"; the
+# gate enforces three specific patterns Boss has flagged:
+#   - "A group of [adj]* chicks/birds/chickens/poults..."       (the
+#     dominant mba-cam huddle-caption shape — matches even if there's a
+#     trailing location phrase like "...under the heat lamp.")
+#   - "(Cute|Fluffy|Tiny|Small) baby (chicks|birds)"
+#   - "(Chicks|Baby chicks|Birds|Baby birds) in the (brooder|coop|yard)"
+# Deliberately NOT matching "A small chick..." alone — singular-subject
+# captions are usually followed by specifics ("...with orange markings",
+# "...pecking at the feeder") and rejecting them would kill legit frames.
+_GENERIC_CAPTION_RE = re.compile(
+    r"^\s*("
+    r"a\s+group\s+of\s+(?:small\s+|fluffy\s+|cute\s+|tiny\s+|little\s+)*"
+    r"(?:chicks|birds|chickens|poults|baby\s+birds|baby\s+chicks)"
+    r"|"
+    r"(?:cute|fluffy|tiny|small|little)\s+baby\s+(?:chicks|birds)"
+    r"|"
+    r"(?:chicks|baby\s+chicks|birds|baby\s+birds)\s+"
+    r"(?:in|under|near|by)\s+the\s+"
+    r"(?:brooder|coop|yard|heat\s+lamp|feeder|waterer|bedding)"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def _caption_is_clean(caption: str) -> tuple[bool, Optional[str]]:
+    """Caption hygiene gate. Returns (ok, reason). Non-ASCII trips the
+    leak check (seen 2026-04-23: qwen emitted CJK `籠` mid-caption).
+    Generic-opener regex catches the VLM's default-mode output."""
+    if not caption:
+        return True, None
+    try:
+        caption.encode("ascii")
+    except UnicodeEncodeError:
+        return False, "skip_non_ascii_caption"
+    if _GENERIC_CAPTION_RE.match(caption):
+        return False, "skip_generic_caption"
+    return True, None
+
+
+def _reject(camera_id: Optional[str], reason: str) -> bool:
+    """Log the rejection reason at DEBUG and return False. Central funnel so
+    every skip path is traceable when Boss asks why a frame didn't post."""
+    log.debug("gem_gate: %s rejected (%s)", camera_id or "?", reason)
+    return False
+
+
+def should_post(vlm_metadata: dict, tier: str, camera_id: Optional[str] = None) -> bool:
+    """Gem predicate — what lands in #farm-2026 Discord for Boss to curate.
+
+    History (see docs/23-Apr-2026-gem-gate-tightening-plan.md for rationale):
       v2.28.3  tier=strong OR (tier=decent + bird_count>=2)  'multiple faces'
       v2.28.5  sharp + bird_count>=1  (dropped tier gate)    'nothing posts'
       v2.28.6  + bird_face_visible                           'not its fluffy ass'
-      v2.28.7           drop face requirement                'VLM cannot reliably tell what a face is'
-      v2.36.3           + share_worth != 'skip'              'butts still slipping through; lean on VLM skip judgment'
-      v2.36.4  (this)   per-camera sharpness tolerance       's7 strict; others allow soft when faces or >=2 birds'
+      v2.28.7           drop face requirement                'VLM cannot reliably tell a face'
+      v2.36.3           + share_worth != 'skip'              'butts still slipping'
+      v2.36.4           per-camera sharpness tolerance       's7 strict; others allow soft+face'
+      v2.37.2  (this)   non-s7 activity/composition/caption  'huddle blobs + generic captions'
 
-    2026-04-22: Boss flagged that usb-cam / mba-cam / gwtc gems that are
-    'a little blurry but pretty good' (faces visible, multiple birds) never
-    reach Discord because the sharp-only gate rejects them. s7-cam, by
-    contrast, produces consistently sharp frames — leave it alone. So the
-    gate now branches on camera_id:
+    v2.37.2 additions (non-s7 only; s7-cam logic unchanged — it's already
+    strict and Boss trusts its output):
+      - Reject activity ∈ {huddling, sleeping, none-visible, other}.
+        Huddle/sleep piles are the fluffy-ass blob Boss keeps flagging.
+      - Reject composition ∈ {cluttered, empty}.
+      - Reject caption matching generic-opener regex ("A group of fluffy
+        chicks...", "Chicks in the brooder.", "Cute baby birds.") or
+        containing non-ASCII (qwen CJK leak 2026-04-23).
 
-      - s7-cam (+ any camera_id we don't recognize as non-s7):
-          image_quality must be 'sharp' and bird_face_visible must be
-          True. Rear-only or wing-only S7 frames do not post.
-      - every other camera (usb-cam, mba-cam, gwtc, house-yard, iphone-cam):
-          image_quality may be 'sharp' OR 'soft', but if 'soft' we also
-          require a face signal — either bird_face_visible=True, or
-          bird_count>=2 (proxy for 'crowd, some face is likely visible').
-          'blurred' still rejected; soft-without-faces still rejected.
+    Intentionally NOT a bird_count cap. MBA/GWTC produce great frames
+    where one bird poses close-to-lens and others are in the background
+    with high total bird_count; killing those by count would be a
+    regression. Huddle blobs are caught by the activity gate above.
 
-    bird_face_visible was pulled in v2.28.6 because Gemma-4's flag was
-    noisy. We're on qwen3.6-35b-a3b now and Boss has been eyeballing
-    output for weeks — the flag is acceptable to him. And the multi-bird
-    fallback (bird_count>=2) keeps content flowing even if the face flag
-    is wrong on a given frame.
+    Universal rules (all cameras):
+      - share_worth == 'skip'  → reject
+      - bird_count < 1         → reject
+      - image_quality 'blurred'→ reject
 
-    share_worth != 'skip' still applies universally — the VLM's own
-    butt-forward / not-archive-worthy verdict wins.
-
-    Non-sharp rules:
-      - image_quality 'blurred' → reject (always)
-      - image_quality 'soft'     → reject for s7-cam; on others, require
-                                   bird_face_visible OR bird_count>=2
-      - image_quality 'sharp'    → accept on non-s7; on s7 require
-                                   bird_face_visible=True
-    Bird rules:
-      - bird_count < 1           → reject
-    Holistic:
-      - share_worth == 'skip'    → reject"""
+    Sharpness branch (unchanged):
+      - sharp: s7-cam requires face_visible; others accept
+      - soft:  s7-cam rejects; others require face_visible OR bird_count>=2
+      - blurred: always reject"""
     iq = vlm_metadata.get("image_quality")
     bc = vlm_metadata.get("bird_count", 0)
     sw = vlm_metadata.get("share_worth")
+    activity = vlm_metadata.get("activity")
+    composition = vlm_metadata.get("composition")
+    caption = vlm_metadata.get("caption_draft", "") or ""
     face_visible = bool(vlm_metadata.get("bird_face_visible"))
 
     if sw == "skip":
-        return False
+        return _reject(camera_id, "skip_share_worth")
     if not isinstance(bc, int) or bc < 1:
-        return False
+        return _reject(camera_id, "skip_no_birds")
 
-    # Camera-specific sharpness tolerance. s7-cam (the consistently-sharp
-    # source Boss trusts) keeps the strict rule; other cameras get a
-    # face-signal fallback on 'soft' frames.
+    # Non-s7 semantic gates. s7-cam is already strict on sharp+face and
+    # Boss has explicitly asked not to touch it.
+    #
+    # NOTE: No group-size cap. The MBA + GWTC produce Boss's favourite
+    # framings when a chick poses close to the lens with the rest of the
+    # flock in the background — the VLM tags these `composition=portrait`
+    # or `group` with high bird_count, and we want them through. Huddle
+    # blobs are already killed by the activity gate below.
+    is_non_s7 = camera_id is not None and camera_id != "s7-cam"
+    if is_non_s7:
+        if activity in _REJECT_ACTIVITIES_NON_S7:
+            return _reject(camera_id, f"skip_activity={activity}")
+        if composition in _REJECT_COMPOSITIONS_NON_S7:
+            return _reject(camera_id, f"skip_composition={composition}")
+        clean, why = _caption_is_clean(caption)
+        if not clean:
+            return _reject(camera_id, f"{why}: {caption[:60]!r}")
+
+    # Sharpness branch (unchanged from v2.36.4).
     if iq == "sharp":
         if camera_id == "s7-cam" and not face_visible:
-            return False
+            return _reject(camera_id, "s7_sharp_no_face")
         return True
-    if iq == "soft" and camera_id != "s7-cam" and camera_id is not None:
-        return face_visible or bc >= 2
-    return False
+    if iq == "soft" and is_non_s7:
+        if face_visible or bc >= 2:
+            return True
+        return _reject(camera_id, "soft_no_face_no_crowd")
+    return _reject(camera_id, f"image_quality={iq}")
 
 
 def load_dotenv(path: Path) -> None:

@@ -4,6 +4,27 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-04-23
 
+### v2.37.2 — Gem gate: semantic filters for the Discord curation lane (Claude Opus 4.7 (1M context))
+
+Tightens `tools/pipeline/gem_poster.py::should_post` so that `mba-cam`, `gwtc`, `usb-cam`, and `house-yard` stop flooding `#farm-2026` with huddle-pile, sleeping-bird, and generic-caption frames. `s7-cam` logic is unchanged (already strict on `sharp + bird_face_visible`, and Boss has explicitly asked not to touch it).
+
+**What's new, non-s7 only:**
+- Reject `activity ∈ {huddling, sleeping, none-visible, other}` — the dominant noise pattern in the 2026-04 archive (5/15 mba-cam "strong" frames were huddle-pile captions like "A group of fluffy chicks huddle together under a heat lamp").
+- Reject `composition ∈ {cluttered, empty}`.
+- Caption hygiene: reject `caption_draft` matching any of three generic patterns Boss flagged ("A group of fluffy chicks...", "Cute baby birds.", "Chicks in the brooder.") OR containing non-ASCII code points (qwen3.6 leaked `籠` mid-caption on 2026-04-23).
+
+**What's deliberately NOT in the gate:** no `bird_count` cap. Boss flagged mid-work that MBA and GWTC produce their best frames when one chick poses close to the lens with siblings in the background — those have high bird_count and the `composition=group` tag but are exactly the shots we want. Huddle blobs get killed by the activity gate, not by counting birds.
+
+**Historical replay** (every `-strong.json` on disk in `data/gems/2026-04/` run through the new gate):
+- mba-cam: 15 → 8 accepted, 7 rejected (5 huddling, 2 none-visible). All 7 match the failure modes Boss flagged.
+- gwtc: 22 → 15 accepted, 7 rejected (2 cluttered, 2 sleeping, 1 none-visible, 1 generic caption, 1 non-ASCII caption).
+
+**Every rejection path now logs a reason tag at DEBUG** (`skip_activity=huddling`, `skip_composition=cluttered`, `skip_generic_caption`, `skip_non_ascii_caption`, etc.) so future tuning has traceable signal.
+
+**Test harness:** `tools/pipeline/test_gem_poster_gate.py` — self-contained assertion suite + archive replay. Run via `python -m tools.pipeline.test_gem_poster_gate` from the repo root. No CI wiring (none exists); exits non-zero on synthetic failures.
+
+**Plan doc:** `docs/23-Apr-2026-gem-gate-tightening-plan.md`. **Branch:** `gem-gate-tightening-23apr2026`. **Live pickup:** orchestrator rereads the module on next restart — `launchctl kickstart -k gui/$(id -u)/com.farmguardian.pipeline` after merge.
+
 ### v2.37.1 — Browser automation stack: four-tool fleet enabled (Claude Opus 4.7 (1M context))
 
 Enabled every browser-automation tool on the Mac Mini so future agents never have to ask "why isn't X available?" again. All four of the following are now registered / installed / documented as durable state:
