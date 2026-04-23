@@ -2,7 +2,19 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] - 2026-04-22
+## [Unreleased] - 2026-04-23
+
+### v2.36.6 — VLM prompt: turkey poult species ID + richer captions (Claude Opus 4.6 (1M context))
+
+Brooder now holds both chicken chicks AND turkey poults mixed together. The VLM pipeline prompt (`tools/pipeline/prompt.md`) was not distinguishing between them — every bird was "chick."
+
+**What changed:**
+
+- **Species identification guidance:** added physical-feature checklist for turkey poults (longer necks, taller legs, bare/pink face, upright stance) vs. chicken chicks (rounder, shorter-legged, fluffier-faced) so the VLM can call them out by species.
+- **Age bracket bumped:** brooder flock updated from 1–3 weeks to 1–4 weeks old; max-age-in-frame cap added.
+- **Caption requirements tightened:** `caption_draft` now expects 1–2 descriptive sentences (~200 chars), species-specific language ("turkey poult" vs "chicken chick"), visible-detail specifics (down color, posture, action, scene context), and correct age terminology (no "hen" / "rooster" for brooder birds). Good and bad examples included.
+
+**Not changed:** `share_worth` triggers, `image_quality` logic, `concerns` field, any Python code. Prompt-only update.
 
 ### v2.36.5 — on-this-day: 90-min story cadence, FB+IG dual publish, no-repost ledger, Discord moved off #farm-2026 (Claude Opus 4.7 (1M context))
 

@@ -10,7 +10,7 @@ Use camera_name to decide which group you're looking at — don't guess age from
 Known birds in this flock as of {today}:
 - Birdadette: 3rd-generation Easter Egger × Rhode Island Red mix, GPU-incubated, hatched 2026-04-06. Currently a CHICK (~1 week old), about 2 days older than the other brooder chicks so she's slightly larger. Solid BLACK body plumage with an ORANGE face. Adult plumage will differ from chick plumage — judge by current appearance only.
 - Four winter-survivor adults (mixed breeds — not individually distinct in most photos)
-- ~22 brooder chicks, currently 1-3 weeks old. This is a MIXED RARE-BREED / EXOTIC-ISLAND-FOWL flock — individual chicks vary widely in down color, markings, crest shape, leg color, and feather pattern. Many individuals are visually striking in their own right (distinctive stripes, unusual color combinations, crested heads, feathered feet). Do NOT assume they all look alike — treat each chick as potentially remarkable and flag visual individuality generously.
+- ~22 brooder birds, currently 1-4 weeks old. **This brooder holds BOTH chicken chicks AND turkey poults mixed together** — species call-outs matter. Turkey poults have longer necks, taller legs, proportionally larger feet, a more upright stance, and a distinctive bare/pink-skinned face and snood area even at this age; chicken chicks are rounder, shorter-legged, fluffier-faced, and smaller overall. When you can tell, say which is which. This is also a MIXED RARE-BREED / EXOTIC-ISLAND-FOWL chicken flock — individual chicks vary widely in down color, markings, crest shape, leg color, and feather pattern. Many individuals are visually striking in their own right (distinctive stripes, unusual color combinations, crested heads, feathered feet). Do NOT assume they all look alike — treat each chick as potentially remarkable and flag visual individuality generously. **Everyone in the brooder is still a chick/poult — nobody is a "hen" or "rooster" yet. Max age in-frame is ~4 weeks.**
 - Older-chick cohort in the coop (previous brooder group): larger, more feathered-out, starting to look adult-shaped. Separate from the current brooder chicks.
 
 Guidance on specific fields:
@@ -35,5 +35,16 @@ Guidance on specific fields:
     3. Compression artifacts, heavy motion blur, subject out of focus beyond recognition.
   - **"decent"** is the middle band: clear, archive-worthy frames that don't hit a `strong` trigger and aren't disqualified by a `skip` trigger. A group shot with multiple visible faces but no clear portrait subject is `decent`. A sharp foraging shot where the bird's face is sideways is `decent`. Normal in-focus frames of birds doing ordinary things are `decent`.
   - If in doubt between `decent` and `skip`, lean `skip`. We'd rather lose a decent frame than drown the gallery in huddle-pile noise.
-- `caption_draft`: one sentence, plain language, no proper names, no attribution to real artists or writers. Short and factual.
+- `caption_draft`: **one or two descriptive sentences (up to ~200 chars).** Plain language, no proper names, no attribution to real artists or writers. Be SPECIFIC and OBSERVATIONAL — describe what's actually visible in the frame, not a generic label.
+  - **Species matters.** Distinguish between "chicken chicks" and "turkey poults" (or "a turkey poult" / "a chicken chick" / "a mixed group of chicks and poults") whenever you can tell them apart — don't default to "chicks" for everything. If you genuinely can't tell, "young birds" or "the brooder flock" is fine, but try first.
+  - **Nobody in the brooder is a "hen" or "rooster" or adult chicken.** They are chicks (chickens) or poults (turkeys), 1–4 weeks old. "Hen" / "rooster" / "adult" terminology applies only to `house-yard` or `gwtc` frames showing the four winter-survivor adults.
+  - **Include visible detail** — down color / markings ("a black-and-yellow striped chick"), posture ("mid-stretch," "head cocked toward the camera"), what they're doing ("beak deep in the feeder," "drinking from the waterer nipple," "perched on the edge of the brooder tub"), notable individuals ("Birdadette, the solid-black chick with the orange face, front-and-center"), and scene context ("under the heat lamp," "in the wood-shaving bedding"). Prefer concrete nouns and verbs over vague ones.
+  - Examples of good captions:
+    - "A tall turkey poult stands center-frame with its head up, surrounded by four smaller chicken chicks pecking at the bedding under the heat lamp."
+    - "Close-up of a black-and-yellow striped chicken chick looking directly at the camera, one eye sharply in focus."
+    - "Birdadette, the solid-black chick with the orange face, preening next to a pale-cream sibling in the wood-shavings."
+  - Examples of bad/weak captions to avoid:
+    - "Chicks in the brooder." (too generic, no detail)
+    - "A hen under the heat lamp." (wrong — no hens in the brooder)
+    - "Cute baby birds." (no specifics, no species, no action)
 - `concerns`: only populate if you see something a chicken-keeper should know about — injured bird, dead bird, abnormal posture, fighting/bullying, escape risk, predator visible, environmental hazard. Empty array otherwise.
