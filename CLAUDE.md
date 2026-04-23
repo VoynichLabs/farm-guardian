@@ -85,13 +85,31 @@ These should be present in the CLAUDE.md file and the agents.md file.
 - End completed tasks with "done" (or "next" if awaiting instructions).
 
 
-## LM Studio — READ BEFORE ADDING ANY CODE THAT TALKS TO IT
+## LM Studio — LOAD-BEARING PRODUCTION DEPENDENCY, READ BEFORE TOUCHING
 
-This Mac Mini runs LM Studio (`http://localhost:1234`). Guardian
-**does not currently call LM Studio** — `vision.py` was removed in
-v2.17.0 because over-engineered species refinement wasn't worth the
-operational complexity. There is one planned re-introduction (a
-standalone, slow-cadence brooder narrator).
+This Mac Mini runs LM Studio (`http://localhost:1234`). **LM Studio is a
+production dependency of the Farm Guardian image pipeline.** The pipeline
+LaunchAgent (`com.farmguardian.pipeline`) calls LM Studio every camera
+cycle for every enabled camera — `tools/pipeline/vlm_enricher.py` POSTs
+each captured frame to `/v1/chat/completions` against the current VLM
+(qwen3.6-35b-a3b as of 2026-04-23) to produce `share_worth`,
+`caption_draft`, and the rest of the structured output that drives the
+Discord gem lane, the IG gem-reaction pipeline, and the FB cross-post.
+**If LM Studio goes down, the whole gem/caption/curation stack stops
+producing.**
+
+**Do NOT suggest "freeing resources" by quitting LM Studio.** It looks
+like an idle GUI app holding memory but it is the VLM backend for every
+active camera. The correct lever for memory pressure is model choice /
+context-length reduction / unloading stale co-resident models inside
+LM Studio, never quitting the app.
+
+**Guardian itself (the detection service, `guardian.py`) does NOT call
+LM Studio.** `vision.py` was removed in v2.17.0 because over-engineered
+species refinement wasn't worth the operational complexity. This is the
+distinction that tripped up past agents: *Guardian = detection, no LM
+Studio; pipeline = VLM enrichment, requires LM Studio.* Two services,
+same repo.
 
 Before you write or modify ANY code that opens a connection to LM
 Studio, read **`docs/13-Apr-2026-lm-studio-reference.md`** in full.
