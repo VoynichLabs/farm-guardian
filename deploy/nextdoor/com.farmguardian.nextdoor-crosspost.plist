@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.farmguardian.nextdoor-crosspost</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/macmini/Documents/GitHub/farm-guardian/venv/bin/python</string>
+        <string>/Users/macmini/Documents/GitHub/farm-guardian/tools/nextdoor/crosspost.py</string>
+        <string>--headless</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/macmini/Documents/GitHub/farm-guardian</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/nextdoor-crosspost.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/nextdoor-crosspost.err.log</string>
+
+    <!-- Fires every Sunday at 09:14 local. The script itself verifies the
+         weekday+window and the 7-day post cooldown — this schedule just
+         makes sure the script is invoked. -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Weekday</key><integer>0</integer>
+        <key>Hour</key><integer>9</integer>
+        <key>Minute</key><integer>14</integer>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <false/>
+    <key>ThrottleInterval</key>
+    <integer>60</integer>
+</dict>
+</plist>

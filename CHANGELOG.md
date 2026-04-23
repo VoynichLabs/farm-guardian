@@ -4,6 +4,52 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-04-23
 
+### v2.37.0 — Nextdoor automation (session bootstrap live, engager + crosspost scaffolded) (Claude Opus 4.7 (1M context))
+
+Extends the IG engagement playbook shipped hours earlier to Nextdoor. Boss is logged into `nextdoor.com` in Chrome on the Mac Mini via Apple Sign-In — 21 cookies present including the 820-char `ndbr_idt` RS256 session JWT. Same zero-login cookie-lift flow lands Playwright cleanly on `/news_feed/`, verified 2026-04-23.
+
+**Shared crypto refactor (foundation for this and any future Chrome-based track):**
+
+- New module `tools/chrome_session/` with `decrypt.py` exposing `get_chrome_safe_storage_password()`, `derive_key()`, `decrypt_cookie()`, and `read_cookies_for_hosts(patterns)`. Both the IG engager and Nextdoor bootstrap now import from here — no duplicated crypto, one source of truth for the Chrome Safe Storage keychain + PBKDF2 + AES-CBC/GCM + 32-byte host-hash prefix-strip logic. IG's `tools/ig-engage/bootstrap.py` was rewritten to import from it; behavior unchanged, module count reduced.
+
+**New `tools/nextdoor/`:**
+
+- `bootstrap.py` — clone of the IG bootstrap, filters host `%nextdoor%`, seeds `~/Library/Application Support/farm-nextdoor/profile/`, verifies landing URL doesn't bounce to `/login` / `/register` / `/sign_up`. Confirmed live 2026-04-23 — feed loaded on first attempt.
+- `budget.py` — per-UTC-day counters with Nextdoor-tuned caps (10 likes + 3 comments + 5 post-reactions) plus a separate 7-day post cooldown tracker via `last_post_ts`. Exposes kill switch (`/tmp/nextdoor-off`) and challenge cooldown flag (`/tmp/nextdoor-cooldown-until`) as first-class helpers.
+- `challenge.py` — Nextdoor-specific dialog-text detector. Initial string list seeded from Nextdoor help-center copy (rate-limit, content-review, re-auth, 2FA families). Screenshot + Discord-notify + 24h cooldown on match. Kept separate from IG's challenge module so platform-specific string additions never cross-contaminate.
+- `comment_writer.py` — NEW VLM voice prompt tuned for Nextdoor's "good neighbor" register: 1–3 sentences, proper mixed case, minimal emoji, no lowercase-aesthetic, post-forward curiosity questions encouraged. Curated fallback pool distinct from the IG engager's (never reuse IG's lowercase fallbacks — wrong voice).
+- `primitives.py` — scaffolded with placeholder selectors and clear TODOs for every UI element (like / comment / create-post / photo-attach / audience-picker / submit). **Selectors will be captured from the first attended session** with Boss at the Mini per the skill doc runbook.
+- `engage.py` — inbound engagement runner. Same structure as IG's `engage.py` with `--headed`/`--headless`/`--likes-only`/`--dry-run` flags, shorter 3-minute session cap, 8-action cap.
+- `crosspost.py` — outbound weekly lane. Picks the best reacted strong+sharp gem from the last 7 days (same Discord-reaction trust signal used for the IG weekly reel), prefixes caption with a "From the backyard flock here in Hampton, CT:" grounding line, posts with audience locked to "Just my neighborhood" (hard-aborts submit if audience picker can't be narrowed), logs to `data/nextdoor/posts.json` for dedupe. Sunday-morning window check (08:00–11:00 local) via `--no-window` override.
+
+**LaunchAgents (in repo, not yet loaded — attended runs first):**
+
+- `deploy/nextdoor/com.farmguardian.nextdoor-engage.plist` — daily inbound engagement pass at 10:23 local.
+- `deploy/nextdoor/com.farmguardian.nextdoor-crosspost.plist` — weekly outbound cross-post trigger on Sundays at 09:14 local (the script itself enforces the window + 7-day cooldown).
+
+**Hard safety rails in code from day one:**
+
+- No neighbor-request / friend-add primitive implemented (Nextdoor's equivalent to follow/unfollow — #1 bot signal; never built).
+- No DM primitive (signal #2).
+- Audience floor "Just my neighborhood" — `crosspost.run()` REFUSES to submit if `set_audience_neighborhood()` returns False; never silently defaults.
+- Daily caps 10 likes + 3 comments; weekly cap 1 post.
+- Kill switch, challenge cooldown, Sunday-window all gate-checked before any browser launch.
+
+**Cross-repo documentation:**
+
+- `~/bubba-workspace/skills/farm-nextdoor-engage/SKILL.md` — canonical cross-agent reference with a pick-up checklist for a future agent. Includes the IG engager as the architectural model to read first.
+- `docs/23-Apr-2026-nextdoor-plan.md` (this repo) — the ordered TODO list that drives the remaining build.
+- `farm-2026/docs/23-Apr-2026-nextdoor-announce.md` — heads-up for website agents (zero frontend impact).
+- `farm-2026/CLAUDE.md` — pointer updated.
+- `swarm-coordination/events/2026/apr/23/bubba-nextdoor-planned.md` — cross-agent announcement so Larry / Egon / any swarm Claude knows.
+- CLAUDE.md pointer added under social-ops.
+
+**What's blocking a full live run:** the `primitives.py` selectors are still placeholders — the first attended session (~10 min with Boss at the Mini) to inspect Nextdoor's real DOM and record aria-labels / semantic selectors is the only remaining work before likes-only engagement can go headless. The bootstrap + crypto + budget + challenge + comment-writer + crosspost orchestration are all built.
+
+### v2.36.9 — IG engagement automation: engager core + LaunchAgent (Claude Opus 4.7 (1M context))
+
+Adds the session runner and its sibling modules under `tools/ig-engage/`, plus a LaunchAgent plist. Session passes a headless dry-run smoke test against the persistent Playwright profile seeded in v2.36.8. Modules: `budget` (per-UTC-day caps 30/10/20 + kill switch + cooldown), `challenge` (screenshot + Discord + 24h cooldown on any Meta dialog match), `comment_writer` (local Qwen3.6-VL with voice rules; refusal detection + fallback pool), `primitives` (Playwright wrappers for scroll/like/story-react/comment/hashtag), `engage` (main runner with --headed/--headless/--likes-only/--dry-run). LaunchAgent fires 3x/day at 09:17/13:42/19:28 local. Not yet loaded — attended runs first.
+
 ### v2.36.8 — IG engagement automation — session bootstrap (Claude Opus 4.7 (1M context))
 
 New automation track under `tools/ig-engage/` that engages with other accounts' content from `@pawel_and_pawleen` so Boss does not have to scroll Instagram personally. Boss is one human; `@pawel_and_pawleen` IS the farm's social handle (not a separate "dogs" account). Target audience is older / local / interest-driven — small bird and dog accounts, not growth-hack fodder.
