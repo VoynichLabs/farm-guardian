@@ -1,0 +1,103 @@
+{
+  "guardian_db_path": "data/guardian.db",
+  "archive_root": "data/archive",
+  "lm_studio_base": "http://localhost:1234",
+  "vlm_model_id": "qwen/qwen3.6-35b-a3b",
+  "vlm_load_context_length": 8192,
+  "vlm_max_tokens": 600,
+  "vlm_temperature": 0.2,
+  "vlm_timeout_seconds": 300,
+  "std_dev_floor": 5.0,
+  "exposure_p50_floor": 25.0,
+  "exposure_p50_ceiling": 230.0,
+  "exposure_std_floor": 15.0,
+  "motion_delta_threshold": 3.0,
+  "capture_retry_max": 3,
+  "downscale_decent_long_edge_px": 1920,
+  "downscale_decent_jpeg_quality": 85,
+  "retention_days_strong": 365,
+  "retention_days_decent": 7,
+  "retention_days_concerns": null,
+  "instagram": {
+    "enabled": false,
+    "auto_dry_run": false,
+    "min_hours_between_posts": 6,
+    "min_hours_per_camera": 12,
+    "farm_2026_repo_path": "/Users/macmini/Documents/GitHub/farm-2026",
+    "meta_env_file": "/Users/macmini/bubba-workspace/secrets/farm-guardian-meta.env",
+    "stories": {
+      "enabled": false,
+      "auto_dry_run": false,
+      "min_hours_between_stories": 2
+    },
+    "reels": {
+      "enabled": false,
+      "auto_dry_run": false,
+      "output_root": "data/reels",
+      "seconds_per_frame": 1.0,
+      "crossfade_seconds": 0.15,
+      "frames_per_reel_default": 6
+    },
+    "scheduled": {
+      "daily_carousel_max_items": 10,
+      "daily_carousel_min_items": 2,
+      "daily_carousel_bucket_minutes": 15,
+      "story_window_minutes": 120,
+      "weekly_reel_window_days": 7,
+      "weekly_reel_max_frames": 8,
+      "weekly_reel_bucket_hours": 6
+    }
+  },
+  "cameras": {
+    "house-yard": {
+      "cycle_seconds": 600,
+      "capture_method": "reolink_snapshot",
+      "reolink_base": "http://192.168.0.88",
+      "context": "Reolink E1 Outdoor Pro 4K PTZ camera (192.168.0.88); currently aimed at the yard, sky, and coop approach",
+      "burst_size": 1,
+      "motion_gate": true,
+      "enabled": true
+    },
+    "usb-cam": {
+      "cycle_seconds": 2,
+      "capture_method": "ip_webcam",
+      "ip_webcam_base": "http://marks-macbook-air.local:8089",
+      "photo_path": "/photo.jpg",
+      "trigger_focus": false,
+      "context": "Generic USB webcam (UVC 1920x1080), moved to the MacBook Air 18-Apr-2026 and served there by the `com.farmguardian.usb-cam-host` LaunchAgent on port 8089 (MBA device_index=0). Aimed at the brooder, heat-lamp lit. Highest-cadence camera \u2014 brooder is where baby-bird gems come from.",
+      "burst_size": 1,
+      "enabled": true
+    },
+    "s7-cam": {
+      "cycle_seconds": 3,
+      "priority": 1,
+      "capture_method": "ip_webcam",
+      "ip_webcam_base": "http://192.168.0.249:8080",
+      "photo_path": "/photoaf.jpg",
+      "trigger_focus": false,
+      "context": "Samsung Galaxy S7 running IP Webcam app, USB-tethered to the MacBook Air for AC power. /photoaf.jpg triggers server-side AF per pull (~1s overhead, sharp locked frame). Continuous-picture AF + incandescent WB set at Guardian startup (v2.27.7). Sony IMX260 sensor, 1920x1080, f/1.7. Best-quality source in the fleet \u2014 aimed at the BROODER (younger chicks). Cadence dropped to 3s and priority=1 so when the VLM slot opens, s7 wins ties.",
+      "burst_size": 1,
+      "require_face": true,
+      "enabled": true
+    },
+    "gwtc": {
+      "cycle_seconds": 20,
+      "capture_method": "reolink_snapshot",
+      "context": "Gateway laptop (Windows 11, 192.168.0.68) built-in webcam streamed via ffmpeg+MediaMTX; 1280x720, fixed focus, currently in the coop run. Pipeline pulls Guardian's snapshot API rather than RTSP direct \u2014 Guardian's ring buffer rides through the dshow-zombie windows that farmcam-watchdog takes ~90s to clear. Burst-of-3 with median-selection dodges the transient H.264 decode artifacts Boss sees after the laptop gets jostled (vertical stripes, smearing).",
+      "burst_size": 3,
+      "burst_interval_seconds": 0.4,
+      "motion_gate": true,
+      "enabled": true
+    },
+    "mba-cam": {
+      "cycle_seconds": 60,
+      "capture_method": "ip_webcam",
+      "ip_webcam_base": "http://marks-macbook-air.local:8090",
+      "photo_path": "/photo.jpg",
+      "trigger_focus": false,
+      "context": "MacBook Air 2013 built-in FaceTime HD webcam (1280x720), served by the `com.farmguardian.usb-cam-host-facetime` LaunchAgent on port 8090 (MBA device_index=1). Moved to port 8090 on 18-Apr-2026 when the USB cam took over port 8089. Aimed at the brooder from overhead. MBA is DHCP + sleeps intermittently; 60s cadence so when it's off-network the failed cycles don't eat time from other cameras.",
+      "burst_size": 1,
+      "enabled": true
+    }
+  }
+}
