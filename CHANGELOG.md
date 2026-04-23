@@ -4,6 +4,28 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-04-23
 
+### v2.36.8 — IG engagement automation — session bootstrap (Claude Opus 4.7 (1M context))
+
+New automation track under `tools/ig-engage/` that engages with other accounts' content from `@pawel_and_pawleen` so Boss does not have to scroll Instagram personally. Boss is one human; `@pawel_and_pawleen` IS the farm's social handle (not a separate "dogs" account). Target audience is older / local / interest-driven — small bird and dog accounts, not growth-hack fodder.
+
+**What shipped today:**
+
+- **Zero-login session bootstrap** — `tools/ig-engage/bootstrap.py` reads Boss's already-logged-in Instagram session cookies directly from Chrome's Default profile cookie DB (`~/Library/Application Support/Google/Chrome/Default/Cookies`), decrypts them with the "Chrome Safe Storage" macOS keychain key (PBKDF2-HMAC-SHA1, salt `saltysalt`, 1003 iterations, AES-128-CBC for v10 prefix / AES-GCM for v11), strips the 32-byte SHA256 host-hash prefix that modern Chrome (~v130+) prepends to plaintext, reshapes for Playwright's `context.add_cookies()`, and seeds them into a dedicated Playwright Chromium persistent profile at `~/Library/Application Support/farm-ig-engage/profile/`. First run verified on 2026-04-23: 12 IG cookies decrypted cleanly (including `sessionid`, `ds_user_id`, `csrftoken`), Chromium landed on `instagram.com/` feed rather than `/accounts/login`. Profile now persists the session for all future engager runs without re-seeding.
+- **Why this path vs. alternatives:** Meta's DevTools self-XSS block rejects `document.cookie` reads from the Chrome console; Boss has no memorized IG password (LastPass with no CLI installed); cross-device cookie lifts trigger Meta session-hijack detection and send "new login" alert emails. Same-device cookie lift to a same-OS Playwright Chromium on the same IP is the path with lowest fingerprint divergence. Fallback if this ever fails: CDP-attach to Boss's running Chrome via `--remote-debugging-port=9222`.
+- **Dependencies added to the farm-guardian venv:** `playwright` (with bundled Chromium) and `cryptography`.
+- **Stealth patches** already in the bootstrap: custom desktop Chrome UA, `locale="en-US"`, `timezone_id="America/New_York"`, `navigator.webdriver=undefined` via `add_init_script`. More patches (plugins, languages, chrome runtime, permissions.query) coming with the engager script.
+
+**What's next (planned, plan doc at `docs/23-Apr-2026-ig-engage-plan.md`):** engagement primitives (scroll home feed, like posts, react to stories, comment via local Qwen3.6 VLM for context-aware copy), session budget (30 likes + 10 comments + 20 story-reactions/day max, <5min sessions, 2–3x/day), challenge-dialog detector with 24h cooldown + Discord alert, `/tmp/ig-engage-off` kill switch, LaunchAgent scheduling. First real sessions will run attended (headed, like-only) so Boss can watch the bot work before we turn on comments and go headless.
+
+**Cross-repo docs:**
+
+- Skill doc: `~/bubba-workspace/skills/farm-instagram-engage/SKILL.md` (canonical cross-agent reference — bootstrap sequence, credential inventory, safety choices, runbook).
+- Plan doc: `docs/23-Apr-2026-ig-engage-plan.md` (this repo).
+- farm-2026 notice: `docs/23-Apr-2026-ig-engage-announce.md` (heads-up for the website agent; no frontend impact).
+- CLAUDE.md pointer added under social-ops.
+
+**Safety explicitly baked in:** no follow/unfollow primitive exists in the codebase (the #1 bot signal, Meta hunts it hardest); no DM primitive exists (#2); story emoji reactions are preferred as a high-reciprocity / low-detection signal; all comment copy must be VLM-written per post (no static "nice post!" pool — that IS the bot signature).
+
 ### v2.36.7 — S7 posts now require a visible face, beak, or profile (Claude Opus 4.7 (1M context))
 
 Tightened the S7 path so rear-only / wing-only frames stop getting posted. `tools/pipeline/gem_poster.py` now rejects `s7-cam` gems unless `bird_face_visible=True`, and `tools/pipeline/ig_poster.py` applies the same rule for the IG hook. The VLM prompt also now says S7 eligibility depends on that flag, so analysis and posting policy line up. No change for the other cameras.
