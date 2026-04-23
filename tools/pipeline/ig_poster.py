@@ -381,6 +381,8 @@ def should_post_ig(
       - tier == "strong" (share_worth in vlm_metadata)
       - image_quality == "sharp" (no decent/soft for IG)
       - bird_count >= 1
+      - s7-cam frames must also have bird_face_visible=True, meaning
+        face / beak / profile is visible
       - has_concerns is false (privacy filter; enforced by images_api
         too, belt and suspenders here)
       - No other IG post in the last N hours (default 3h cadence window)
@@ -409,6 +411,9 @@ def should_post_ig(
     bird_count = vlm_metadata.get("bird_count", 0)
     if not bird_count or bird_count < 1:
         return False, f"bird_count={bird_count} (need >= 1)"
+
+    if gem_row.get("camera_id") == "s7-cam" and not bool(vlm_metadata.get("bird_face_visible")):
+        return False, "s7 needs face/beak/profile visible"
 
     # has_concerns might come through as int 0/1 or bool — normalize.
     concerns = vlm_metadata.get("concerns") or gem_row.get("has_concerns")

@@ -4,6 +4,10 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-04-23
 
+### v2.36.7 — S7 posts now require a visible face, beak, or profile (Claude Opus 4.7 (1M context))
+
+Tightened the S7 path so rear-only / wing-only frames stop getting posted. `tools/pipeline/gem_poster.py` now rejects `s7-cam` gems unless `bird_face_visible=True`, and `tools/pipeline/ig_poster.py` applies the same rule for the IG hook. The VLM prompt also now says S7 eligibility depends on that flag, so analysis and posting policy line up. No change for the other cameras.
+
 ### v2.36.6 — VLM prompt: turkey poult species ID + richer captions (Claude Opus 4.6 (1M context))
 
 Brooder now holds both chicken chicks AND turkey poults mixed together. The VLM pipeline prompt (`tools/pipeline/prompt.md`) was not distinguishing between them — every bird was "chick."

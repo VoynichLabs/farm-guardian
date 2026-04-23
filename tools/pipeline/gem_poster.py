@@ -47,7 +47,8 @@ def should_post(vlm_metadata: dict, tier: str, camera_id: Optional[str] = None) 
     gate now branches on camera_id:
 
       - s7-cam (+ any camera_id we don't recognize as non-s7):
-          image_quality must be 'sharp'. Unchanged.
+          image_quality must be 'sharp' and bird_face_visible must be
+          True. Rear-only or wing-only S7 frames do not post.
       - every other camera (usb-cam, mba-cam, gwtc, house-yard, iphone-cam):
           image_quality may be 'sharp' OR 'soft', but if 'soft' we also
           require a face signal — either bird_face_visible=True, or
@@ -67,7 +68,8 @@ def should_post(vlm_metadata: dict, tier: str, camera_id: Optional[str] = None) 
       - image_quality 'blurred' → reject (always)
       - image_quality 'soft'     → reject for s7-cam; on others, require
                                    bird_face_visible OR bird_count>=2
-      - image_quality 'sharp'    → accept (subject to other gates)
+      - image_quality 'sharp'    → accept on non-s7; on s7 require
+                                   bird_face_visible=True
     Bird rules:
       - bird_count < 1           → reject
     Holistic:
@@ -86,6 +88,8 @@ def should_post(vlm_metadata: dict, tier: str, camera_id: Optional[str] = None) 
     # source Boss trusts) keeps the strict rule; other cameras get a
     # face-signal fallback on 'soft' frames.
     if iq == "sharp":
+        if camera_id == "s7-cam" and not face_visible:
+            return False
         return True
     if iq == "soft" and camera_id != "s7-cam" and camera_id is not None:
         return face_visible or bc >= 2
