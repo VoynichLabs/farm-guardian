@@ -4,6 +4,19 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-04-23
 
+### v2.37.1 — Browser automation stack: four-tool fleet enabled (Claude Opus 4.7 (1M context))
+
+Enabled every browser-automation tool on the Mac Mini so future agents never have to ask "why isn't X available?" again. All four of the following are now registered / installed / documented as durable state:
+
+- **Playwright + persistent profile** — already the workhorse (`tools/ig-engage/`, `tools/nextdoor/`). Unchanged in this release; included in the index for completeness.
+- **`playwright codegen` wrapper** — new `tools/chrome_session/codegen.py`. Attaches Playwright's recorder to an already-bootstrapped profile dir so the logged-in session is live when the recorder window opens. `--profile ig` and `--profile nextdoor` work today; extend `PROFILES` dict for new tracks. Removes the need for attended-debug loops when standing up primitives for a new site.
+- **`chrome-devtools` MCP — registered user-scope.** Added via `claude mcp add -s user chrome-devtools -- npx -y chrome-devtools-mcp@latest`, persisted in `~/.claude.json`, verified `✓ Connected` via `claude mcp list`. Surfaces as `mcp__chrome-devtools__*` tools (navigate, click, evaluate, screenshot, get_html, etc.) in Claude Code sessions after the next session restart. Interactive DOM inspection / primitive debugging without spawning a separate process.
+- **Claude-for-Chrome browser extension** — Boss already has it installed live. New handoff pattern: write a brief under `bubba-workspace/skills/<track>/claude-for-chrome-brief.md` with scope + "don't submit, only inspect" + selector priority order + the exact output shape, Boss pastes into the extension. First example brief shipped at `skills/farm-nextdoor-engage/claude-for-chrome-brief.md`.
+
+**New canonical index doc:** `~/bubba-workspace/skills/browser-automation/SKILL.md` — which-tool-for-which-phase, all four explained with their strengths / limits, plus a pick-up checklist for a fresh agent.
+
+**Also in this release:** `farm-guardian/CLAUDE.md` pointer under social-ops updated to enumerate all four tools so an agent reading CLAUDE.md alone knows the full surface. Bubba memory entry `reference_browser_automation_stack.md` added so this is in Claude Code's auto-memory too.
+
 ### v2.37.0 — Nextdoor automation (session bootstrap live, engager + crosspost scaffolded) (Claude Opus 4.7 (1M context))
 
 Extends the IG engagement playbook shipped hours earlier to Nextdoor. Boss is logged into `nextdoor.com` in Chrome on the Mac Mini via Apple Sign-In — 21 cookies present including the 820-char `ndbr_idt` RS256 session JWT. Same zero-login cookie-lift flow lands Playwright cleanly on `/news_feed/`, verified 2026-04-23.
