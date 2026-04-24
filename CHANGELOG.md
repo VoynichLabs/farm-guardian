@@ -2,6 +2,34 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased] - 2026-04-24
+
+### v2.37.6 — Fleet rebalance: USB cam back on Mini, MBA retired from gem lane, S7 cadence bumped (Claude Opus 4.7 (1M context))
+
+Context: 24-Apr-2026, morning of the Red Rooster loss. Boss asked for four concrete fleet changes after the MBA fleet failures had been contributing noise to `#farm-2026` and the S7 was proving to be the only reliable source of good frames.
+
+**1. USB cam back on the Mac Mini.** The external UVC USB webcam is physically plugged into the Mini again (was on the MBA since 18-Apr per `project_farm_pipeline_v2_28.md`). Bootstrapped the pre-installed `com.farmguardian.usb-cam-host` LaunchAgent on the Mini; serves on `localhost:8089` at native 1920×1080. `usb-cam` URL in both `config.json` and `tools/pipeline/config.json` repointed from `http://marks-macbook-air.local:8089` to `http://127.0.0.1:8089`. No more dependency on the MBA being online for the floor-brooder view.
+
+**2. MBA retired from the Discord gem lane.** `mba-cam` (FaceTime HD overhead-brooder view) produces consistently poor frames — fixed-focus 720p, heat-lamp overexposure, every frame looks the same. Boss: *"just disable the MacBook Air photos from going to the pipeline."* Two-layer fix: (a) `gem_post_enabled: false` added to the `mba-cam` block in `tools/pipeline/config.json` (documentary); (b) `gem_poster.should_post` now has a `_GEM_POST_DISABLED_CAMERAS = frozenset({"mba-cam"})` hard-block that runs before any other rule. Historical replay confirms: 15/15 archived `mba-cam` "strong" frames would be blocked; no false positives because blocking is unconditional.
+
+**3. Cadences rebalanced to match camera quality.**
+- `s7-cam` cycle: `3s → 30s` (pipeline) / snapshot_interval `60s → 30s` (Guardian). Boss wants the S7 — the only good camera — captured every 30s, not every minute.
+- `mba-cam` cycle: `60s → 1800s` (30 min) on both configs. Since its frames never post, VLM cost is pointless; reduce cadence so LM Studio doesn't waste cycles on MBA frames.
+- `usb-cam` cycle: `2s` kept (fresh feed from the Mini).
+- `house-yard`, `gwtc` cadences unchanged.
+
+**4. MBA `usb-cam-host-facetime` LaunchAgent (port 8090) retired.** Without the USB cam on the MBA, there's no `device_index=1` — the service was looping forever on `out of device bound`. Bootout + plist renamed to `.retired-24apr2026` so it doesn't auto-load on next login. `mba-cam` URL in both configs switched from MBA port 8090 to MBA port 8089 (the FaceTime HD feed that the remaining single MBA service now serves).
+
+**5. Test harness updated.** `test_gem_poster_gate.py` now asserts mba-cam ALWAYS rejects. Generic "non-s7 camera accepts" cases swapped to `usb-cam` since that's the remaining non-s7 camera in the gem lane. All synthetic cases green.
+
+**Rollout:**
+```
+launchctl kickstart -k gui/$(id -u)/com.farmguardian.guardian
+launchctl kickstart -k gui/$(id -u)/com.farmguardian.pipeline
+```
+
+**Not in this release (deferred):** true device-agnosticism at the camera level. The `usb-cam-host` service is already portable (runs on any Mac with a USB cam), but the config URLs still hardcode the current host. A future change could have the pipeline auto-discover `usb-cam-host` services on the LAN via mDNS; for now, moving the cam between Mini and MBA requires the two-line URL swap in both config files. Boss's ask ("nothing should rely on the MacBook Air being on all the time") is satisfied by the current pointer-to-Mini config.
+
 ## [Unreleased] - 2026-04-23
 
 ### v2.37.5 — Local dashboard: real offline indicator per camera (Claude Opus 4.7 (1M context))

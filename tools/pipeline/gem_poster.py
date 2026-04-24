@@ -31,6 +31,18 @@ _USERNAME_BY_CAMERA = {
 }
 
 
+# Cameras whose frames are hard-disabled from Discord gem posting,
+# regardless of VLM verdict. 24-Apr-2026: Boss asked to pull mba-cam
+# (the MBA FaceTime HD overhead-brooder view) out of the gem lane
+# entirely — its frames are consistently low-quality (fixed-focus,
+# 720p, heat-lamp overexposure) and "basically all of them look the
+# same." Cadence is also dropped to 30 min in config so VLM cost is
+# minimal, but this gate is the belt-and-suspenders block on anything
+# that still slips through. Keep in sync with `gem_post_enabled: false`
+# entries in tools/pipeline/config.json — the config flag is currently
+# documentary; this set is the actual enforcement point.
+_GEM_POST_DISABLED_CAMERAS = frozenset({"mba-cam"})
+
 # Non-s7 cameras rejected at these activity/composition tags even when the
 # VLM self-approves them as strong. Huddle/sleep/empty frames are the
 # single largest noise source in #farm-2026 per 23-Apr-2026 review.
@@ -140,6 +152,12 @@ def should_post(vlm_metadata: dict, tier: str, camera_id: Optional[str] = None) 
     composition = vlm_metadata.get("composition")
     caption = vlm_metadata.get("caption_draft", "") or ""
     face_visible = bool(vlm_metadata.get("bird_face_visible"))
+
+    # Hard block for cameras explicitly disabled from the gem lane. This
+    # runs first so there's no chance a low-quality MBA frame sneaks
+    # through any of the nuanced checks below.
+    if camera_id in _GEM_POST_DISABLED_CAMERAS:
+        return _reject(camera_id, "skip_camera_disabled_for_gems")
 
     if sw == "skip":
         return _reject(camera_id, "skip_share_worth")

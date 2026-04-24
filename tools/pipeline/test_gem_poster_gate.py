@@ -57,6 +57,13 @@ def run_synthetic_cases() -> int:
     print("=== synthetic cases ===")
     fails = 0
 
+    # 24-Apr-2026: mba-cam hard-blocked from gem lane, regardless of metadata.
+    fails += not _expect("mba-cam ALWAYS rejects (gem lane disabled)",
+                         should_post(_meta(image_quality="sharp", bird_face_visible=True,
+                                           activity="foraging", composition="portrait",
+                                           caption_draft="Birdadette, solid-black, posing front-and-center."),
+                                     "strong", "mba-cam"), False)
+
     # Universal rejects.
     fails += not _expect("share_worth=skip rejects",
                          should_post(_meta(share_worth="skip"), "strong", "mba-cam"), False)
@@ -87,11 +94,11 @@ def run_synthetic_cases() -> int:
     fails += not _expect("mba-cam portrait bc=8 alert accepts (close-up + crowd behind)",
                          should_post(_meta(composition="portrait", bird_count=8, activity="alert",
                                            caption_draft="A speckled chick stares straight into the lens with six siblings foraging behind her."),
-                                     "strong", "mba-cam"), True)
+                                     "strong", "usb-cam"), True)
     fails += not _expect("mba-cam group bc=10 foraging accepts (not huddling)",
                          should_post(_meta(composition="group", bird_count=10, activity="foraging",
                                            caption_draft="Ten chicks spread across the wood shavings, one mid-stride toward the waterer."),
-                                     "strong", "mba-cam"), True)
+                                     "strong", "usb-cam"), True)
     fails += not _expect("mba-cam group bc=10 HUDDLING rejects (the old bad pattern)",
                          should_post(_meta(composition="group", bird_count=10, activity="huddling"),
                                      "strong", "mba-cam"), False)
@@ -117,10 +124,10 @@ def run_synthetic_cases() -> int:
                                      "strong", "mba-cam"), False)
     fails += not _expect("specific single-chick caption passes (not overly aggressive)",
                          should_post(_meta(caption_draft="A small chick with orange markings pecking at the feeder."),
-                                     "strong", "mba-cam"), True)
+                                     "strong", "usb-cam"), True)
     fails += not _expect("specific caption passes",
                          should_post(_meta(caption_draft="Birdadette, solid-black with an orange face, mid-stretch."),
-                                     "strong", "mba-cam"), True)
+                                     "strong", "usb-cam"), True)
 
     # s7-cam unchanged.
     fails += not _expect("s7 sharp+face accepts",
@@ -132,7 +139,7 @@ def run_synthetic_cases() -> int:
 
     # Non-s7 sharpness fallback.
     fails += not _expect("mba-cam soft+face accepts",
-                         should_post(_meta(image_quality="soft"), "strong", "mba-cam"), True)
+                         should_post(_meta(image_quality="soft"), "strong", "usb-cam"), True)
     fails += not _expect("mba-cam soft no face no crowd rejects",
                          should_post(_meta(image_quality="soft", bird_face_visible=False, bird_count=1),
                                      "strong", "mba-cam"), False)
