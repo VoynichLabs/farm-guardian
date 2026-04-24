@@ -195,9 +195,16 @@ function renderCameraGrid(cameras) {
 
     if (structureChanged) {
         grid.innerHTML = cameras.map(cam => {
-            const dotClass = cam.online ? 'dot-green' : 'dot-red';
-            if (cam.capturing && cam.online) {
-                // Snapshot-polled <img> — refreshed on a timer via data-snapshot attribute
+            // v2.37.5: is_live is the authoritative "is a frame arriving right
+            // now?" signal. `online` is the legacy discovery flag and always
+            // true for any configured camera — using it alone means S7 pulled
+            // off the network still shows as green. Dot color now follows
+            // is_live; offline cameras get an overlay with the last-frame age
+            // so the local operator can see the staleness explicitly.
+            const live = cam.is_live === true;
+            const dotClass = live ? 'dot-green' : 'dot-red';
+            const ageLabel = formatFrameAge(cam.last_frame_age_seconds);
+            if (cam.capturing && live) {
                 return `<div class="cam-cell" data-cam="${cam.name}">
                     <img data-snapshot="${cam.name}" src="/api/cameras/${cam.name}/frame?t=${Date.now()}" alt="${cam.name}"
                          onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"
@@ -205,9 +212,21 @@ function renderCameraGrid(cameras) {
                     <div class="cam-offline" style="display:none; position:absolute; inset:0;">FEED LOST</div>
                     <div class="cam-label"><span class="status-dot ${dotClass}"></span>${cam.name}</div>
                 </div>`;
+            } else if (cam.capturing && !live && cam.last_frame_age_seconds !== null) {
+                // Capturing is still configured but no fresh frame — show the
+                // last image dimmed with an OFFLINE banner so the operator
+                // sees at a glance this one isn't live.
+                return `<div class="cam-cell cam-stale" data-cam="${cam.name}">
+                    <img data-snapshot="${cam.name}" src="/api/cameras/${cam.name}/frame?t=${Date.now()}" alt="${cam.name}" class="cam-stale-img">
+                    <div class="cam-stale-banner">OFFLINE · last frame ${ageLabel} ago</div>
+                    <div class="cam-label"><span class="status-dot ${dotClass}"></span>${cam.name}</div>
+                </div>`;
             } else {
+                const offlineText = cam.last_frame_age_seconds !== null
+                    ? `OFFLINE · last frame ${ageLabel} ago`
+                    : 'OFFLINE · no frames yet';
                 return `<div class="cam-cell" data-cam="${cam.name}">
-                    <div class="cam-offline">${cam.online ? 'IDLE' : 'OFFLINE'}</div>
+                    <div class="cam-offline">${offlineText}</div>
                     <div class="cam-label"><span class="status-dot ${dotClass}"></span>${cam.name}</div>
                 </div>`;
             }
@@ -216,14 +235,30 @@ function renderCameraGrid(cameras) {
         // Start polling for snapshot refresh
         startSnapshotPolling();
     } else {
-        // Structure same — just update status dots
+        // Structure same — update status dot + stale banner in place.
         cameras.forEach(cam => {
             const cell = grid.querySelector(`[data-cam="${cam.name}"]`);
             if (!cell) return;
+            const live = cam.is_live === true;
             const dot = cell.querySelector('.status-dot');
-            if (dot) dot.className = `status-dot ${cam.online ? 'dot-green' : 'dot-red'}`;
+            if (dot) dot.className = `status-dot ${live ? 'dot-green' : 'dot-red'}`;
+            const banner = cell.querySelector('.cam-stale-banner');
+            if (banner) {
+                banner.textContent = `OFFLINE · last frame ${formatFrameAge(cam.last_frame_age_seconds)} ago`;
+            }
+            // Toggle the cam-stale class so CSS can dim/un-dim the image.
+            if (live) cell.classList.remove('cam-stale');
+            else if (cam.capturing) cell.classList.add('cam-stale');
         });
     }
+}
+
+function formatFrameAge(seconds) {
+    if (seconds === null || seconds === undefined) return '—';
+    if (seconds < 60) return `${Math.round(seconds)}s`;
+    if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
+    if (seconds < 86400) return `${Math.round(seconds / 3600)}h`;
+    return `${Math.round(seconds / 86400)}d`;
 }
 
 function renderDashboardDetections(detections) {

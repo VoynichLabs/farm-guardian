@@ -59,6 +59,11 @@
         .cam-cell img { width: 100%; height: 100%; object-fit: contain; display: block; }
         .cam-cell .cam-label { position: absolute; top: 0; left: 0; background: rgba(0,0,0,0.75); padding: 1px 6px; font-size: 10px; display: flex; align-items: center; gap: 4px; color: var(--text-1); }
         .cam-cell .cam-offline { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: var(--text-2); font-size: 10px; }
+        /* v2.37.5 stale-frame treatment for the LOCAL dashboard only. */
+        /* Farm-2026 (public site) does not render these styles — it keeps */
+        /* showing the last frame undimmed as designed. */
+        .cam-cell.cam-stale .cam-stale-img { filter: grayscale(1) brightness(0.55); width:100%; height:100%; object-fit: contain; display:block; }
+        .cam-cell .cam-stale-banner { position: absolute; top: 0; left: 0; right: 0; background: rgba(180, 40, 40, 0.9); color: #fff; font-size: 11px; font-weight: 600; padding: 3px 8px; text-align: center; letter-spacing: 0.5px; z-index: 2; }
 
         /* System strip */
         .sys-strip { display: flex; gap: 12px; padding: 2px 6px; background: var(--bg-1); border: 1px solid var(--border); font-size: 10px; color: var(--text-2); align-items: center; flex-shrink: 0; }

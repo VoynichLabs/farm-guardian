@@ -136,12 +136,56 @@ def create_app() -> FastAPI:
 
     @app.get("/api/cameras")
     async def list_cameras():
+        """Camera list for the local dashboard.
+
+        v2.37.5 (2026-04-23): added `last_frame_age_seconds` and `is_live` so
+        the local dashboard can distinguish a camera that is actually
+        delivering frames right now from one that was configured at startup
+        but has since stopped responding (S7 unplugged to charge, USB host
+        down, etc.). Farm Guardian's `online` flag was set at discovery and
+        never refreshed, which is why the dashboard kept showing offline
+        cameras as green. `online` is preserved unchanged for any consumer
+        that already relies on it; the new fields are additive. The public
+        farm-2026 site does not render these fields — it continues to show
+        the last snapshot as before.
+
+        Freshness rule: a camera is `is_live=true` iff we have a captured
+        frame whose timestamp is within `max(30s, 3 * snapshot_interval)`
+        of now. Rationale: allow one missed cycle of slack before we call
+        it dead. `snapshot_interval` is read from `config.json` per camera;
+        cameras without one use a 90s default."""
         if not _service:
             return []
         cameras = _service._discovery.cameras
         active = set(_service._capture_manager.active_cameras)
+
+        # Pull per-camera snapshot intervals from the running config so the
+        # staleness threshold adapts to cadence. 60s and 5s cameras should
+        # not share one threshold.
+        interval_by_name: dict[str, float] = {}
+        for cam_cfg in (_config.get("cameras") or []):
+            nm = cam_cfg.get("name")
+            if not nm:
+                continue
+            interval_by_name[nm] = float(
+                cam_cfg.get("snapshot_interval")
+                or cam_cfg.get("poll_interval")
+                or 30.0
+            )
+
+        now = time.time()
         result = []
         for name, cam in cameras.items():
+            last_frame = _service._capture_manager.get_latest_frame(name)
+            if last_frame is not None:
+                age = max(0.0, now - float(last_frame.timestamp))
+            else:
+                age = None
+            interval = interval_by_name.get(name, 30.0)
+            # Allow one missed cycle of slack, floor at 30s so 3s cameras
+            # don't flap on a single dropped frame.
+            stale_after = max(30.0, 3.0 * interval)
+            is_live = age is not None and age <= stale_after
             result.append({
                 "name": cam.name,
                 "ip": cam.ip,
@@ -150,6 +194,9 @@ def create_app() -> FastAPI:
                 "capturing": name in active,
                 "rtsp_url": cam.rtsp_url or "",
                 "supports_motion": cam.supports_motion_events,
+                "last_frame_age_seconds": (round(age, 1) if age is not None else None),
+                "stale_after_seconds": round(stale_after, 1),
+                "is_live": is_live,
             })
         return result
 

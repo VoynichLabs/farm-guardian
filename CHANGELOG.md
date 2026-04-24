@@ -4,6 +4,21 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-04-23
 
+### v2.37.5 — Local dashboard: real offline indicator per camera (Claude Opus 4.7 (1M context))
+
+Boss noticed that when the S7 comes off the network to charge, or the USB-cam host is down, the local dashboard at `localhost:6530` still shows them as green and serves the last cached frame with no indication of the outage. The public site (farm-2026) should keep that behaviour — a still image beats a "camera offline" banner to the neighbourhood audience — but the local operator view needs to be honest.
+
+Changes (backend-only + local dashboard, nothing farm-2026 consumes):
+
+- `dashboard.py::list_cameras` now computes `last_frame_age_seconds` and `is_live` per camera. A camera is live iff its most recent `FrameResult.timestamp` is within `max(30s, 3 × snapshot_interval)` of now. Interval is read per-camera from Guardian's `config.json`, so the 3s gwtc and the 60s mba-cam both get a sensible threshold (one missed cycle of slack, floored at 30s so short-cadence cameras don't flap on single dropouts).
+- Legacy `online` flag is preserved unchanged — additive new fields only. Existing consumers (farm-2026 site) are not affected.
+- `static/app.js::renderCameraGrid` now keys its dot color and offline treatment off `is_live` rather than the discovery-time `online` flag. Stale cameras get a grayscale + brightness-dimmed overlay of their last frame with a red "OFFLINE · last frame Xm ago" banner across the top. Cameras that never produced a frame show the pre-existing "OFFLINE · no frames yet" cell.
+- `static/index.html` adds `.cam-stale`/`.cam-stale-banner`/`.cam-stale-img` CSS. Styles are scoped to the local dashboard HTML and are not reachable from the public site.
+
+Verified pre-merge: live probe shows s7-cam (pulled off network to charge) fails connect and usb-cam returns 503, while mba-cam + house-yard + gwtc still return 200. Before the patch the API reported all five as `online: true`; after the patch the API correctly carries `is_live=false` for the two that are actually dead, with `last_frame_age_seconds` matching the outage window.
+
+Rollout: `launchctl kickstart -k gui/$(id -u)/com.farmguardian.guardian` after merge. The dashboard is served by Guardian, not the pipeline — restart the right service.
+
 ### v2.37.4 — Nextdoor outbound cross-post: two-lane daily cadence (Claude Opus 4.7 (1M context))
 
 Ships the outbound Nextdoor cross-post pipeline Boss asked for: two posts a day to his Hampton CT neighborhood feed, one per lane, captions drafted fresh by whatever VLM is loaded on LM Studio.
