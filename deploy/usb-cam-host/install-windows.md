@@ -62,6 +62,62 @@ sc query usb-cam-host
 curl http://localhost:8089/health
 ```
 
+## 4 (alternate). Scheduled-task install path — when Shawl isn't already on the box
+
+**Validated on GWTC 24-Apr-2026.** This is the path you actually want if `C:\shawl\shawl.exe` isn't pre-installed. Setting up Shawl is fine but takes another 5+ minutes; `schtasks` is in the box. The `start-usb-cam-host.bat` already has a `:loop` that restarts Python on exit, so we don't need Shawl's `--restart` semantics — the scheduled task just needs to launch the bat once and the bat handles its own respawn.
+
+**Critical gotcha that cost ~10 minutes the first time and is the entire reason this section exists:** the task **must NOT be `/ru SYSTEM`**. SYSTEM is in Windows session 0, which is isolated from camera devices on Windows 11 — `cv2.VideoCapture(<idx>)` will return True but `read()` returns `MF_E_NOTACCEPTING`, the service spins forever opening the camera. Run as the actual GUI-logged-in user (`cam` on GWTC, autologon) interactively. **The `/it` flag bypasses the password requirement when the target user matches the current console session**, so no password is needed for an autologon box.
+
+**The other gotcha:** if you install Python deps with `pip install --user`, they go into the SSH user's profile (`%APPDATA%\Python\…`) and are not visible to the scheduled task running as a different user. Either use a venv at `C:\farm-services\usb-cam-host\venv\` (recommended — readable by any user) or `pip install` system-wide from an elevated shell. The scheduled-task batch file should point at the venv's `python.exe`, not the system one.
+
+```bat
+REM 1. Stage the script + create a venv readable from the cam user's session
+mkdir C:\farm-services\usb-cam-host
+copy C:\Users\markb\farm-guardian\tools\usb-cam-host\usb_cam_host.py C:\farm-services\usb-cam-host\
+"C:\Program Files\Python311\python.exe" -m venv C:\farm-services\usb-cam-host\venv
+C:\farm-services\usb-cam-host\venv\Scripts\python.exe -m pip install fastapi uvicorn opencv-python numpy requests
+
+REM 2. Drop a start.bat that uses the venv python and tunes USB_CAM_DEVICE_INDEX
+REM    for whichever index OpenCV gives the external UVC camera (NOT the built-in
+REM    if MediaMTX or another tenant already holds it). On GWTC it's index 1.
+copy C:\Users\markb\farm-guardian\deploy\usb-cam-host\start-usb-cam-host.bat C:\farm-services\usb-cam-host\start.bat
+REM Edit C:\farm-services\usb-cam-host\start.bat:
+REM   - point PYTHON_EXE at C:\farm-services\usb-cam-host\venv\Scripts\python.exe
+REM   - set USB_CAM_DEVICE_INDEX=1 (GWTC: built-in Hy-HD-Camera is 0, USB cam is 1)
+REM   - leave USB_CAM_AUTO_WB=true and WB_STRENGTH=0.5 (defaults are fine outdoors)
+
+REM 3. Create the task running as the autologon user, interactively
+schtasks /create /f /tn usb-cam-host ^
+  /sc onstart /ru "<PCNAME>\<autologon-user>" /it /rl HIGHEST ^
+  /tr "cmd /c C:\farm-services\usb-cam-host\start.bat"
+
+REM 4. Run it now
+schtasks /run /tn usb-cam-host
+```
+
+Replace `<PCNAME>` (use `hostname` to find — on GWTC it's `653Pudding`) and `<autologon-user>` (`cam` on GWTC). After this, the task auto-runs at every boot in the autologon user's GUI session. The `:loop` inside the batch file handles transient camera failures.
+
+**Verify** (from any LAN host):
+
+```bash
+curl -sS --max-time 4 http://<gwtc-ip>:8089/health
+```
+
+Expected: `"camera_open": true`, `total_grabs` > 0 within 30s of task start. If `camera_open: false` for more than ~30s, tail `C:\farm-services\usb-cam-host\service.log` and check the OpenCV error — usually `device_index` is wrong (try other indices) or another app is holding the camera.
+
+**Find the correct device index quickly:** run this Python one-liner from any user's ssh:
+
+```bat
+"C:\farm-services\usb-cam-host\venv\Scripts\python.exe" -c "import cv2, time
+for i in range(4):
+    c = cv2.VideoCapture(i); c.set(3,1920); c.set(4,1080); time.sleep(0.5)
+    ok, f = c.read()
+    print(f'idx={i}: opened={c.isOpened()} read_ok={ok} shape={None if f is None else f.shape}')
+    c.release(); time.sleep(0.3)"
+```
+
+The index that returns `read_ok=True` with a 1920×1080 shape AND isn't the built-in is your USB cam. On GWTC the built-in `read()` returns False with MSMF error `-1072875772` (because MediaMTX holds it), the USB cam reads at 1920×1080 on idx=1.
+
 ## 5. Tell Guardian where to pull from
 
 Same edits as the macOS install doc step 5: `config.json` and `tools/pipeline/config.json` on the Mac Mini. `http_base_url` / `ip_webcam_base` point at the Windows host's LAN IP on port `8089`.

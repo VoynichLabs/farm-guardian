@@ -105,3 +105,22 @@ I did not commit the sample JPEGs to the repo; they're transient evidence, not a
 ---
 
 **done.** This doc exists so nobody has to walk this loop a sixth time.
+
+---
+
+## Appendix B — empirical confirmation, 2026-04-24 (the sixth attempt)
+
+This document predicted that under a tungsten heat lamp, the cheap UVC USB webcam's red-channel saturation cannot be recovered by software WB or post-processing. **Confirmed empirically on 24-Apr-2026.**
+
+**What was tried** (full sweep, all on the live Mini's usb-cam-host pointed at the brooder, ~3 hours of iteration):
+
+1. **Manual exposure sweep at -7, -9, -11, -13** with all software post-processing OFF (`USB_CAM_AUTO_WB=false`, no orange-desat, no highlight compression, no sharpen). Result: as exposure dropped, red-channel clipping shrank but the camera's internal AWB desaturated the scene → near-monochrome output with red blotches at heat-lamp peak brightness. -7 was the brightest readable, -13 was almost black.
+2. **Gray-world WB enabled** (`USB_CAM_AUTO_WB=true`, `USB_CAM_WB_STRENGTH=0.5`/`0.8`/`1.0`) on top of manual exposure -10/-11/-12. Result: gray-world over-corrected against the dominant red and pushed the entire scene deep blue, with yellow/green highlight fringing wherever red was still clipped. This is exactly the "rainbow artifacts" failure mode the main body of this doc described.
+3. **Camera-native `CAP_PROP_WB_TEMPERATURE`** (added new `USB_CAM_NATIVE_AUTO_WB` + `USB_CAM_NATIVE_WB_TEMP` env vars to `usb_cam_host.py` and swept 2800K, 3200K, 4000K, 5000K, 6500K). Result: zero visible difference between any value. **OpenCV's AVFoundation backend on macOS silently returns `False` from `.set(CAP_PROP_WB_TEMPERATURE, …)` for generic UVC cameras** — the property is not propagated to the camera firmware. The helper added during this session was reverted before commit; the script in main is unchanged.
+4. **Mid-range "balanced" config** (manual exposure -9, gray-world 0.6, orange-desat 0.5, highlight compression 0.3, sharpen 0.5). Result: most "color" but heaviest rainbow artifacts. Boss's verdict: still terrible.
+
+**The fix that worked:** physical relocation. The camera was unplugged from the Mini, taken outside, plugged into the GWTC Gateway laptop in the coop run (natural daylight, no heat lamp). Default settings (`USB_CAM_AUTO_WB=true`, `WB_STRENGTH=0.5`, no manual exposure) immediately produced clean 1920×1080 color frames. **Same camera, same software stack, same defaults — only the lighting changed.**
+
+**Concrete takeaway for the next agent:** if you are about to tune WB or exposure on a UVC webcam under a heat lamp, *don't*. Read this doc. The lesson is not "try a smarter WB algorithm." The lesson is **the sensor + tungsten lighting combination has no software solution; relocate the camera or replace the hardware**. The S7 phone and MBA FaceTime HD handle heat-lamp lighting fine because their ISPs are real; this UVC sensor + OpenCV does not.
+
+**On Linux:** the `CAP_PROP_WB_TEMPERATURE` failure above was AVFoundation-specific. V4L2 honors that property on most UVC drivers, so if someone redeploys `usb-cam-host` on a Linux host (Raspberry Pi etc.) the camera-native WB knob is worth retrying — exposing it as `USB_CAM_NATIVE_AUTO_WB` + `USB_CAM_NATIVE_WB_TEMP` env vars (the helper code lives in this branch's git history if needed, search the deleted-line commit referenced from the v2.37.7 CHANGELOG entry).

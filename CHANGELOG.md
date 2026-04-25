@@ -2,7 +2,23 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] - 2026-04-24
+## [Unreleased] - 2026-04-25
+
+### v2.37.7 — USB cam moved Mini → GWTC; supersedes v2.37.6 placement (Claude Opus 4.7 (1M context))
+
+Within hours of v2.37.6 shipping (which placed the UVC USB webcam on the Mac Mini aimed at the brooder), Boss spent a long session trying to get usable color frames from it under the heat lamp and concluded the brooder placement was a dead end — the cheap UVC sensor red-channel-clips on every frame and no software combination of exposure, gray-world WB, orange desat, highlight compression, or `CAP_PROP_WB_TEMPERATURE` recovers color. Camera was physically moved to the GWTC Gateway laptop at `192.168.0.68` aimed at the coop run outdoors; default settings now produce clean 1920×1080 daylight color.
+
+**Concretely:**
+
+- `usb-cam` URL on the Mini (both `config.json` and `tools/pipeline/config.json`) repointed from `http://127.0.0.1:8089` → `http://192.168.0.68:8089`. Configs are gitignored per-host so this is local-only; the new placement is recorded here for any future agent who reads the repo.
+- Mini's `com.farmguardian.usb-cam-host.plist` LaunchAgent stopped and renamed `.idle-24apr2026` (do NOT re-enable unless the camera is plugged back into the Mini).
+- On GWTC: `usb-cam-host` deployed at `C:\farm-services\usb-cam-host\` with its own venv at `…\venv\`, running on `device_index=1` (built-in `Hy-HD-Camera` is index 0 and held by MediaMTX for the `gwtc` RTSP path; OBS Virtual Camera is index 2). Camera privacy `Allow` confirmed at both HKLM machine level and HKU\…\cam user level.
+- GWTC service is wrapped as a Windows scheduled task (NOT a Shawl service — Shawl wasn't pre-installed on this box and `schtasks /create` got the cam working faster). The schtasks recipe is documented in `deploy/usb-cam-host/install-windows.md` (this release adds a "Scheduled-task install path" section alongside the existing Shawl-based section).
+- `mba-cam`'s gem-lane block from v2.37.6 stays in effect. `s7-cam` cadence at 30s stays in effect. The placement note in v2.37.6 ("USB cam back on the Mac Mini") is **superseded by this entry** — read this one for the live placement.
+
+**Why the brooder USB-cam attempt failed (preserved as the empirically-confirmed finding so the next agent doesn't re-walk it):** the 16-Apr-2026 heat-lamp-orange-cast investigation predicted that gray-world WB cannot recover red-channel-clipped data from this sensor under a tungsten heat lamp. On 24-Apr Boss put the camera under the heat lamp anyway; six configs across two parameter sweeps confirmed the prediction. Lower exposure (-7 to -13) cut clipping but left the frame near-monochrome; higher exposure restored color but with rainbow fringes from gray-world over-correction; camera-native `CAP_PROP_WB_TEMPERATURE` is silently unsupported by OpenCV's AVFoundation backend on macOS for generic UVC cameras. The 16-Apr investigation doc gets an empirical addendum in this release. **Action item for any future agent:** if a UVC webcam needs to live under a heat lamp, the answer is "swap the camera or move it" — software doesn't get there.
+
+**Heat-lamp brooder coverage now comes from:** `s7-cam` (Samsung S7 IP Webcam, sharp color, the best cam in the fleet) and `mba-cam` (FaceTime HD overhead, fine for monitoring even though disabled from gems). The USB cam is no longer pointed at the brooder.
 
 ### v2.37.6 — Fleet rebalance: USB cam back on Mini, MBA retired from gem lane, S7 cadence bumped (Claude Opus 4.7 (1M context))
 
