@@ -6,6 +6,8 @@ This file provides guidance to AI coding agents working in this repository.
 
 **[`docs/HOW_IT_ALL_FITS.md`](docs/HOW_IT_ALL_FITS.md)** — 10,000-ft view of where every photo on this Mac Mini lives, how the tagging pipeline works, how images land on Instagram `@pawel_and_pawleen`, and where the secrets actually live (reference only, never committed). If someone asks "how does this all fit together," that's the document that answers them.
 
+**[`docs/SOCIAL_MEDIA_MAP.md`](docs/SOCIAL_MEDIA_MAP.md)** — every social-media surface the farm publishes to or reads from, the code path, the LaunchAgent, the cadence, the trust signal. Read this any time someone asks "where does X get posted from?" or "why did Y end up on Instagram/Facebook/Nextdoor?" Single source of truth — do not fork into other docs.
+
 ## Related Repositories
 
 This project is part of a two-repo system:
