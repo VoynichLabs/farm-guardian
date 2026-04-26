@@ -4,6 +4,25 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-04-26
 
+### v2.37.10 — S7 AF fix + MBA fully decoupled from pipeline (Claude Opus 4.7 (1M context))
+
+**S7 AF — frames coming back "soft" again, fixed.** The s7-cam pipeline config had `trigger_focus: false` on the theory that the `/photoaf.jpg` IP Webcam endpoint's built-in server-side AF was sufficient. In practice (verified 26-Apr-2026 brooder cycle): `/photoaf.jpg` was running concurrently with the pipeline's expectation of locked focus, the camera's `focusmode: continuous-picture` was leaving `focus_distance: 0.0` (near-infinity, useless for close brooder shots), and frames came back rated `image_quality: soft` with consistency. Fix:
+- Switched s7-cam from `/photoaf.jpg` → `/photo.jpg` so we control AF explicitly.
+- Set `trigger_focus: true` and added `focus_wait: 2.0` (was hardcoded 1.5s) — the longer wait gives the Sony IMX260 time to settle in low brooder light.
+- Relaxed the gate in `capture.py::capture_ip_webcam` that previously skipped `/focus` when path was anything other than `/photo.jpg`. The gate was meant to avoid double-AF when `/photoaf.jpg` already self-AFs; in practice it was suppressing the explicit AF path entirely. Now `trigger_focus=true` always fires `/focus + sleep`, regardless of path. Double-AF is harmless (second AF no-ops if locked); single-AF starvation is not.
+- Plumbed `focus_wait` from `camera_cfg` so it's per-camera tunable.
+- **Verified live:** First cycle after kick, with new logic active — `image_quality: sharp`, `tier: decent`, posted to Discord.
+
+**MBA fully decoupled from the pipeline.** Boss confirmed the MBA's FaceTime HD frames are too low-quality to be worth the VLM cycle (they were already `gem_post_enabled: false` from 24-Apr-2026, but the cycle was still running every 30 min and burning enrichment time on photos that got blocked downstream). Removed in this commit:
+- `mba-cam` removed from both `tools/pipeline/config.json` and `config.json` via `scripts/add-camera.py remove mba-cam` (the canonical CLI per the dual-config gotcha in CLAUDE.md).
+- MBA-side `com.farmguardian.usb-cam-host` LaunchAgent: `launchctl bootout` over SSH, plist renamed to `.disabled-26apr2026` per the auto-load-trap rule from `feedback_launchagents_auto_load_trap.md`. Verified: port 8089 no longer serving (`http=000`).
+- **No remaining pipeline component depends on the MBA being on or online.** Audit results:
+  - Pipeline polling: removed.
+  - S7-cam: untethered from MBA in v2.37.8 (today, earlier), now wall-brick powered, all I/O over WiFi at `192.168.0.249`.
+  - S7 battery monitor: already disabled in v2.37.8.
+  - iPhone live-ingest (v2.37.9, today): reads `Photos.sqlite` on the Mini, not the MBA.
+  - Camera roster after this change: `house-yard` (Reolink), `s7-cam` (Samsung S7), `usb-cam` (on GWTC since 24-Apr), `gwtc` (Gateway laptop).
+
 ### v2.37.9 — iPhone live-ingest lane + canonical SOCIAL_MEDIA_MAP.md (Claude Opus 4.7 (1M context))
 
 Closes the long-standing gap where photos Boss takes on his iPhone never reached the social pipeline. iCloud already syncs the originals to `~/Pictures/Photos Library.photoslibrary` within minutes; what was missing was a path from there into `image_archive` and the gem lane. The on-this-day archive lane couldn't fill this role — it depends on the paused `master-catalog.csv` (frozen 2026-03-24, 54% complete per `CATALOG_STATUS.md`) and is tuned for retrospective content from prior years, not today's shots.

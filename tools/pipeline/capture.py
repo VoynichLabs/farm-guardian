@@ -211,9 +211,13 @@ def capture_rtsp_burst(rtsp_url: str, burst_size: int = 5, burst_interval_second
 def capture_ip_webcam(base_url: str, photo_path: str = "/photo.jpg",
                       trigger_focus: bool = True, focus_wait: float = 1.5,
                       timeout: int = 15) -> bytes:
-    # /photoaf.jpg on IP Webcam fires AF server-side (slower, sharper); in that
-    # case skip the separate /focus trigger since the endpoint handles it.
-    if trigger_focus and photo_path == "/photo.jpg":
+    # If trigger_focus is opted in, fire /focus before the fetch. Originally
+    # this was gated to /photo.jpg only on the theory that /photoaf.jpg's
+    # server-side AF was sufficient; in practice (S7 brooder, 26-Apr-2026)
+    # /photoaf.jpg's AF drifts in continuous-picture mode and frames go soft.
+    # An explicit pre-fetch /focus + 1.5s wait reliably re-locks. Double-AF
+    # when path is /photoaf.jpg is harmless — the second AF no-ops if locked.
+    if trigger_focus:
         try:
             requests.get(f"{base_url}/focus", timeout=5)
             time.sleep(focus_wait)
@@ -278,6 +282,7 @@ def capture_camera(camera_name: str, camera_cfg: dict, global_cfg: dict) -> byte
             base_url=camera_cfg["ip_webcam_base"],
             photo_path=camera_cfg.get("photo_path", "/photo.jpg"),
             trigger_focus=camera_cfg.get("trigger_focus", True),
+            focus_wait=camera_cfg.get("focus_wait", 1.5),
         )
     raise CaptureError(f"unknown capture_method: {method} for {camera_name}")
 
