@@ -1,22 +1,26 @@
 # Author: Claude Opus 4.7
-# Date: 16-April-2026
+# Date: 16-April-2026 (BROKEN as of 2026-04-26 — see header note below)
 # PURPOSE: Poll S7 battery via ADB on whichever Mac the phone is USB-tethered to
-#          (currently the MacBook Air). Emit Discord alerts on three transitions:
+#          (originally the MacBook Air). Emit Discord alerts on three transitions:
 #          (1) battery level drops below LEVEL_ALERT (default 25%), (2) battery
 #          temperature rises above TEMP_ALERT_TENTHS (default 48.0°C), (3) phone
-#          comes off USB power unexpectedly. Every poll also goes to a rolling
-#          local log so a past failure can be reconstructed. Alerts are deduped
-#          via a tiny JSON state file — they fire on the transition *into* the
-#          alert state, and a matching "recovered" message fires on the way out.
-#          Rationale: Boss's S7 had been dying on the charger because the camera
-#          load drained the battery faster than USB could top it up. After the
-#          v2.27.7 camera tuning and the HTTP-snapshot path, draw is much lower,
-#          but the phone is still old and the battery is worn — we want
-#          visibility without spam.
+#          comes off USB power unexpectedly.
+#
+# STATUS — BROKEN as of 2026-04-26:
+#          Boss has moved the S7 from MBA-tethered USB to a standalone wall-brick
+#          USB power source. ADB no longer enumerates the device on the MBA, so
+#          this script returns empty on every poll. The MBA-side LaunchAgent
+#          `com.farmguardian.s7-battery-monitor.plist` was bootout'd 2026-04-26
+#          to stop pointless retries. The script is preserved on disk (a) as
+#          context for why the alert pattern was designed this way, (b) for the
+#          rare day Boss tethers the phone for a settings sweep, (c) as a
+#          reference for the ADB pacing logic if a future replacement reuses any
+#          of it. Replacement TODO: rewrite to read battery from IP Webcam's
+#          /sensors.json HTTP endpoint instead of dumpsys via ADB. That would
+#          run on the Mini and require zero phone-side tethering.
+#
 # SRP/DRY: Self-contained. Stdlib only (urllib for Discord, subprocess for adb,
-#          json for state). Doesn't share code with Guardian because it runs on
-#          a different machine than Guardian (MBA, not Mini) and a cross-machine
-#          import is not worth 10 lines of boilerplate.
+#          json for state). Originally written to run on the MBA — see STATUS.
 
 import json
 import logging

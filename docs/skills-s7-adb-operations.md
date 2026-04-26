@@ -1,7 +1,13 @@
 # S7 Operations via ADB (and via IP Webcam's HTTP settings API)
 
-**Last updated:** 21-April-2026 (orientation section added — phone is fixed PORTRAIT as of v2.35.2)
-**Cross-refs:** `CHANGELOG.md` (v2.27.7 camera tuning, v2.27.8 battery monitor, v2.27.9 freeze incident, v2.35.2 EXIF orientation fix) · `docs/16-Apr-2026-s7-ipwebcam-frozen-incident.md` · `tools/s7-battery-monitor/monitor.py`
+> **⚠️ ARCHAEOLOGY as of 2026-04-26.** The S7 is no longer USB-tethered to the MacBook Air — Boss has moved it to a standalone USB power brick (wall-direct) for charging only. ADB-over-USB to this phone is therefore **not available in normal operation**. The HTTP settings API (everything served by IP Webcam at `http://192.168.0.249:8080/...`) is unaffected and remains the supported path for runtime tuning.
+>
+> If you came here looking for "how do I recover a wedged IP Webcam," the answer is no longer "ssh to the MBA and adb..."; it's **walk to the phone**. See `docs/16-Apr-2026-s7-ipwebcam-frozen-incident.md` § "Recovery — phone-side hands-on, no remote escape hatch."
+>
+> The ADB sections below remain useful for the occasional case where Boss reconnects the cable for a deep settings tweak or one-off diagnostic, and as historical context for why certain code (e.g. `tools/s7-battery-monitor/`) was written the way it was.
+
+**Last updated:** 26-April-2026 (architecture change — S7 untethered from MBA)
+**Cross-refs:** `CHANGELOG.md` (v2.27.7 camera tuning, v2.27.8 battery monitor [BROKEN under new arch], v2.27.9 freeze incident, v2.35.2 EXIF orientation fix) · `docs/16-Apr-2026-s7-ipwebcam-frozen-incident.md` · `tools/s7-battery-monitor/monitor.py` (LaunchAgent disabled 2026-04-26)
 
 ## Orientation — PORTRAIT (fixed, deliberate, 2026-04-21)
 

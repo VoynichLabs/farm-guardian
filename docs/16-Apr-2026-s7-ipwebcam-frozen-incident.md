@@ -74,35 +74,38 @@ None of these are durable across a factory reset, a major Android update, or the
 - v2.27.7 — re-applied `focusmode=continuous-picture` + `whitebalance=incandescent` via `http_startup_gets`. These persist across Guardian restarts but NOT across IP Webcam app restarts — if the app is force-stopped and reopened, Guardian will re-assert them on its next snapshot-poller construction (on Guardian's next restart), not immediately. So image quality may briefly revert to macro + auto-WB for up to one Guardian-restart cycle after an IP Webcam recovery; restarting Guardian explicitly (`launchctl kickstart -k gui/$UID/com.farmguardian.guardian`) is a belt-and-suspenders step if the post-recovery frames look "off."
 - v2.27.8 — S7 battery monitor on the MBA. Note: the battery monitor polls via ADB on the MBA, which is independent of whether IP Webcam is serving HTTP. So battery alerts continue firing even when the camera is "frozen" in the sense described here — the phone's battery state is still visible. In fact the battery monitor is the authoritative answer to "is the phone itself alive" during an IP Webcam outage.
 
-## Recurrence — 2026-04-26 (Pudding Hill)
+## Recurrence — 2026-04-26 (Pudding Hill, post-architecture-change)
 
-Same pattern observed at 13:48 EDT. State at diagnosis time:
+Same app-side fingerprint, BUT a major architecture change clarified mid-diagnosis: **as of late April 2026 Boss has decoupled the S7 from the MBA. The phone is now plugged into a standalone USB power brick (wall-direct), not USB-tethered to the MacBook Air.** That means:
+
+- ADB recovery from the MBA is **permanently dead**, not "loose cable." `system_profiler SPUSBDataType` will always be empty for the S7 going forward; that's not a failure mode, it's the new normal.
+- The whole `docs/skills-s7-adb-operations.md` runbook is **archaeology** as of 2026-04-26 — useful only on the (rare) days Boss tethers the phone for a settings sweep. Day-to-day, treat ADB as unavailable.
+- `tools/s7-battery-monitor/` (v2.27.8) **stops working** under this setup — it polls battery via ADB. The MBA-side LaunchAgent has been disabled in this commit; replacement path is to read battery from IP Webcam's `/sensors.json` instead (TODO).
+
+State observed at diagnosis time, before the architecture clarification:
 
 - `192.168.0.249` ARP-resolves on en1 (`8c:f5:a3:b6:5a:e5`); ping 35–118 ms — **WiFi up.**
 - `nc -z 192.168.0.249 8080` succeeds repeatedly — **TCP listener bound.**
-- `curl -v http://192.168.0.249:8080/` connects, sends GET, then hangs indefinitely — **app frozen above the socket layer.** No HTTP response. Same fingerprint as the 16-Apr "Configuration screen" mode, except the listener is still bound (port 8080 accepts) instead of fully released.
-- `nc -z 192.168.0.249 5554` REFUSED — RTSP server is also down. (RTSP wasn't relevant to 16-Apr because the active path is HTTP snapshot, but it confirms IP Webcam is not in normal "Rolling" state.)
-- `s7-settings-watchdog.log` shows `wb=000 fm=000 or=000 pr=000` continuously since 03:49Z (~10 hours of unsuccessful settings polls). One brief 200-response burst at `12:31:26Z` then back to 000. The watchdog has been firing every 10 min and getting no response.
-- `s7-settings-watchdog.err.log` is full of `Operation timed out after ~5000 ms` — same TCP-accept-but-no-response pattern.
+- `curl -v http://192.168.0.249:8080/` connects, sends GET, then hangs indefinitely — **app frozen above the socket layer.** Listener bound but the HTTP handler isn't pumping. This is the same root cause as 16-Apr (IP Webcam not in Rolling activity), but the Java listener is still bound instead of fully released — slight variant of the same class of failure.
+- `nc -z 192.168.0.249 5554` REFUSED — RTSP server is also down (consistent with IP Webcam not in Rolling).
+- `s7-settings-watchdog.log` shows `wb=000 fm=000 or=000 pr=000` continuously since 03:49Z (~10 hours of unsuccessful settings polls). One brief 200-burst at `12:31:26Z` then back to 000. Watchdog has been firing every 10 min and getting no response.
+- `s7-settings-watchdog.err.log` is full of `Operation timed out after ~5000 ms`.
 
-**New twist: USB enumeration also dead.** From the MBA (`ssh markb@192.168.0.50`):
+The settings watchdog itself is unaffected by the architecture change — it's a pure HTTP probe (`curl http://192.168.0.249:8080/settings/...`), no ADB dependency. It's the right authoritative liveness signal for the S7 going forward.
 
-- `system_profiler SPUSBDataType | grep -i samsung` → empty.
-- `adb devices -l` → empty (after `kill-server` / `start-server` / `reconnect offline`).
-- MBA itself is fine: AC powered, 100% battery, uptime 16h28m — not a power-loss-on-MBA recurrence.
+### Recovery — phone-side hands-on, no remote escape hatch
 
-So this isn't *only* the IP-Webcam-on-Configuration mode from 16-Apr; the USB cable / port has also dropped. Probably the cable came loose. The phone is alive (WiFi works) but isn't tethered for ADB or charging.
+There is no remote recovery path under the new architecture. Without USB-ADB to the MBA, nothing on the LAN can wake a wedged IP Webcam server. **Walk to the phone.**
 
-### Recovery for THIS recurrence
+1. Wake the screen. IP Webcam is presumably in the foreground.
+2. If the visible activity is **Configuration** (settings UI): tap the back arrow until you're on the main Configuration screen, then tap **"Start server"**.
+3. If the visible activity is **Rolling** but the dashboard's still showing stale frames: swipe-kill IP Webcam from the recents, then reopen it. It boots straight back into Rolling.
+4. If the screen is off and won't wake: hard-press power for 10–15 sec to force a reboot. The phone will auto-launch IP Webcam on boot if you've left that setting on (check IP Webcam → Configuration → "Start on boot").
+5. Verify from the Mini: `curl -s -w '%{http_code} %{size_download}B\n' -o /dev/null http://192.168.0.249:8080/photo.jpg`. Expect `200` with a non-zero byte count, typically 100–300 KB.
+6. The settings watchdog will re-apply portrait orientation + incandescent WB + continuous-picture focus on its next 10-min tick. No manual settings restore needed.
 
-1. Walk to wherever the S7 lives (currently MBA-side in the brooder).
-2. **Reseat USB cable** at both ends — phone side and MBA side. Wiggle is the enemy; firm push.
-3. After reseat, on the MBA: `ssh markb@192.168.0.50 '~/.local/android/platform-tools/adb reconnect offline && ~/.local/android/platform-tools/adb devices -l'` should now show `ce12160cec2f2f0901  device`.
-4. Phone-side: tap screen, IP Webcam should be in foreground. If it's on Configuration screen, back-arrow to Configuration root and tap **"Start server"**. If it's on Rolling but server is wedged, swipe-kill the app and re-open it (`am force-stop com.pas.webcam ; am start -n com.pas.webcam/.MainActivity` works once ADB is back).
-5. Verify from the Mini: `curl -s -w '%{http_code} %{size_download}B\n' -o /dev/null http://192.168.0.249:8080/photo.jpg` should return `200` with a non-zero byte count.
-6. The settings watchdog will re-apply portrait orientation + WB + focus mode on its next 10-min tick; no manual settings restore needed.
+### Prevention notes
 
-### Prevention update from this recurrence
-
-- The cable-loose mode is a real second class of failure. If this happens a third time, consider zip-tying the USB connector at both the phone and MBA ends, or moving to a right-angle USB-C → micro-USB cable that's less likely to wiggle out under coop vibration.
-- Watchdog could grow a second alert: "if `wb=000` for >3 consecutive ticks, emit a Discord alert to the engagers channel." Currently the only signal is `s7-settings-watchdog.log` which nobody reads until something breaks. Logged as a TODO; not blocking this recovery.
+- **Boss-side process change:** auto-launch IP Webcam on phone boot, and turn ON "wake screen" in IP Webcam's settings, so a chance reboot doesn't leave the phone on a black screen.
+- **Watchdog → Discord alert (NEW TODO):** when `s7-settings-watchdog.log` records `wb=000` for >3 consecutive ticks (~30 min), post to the engagers Discord channel so Boss has a real signal instead of having to notice frozen frames himself. Without ADB this is now the only early-warning we can have. Worth doing before the next freeze.
+- **Cable redundancy:** since the phone now charges from a wall brick rather than the MBA, a flaky brick or a tripped GFCI outlet becomes a new failure mode (drained phone, eventual hard-off). Logged as something to watch but not actionable right now.

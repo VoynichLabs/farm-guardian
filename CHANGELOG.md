@@ -2,7 +2,32 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] - 2026-04-25
+## [Unreleased] - 2026-04-26
+
+### v2.37.8 — S7 architecture change: untethered from MBA, battery monitor disabled (Claude Opus 4.7 (1M context))
+
+Documents and operationalizes a hardware change Boss made: the Samsung S7 (`s7-cam`) is no longer USB-tethered to the MacBook Air. It now plugs directly into a standalone USB wall brick for charging only. Data path is unchanged — IP Webcam over WiFi at `192.168.0.249:8080`.
+
+**Broken under the new architecture:**
+- `tools/s7-battery-monitor/monitor.py` (v2.27.8) — polls battery via `adb shell dumpsys battery`. ADB no longer enumerates the phone on the MBA, so every poll returns empty. The MBA-side LaunchAgent `com.farmguardian.s7-battery-monitor` was `launchctl bootout`'d in this commit and the plist renamed to `.disabled-26apr2026`. Script preserved on disk with a STATUS header; replacement TODO is to rewrite against IP Webcam's `/sensors.json` endpoint and host on the Mini.
+- "ssh to MBA, run adb..." recovery flows — `docs/skills-s7-adb-operations.md` is now archaeology. Doc gets a top-of-file ARCHAEOLOGY banner pointing readers at the phone-side recovery in the freeze-incident doc.
+
+**Still works:**
+- `com.farmguardian.s7-settings-watchdog` on the Mini — pure HTTP via curl against IP Webcam settings endpoints. No ADB dependency. This is now the authoritative S7 liveness signal.
+- All other cameras and pipeline components — none depended on S7 USB tethering.
+- All IP Webcam HTTP runtime tuning (`/settings/orientation?set=portrait` etc.) and snapshot pulls (`/photo.jpg`).
+
+**Failure mode surfaced in the diagnosis that triggered this:** at 13:48 EDT on 2026-04-26 the S7's IP Webcam was wedged in the same pattern as the 16-Apr incident — TCP 8080 accepts but HTTP hangs, RTSP refused, watchdog logging `wb=000` since 03:49Z. Without ADB there is no remote recovery path; recovery is phone-side hands-on (back-arrow to Configuration → Start server, or swipe-kill and reopen). Documented in `docs/16-Apr-2026-s7-ipwebcam-frozen-incident.md` under "Recurrence — 2026-04-26" + replacement "Recovery — phone-side hands-on, no remote escape hatch" section.
+
+**TODOs carved out (not in this commit):**
+- Rewrite `s7-battery-monitor` against IP Webcam `/sensors.json`, host on Mini.
+- Add Discord alert to the settings watchdog when it logs `wb=000` for >3 consecutive ticks (~30 min). Without ADB this is now the only proactive signal we can have for an IP Webcam wedge.
+
+**Files touched:**
+- `docs/16-Apr-2026-s7-ipwebcam-frozen-incident.md` — recurrence + corrected recovery.
+- `docs/skills-s7-adb-operations.md` — top-of-file ARCHAEOLOGY banner.
+- `tools/s7-battery-monitor/monitor.py` — STATUS=BROKEN header.
+- MBA `~/Library/LaunchAgents/com.farmguardian.s7-battery-monitor.plist` → `.disabled-26apr2026` (out-of-tree, separate machine).
 
 ### v2.37.7 — USB cam moved Mini → GWTC; supersedes v2.37.6 placement (Claude Opus 4.7 (1M context))
 
