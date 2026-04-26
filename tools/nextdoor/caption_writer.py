@@ -138,6 +138,11 @@ def _chat_completion(model: str, system: str, image_path: Path) -> str | None:
         ],
         "temperature": 0.85,
         "max_tokens": 200,
+        # Disable thinking — LM Studio's OpenAI-compat endpoint honors
+        # `reasoning_effort: "none"`, NOT the older `reasoning: "off"`.
+        # Without this the model burns max_tokens on reasoning_content
+        # and returns empty content (verified 2026-04-26).
+        "reasoning_effort": "none",
     }
     req = urllib.request.Request(
         f"{LM_BASE}/v1/chat/completions",

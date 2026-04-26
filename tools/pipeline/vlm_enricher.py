@@ -132,10 +132,15 @@ def enrich(
         ],
         "temperature": temperature,
         "max_tokens": max_tokens,
-        # `reasoning: off` is honored on OpenAI-compat for Gemma-4 and
-        # Qwen3.5 per 2026-04-20 live test. Models that don't honor it
-        # emit a reasoning block we ignore — correctness unaffected.
-        "reasoning": "off",
+        # `reasoning_effort: "none"` is the OpenAI-compat-aligned switch
+        # that LM Studio honors for thinking models. The earlier `reasoning:
+        # "off"` field is the LM Studio NATIVE-API param (/api/v1/chat) and
+        # is silently ignored on /v1/chat/completions for the current build
+        # of qwen/qwen3.6-35b-a3b — the model burns its budget on a
+        # reasoning_content block and returns empty `content`, which fails
+        # the JSON validator. Verified live 2026-04-26 after the LM Studio
+        # API shape change. Don't revert to `reasoning: "off"`.
+        "reasoning_effort": "none",
         "response_format": {
             "type": "json_schema",
             "json_schema": {
