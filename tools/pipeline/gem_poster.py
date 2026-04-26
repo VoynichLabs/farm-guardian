@@ -28,6 +28,7 @@ _USERNAME_BY_CAMERA = {
     "mba-cam": "Brooder Overhead",
     "usb-cam": "Brooder Floor",
     "gwtc": "Coop",
+    "iphone": "Boss's iPhone",
 }
 
 

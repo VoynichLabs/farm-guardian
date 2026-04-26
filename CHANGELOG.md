@@ -4,6 +4,26 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-04-26
 
+### v2.37.9 — iPhone live-ingest lane + canonical SOCIAL_MEDIA_MAP.md (Claude Opus 4.7 (1M context))
+
+Closes the long-standing gap where photos Boss takes on his iPhone never reached the social pipeline. iCloud already syncs the originals to `~/Pictures/Photos Library.photoslibrary` within minutes; what was missing was a path from there into `image_archive` and the gem lane. The on-this-day archive lane couldn't fill this role — it depends on the paused `master-catalog.csv` (frozen 2026-03-24, 54% complete per `CATALOG_STATUS.md`) and is tuned for retrospective content from prior years, not today's shots.
+
+**New lane (`tools/iphone_lane/`, `scripts/iphone-ingest.py`, `com.farmguardian.iphone-ingest`):**
+- Hourly LaunchAgent. Reads `Photos.sqlite` read-only, finds non-trashed non-hidden photos (`ZKIND=0`) added in the last 6h, dedupes against `data/iphone-lane/ingested.json`.
+- HEIC → JPEG via `/usr/bin/sips` (no new Python dependency, no `pillow-heif`). EXIF orientation baked in by sips.
+- Same VLM enricher, same schema, same prompt, same `image_archive` table the cameras use — `camera_id="iphone"`. Strong-tier hardlinks into `data/gems/`, `data/private/` for concerns rows, normal retention sweep applies.
+- `should_post` gate: strong-tier non-rejected → Discord `#farm-2026` with username "Boss's iPhone" (added to `gem_poster._USERNAME_BY_CAMERA`).
+- Cap of 8 photos per run so a burst of 30 phone shots drains over multiple ticks rather than monopolizing LM Studio.
+- Cloud-only originals (not yet downloaded by iCloud) are skipped without ledgering, so they get retried next run.
+- Plist matches the `com.farmguardian.*` family (TCC trust, label-rename pattern from `feedback_launchd_tcc_label_rename.md`). `RunAtLoad=false`, `ThrottleInterval=60`.
+- IG auto-post inherits `config.instagram.enabled` (still false) — phones only land in Discord; reaction-gated lanes (story / carousel) pick up reacted gems automatically.
+
+**Verified live before scheduling:** dry-run found 40 candidates in 24h, 38 originals on disk, 2 cloud-only. End-to-end run on one photo: VLM = strong, Discord 200, ledger written, hardlink in `gems/2026-04/iphone/`. Catalog batch is untouched.
+
+**New canonical doc (`docs/SOCIAL_MEDIA_MAP.md`):**
+- Surface-by-surface map of every outbound (IG photo / carousel / story / reel, FB Page, Nextdoor, on-this-day, social-publisher, iPhone-ingest) and inbound (reaction sync, throwback, IG-engage, Nextdoor-engage, FB reciprocate) lane. Verified against live `launchctl list | grep farmguardian` on 2026-04-26.
+- Wired into `CLAUDE.md` "First thing to read" block. Demotes the dated docs in `docs/` as planning archives — `SOCIAL_MEDIA_MAP.md` is current state.
+
 ### v2.37.8 — S7 architecture change: untethered from MBA, battery monitor disabled (Claude Opus 4.7 (1M context))
 
 Documents and operationalizes a hardware change Boss made: the Samsung S7 (`s7-cam`) is no longer USB-tethered to the MacBook Air. It now plugs directly into a standalone USB wall brick for charging only. Data path is unchanged — IP Webcam over WiFi at `192.168.0.249:8080`.

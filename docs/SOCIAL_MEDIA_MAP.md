@@ -33,6 +33,7 @@ Cameras and the iPhone catalog are the two raw sources. Camera frames flow throu
 
 | Surface | Code | LaunchAgent | Cadence | What it does |
 |---|---|---|---|---|
+| **iPhone live ingest** | `tools/iphone_lane/ingest.py` (via `scripts/iphone-ingest.py`) | `com.farmguardian.iphone-ingest` | hourly (`StartInterval=3600`) | walks Photos.sqlite for the last 6h of new iPhone photos, runs each through the standard VLM enricher, posts strong-tier results into Discord `#farm-2026` with `camera_id="iphone"`. From there the reaction-gated lanes pick them up like any camera gem. Dedupe ledger: `data/iphone-lane/ingested.json`. |
 | **Discord reaction sync** | `scripts/discord-reaction-sync.py` | `com.farmguardian.discord-reaction-sync` | every 30 min (`StartInterval=1800`) | scrapes reaction counts onto `image_archive.discord_reactions` — the quality gate every outbound lane reads |
 | **Archive throwback → Discord** | `scripts/archive-throwback.py` | `com.farmguardian.archive-throwback` | daily 08:00 | posts catalog photos to `#farm-2026` so Boss can react; reactions feed back into the gem queue |
 | **IG engagement** (likes/comments/story reactions) | `tools/ig-engage/engage.py` | none — manual / planned | session-capped | plays @pawel_and_pawleen's outbound presence — 30 likes / 10 comments / 20 story reactions per day |
