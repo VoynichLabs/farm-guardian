@@ -2,6 +2,27 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased] - 2026-04-27
+
+### v2.37.11 — usb-cam-host: Windows DirectShow name-based camera resolution (Claude Sonnet 4.6)
+
+**Problem:** The GWTC usb-cam-host service picked up the wrong camera (OBS Virtual Camera at DirectShow index 1) when the physical USB cam was unplugged or moved to a different USB port. `USB_CAM_DEVICE_INDEX=1` was hardcoded — correct when the cam was present, wrong when it wasn't (OBS Virtual Camera fills index 1 when no physical USB cam occupies it).
+
+**Root cause:** Two separate failures:
+1. Service died overnight because GWTC was rebooted; the scheduled task is `onstart` only so it needs a manual kick after the session is already running.
+2. Boss switched USB ports during troubleshooting; with the cam disconnected, OBS Virtual Camera took index 1, causing the service to serve OBS's "no source" placeholder frame as if it were a live feed.
+
+**Fix (`tools/usb-cam-host/usb_cam_host.py`):**
+- `_find_ffmpeg()` extended with Windows-specific search paths: probes WinGet installs under common farm usernames (`markb`, `cam`, `Administrator`, current user) so the scheduled task running as `cam` can find ffmpeg installed by `markb`.
+- `_list_dshow_video_devices_windows()` — new function. Uses `ffmpeg -f dshow -list_devices` to enumerate DirectShow video devices in enumeration order (position = `cv2.VideoCapture` index). Same pattern as the existing macOS AVFoundation path.
+- `_find_dshow_device_index_by_name_windows()` — new function. Finds (index, name) for the first device whose name contains the needle.
+- `_open()` Windows branch: now calls `_find_dshow_device_index_by_name_windows(DEVICE_NAME_CONTAINS)` and opens by index, not by `video=name` string (this OpenCV build's dshow backend doesn't support name-based open).
+- OBS Virtual Camera is excluded naturally: it registers as a DirectShow filter, NOT as a PnP Camera class device, so it appears only in the ffmpeg listing. The needle match on "USB CAMERA" skips it.
+
+**`deploy/usb-cam-host/start.bat` on GWTC:** Added `set USB_CAM_DEVICE_NAME_CONTAINS=USB CAMERA`. The service now resolves the physical USB cam by name on every reconnect attempt — switching USB ports or rebooting no longer requires a config change.
+
+**Verified live 2026-04-27:** Service log shows `resolved 'USB CAMERA' -> DirectShow index 1 (USB CAMERA)`, health endpoint `ok:true`, live coop frame confirmed.
+
 ## [Unreleased] - 2026-04-26
 
 ### v2.37.10 — S7 AF fix + MBA fully decoupled from pipeline (Claude Opus 4.7 (1M context))

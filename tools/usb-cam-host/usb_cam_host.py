@@ -1,4 +1,11 @@
-# Author: Claude Opus 4.7 (1M context)
+# Author: Claude Sonnet 4.6
+# Date: 27-April-2026 (adds Windows DirectShow name-based camera resolution so
+#        USB_CAM_DEVICE_NAME_CONTAINS works cross-platform — previously darwin-only.
+#        Plugging the USB cam into a different port no longer breaks the service:
+#        on Windows the grabber opens by DirectShow FriendlyName rather than
+#        by index, so it finds the camera regardless of port-enumeration order.
+#        Virtual cameras like OBS Virtual Camera are excluded automatically
+#        because they don't appear as PnP Camera devices with Status=OK.)
 # Date: 19-April-2026 (adds USB_CAM_DEVICE_NAME_CONTAINS so the same service
 #        binary can host the opportunistic iPhone Continuity Camera on the
 #        Mac Mini without risking a screen-capture fallthrough when the
@@ -228,20 +235,36 @@ _AVF_DEVICE_LINE_RE = None  # lazily compiled inside the helper below
 
 
 def _find_ffmpeg() -> Optional[str]:
-    """Locate the ffmpeg binary. launchd starts services with a minimal PATH
-    that excludes /opt/homebrew/bin and /usr/local/bin, so we can't rely on
-    shutil.which alone — fall back to the well-known Homebrew + system paths.
-    Returns absolute path on hit, None on miss (logged once per call)."""
+    """Locate the ffmpeg binary across platforms.
+    macOS launchd starts services with minimal PATH (excludes Homebrew);
+    Windows scheduled tasks run as a non-admin user whose PATH may omit
+    WinGet per-user installs. Fall back through well-known fixed paths.
+    Returns absolute path on hit, None on miss."""
     import shutil
     found = shutil.which("ffmpeg")
     if found:
         return found
-    for candidate in (
-        "/opt/homebrew/bin/ffmpeg",  # Apple Silicon Homebrew
-        "/usr/local/bin/ffmpeg",     # Intel Homebrew
+    candidates = [
+        "/opt/homebrew/bin/ffmpeg",  # macOS Apple Silicon Homebrew
+        "/usr/local/bin/ffmpeg",     # macOS Intel Homebrew
         "/usr/bin/ffmpeg",           # Linux standard
-    ):
-        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+    ]
+    if sys.platform == "win32":
+        # WinGet installs per-user; probe common farm usernames since the
+        # scheduled task (cam user) may not have markb's WinGet in PATH.
+        for username in ("markb", "cam", "Administrator",
+                         os.environ.get("USERNAME", ""),
+                         os.environ.get("USERPROFILE", "").split("\\")[-1]):
+            if username:
+                candidates.append(
+                    rf"C:\Users\{username}\AppData\Local\Microsoft\WinGet\Links\ffmpeg.exe"
+                )
+        candidates += [
+            r"C:\ffmpeg\bin\ffmpeg.exe",
+            r"C:\ProgramData\chocolatey\bin\ffmpeg.exe",
+        ]
+    for candidate in candidates:
+        if candidate and os.path.isfile(candidate) and os.access(candidate, os.X_OK):
             return candidate
     return None
 
@@ -330,6 +353,58 @@ def _resolve_device_index_by_name(needle: str) -> Optional[tuple[int, str]]:
 
 
 # ---------------------------------------------------------------------------
+# Windows DirectShow device-name resolution (ffmpeg-based, same as macOS)
+# ---------------------------------------------------------------------------
+
+def _list_dshow_video_devices_windows() -> list[tuple[int, str]]:
+    """Return [(index, name), ...] for DirectShow video devices on Windows,
+    in enumeration order. Position maps directly to cv2.VideoCapture(index).
+    Uses ffmpeg -f dshow -list_devices (same approach as _list_avfoundation_*
+    on macOS). Virtual cameras (OBS Virtual Camera, etc.) appear in the list
+    and are identified by NOT being in the PnP Camera class — callers that
+    need to exclude them should cross-reference with pnputil.
+    Empty list on any failure or when called on non-Windows."""
+    if sys.platform != "win32":
+        return []
+    import subprocess, re
+    ffmpeg = _find_ffmpeg()
+    if ffmpeg is None:
+        log.warning(
+            "dshow device list failed: ffmpeg not found. "
+            "Install ffmpeg system-wide or check PATH for the scheduled task user."
+        )
+        return []
+    try:
+        proc = subprocess.run(
+            [ffmpeg, "-hide_banner", "-f", "dshow", "-list_devices", "true", "-i", "dummy"],
+            capture_output=True, text=True, timeout=5.0,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+        log.warning("dshow device list failed: %s", exc)
+        return []
+    # ffmpeg dshow stderr lines: [in#0 @ addr] "Device Name" (video)
+    device_re = re.compile(r'"([^"]+)"\s+\(video\)')
+    devices: list[tuple[int, str]] = []
+    for raw in proc.stderr.splitlines():
+        m = device_re.search(raw)
+        if m:
+            devices.append((len(devices), m.group(1)))
+    return devices
+
+
+def _find_dshow_device_index_by_name_windows(needle: str) -> Optional[tuple[int, str]]:
+    """Find the cv2.VideoCapture index for the first DirectShow video device
+    whose name contains `needle` (case-insensitive).
+    Returns (index, name) on hit, None on miss (device not connected or
+    ffmpeg unavailable). The grabber handles None as a normal transient."""
+    needle_lc = needle.lower()
+    for idx, name in _list_dshow_video_devices_windows():
+        if needle_lc in name.lower():
+            return idx, name
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
 
@@ -375,29 +450,47 @@ def _grabber_loop() -> None:
     sequence = 0
 
     def _open() -> Optional[cv2.VideoCapture]:
-        # Resolve which device index we're going to open. With name gating
-        # set, refuse to open if the named device isn't currently
-        # enumerated — the grabber's reconnect loop will retry. Without
-        # name gating, fall back to the legacy USB_CAM_DEVICE_INDEX path.
+        # Resolve which device to open. When USB_CAM_DEVICE_NAME_CONTAINS is
+        # set, use name-based resolution (immune to USB port changes):
+        #   Windows — DirectShow FriendlyName via PnP; virtual cameras excluded
+        #   macOS   — AVFoundation index resolved from device name via ffmpeg
+        # When the env var is absent, fall through to USB_CAM_DEVICE_INDEX.
         if DEVICE_NAME_CONTAINS:
-            hit = _resolve_device_index_by_name(DEVICE_NAME_CONTAINS)
-            if hit is None:
+            if sys.platform == "win32":
+                hit = _find_dshow_device_index_by_name_windows(DEVICE_NAME_CONTAINS)
+                if hit is None:
+                    log.info(
+                        "grabber: no DirectShow camera matches "
+                        "USB_CAM_DEVICE_NAME_CONTAINS=%r — not currently "
+                        "plugged in or ffmpeg unavailable; retrying.",
+                        DEVICE_NAME_CONTAINS,
+                    )
+                    return None
+                idx, name = hit
                 log.info(
-                    "grabber: no AVFoundation video device matches "
-                    "USB_CAM_DEVICE_NAME_CONTAINS=%r — device is not "
-                    "currently plugged in (this is normal for opportunistic "
-                    "cameras like an iPhone over Continuity).",
-                    DEVICE_NAME_CONTAINS,
+                    "grabber: resolved %r -> DirectShow index %d (%s)",
+                    DEVICE_NAME_CONTAINS, idx, name,
                 )
-                return None
-            idx, name = hit
-            log.info("grabber: resolved %r -> AVFoundation index %d (%s)",
-                     DEVICE_NAME_CONTAINS, idx, name)
+                c = cv2.VideoCapture(idx)
+            else:
+                hit = _resolve_device_index_by_name(DEVICE_NAME_CONTAINS)
+                if hit is None:
+                    log.info(
+                        "grabber: no AVFoundation video device matches "
+                        "USB_CAM_DEVICE_NAME_CONTAINS=%r — device is not "
+                        "currently plugged in (this is normal for opportunistic "
+                        "cameras like an iPhone over Continuity).",
+                        DEVICE_NAME_CONTAINS,
+                    )
+                    return None
+                idx, name = hit
+                log.info("grabber: resolved %r -> AVFoundation index %d (%s)",
+                         DEVICE_NAME_CONTAINS, idx, name)
+                c = cv2.VideoCapture(idx)
         else:
-            idx = DEVICE_INDEX
+            # No backend flag — let OpenCV pick AVFoundation / dshow / V4L2.
+            c = cv2.VideoCapture(DEVICE_INDEX)
 
-        # No backend flag — let OpenCV pick AVFoundation / dshow / V4L2.
-        c = cv2.VideoCapture(idx)
         if not c.isOpened():
             return None
         c.set(cv2.CAP_PROP_FRAME_WIDTH, REQUESTED_WIDTH)
