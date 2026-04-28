@@ -4,6 +4,10 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-04-27
 
+### v2.37.12 — VLM prompt: swap Birdadette → Birdadotta with updated identification markers (Claude Sonnet 4.6)
+
+Birdadette is now a grown adult; the brooder chick the VLM should be picking out is Birdadotta. Updated `tools/pipeline/prompt.md` in six places: the brooder camera listing, the known-bird description, the `individuals_visible` gate criteria, the `share_worth` strong-trigger example, the `caption_draft` guidance example, and the good-caption sample. Birdadotta's markers: slightly SMALLER than brood mates, tiny WHITE TIPS on her wing feathers, NO white spot on her head. No Python files touched; the prompt template is re-read each enrichment cycle so the change takes effect on the next pipeline run.
+
 ### v2.37.11 — usb-cam-host: Windows DirectShow name-based camera resolution (Claude Sonnet 4.6)
 
 **Problem:** The GWTC usb-cam-host service picked up the wrong camera (OBS Virtual Camera at DirectShow index 1) when the physical USB cam was unplugged or moved to a different USB port. `USB_CAM_DEVICE_INDEX=1` was hardcoded — correct when the cam was present, wrong when it wasn't (OBS Virtual Camera fills index 1 when no physical USB cam occupies it).

@@ -1,14 +1,14 @@
 This is a snapshot from the {camera_name} camera at a small backyard flock in Hampton CT. Camera context: {camera_context}.
 
 **Location → age mapping.** The farm has two physically-separate bird groups and camera location tells you which you're seeing:
-- **Brooder cameras (`usb-cam`, `mba-cam`, `s7-cam`, `iphone-cam`)**: YOUNGER brooder birds (chicken chicks + turkey poults mixed), 1–4 weeks old, plus Birdadette.
+- **Brooder cameras (`usb-cam`, `mba-cam`, `s7-cam`, `iphone-cam`)**: YOUNGER brooder birds (chicken chicks + turkey poults mixed), 1–4 weeks old, plus Birdadotta.
 - **Coop cameras (`gwtc`)**: OLDER chicks (the previous brooder cohort that has graduated to the coop run) and the four winter-survivor adults.
 - **Yard camera (`house-yard`)**: free-range adults or nothing; no chicks.
 
 Use camera_name to decide which group you're looking at — don't guess age from apparent size alone.
 
 Known birds in this flock as of {today}:
-- Birdadette: 3rd-generation Easter Egger × Rhode Island Red mix, GPU-incubated, hatched 2026-04-06. Currently a CHICK (~1 week old), about 2 days older than the other brooder chicks so she's slightly larger. Solid BLACK body plumage with an ORANGE face. Adult plumage will differ from chick plumage — judge by current appearance only.
+- Birdadotta: A brooder chick, slightly SMALLER than her brood mates, with tiny WHITE TIPS on her wing feathers. She does NOT have a white spot on her head — that distinguishes her from any similar-looking sibling. Judge by current appearance only.
 - Four winter-survivor adults (mixed breeds — not individually distinct in most photos)
 - ~22 brooder birds, currently 1-4 weeks old. **This brooder holds BOTH chicken chicks AND turkey poults mixed together** — species call-outs matter. Turkey poults have longer necks, taller legs, proportionally larger feet, a more upright stance, and a distinctive bare/pink-skinned face and snood area even at this age; chicken chicks are rounder, shorter-legged, fluffier-faced, and smaller overall. When you can tell, say which is which. This is also a MIXED RARE-BREED / EXOTIC-ISLAND-FOWL chicken flock — individual chicks vary widely in down color, markings, crest shape, leg color, and feather pattern. Many individuals are visually striking in their own right (distinctive stripes, unusual color combinations, crested heads, feathered feet). Do NOT assume they all look alike — treat each chick as potentially remarkable and flag visual individuality generously. **Everyone in the brooder is still a chick/poult — nobody is a "hen" or "rooster" yet. Max age in-frame is ~4 weeks.**
 - Older-chick cohort in the coop (previous brooder group): larger, more feathered-out, starting to look adult-shaped. Separate from the current brooder chicks.
@@ -16,7 +16,7 @@ Known birds in this flock as of {today}:
 Guidance on specific fields:
 - `scene`: pick the best match for what's visible; "other" only if nothing else fits.
 - `bird_count`: your best estimate; 0 if none visible.
-- `individuals_visible`: only include what you can actually see. "birdadette" only if you see a brooder chick that is solid BLACK with an ORANGE face and is noticeably LARGER than the other chicks around her — that combination is unique to her in the brooder right now. "chick" for any other bird that looks like a chick (fluffy, small, brooder-aged). "adult-survivor" for any mature bird. "unknown-bird" for edge cases.
+- `individuals_visible`: only include what you can actually see. "birdadotta" only if you see a brooder chick that is noticeably SMALLER than her brood mates, has tiny WHITE TIPS on her wing feathers, and has NO white spot on her head — that combination is unique to her in the brooder right now. "chick" for any other bird that looks like a chick (fluffy, small, brooder-aged). "adult-survivor" for any mature bird. "unknown-bird" for edge cases.
 - `any_special_chick`: true whenever at least one chick in frame has a visually notable feature — distinctive coloring (unusual combos, racing stripes, blocky patches, crests), markedly different size from siblings, unusual posture, or any characteristic that would make someone stop and look. Given this is a rare-breed mixed flock, err on the side of TRUE. Default to true if you can point to any individual chick and say "that one stands out." Only return false when the frame is a genuinely uniform blob of near-identical fluff.
 - `bird_face_visible`: true if at least one bird's face, eye, beak, or profile is visible to the camera — including partial views, slight head-turns, and birds where you can see the side of the head. False only when every bird in frame is clearly turned fully away (back, tail, rear) with no head detail at all. This flag matters for single-bird shots where a lone rear-view is not a gem; group-shot framing is judged separately. Neutral default: true for most frames with recognizable birds; false only for clear "fluffy ass, no head" solo compositions. S7 posts must have this flag true.
 - `subject_coverage_pct`: integer 0-100. **What percent of the total frame area is covered by birds, chicks, poults, or dogs — the subjects people care about.** Count every bird, not just the biggest one. Exclude bedding, coop walls, feeders, waterers, background yard, sky, the heat lamp, etc. Examples: a tight group portrait that fills most of the frame ≈ 60. A single bird centered with coop around it ≈ 25. One small chick in a corner with mostly empty bedding ≈ 5. An empty frame or "bird in the distance you can barely see" = 0-3.
@@ -30,7 +30,7 @@ Guidance on specific fields:
   - **"strong" triggers (ANY of these, and none of the skip conditions below):**
     1. A bird looking DIRECTLY at the camera with a clear visible face — eye contact, beak pointing roughly toward the lens, face unobstructed. These are the best shots the farm has and should always be `strong`.
     2. Sharp, intricate feather / wing-pattern / plumage detail visible — individual feather edges, the pattern of a wing, color gradation on a chick's down. Crisp texture at the pixel level.
-    3. A clear portrait of a single identifiable bird (especially Birdadette if she's visible) or a rare-behavior moment (dust-bathing, sparring, mid-stretch, mid-wing-flap, mid-jump, eating something specific, drinking). The subject is obvious and the composition reads as intentional.
+    3. A clear portrait of a single identifiable bird (especially Birdadotta if she's visible) or a rare-behavior moment (dust-bathing, sparring, mid-stretch, mid-wing-flap, mid-jump, eating something specific, drinking). The subject is obvious and the composition reads as intentional.
   - **"skip" triggers (ALL of these demote the frame regardless of other qualities):**
     1. A group of chicks huddling or sleeping with no visible faces, no individual bird distinguishable, and no unusual posture. A fluffy pile of indistinct chicks is NOT archive-worthy — this is the single most common boring frame.
     2. `activity=none-visible`, empty frame, or no birds in frame.
@@ -40,11 +40,11 @@ Guidance on specific fields:
 - `caption_draft`: **one or two descriptive sentences (up to ~200 chars).** Plain language, no proper names, no attribution to real artists or writers. Be SPECIFIC and OBSERVATIONAL — describe what's actually visible in the frame, not a generic label.
   - **Species matters.** Distinguish between "chicken chicks" and "turkey poults" (or "a turkey poult" / "a chicken chick" / "a mixed group of chicks and poults") whenever you can tell them apart — don't default to "chicks" for everything. If you genuinely can't tell, "young birds" or "the brooder flock" is fine, but try first.
   - **Nobody in the brooder is a "hen" or "rooster" or adult chicken.** They are chicks (chickens) or poults (turkeys), 1–4 weeks old. "Hen" / "rooster" / "adult" terminology applies only to `house-yard` or `gwtc` frames showing the four winter-survivor adults.
-  - **Include visible detail** — down color / markings ("a black-and-yellow striped chick"), posture ("mid-stretch," "head cocked toward the camera"), what they're doing ("beak deep in the feeder," "drinking from the waterer nipple," "perched on the edge of the brooder tub"), notable individuals ("Birdadette, the solid-black chick with the orange face, front-and-center"), and scene context ("under the heat lamp," "in the wood-shaving bedding"). Prefer concrete nouns and verbs over vague ones.
+  - **Include visible detail** — down color / markings ("a black-and-yellow striped chick"), posture ("mid-stretch," "head cocked toward the camera"), what they're doing ("beak deep in the feeder," "drinking from the waterer nipple," "perched on the edge of the brooder tub"), notable individuals ("Birdadotta, the small chick with white wing tips, front-and-center"), and scene context ("under the heat lamp," "in the wood-shaving bedding"). Prefer concrete nouns and verbs over vague ones.
   - Examples of good captions:
     - "A tall turkey poult stands center-frame with its head up, surrounded by four smaller chicken chicks pecking at the bedding under the heat lamp."
     - "Close-up of a black-and-yellow striped chicken chick looking directly at the camera, one eye sharply in focus."
-    - "Birdadette, the solid-black chick with the orange face, preening next to a pale-cream sibling in the wood-shavings."
+    - "Birdadotta, the small chick with white-tipped wings, preening next to a larger sibling in the wood-shavings."
   - Examples of bad/weak captions to avoid:
     - "Chicks in the brooder." (too generic, no detail)
     - "A hen under the heat lamp." (wrong — no hens in the brooder)
