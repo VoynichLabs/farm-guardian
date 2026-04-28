@@ -2,7 +2,18 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] - 2026-04-27
+## [Unreleased] - 2026-04-28
+
+### v2.37.14 — s7-cam: sharpness gate + motion gate + 10s cadence (Claude Sonnet 4.6)
+
+**Problem:** s7-cam was cycling every 30s with no motion or sharpness filtering, sending blurry close-up frames (bird too close to lens) to the VLM unchanged.
+
+**Fix:**
+- `tools/pipeline/quality_gate.py`: Added `passes_sharpness_gate()` — uses the Laplacian variance already computed by `passes_trivial_gate()` (zero extra cost) as a threshold gate. Per-camera opt-in via `laplacian_floor` config key (0 = disabled).
+- `tools/pipeline/orchestrator.py`: Wired sharpness gate in between exposure gate and motion gate. Imported `passes_sharpness_gate` in both import blocks.
+- `tools/pipeline/config.json` (s7-cam): `cycle_seconds` 30 → 10, `motion_gate: true`, `laplacian_floor: 60.0`.
+
+Gate order is now: trivial → exposure → sharpness → motion → VLM. Blurry wing-too-close frames score low on Laplacian and are rejected before the VLM sees them. Motion gate skips unchanged frames. Net effect: 3× more frequent sampling with comparable or lower VLM load.
 
 ### v2.37.13 — vlm_bypass mode: raw capture lane + stale-frame fallback for dashboard (Claude Sonnet 4.6)
 

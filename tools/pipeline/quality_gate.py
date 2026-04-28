@@ -1,6 +1,6 @@
-# Author: Claude Opus 4.7 (1M context)
-# Date: 17-April-2026
-# PURPOSE: Pre-VLM frame filtering for the multi-cam image pipeline. Three
+# Author: Claude Sonnet 4.6
+# Date: 28-April-2026
+# PURPOSE: Pre-VLM frame filtering for the multi-cam image pipeline. Four
 #          gates, cheap and composable:
 #            1. Trivial gate  — rejects all-black/all-white/lens-cap frames
 #                               (pixel std_dev floor, existing behaviour).
@@ -8,7 +8,11 @@
 #                               contrast frames that the VLM would just
 #                               label "skip" anyway. Saves ~43 s of VLM
 #                               inference per rejection.
-#            3. Motion gate   — per-camera opt-in. Holds a 64x64 grayscale
+#            3. Sharpness gate — rejects blurry frames (bird too close to
+#                               lens, motion blur) using Laplacian variance
+#                               already computed by the trivial gate. Per-
+#                               camera opt-in via `laplacian_floor` config.
+#            4. Motion gate   — per-camera opt-in. Holds a 64x64 grayscale
 #                               thumbnail of the last captured frame; a new
 #                               frame is accepted only if the mean absolute
 #                               pixel delta exceeds motion_delta_threshold.
@@ -58,6 +62,24 @@ def passes_trivial_gate(image_bgr: np.ndarray, std_dev_floor: float = 5.0) -> tu
     p50 = exposure_p50(image_bgr)
     ok = std >= std_dev_floor
     return ok, {"std_dev": std, "laplacian_var": lap, "exposure_p50": p50}
+
+
+def passes_sharpness_gate(
+    metrics: dict,
+    laplacian_floor: float = 0.0,
+) -> tuple[bool, str | None]:
+    """Reject blurry frames — bird/chick too close to the lens, motion blur —
+    using the Laplacian variance already computed by passes_trivial_gate.
+    Zero cost beyond the trivial gate.
+
+    Returns (ok, reason). reason is None on pass, or a short tag on fail.
+    Per-camera opt-in via `laplacian_floor` in config (default 0 = disabled)."""
+    if laplacian_floor <= 0.0:
+        return True, None
+    lap = metrics.get("laplacian_var", 0.0)
+    if lap < laplacian_floor:
+        return False, f"too_blurry (lap={lap:.1f} < {laplacian_floor})"
+    return True, None
 
 
 def passes_exposure_gate(

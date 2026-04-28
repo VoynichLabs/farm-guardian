@@ -1,8 +1,8 @@
-# Author: Claude Opus 4.7 (1M context); Claude Sonnet 4.6 (edits 27-April-2026 — vlm_bypass mode: run_raw_cycle, dedicated raw threads, raw retention sweep, v2.37.13)
+# Author: Claude Opus 4.7 (1M context); Claude Sonnet 4.6 (edits 27-April-2026 — vlm_bypass mode: run_raw_cycle, dedicated raw threads, raw retention sweep, v2.37.13; 28-April-2026 — sharpness gate wired in, v2.37.14)
 # Date: 17-April-2026
 # PURPOSE: Main entry point for the multi-cam image pipeline. Schedules per-
 #          camera capture cycles at their configured cadences, runs each
-#          frame through a three-stage pre-VLM filter (trivial std-dev gate,
+#          frame through a four-stage pre-VLM filter (trivial std-dev gate,
 #          exposure gate, per-camera motion gate), enriches passing frames
 #          via the VLM, persists to SQLite + disk. Single in-flight VLM call
 #          (enforced in vlm_enricher via a module-level lock). LM Studio
@@ -46,7 +46,7 @@ import numpy as np
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     from tools.pipeline.capture import capture_camera, CaptureError
-    from tools.pipeline.quality_gate import passes_trivial_gate, passes_exposure_gate, MotionGate
+    from tools.pipeline.quality_gate import passes_trivial_gate, passes_exposure_gate, passes_sharpness_gate, MotionGate
     from tools.pipeline.vlm_enricher import enrich, ModelNotLoaded, EnricherError, ValidationFailed
     from tools.pipeline.store import ensure_schema, store, store_raw
     from tools.pipeline.retention import sweep as retention_sweep, sweep_raw as retention_sweep_raw
@@ -67,7 +67,7 @@ if __package__ in (None, ""):
     )
 else:
     from .capture import capture_camera, CaptureError
-    from .quality_gate import passes_trivial_gate, passes_exposure_gate, MotionGate
+    from .quality_gate import passes_trivial_gate, passes_exposure_gate, passes_sharpness_gate, MotionGate
     from .vlm_enricher import enrich, ModelNotLoaded, EnricherError, ValidationFailed
     from .store import ensure_schema, store, store_raw
     from .retention import sweep as retention_sweep, sweep_raw as retention_sweep_raw
@@ -226,6 +226,20 @@ def run_cycle(camera_name: str, camera_cfg: dict, cfg: dict, schema: dict,
         log.info("%s: exposure gate rejected: %s metrics=%s",
                  camera_name, exp_reason, last_gate_metrics)
         result.update(status="gated", stage="exposure", reason=exp_reason,
+                      metrics=last_gate_metrics)
+        return result
+
+    # Sharpness gate: per-camera opt-in via `laplacian_floor` config. Rejects
+    # blurry frames (bird too close to lens, motion blur). Zero extra cost —
+    # Laplacian variance is already in last_gate_metrics from trivial gate.
+    sharp_ok, sharp_reason = passes_sharpness_gate(
+        last_gate_metrics,
+        laplacian_floor=float(camera_cfg.get("laplacian_floor", 0.0)),
+    )
+    if not sharp_ok:
+        log.info("%s: sharpness gate rejected: %s metrics=%s",
+                 camera_name, sharp_reason, last_gate_metrics)
+        result.update(status="gated", stage="sharpness", reason=sharp_reason,
                       metrics=last_gate_metrics)
         return result
 
