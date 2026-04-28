@@ -4,6 +4,25 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-04-27
 
+### v2.37.13 — vlm_bypass mode: raw capture lane + stale-frame fallback for dashboard (Claude Sonnet 4.6)
+
+**Problem:** The `house-yard` camera was targeting a 45s cadence but VLM queue serialization was stretching actual cycles to 60–85s, because every camera shares one in-flight VLM slot. On top of that, ~95% of yard frames are rated `skip` anyway (sky, empty lawn, birds too small to identify), so the camera was burning VLM time to confirm nothing interesting was happening.
+
+Separately, the dashboard and frame endpoint went blank during brief RTSP reconnect windows for cameras like `gwtc`, because `CameraCapture` flushed its ring buffer on disconnect and had no way to serve the last-good frame to callers that wanted it.
+
+**Fix — vlm_bypass mode (`orchestrator.py`, `store.py`, `retention.py`):**
+- New `vlm_bypass: true` flag in `tools/pipeline/config.json` (per-camera). Cameras with this flag skip the VLM queue entirely: no quality gate, no LM Studio call, no Discord/IG posting decision.
+- `run_raw_cycle()` — capture → `store_raw()` only. Tight, no inference overhead.
+- `_run_raw_camera_thread()` — bypass cameras get a dedicated thread so their cadence isn't gated by the main VLM-serialized scheduler. Thread owns its own rolling retention sweep (every 5 minutes).
+- `store_raw()` in `store.py` — writes JPEG to `archive_root/YYYY-MM/<cam>/raw/<ts>.jpg`, inserts `image_archive` row with `image_tier='raw'`, all `vlm_*` columns NULL. No gems/ hardlink, no sidecar JSON.
+- `sweep_raw()` in `retention.py` — hour-granular pruner for `tier='raw'` rows. Deletes both the JPEG and the DB row (raw rows have no lasting value; unlike enriched tiers, keeping metadata without the image serves no purpose). Configurable via `raw_retention_hours` in config (default 24h).
+
+**Fix — stale-frame fallback (`capture.py`, `dashboard.py`, `static/app.js`, `tools/pipeline/capture.py`):**
+- `CameraCapture` now keeps `_last_good_frame` separate from its ring buffer. On disconnect the ring buffer flushes (so live callers stop seeing dead frames), but `_last_good_frame` is preserved.
+- `get_latest_frame(allow_stale=True)` on `FrameCaptureManager` exposes the stale fallback. `CameraSnapshotPoller` already keeps its last frame in-buffer, so `allow_stale` is a no-op there — the interface is uniform.
+- Dashboard `/api/cameras/{name}/frame` and camera-status endpoints now use `allow_stale=True` by default. The front-end `app.js` passes `allow_stale=1` in snapshot poll requests.
+- Pipeline `capture_via_guardian_api()` and its burst variant also thread `allow_stale` through — primarily so GWTC frames survive brief Guardian reconnect windows between pipeline captures.
+
 ### v2.37.12 — VLM prompt: swap Birdadette → Birdadotta with updated identification markers (Claude Sonnet 4.6)
 
 Birdadette is now a grown adult; the brooder chick the VLM should be picking out is Birdadotta. Updated `tools/pipeline/prompt.md` in six places: the brooder camera listing, the known-bird description, the `individuals_visible` gate criteria, the `share_worth` strong-trigger example, the `caption_draft` guidance example, and the good-caption sample. Birdadotta's markers: slightly SMALLER than brood mates, tiny WHITE TIPS on her wing feathers, NO white spot on her head. No Python files touched; the prompt template is re-read each enrichment cycle so the change takes effect on the next pipeline run.

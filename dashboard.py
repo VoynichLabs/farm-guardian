@@ -1,4 +1,4 @@
-# Author: Claude Opus 4.6 (updated), Cascade (Claude Sonnet 4) (original)
+# Author: Claude Opus 4.6 (updated), Cascade (Claude Sonnet 4) (original); Claude Sonnet 4.6 (edits 27-April-2026 — allow_stale on frame endpoints, v2.37.13)
 # Date: 13-April-2026 (v2.18.0 — frame/stream endpoints prefer original camera JPEG when present)
 # PURPOSE: Local web dashboard for Farm Guardian. Serves a FastAPI app on the Mac Mini
 #          that provides real-time monitoring and full control of the guardian service.
@@ -176,7 +176,7 @@ def create_app() -> FastAPI:
         now = time.time()
         result = []
         for name, cam in cameras.items():
-            last_frame = _service._capture_manager.get_latest_frame(name)
+            last_frame = _service._capture_manager.get_latest_frame(name, allow_stale=True)
             if last_frame is not None:
                 age = max(0.0, now - float(last_frame.timestamp))
             else:
@@ -238,7 +238,8 @@ def create_app() -> FastAPI:
         )
 
     @app.get("/api/cameras/{name}/frame")
-    async def camera_frame(name: str, max_width: int = 0, q: int = 0):
+    async def camera_frame(name: str, max_width: int = 0, q: int = 0,
+                           allow_stale: bool = True):
         """Single latest frame as JPEG from the capture manager.
 
         Query params (both optional):
@@ -247,6 +248,9 @@ def create_app() -> FastAPI:
                        (~1.4MB) chokes the home upstream Cloudflare tunnel.
           - q: JPEG quality 1..100 (default 85 when re-encoding). Ignored without
                max_width unless the source was numpy.
+          - allow_stale: when true (the default), return the most recent cached
+                         good frame even if the live RTSP buffer is currently
+                         empty during a reconnect window.
 
         With no params and a snapshot-mode camera, the camera's original JPEG is
         returned as-is — zero re-encode, full native resolution.
@@ -254,7 +258,7 @@ def create_app() -> FastAPI:
         if not _service:
             raise HTTPException(503, "Service not running")
 
-        frame_result = _service._capture_manager.get_latest_frame(name)
+        frame_result = _service._capture_manager.get_latest_frame(name, allow_stale=allow_stale)
         if not frame_result:
             raise HTTPException(404, f"No frame available for '{name}'")
 

@@ -1,4 +1,4 @@
-# Author: Claude Opus 4.7 (edits 21-April-2026 — bake EXIF Orientation into ip_webcam returns so rotated S7 frames aren't sideways downstream)
+# Author: Claude Opus 4.7 (edits 21-April-2026 — bake EXIF Orientation into ip_webcam returns so rotated S7 frames aren't sideways downstream); Claude Sonnet 4.6 (edits 27-April-2026 — allow_stale threaded through Guardian API capture, v2.37.13)
 # Date: 13-April-2026
 # PURPOSE: Per-camera high-quality frame capture for the multi-cam image
 #          pipeline. Each camera has a different focus/capture reality; this
@@ -42,14 +42,25 @@ class CaptureError(Exception):
 # Method 1: Reolink via Guardian's own snapshot API (reuses auth)
 # ---------------------------------------------------------------------------
 
-def capture_via_guardian_api(camera_name: str, guardian_base: str = "http://localhost:6530", timeout: int = 15) -> bytes:
+def capture_via_guardian_api(
+    camera_name: str,
+    guardian_base: str = "http://localhost:6530",
+    timeout: int = 15,
+    allow_stale: bool = True,
+) -> bytes:
     # /api/cameras/<name>/frame returns the latest good frame from Guardian's
     # per-camera ring buffer — works for every camera type (RTSP, HTTP-snapshot,
     # IP Webcam, etc). The v1 /cameras/<name>/snapshot endpoint triggers an
     # active snapshot and 500s on cameras that don't have a Reolink-style
     # snapshot capability (confirmed 500 on gwtc 2026-04-16).
+    #
+    # `allow_stale=True` keeps the current pipeline architecture working for
+    # RTSP-backed cameras like GWTC: during a brief Guardian reconnect window
+    # the live buffer may be empty, but the last good frame is still good
+    # enough for an occasional still-image pipeline run.
     url = f"{guardian_base}/api/cameras/{camera_name}/frame"
-    r = requests.get(url, timeout=timeout)
+    params = {"allow_stale": 1} if allow_stale else None
+    r = requests.get(url, params=params, timeout=timeout)
     r.raise_for_status()
     if not r.content or r.content[:2] != b"\xff\xd8":
         raise CaptureError(f"guardian api returned non-JPEG for {camera_name}")
@@ -100,6 +111,7 @@ def capture_via_guardian_api_burst(
     burst_interval_seconds: float = 0.4,
     guardian_base: str = "http://localhost:6530",
     timeout: int = 15,
+    allow_stale: bool = True,
 ) -> bytes:
     """Pulls N frames from Guardian's snapshot API with short spacing,
     returns the 'representative' frame (min mean-abs-diff to peers).
@@ -109,12 +121,24 @@ def capture_via_guardian_api_burst(
     in the burst. A single pull might catch the bad frame; a 3-burst
     almost always has a clean majority."""
     if burst_size <= 1:
-        return capture_via_guardian_api(camera_name, guardian_base, timeout)
+        return capture_via_guardian_api(
+            camera_name,
+            guardian_base=guardian_base,
+            timeout=timeout,
+            allow_stale=allow_stale,
+        )
     jpegs: list[bytes] = []
     last_err: Exception | None = None
     for i in range(burst_size):
         try:
-            jpegs.append(capture_via_guardian_api(camera_name, guardian_base, timeout))
+            jpegs.append(
+                capture_via_guardian_api(
+                    camera_name,
+                    guardian_base=guardian_base,
+                    timeout=timeout,
+                    allow_stale=allow_stale,
+                )
+            )
         except Exception as e:
             last_err = e
             log.debug("burst-api %s: frame %d/%d failed: %s",

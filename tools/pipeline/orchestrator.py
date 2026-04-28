@@ -1,4 +1,4 @@
-# Author: Claude Opus 4.7 (1M context)
+# Author: Claude Opus 4.7 (1M context); Claude Sonnet 4.6 (edits 27-April-2026 — vlm_bypass mode: run_raw_cycle, dedicated raw threads, raw retention sweep, v2.37.13)
 # Date: 17-April-2026
 # PURPOSE: Main entry point for the multi-cam image pipeline. Schedules per-
 #          camera capture cycles at their configured cadences, runs each
@@ -48,8 +48,8 @@ if __package__ in (None, ""):
     from tools.pipeline.capture import capture_camera, CaptureError
     from tools.pipeline.quality_gate import passes_trivial_gate, passes_exposure_gate, MotionGate
     from tools.pipeline.vlm_enricher import enrich, ModelNotLoaded, EnricherError, ValidationFailed
-    from tools.pipeline.store import ensure_schema, store
-    from tools.pipeline.retention import sweep as retention_sweep
+    from tools.pipeline.store import ensure_schema, store, store_raw
+    from tools.pipeline.retention import sweep as retention_sweep, sweep_raw as retention_sweep_raw
     from tools.pipeline.gem_poster import post_gem, should_post, load_dotenv
     from tools.pipeline.ig_poster import (
         build_caption,
@@ -69,8 +69,8 @@ else:
     from .capture import capture_camera, CaptureError
     from .quality_gate import passes_trivial_gate, passes_exposure_gate, MotionGate
     from .vlm_enricher import enrich, ModelNotLoaded, EnricherError, ValidationFailed
-    from .store import ensure_schema, store
-    from .retention import sweep as retention_sweep
+    from .store import ensure_schema, store, store_raw
+    from .retention import sweep as retention_sweep, sweep_raw as retention_sweep_raw
     from .gem_poster import post_gem, should_post, load_dotenv
     from .ig_poster import (
         build_caption,
@@ -106,6 +106,55 @@ def _decode_jpeg(jpeg_bytes: bytes) -> np.ndarray:
     if img is None:
         raise ValueError("jpeg decode failed")
     return img
+
+
+def run_raw_cycle(camera_name: str, camera_cfg: dict, cfg: dict,
+                  db_path: Path, archive_root: Path) -> dict:
+    """Capture → save-to-disk cycle for cameras marked vlm_bypass=true.
+
+    Bypasses the VLM queue entirely: no quality gate, no exposure gate,
+    no motion gate, no VLM inference, no Discord/IG posting. Raw JPEG
+    lands on disk and the image_archive row carries tier='raw' with
+    vlm_* columns NULL. Intended for house-yard, where ~95% of frames
+    would be rated 'skip' anyway and VLM contention was starving the
+    effective cadence to 60-85s against a 45s target.
+    """
+    result = {"camera": camera_name,
+              "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+              "path": "raw"}
+    retry_max = cfg.get("capture_retry_max", 3)
+    jpeg_bytes = None
+    for attempt in range(1, retry_max + 1):
+        try:
+            jpeg_bytes = capture_camera(camera_name, camera_cfg, cfg)
+            break
+        except CaptureError as e:
+            log.warning("%s: raw capture attempt %d/%d failed: %s",
+                        camera_name, attempt, retry_max, e)
+            if attempt == retry_max:
+                result.update(status="error", stage="capture", reason=str(e))
+                return result
+            time.sleep(1.0)
+        except Exception as e:
+            log.exception("%s: raw capture attempt %d/%d exception",
+                          camera_name, attempt, retry_max)
+            if attempt == retry_max:
+                result.update(status="error", stage="capture",
+                              reason=f"{type(e).__name__}: {e}")
+                return result
+            time.sleep(1.0)
+    try:
+        sr = store_raw(db_path=db_path, archive_root=archive_root,
+                       camera_id=camera_name, jpeg_bytes=jpeg_bytes)
+    except Exception as e:
+        log.exception("%s: raw store failed", camera_name)
+        result.update(status="error", stage="store",
+                      reason=f"{type(e).__name__}: {e}")
+        return result
+    result.update(status="ok", tier=sr["tier"], image_path=sr["image_path"],
+                  stored_bytes=sr["stored_bytes"],
+                  width=sr["width"], height=sr["height"])
+    return result
 
 
 def run_cycle(camera_name: str, camera_cfg: dict, cfg: dict, schema: dict,
@@ -614,12 +663,46 @@ def run_once(only_camera: str | None = None) -> int:
             log.info("%s: disabled, skipping", name)
             continue
         log.info("%s: cycle start", name)
-        r = run_cycle(name, ccfg, cfg, schema, prompt_template, db_path,
-                      archive_root, motion_gate=motion_gate)
+        if ccfg.get("vlm_bypass", False):
+            r = run_raw_cycle(name, ccfg, cfg, db_path, archive_root)
+        else:
+            r = run_cycle(name, ccfg, cfg, schema, prompt_template, db_path,
+                          archive_root, motion_gate=motion_gate)
         log.info("%s: %s", name, json.dumps(r, default=str))
         if r.get("status") == "error":
             any_error = True
     return 0 if not any_error else 1
+
+
+def _run_raw_camera_thread(camera_name: str, ccfg: dict, cfg: dict,
+                           db_path: Path, archive_root: Path) -> None:
+    """Dedicated loop for a vlm_bypass camera. Runs on its own thread so
+    capture cadence isn't gated by the main VLM-serialized tick loop, and
+    runs a rolling raw-tier pruner inline so we don't grow unboundedly."""
+    cadence = int(ccfg.get("cycle_seconds", 45))
+    retention_hours = int(cfg.get("raw_retention_hours", 24))
+    last_prune = 0.0
+    prune_every = 300.0  # sweep once every 5 minutes
+    # Initial stagger so thread doesn't wake in lockstep with main loop.
+    _STOP.wait(timeout=min(5.0, cadence))
+    while not _STOP.is_set():
+        t0 = time.monotonic()
+        try:
+            r = run_raw_cycle(camera_name, ccfg, cfg, db_path, archive_root)
+            log.info("%s: %s (raw thread)", camera_name, json.dumps(r, default=str))
+        except Exception:
+            log.exception("%s: raw thread cycle raised", camera_name)
+        if time.monotonic() - last_prune >= prune_every:
+            try:
+                pr = retention_sweep_raw(db_path, archive_root, camera_name,
+                                         retention_hours=retention_hours)
+                if pr.get("deleted"):
+                    log.info("%s: raw prune %s", camera_name, json.dumps(pr))
+            except Exception:
+                log.exception("%s: raw prune raised", camera_name)
+            last_prune = time.monotonic()
+        elapsed = time.monotonic() - t0
+        _STOP.wait(timeout=max(0.5, cadence - elapsed))
 
 
 def run_daemon() -> int:
@@ -629,12 +712,33 @@ def run_daemon() -> int:
     _install_signal_handlers()
     _MOTION_GATE = MotionGate(threshold=cfg.get("motion_delta_threshold", 3.0))
 
-    # Per-camera next-due tracking
+    # Launch dedicated threads for vlm_bypass cameras so they don't contend
+    # with the main VLM-serialized scheduler. These threads own their own
+    # cadence, capture, storage, and rolling raw retention.
+    raw_threads: list[threading.Thread] = []
+    for name, ccfg in cfg["cameras"].items():
+        if not ccfg.get("enabled", False):
+            continue
+        if not ccfg.get("vlm_bypass", False):
+            continue
+        t = threading.Thread(
+            target=_run_raw_camera_thread,
+            args=(name, ccfg, cfg, db_path, archive_root),
+            name=f"raw-{name}", daemon=True,
+        )
+        t.start()
+        raw_threads.append(t)
+        log.info("%s: raw-capture thread started (cadence %ds, vlm_bypass=true)",
+                 name, ccfg.get("cycle_seconds", 45))
+
+    # Per-camera next-due tracking (VLM-gated cameras only)
     now = time.monotonic()
     next_due: dict[str, float] = {}
     for name, ccfg in cfg["cameras"].items():
         if not ccfg.get("enabled", False):
             continue
+        if ccfg.get("vlm_bypass", False):
+            continue  # handled by dedicated thread above
         # Stagger start so all cameras don't fire at the same instant — spread
         # across the first minute.
         offset = (hash(name) % 60)
@@ -667,8 +771,11 @@ def run_daemon() -> int:
             ccfg = cfg["cameras"][name]
             t0 = time.monotonic()
             try:
-                r = run_cycle(name, ccfg, cfg, schema, prompt_template, db_path,
-                              archive_root, motion_gate=_MOTION_GATE)
+                if ccfg.get("vlm_bypass", False):
+                    r = run_raw_cycle(name, ccfg, cfg, db_path, archive_root)
+                else:
+                    r = run_cycle(name, ccfg, cfg, schema, prompt_template, db_path,
+                                  archive_root, motion_gate=_MOTION_GATE)
             except Exception as e:
                 # Last-resort guard: run_cycle is supposed to never raise, but
                 # if it does, don't let one bad cycle take the daemon down.

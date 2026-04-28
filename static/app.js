@@ -65,8 +65,11 @@ function startSnapshotPolling(intervalMs = 5000) {
         const ts = Date.now();
         document.querySelectorAll('img[data-snapshot]').forEach(img => {
             const cam = img.dataset.snapshot;
-            const widthParam = SNAPSHOT_MAX_WIDTH ? `max_width=${SNAPSHOT_MAX_WIDTH}&` : '';
-            img.src = `/api/cameras/${cam}/frame?${widthParam}t=${ts}`;
+            const params = [];
+            if (SNAPSHOT_MAX_WIDTH) params.push(`max_width=${SNAPSHOT_MAX_WIDTH}`);
+            params.push('allow_stale=1');
+            params.push(`t=${ts}`);
+            img.src = `/api/cameras/${cam}/frame?${params.join('&')}`;
         });
     }, intervalMs);
 }
@@ -206,7 +209,7 @@ function renderCameraGrid(cameras) {
             const ageLabel = formatFrameAge(cam.last_frame_age_seconds);
             if (cam.capturing && live) {
                 return `<div class="cam-cell" data-cam="${cam.name}">
-                    <img data-snapshot="${cam.name}" src="/api/cameras/${cam.name}/frame?t=${Date.now()}" alt="${cam.name}"
+                    <img data-snapshot="${cam.name}" src="/api/cameras/${cam.name}/frame?allow_stale=1&t=${Date.now()}" alt="${cam.name}"
                          onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"
                          onload="this.style.display='block'; this.nextElementSibling.style.display='none';">
                     <div class="cam-offline" style="display:none; position:absolute; inset:0;">FEED LOST</div>
@@ -217,7 +220,7 @@ function renderCameraGrid(cameras) {
                 // last image dimmed with an OFFLINE banner so the operator
                 // sees at a glance this one isn't live.
                 return `<div class="cam-cell cam-stale" data-cam="${cam.name}">
-                    <img data-snapshot="${cam.name}" src="/api/cameras/${cam.name}/frame?t=${Date.now()}" alt="${cam.name}" class="cam-stale-img">
+                    <img data-snapshot="${cam.name}" src="/api/cameras/${cam.name}/frame?allow_stale=1&t=${Date.now()}" alt="${cam.name}" class="cam-stale-img">
                     <div class="cam-stale-banner">OFFLINE · last frame ${ageLabel} ago</div>
                     <div class="cam-label"><span class="status-dot ${dotClass}"></span>${cam.name}</div>
                 </div>`;

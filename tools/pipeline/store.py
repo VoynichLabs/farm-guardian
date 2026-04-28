@@ -1,5 +1,5 @@
-# Author: Claude Opus 4.6 (1M context), Claude Opus 4.7 (1M context) — IG columns 20-Apr-2026, story columns 20-Apr-2026 (Phase 2)
-# Date: 13-April-2026 (last touched 20-April-2026)
+# Author: Claude Opus 4.6 (1M context), Claude Opus 4.7 (1M context) — IG columns 20-Apr-2026, story columns 20-Apr-2026 (Phase 2); Claude Sonnet 4.6 (edits 27-April-2026 — store_raw() for vlm_bypass cameras, v2.37.13)
+# Date: 13-April-2026 (last touched 27-April-2026)
 # PURPOSE: Persist a captured + enriched image. Writes JPEG to disk per tier
 #          (full-res for share_worth=strong, downscaled for decent, discard
 #          for skip), writes a sidecar .json next to the JPEG, and inserts a
@@ -353,4 +353,76 @@ def store(
         "has_concerns": bool(has_concerns),
         "width": width, "height": height,
         "stored_bytes": len(stored_bytes) if stored_bytes else 0,
+    }
+
+
+def store_raw(
+    db_path: Path,
+    archive_root: Path,
+    camera_id: str,
+    jpeg_bytes: bytes,
+    gate_metrics: Optional[dict] = None,
+) -> dict:
+    """Persist a raw (VLM-bypassed) capture to disk + DB.
+
+    Writes to archive_root/YYYY-MM/<camera_id>/raw/<ts>.jpg and inserts an
+    image_archive row with image_tier='raw', vlm_* columns NULL. No VLM,
+    no sidecar JSON, no gems/ hardlink, no concerns logic — this path exists
+    so cameras marked vlm_bypass=true (e.g. house-yard) stop contending
+    for the single-in-flight VLM lock and stop getting their JPEGs deleted
+    by skip-tier logic. Retention is managed separately via
+    retention.sweep_raw() on a rolling hour window, not the per-row
+    retained_until column, so we leave retained_until NULL here.
+    """
+    gate_metrics = gate_metrics or {}
+    now = datetime.now(timezone.utc)
+    ts_iso = now.isoformat(timespec="seconds")
+    ym = now.strftime("%Y-%m")
+    ts_compact = now.strftime("%Y-%m-%dT%H-%M-%S")
+
+    sub = archive_root / ym / camera_id / "raw"
+    sub.mkdir(parents=True, exist_ok=True)
+    fname = f"{ts_compact}.jpg"
+    jpath = sub / fname
+    jpath.write_bytes(jpeg_bytes)
+
+    width, height = _image_dims(jpeg_bytes)
+    sha = hashlib.sha256(jpeg_bytes).hexdigest()
+    image_path_rel = str(jpath.relative_to(archive_root.parent)) if archive_root.parent in jpath.parents else str(jpath)
+
+    with _DB_LOCK, sqlite3.connect(str(db_path)) as c:
+        cursor = c.execute("""
+            INSERT INTO image_archive (
+                camera_id, ts, image_path, image_tier, sha256,
+                width, height, bytes,
+                std_dev, laplacian_var, exposure_p50,
+                vlm_model, vlm_inference_ms, vlm_prompt_hash, vlm_json,
+                scene, bird_count, activity, lighting, composition,
+                image_quality, share_worth, any_special_chick, apparent_age_days,
+                has_concerns, individuals_visible_csv, retained_until
+            ) VALUES (?, ?, ?, ?, ?,
+                      ?, ?, ?,
+                      ?, ?, ?,
+                      ?, ?, ?, ?,
+                      ?, ?, ?, ?, ?,
+                      ?, ?, ?, ?,
+                      ?, ?, ?)
+        """, (
+            camera_id, ts_iso, image_path_rel, "raw", sha,
+            width, height, len(jpeg_bytes),
+            gate_metrics.get("std_dev"), gate_metrics.get("laplacian_var"), gate_metrics.get("exposure_p50"),
+            None, None, None, "{}",
+            None, None, None, None, None,
+            None, None, 0, None,
+            0, "", None,
+        ))
+        row_id = cursor.lastrowid
+        c.commit()
+
+    return {
+        "row_id": row_id,
+        "tier": "raw",
+        "image_path": image_path_rel,
+        "width": width, "height": height,
+        "stored_bytes": len(jpeg_bytes),
     }

@@ -1,4 +1,4 @@
-# Author: Claude Opus 4.7 (edits 21-April-2026 — bake EXIF Orientation at HTTP capture boundary so rotated S7 frames aren't sideways downstream)
+# Author: Claude Opus 4.7 (edits 21-April-2026 — bake EXIF Orientation at HTTP capture boundary so rotated S7 frames aren't sideways downstream); Claude Sonnet 4.6 (edits 27-April-2026 — _last_good_frame stale-fallback cache, allow_stale on get_latest_frame, v2.37.13)
 # Date: 13-April-2026 (v2.24.0 — HttpUrlSnapshotSource for generic /photo.jpg cameras, S7 battery path)
 # PURPOSE: Frame acquisition for Farm Guardian. Two parallel acquisition modes share the
 #          same FrameResult/ring-buffer/dispatch surface so FrameCaptureManager can treat
@@ -145,6 +145,10 @@ class CameraCapture:
         self._device_index = device_index  # AVFoundation index for local USB cameras
 
         self._buffer: deque[FrameResult] = deque(maxlen=buffer_size)
+        # Last successfully-decoded frame, kept separate from the live ring
+        # buffer so callers can explicitly opt into a stale fallback during
+        # transient RTSP reconnect windows.
+        self._last_good_frame: Optional[FrameResult] = None
         self._cap: Optional[cv2.VideoCapture] = None
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
@@ -165,6 +169,17 @@ class CameraCapture:
         """Return a copy of the recent frame buffer (oldest first)."""
         with self._lock:
             return list(self._buffer)
+
+    def latest_frame(self, allow_stale: bool = False) -> Optional[FrameResult]:
+        """Return the freshest live frame, optionally falling back to the
+        last good RTSP frame after a disconnect has flushed the live buffer.
+        """
+        with self._lock:
+            if self._buffer:
+                return self._buffer[-1]
+            if allow_stale:
+                return self._last_good_frame
+        return None
 
     def start(self) -> None:
         """Start the capture thread. No-op if already running."""
@@ -232,8 +247,10 @@ class CameraCapture:
                     # blocking inside cap.read() in native code, and releasing
                     # the cap while read() is active causes a segfault.
                     # The old cap + daemon thread will be garbage collected.
-                    # Flush the buffer so the dashboard doesn't keep serving the
-                    # last (likely already-corrupted) frame from this dead session.
+                    # Flush only the live buffer so regular callers stop seeing
+                    # dead-session frames; the separate _last_good_frame cache
+                    # remains available to callers that explicitly opt into a
+                    # stale fallback (the pipeline does this for GWTC).
                     log.warning("Camera '%s' — frame read hung >10s, reconnecting", self._camera_name)
                     self._cap = None
                     with self._lock:
@@ -271,6 +288,7 @@ class CameraCapture:
 
                 with self._lock:
                     self._buffer.append(result)
+                    self._last_good_frame = result
 
                 # Dispatch to callback (detection pipeline)
                 if self._on_frame:
@@ -344,12 +362,12 @@ class CameraCapture:
             return False
 
     def _release_capture(self) -> None:
-        """Safely release the OpenCV capture and flush the frame buffer.
+        """Safely release the OpenCV capture and flush the live frame buffer.
 
-        Buffer flush matters: without it, the dashboard would keep serving the
-        last (often corrupted) frame from a dead RTSP session for the entire
-        reconnect window — that's how a single bad frame becomes a sticky gray
-        image in the UI for tens of seconds.
+        We intentionally keep `_last_good_frame` so explicit stale-frame
+        consumers can bridge short reconnect windows without turning a transient
+        RTSP flap into "no frame available". Callers that do not opt in only
+        see the live buffer, which is still cleared on disconnect.
         """
         if self._cap is not None:
             try:
@@ -734,6 +752,11 @@ class CameraSnapshotPoller:
         with self._lock:
             return list(self._buffer)
 
+    def latest_frame(self, allow_stale: bool = False) -> Optional[FrameResult]:
+        del allow_stale  # snapshot pollers already keep their last good frame live
+        with self._lock:
+            return self._buffer[-1] if self._buffer else None
+
     def request_burst(self, duration_s: float = 30.0, interval_s: float = 1.0) -> None:
         """Temporarily raise the polling rate. Coalesces: overlapping calls
         extend the deadline (or lower the interval) rather than stack.
@@ -942,9 +965,18 @@ class FrameCaptureManager:
             cap.stop()
         self._captures.clear()
 
-    def get_latest_frame(self, camera_name: str) -> Optional[FrameResult]:
-        """Return the most recent frame for a camera, or None if unavailable."""
+    def get_latest_frame(self, camera_name: str,
+                         allow_stale: bool = False) -> Optional[FrameResult]:
+        """Return the most recent frame for a camera.
+
+        `allow_stale=True` exposes the last good cached frame for capture
+        classes that differentiate between their live buffer and a stale
+        fallback. Snapshot pollers already keep their last frame in-buffer, so
+        the flag is a no-op there.
+        """
         cap = self._captures.get(camera_name)
+        if cap and hasattr(cap, "latest_frame"):
+            return cap.latest_frame(allow_stale=allow_stale)
         if cap and cap.recent_frames:
             return cap.recent_frames[-1]
         return None
