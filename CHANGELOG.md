@@ -4,6 +4,10 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-04-28
 
+### v2.37.15 — pipeline: swap VLM to qwen/qwen3.5-9b with thinking off (Claude Sonnet 4.6)
+
+Swapped `vlm_model_id` from `qwen/qwen3.6-35b-a3b` to `qwen/qwen3.5-9b`. Model loaded by Boss in LM Studio with thinking disabled and ~20k context window (vs full 262k default). Memory footprint drops from ~22GB to ~6.5GB. `reasoning_effort: "none"` already present in `vlm_enricher.py` body.
+
 ### v2.37.14 — s7-cam: sharpness gate + motion gate + 10s cadence (Claude Sonnet 4.6)
 
 **Problem:** s7-cam was cycling every 30s with no motion or sharpness filtering, sending blurry close-up frames (bird too close to lens) to the VLM unchanged.
