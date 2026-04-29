@@ -2,7 +2,13 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] - 2026-04-28
+## [Unreleased] - 2026-04-29
+
+### v2.37.16 — GWTC: usb-cam-watchdog scheduled task (Claude Sonnet 4.6)
+
+**Problem:** `usb-cam-host` runs as a Windows scheduled task on GWTC with no auto-restart. When the Python process exits (crash, camera driver wedge, etc.), port 8089 stays dead until manually re-triggered. Last incident: ~13.5h offline overnight 2026-04-28→29.
+
+**Fix:** `C:\farm-services\usb-cam-watchdog.ps1` — runs as SYSTEM every 2 minutes via Task Scheduler. Connects to `127.0.0.1:8089`; if refused, kills any stuck Python processes (releases the dshow camera lock), then runs `schtasks /run /tn usb-cam-host` and verifies recovery. Logs to `C:\farm-services\usb-cam-watchdog.log` only on intervention (no-op runs leave no trace). Same pattern as `farmcam-wifi-watchdog`. Source: `deploy/gwtc/usb-cam-watchdog.ps1`.
 
 ### v2.37.15 — pipeline: swap VLM to qwen/qwen3.5-9b with thinking off (Claude Sonnet 4.6)
 
