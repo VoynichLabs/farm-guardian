@@ -1,18 +1,18 @@
-# Author: Claude Opus 4.7 (1M context)
-# Date: 20-April-2026
+# Author: Claude Sonnet 4.6
+# Date: 29-April-2026
 # PURPOSE: Select Instagram-post-eligible gems from image_archive on
 #          wall-clock windows (day, 2-hour, week). Pure SELECT +
 #          scoring + diversity filtering; no posting, no I/O beyond
 #          SQLite reads.
 #
-#          Corresponds to the three scheduled posting lanes shipped
-#          2026-04-20 (see docs/20-Apr-2026-ig-scheduled-posting-
-#          architecture.md):
+#          Corresponds to the four scheduled posting lanes:
 #            - Daily carousel at 18:00 local:
 #                select_daily_carousel_gems(db_path, cfg)
 #            - 2-hour story slot:
 #                select_best_story_gem(db_path, cfg)
-#            - Weekly reel Sunday 19:00:
+#            - Daily reel at 18:00 (Discord-approved before IG post):
+#                select_daily_reel_gems(db_path, cfg)
+#            - Weekly reel Sunday 19:00 (retired 29-Apr-2026):
 #                select_weekly_reel_gems(db_path, cfg)
 #
 #          Each helper returns the id(s) the caller should post, or
@@ -387,5 +387,88 @@ def select_weekly_reel_gems(
         "select_weekly_reel: picked %d gem_ids from %d raw candidates "
         "in %d buckets (last %dd): %s",
         len(ids), len(rows), len(groups), window_d, ids,
+    )
+    return ids
+
+
+def select_daily_reel_gems(
+    db_path: Path,
+    cfg: dict,
+    now: Optional[datetime] = None,
+) -> list[int]:
+    """Return gem_ids for a daily reel to be posted to Discord for approval.
+
+    Criteria:
+      - discord_reactions >= 1 (same quality gate as every other IG lane)
+      - has_concerns false
+      - image_path populated
+      - ts >= now - daily_reel_window_hours
+
+    No bird_count floor — the 24h window is tight enough that bird-free
+    frames will be rare, and we don't want to miss good brooder/yard shots.
+
+    Diversity: group by (camera_id, N-hour bucket); pick best per group
+    by _score_gem; cap at max_frames; order chronologically.
+
+    cfg keys (all under instagram.scheduled):
+      daily_reel_window_hours (int, default 24)
+      daily_reel_max_frames   (int, default 6)
+      daily_reel_bucket_hours (int, default 4)
+      daily_reel_min_frames   (int, default 3)
+
+    Returns [] if fewer than daily_reel_min_frames candidates after
+    diversity filtering — quiet day, skip the slot.
+    """
+    window_h = int(cfg.get("daily_reel_window_hours", 24))
+    max_frames = int(cfg.get("daily_reel_max_frames", 6))
+    bucket_h = int(cfg.get("daily_reel_bucket_hours", 4))
+    min_frames = int(cfg.get("daily_reel_min_frames", 3))
+    now = _ensure_timezone(now)
+    cutoff_iso = (now - timedelta(hours=window_h)).isoformat()
+
+    with sqlite3.connect(str(db_path)) as c:
+        c.row_factory = sqlite3.Row
+        rows = c.execute(
+            """
+            SELECT id, camera_id, ts, share_worth, image_quality, bird_count,
+                   discord_reactions
+              FROM image_archive
+             WHERE ts >= ?
+               AND (has_concerns = 0 OR has_concerns IS NULL)
+               AND image_path IS NOT NULL
+               AND discord_reactions >= 1
+             ORDER BY ts ASC
+            """,
+            (cutoff_iso,),
+        ).fetchall()
+
+    if not rows:
+        log.info("select_daily_reel: no candidates in last %dh", window_h)
+        return []
+
+    groups: dict[tuple[str, str], list[dict]] = {}
+    bucket_min = bucket_h * 60
+    for r in rows:
+        d = dict(r)
+        key = (d["camera_id"], _bucket_key(d["ts"], bucket_min))
+        groups.setdefault(key, []).append(d)
+
+    representatives = [max(group, key=_score_gem) for group in groups.values()]
+    representatives.sort(key=_score_gem, reverse=True)
+    representatives = representatives[:max_frames]
+    representatives.sort(key=lambda r: r["ts"])
+
+    if len(representatives) < min_frames:
+        log.info(
+            "select_daily_reel: only %d candidates after diversity (need >=%d); quiet day",
+            len(representatives), min_frames,
+        )
+        return []
+
+    ids = [r["id"] for r in representatives]
+    log.info(
+        "select_daily_reel: picked %d gem_ids from %d raw candidates "
+        "in %d buckets (last %dh): %s",
+        len(ids), len(rows), len(groups), window_h, ids,
     )
     return ids

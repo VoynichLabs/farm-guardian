@@ -4,6 +4,24 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-04-29
 
+### v2.38.0 — social: daily reel with Discord approval gate (Claude Sonnet 4.6)
+
+Replaced the Sunday-only weekly reel with a daily reel that goes through Boss's Discord approval before posting to IG.
+
+**Flow:** Every day at 18:00, `scripts/ig-daily-reel.py` runs two phases:
+1. **Approval check** — scans `data/reels/pending/*.json` for reels posted to Discord the previous day. Fetches each Discord message via bot token, counts human (non-bot) reactions. If reactions > 0: posts reel to IG via existing `post_reel_to_ig()` and moves state file to `data/reels/posted/`. Unreacted reels expire to `data/reels/expired/` after 48h.
+2. **Build + preview** — selects past 24h of reaction-gated gems (`select_daily_reel_gems()`, min 3 gems, max 6 frames, 4h buckets). Stitches MP4 via `reel_stitcher`. POSTs the MP4 to Discord `#farm-2026` webhook with `?wait=true` (captures `message_id`). Saves `data/reels/pending/YYYY-MM-DD.json`.
+
+**Why:** Chicks are 3 weeks old and growing fast. Daily reels build a timestamped archive for summer throwbacks. The Discord approval gate (same philosophy as the existing reaction gate on individual gems) keeps junk off IG without requiring Boss to do anything except react in Discord.
+
+**Retired:** `com.farmguardian.ig-weekly-reel` (plist renamed `.disabled`). Weekly selection function `select_weekly_reel_gems()` kept in `ig_selection.py` for reference.
+
+**New files:** `scripts/ig-daily-reel.py`, `~/Library/LaunchAgents/com.farmguardian.ig-daily-reel.plist`, `data/reels/pending/`, `data/reels/posted/`, `data/reels/expired/`.
+
+**Config:** `tools/pipeline/config.json` — `reels.enabled = true`; new keys under `instagram.scheduled`: `daily_reel_window_hours`, `daily_reel_max_frames`, `daily_reel_bucket_hours`, `daily_reel_min_frames`.
+
+**Smoke test:** Dry-run selected 6 gems from 36 candidates in the past 24h, stitched a 5.25s 1080×1920 MP4 (1.6MB — well under Discord's 8MB file limit).
+
 ### v2.37.16 — GWTC: usb-cam-watchdog scheduled task (Claude Sonnet 4.6)
 
 **Problem:** `usb-cam-host` runs as a Windows scheduled task on GWTC with no auto-restart. When the Python process exits (crash, camera driver wedge, etc.), port 8089 stays dead until manually re-triggered. Last incident: ~13.5h offline overnight 2026-04-28→29.

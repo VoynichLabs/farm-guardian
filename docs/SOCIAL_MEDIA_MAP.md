@@ -21,7 +21,7 @@ Cameras and the iPhone catalog are the two raw sources. Camera frames flow throu
 | **IG photo** (single) | `tools/pipeline/ig_poster.py` | none — emergency CLI only | manual | reaction-gated gem |
 | **IG carousel** | `tools/pipeline/ig_poster.py::post_carousel_to_ig` | `com.farmguardian.ig-daily-carousel` | daily 18:00 | today's reacted strong+sharp gems |
 | **IG story** | `tools/pipeline/ig_poster.py::post_gem_to_story` | (rolled into `social-publisher`) | hourly | every unposted reacted gem, FIFO, 25/tick cap |
-| **IG reel** | `tools/pipeline/ig_poster.py::post_reel_to_ig` | `com.farmguardian.ig-weekly-reel` | Sundays 19:00 | past week's reacted strong+sharp gems, ffmpeg-stitched |
+| **IG reel** | `tools/pipeline/ig_poster.py::post_reel_to_ig` | `com.farmguardian.ig-daily-reel` | daily 18:00 | past 24h reacted gems, ffmpeg-stitched; **Discord approval gate**: reel MP4 posted to `#farm-2026` first — Boss must react before it publishes to IG (checked on the next day's 18:00 run). Unreacted reels expire after 48h. State: `data/reels/pending/`, `posted/`, `expired/`. Script: `scripts/ig-daily-reel.py`. |
 | **FB Page** ("Yorkies App") | `tools/pipeline/fb_poster.py` | none — tail-called from each `ig_poster` success | mirrors IG | every successful IG post auto-dual-posts |
 | **On-this-day → IG/FB stories** | `tools/on_this_day/post_daily.py` (via `scripts/on-this-day-stories.py`) | (rolled into `social-publisher`) | hourly | iPhone catalog at `~/bubba-workspace/projects/photos-curation/photo-catalog/master-catalog.csv` |
 | **Unified social publisher** | `scripts/social-publisher.py` | `com.farmguardian.social-publisher` | hourly (`StartInterval=3600`) | runs gem-lane + on-this-day in one tick |
