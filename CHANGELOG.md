@@ -4,6 +4,10 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-05-01
 
+### v2.38.4 — reel: resolution cap + Discord preview transcode (Claude Sonnet 4.6)
+
+Two reel stitcher bugs fixed. (1) A high-res discord-drop image (3213×5712) was forcing all 31+ frames to be upscaled to that giant size, causing ffmpeg to fail with rc=187. Added `_MAX_REEL_WIDTH=1080` / `_MAX_REEL_HEIGHT=1920` cap applied after each frame's 9:16 center-crop — oversized frames get downscaled, normal frames are unaffected. (2) Discord webhooks reject files >8MB; the full-quality reel at 34 frames is ~11MB. `_post_video_to_discord` now transcodes a 540×960 / 700kbps preview (~2.5MB) for Discord upload when the source exceeds 7MB; the original full-quality MP4 is untouched and still posted to IG on approval. April 30 reel posted to IG successfully; May 1 reel preview queued in Discord.
+
 ### v2.38.3 — monitoring: noon + 8pm pipeline digest to Discord (Claude Sonnet 4.6)
 
 New `scripts/pipeline-digest.py` posts a status summary to #farm-2026 at noon (stories since midnight) and 8pm (stories since noon + reel status). Shows queue depth, oldest unposted gem date, and IG quota used. Posts as username "farm-pipeline" so it's visually distinct from gem posts and can't interfere with the reaction-quality-gate cross-reference. Two new LaunchAgents: `com.farmguardian.pipeline-digest-noon` (12:00) and `com.farmguardian.pipeline-digest-evening` (20:00). `--dry-run` flag for testing.

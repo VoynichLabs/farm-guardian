@@ -57,6 +57,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import subprocess
 import sys
 import time
 import urllib.parse
@@ -162,29 +163,82 @@ def _count_human_reactions_on_message(message_id: str, token: str, dh) -> int:
     return len(humans)
 
 
+_DISCORD_MAX_BYTES = 7 * 1024 * 1024   # 7 MB — safe under Discord's 8 MB limit
+_DISCORD_PREVIEW_SCALE = "540:960"     # half-res portrait, ~700 kbps
+
+
+def _make_discord_preview(mp4_path: Path, work_dir: Path) -> Path:
+    """Re-encode mp4_path at lower bitrate/resolution for Discord upload.
+
+    Discord webhooks reject files over 8 MB. The full reel is encoded at
+    3 Mbps for IG quality; at 34+ frames that exceeds the limit.
+    This pass produces a 540×960 / 700 kbps preview that Discord accepts
+    while keeping the original intact for IG posting.
+    """
+    import shutil
+    preview = work_dir / "discord-preview.mp4"
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise RuntimeError("ffmpeg not found")
+    cmd = [
+        ffmpeg, "-y", "-i", str(mp4_path),
+        "-vf", f"scale={_DISCORD_PREVIEW_SCALE}",
+        "-c:v", "libx264", "-b:v", "700k",
+        "-c:a", "aac", "-b:a", "64k",
+        "-movflags", "+faststart",
+        str(preview),
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"preview transcode failed rc={result.returncode}: "
+            f"{result.stderr[-300:].strip()}"
+        )
+    return preview
+
+
 def _post_video_to_discord(
     mp4_path: Path,
     caption: str,
     webhook_url: str,
-    timeout: int = 60,
+    n_frames: int = 0,
+    timeout: int = 90,
 ) -> str | None:
     """POST the MP4 file to Discord via webhook with ?wait=true.
 
+    If the file exceeds _DISCORD_MAX_BYTES, re-encodes a smaller preview
+    first. The full-quality mp4_path is untouched and still used for IG.
+
     Returns the Discord message_id string on success, None on failure.
-    The ?wait=true param makes Discord return the full message object
-    synchronously so we can capture the id for later reaction-checking.
     """
     log = logging.getLogger("ig-daily-reel")
     content = (caption or "Daily reel preview.").strip()
-    # Discord content cap is 2000; prefix with a flag emoji to make it
-    # easy to spot in #farm-2026 among the individual gem posts.
-    preview_content = f"🎬 Daily reel preview — react to approve for IG\n\n{content}"
+    frame_note = f" ({n_frames} frames)" if n_frames else ""
+    preview_content = (
+        f"🎬 Daily reel preview{frame_note} — react to approve for IG\n\n{content}"
+    )
     if len(preview_content) > 1900:
         preview_content = preview_content[:1900] + "…"
 
-    wait_url = webhook_url.rstrip("/") + "?wait=true"
+    upload_path = mp4_path
+    tmp_dir = None
     try:
-        with mp4_path.open("rb") as f:
+        if mp4_path.stat().st_size > _DISCORD_MAX_BYTES:
+            import tempfile
+            tmp_dir = Path(tempfile.mkdtemp(prefix="reel-discord-"))
+            try:
+                upload_path = _make_discord_preview(mp4_path, tmp_dir)
+                log.info(
+                    "discord: preview encoded %s → %s (%.1f MB)",
+                    mp4_path.name, upload_path.name,
+                    upload_path.stat().st_size / 1024 / 1024,
+                )
+            except Exception as e:
+                log.warning("discord: preview transcode failed (%s); trying original", e)
+                upload_path = mp4_path
+
+        wait_url = webhook_url.rstrip("/") + "?wait=true"
+        with upload_path.open("rb") as f:
             r = requests.post(
                 wait_url,
                 files={"file": ("daily-reel-preview.mp4", f, "video/mp4")},
@@ -197,6 +251,10 @@ def _post_video_to_discord(
     except requests.RequestException as e:
         log.warning("discord: video upload failed: %s", e)
         return None
+    finally:
+        if tmp_dir:
+            import shutil as _shutil
+            _shutil.rmtree(tmp_dir, ignore_errors=True)
 
     if 200 <= r.status_code < 300:
         msg_id = r.json().get("id")
@@ -431,7 +489,7 @@ def _build_and_preview(
         )
         return 0
 
-    message_id = _post_video_to_discord(mp4_path, caption, webhook_url)
+    message_id = _post_video_to_discord(mp4_path, caption, webhook_url, n_frames=len(gem_ids))
     if not message_id:
         log.error("build: Discord preview post failed; not saving pending state")
         return 1

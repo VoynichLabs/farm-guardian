@@ -59,6 +59,12 @@ log = logging.getLogger("pipeline.reel_stitcher")
 _MIN_FRAMES = 2
 _MAX_FRAMES = 90
 
+# Hard cap per frame after 9:16 crop. Any source larger than this
+# (e.g. high-res discord-drop images) gets downscaled to fit. Keeps
+# ffmpeg from trying to encode a 3000×5000+ frame times 31 inputs.
+_MAX_REEL_WIDTH = 1080
+_MAX_REEL_HEIGHT = 1920
+
 _FRAME_JPEG_QUALITY = 92
 _FFMPEG_TIMEOUT_S = 300
 
@@ -249,6 +255,21 @@ def stitch_gems_to_reel(
             cropped_paths.append(dest)
             w, h = _pre_crop_frame(src, dest)
             crop_dims.append((w, h))
+
+        # Cap each frame at _MAX_REEL_WIDTH × _MAX_REEL_HEIGHT so a single
+        # high-res source (e.g. large discord-drop) doesn't force every
+        # other frame to be upscaled to a giant resolution.
+        for i, (p, (w, h)) in enumerate(zip(cropped_paths, list(crop_dims))):
+            if w > _MAX_REEL_WIDTH or h > _MAX_REEL_HEIGHT:
+                scale = min(_MAX_REEL_WIDTH / w, _MAX_REEL_HEIGHT / h)
+                new_w = int(w * scale) & ~1   # force even for H.264
+                new_h = int(h * scale) & ~1
+                log.info(
+                    "reel_stitcher: frame %d capped %dx%d → %dx%d",
+                    i, w, h, new_w, new_h,
+                )
+                _resize_frame(p, p, new_w, new_h)
+                crop_dims[i] = (new_w, new_h)
 
         # Reconcile mixed resolutions by resizing smaller frames UP to
         # the largest. ffmpeg's xfade rejects mid-reel res changes, so
