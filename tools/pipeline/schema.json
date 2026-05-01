@@ -6,7 +6,7 @@
     "properties": {
       "scene":              { "type": "string", "enum": ["brooder","yard","coop","nesting-box","sky","other"] },
       "bird_count":         { "type": "integer", "minimum": 0 },
-      "individuals_visible":{ "type": "array",   "items": { "type": "string", "enum": ["birdadette","adult-survivor","chick","unknown-bird"] } },
+      "individuals_visible":{ "type": "array",   "items": { "type": "string", "enum": ["adult-survivor","chick","unknown-bird"] } },
       "any_special_chick":  { "type": "boolean" },
       "apparent_age_days":  { "type": "integer", "minimum": -1, "maximum": 365 },
       "activity":           { "type": "string", "enum": ["huddling","eating","drinking","dust-bathing","foraging","preening","sleeping","sparring","alert","none-visible","other"] },

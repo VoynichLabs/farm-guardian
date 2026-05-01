@@ -4,6 +4,10 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-05-01
 
+### v2.38.2 — pipeline: drop individual-bird ID from VLM schema; disable dead GWTC camera (Claude Sonnet 4.6)
+
+Removed "birdadette" / "birdadotta" from the `individuals_visible` enum in both `tools/pipeline/schema.json` and `~/.lmstudio/config-presets/Birds.preset.json`. The VLM was wasting inference budget trying to identify specific birds by name and getting it wrong every time (false positives documented 2026-04-23). Enum is now `["adult-survivor","chick","unknown-bird"]`. `any_special_chick` boolean kept as a lightweight flag. GWTC laptop is hardware-dead; set `enabled: false` in Guardian `config.json` and pipeline `tools/pipeline/config.json` to stop the 3× capture retry + 20s penalty burning every cycle.
+
 ### v2.38.1 — reel: pass ALL reacted gems through, no bucket filter; s7 cadence 10s→7s (Claude Sonnet 4.6)
 
 `select_daily_reel_gems` in `ig_selection.py` previously grouped gems into 4-hour per-camera buckets and picked one representative per bucket, capped at 6. This silently dropped 52 of 58 reacted gems on 2026-04-30. Removed the bucket grouping entirely — every gem with `discord_reactions >= 1` in the 24h window comes through, oldest-first, capped at 90 (Instagram's 90s reel limit at 1s/frame). `_MAX_FRAMES` in `reel_stitcher.py` raised from 10 to 90 to match. `daily_reel_min_frames` raised from 3 to 6 (no reel on genuinely quiet days). `daily_reel_bucket_hours` key removed from config. s7-cam `cycle_seconds` dropped from 10 to 7 for slightly higher capture cadence on the best-quality brooder source.
