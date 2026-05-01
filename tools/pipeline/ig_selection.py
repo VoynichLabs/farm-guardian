@@ -1,5 +1,5 @@
 # Author: Claude Sonnet 4.6
-# Date: 29-April-2026
+# Date: 01-May-2026
 # PURPOSE: Select Instagram-post-eligible gems from image_archive on
 #          wall-clock windows (day, 2-hour, week). Pure SELECT +
 #          scoring + diversity filtering; no posting, no I/O beyond
@@ -396,33 +396,28 @@ def select_daily_reel_gems(
     cfg: dict,
     now: Optional[datetime] = None,
 ) -> list[int]:
-    """Return gem_ids for a daily reel to be posted to Discord for approval.
+    """Return ALL reacted gem_ids from the past 24h for the daily reel,
+    oldest-first. No diversity bucketing — every reacted gem comes through.
 
     Criteria:
-      - discord_reactions >= 1 (same quality gate as every other IG lane)
+      - discord_reactions >= 1
       - has_concerns false
       - image_path populated
       - ts >= now - daily_reel_window_hours
 
-    No bird_count floor — the 24h window is tight enough that bird-free
-    frames will be rare, and we don't want to miss good brooder/yard shots.
-
-    Diversity: group by (camera_id, N-hour bucket); pick best per group
-    by _score_gem; cap at max_frames; order chronologically.
+    Capped at daily_reel_max_frames (default 90) to stay within Instagram's
+    90s reel limit (90 frames × 1s/frame − 89 × 0.15s xfade ≈ 77s).
 
     cfg keys (all under instagram.scheduled):
       daily_reel_window_hours (int, default 24)
-      daily_reel_max_frames   (int, default 6)
-      daily_reel_bucket_hours (int, default 4)
-      daily_reel_min_frames   (int, default 3)
+      daily_reel_max_frames   (int, default 90)
+      daily_reel_min_frames   (int, default 6)
 
-    Returns [] if fewer than daily_reel_min_frames candidates after
-    diversity filtering — quiet day, skip the slot.
+    Returns [] if fewer than daily_reel_min_frames candidates — quiet day.
     """
     window_h = int(cfg.get("daily_reel_window_hours", 24))
-    max_frames = int(cfg.get("daily_reel_max_frames", 6))
-    bucket_h = int(cfg.get("daily_reel_bucket_hours", 4))
-    min_frames = int(cfg.get("daily_reel_min_frames", 3))
+    max_frames = int(cfg.get("daily_reel_max_frames", 90))
+    min_frames = int(cfg.get("daily_reel_min_frames", 6))
     now = _ensure_timezone(now)
     cutoff_iso = (now - timedelta(hours=window_h)).isoformat()
 
@@ -438,37 +433,21 @@ def select_daily_reel_gems(
                AND image_path IS NOT NULL
                AND discord_reactions >= 1
              ORDER BY ts ASC
+             LIMIT ?
             """,
-            (cutoff_iso,),
+            (cutoff_iso, max_frames),
         ).fetchall()
 
-    if not rows:
-        log.info("select_daily_reel: no candidates in last %dh", window_h)
-        return []
-
-    groups: dict[tuple[str, str], list[dict]] = {}
-    bucket_min = bucket_h * 60
-    for r in rows:
-        d = dict(r)
-        key = (d["camera_id"], _bucket_key(d["ts"], bucket_min))
-        groups.setdefault(key, []).append(d)
-
-    representatives = [max(group, key=_score_gem) for group in groups.values()]
-    representatives.sort(key=_score_gem, reverse=True)
-    representatives = representatives[:max_frames]
-    representatives.sort(key=lambda r: r["ts"])
-
-    if len(representatives) < min_frames:
+    if len(rows) < min_frames:
         log.info(
-            "select_daily_reel: only %d candidates after diversity (need >=%d); quiet day",
-            len(representatives), min_frames,
+            "select_daily_reel: only %d reacted gems in last %dh (need >=%d); quiet day",
+            len(rows), window_h, min_frames,
         )
         return []
 
-    ids = [r["id"] for r in representatives]
+    ids = [row["id"] for row in rows]
     log.info(
-        "select_daily_reel: picked %d gem_ids from %d raw candidates "
-        "in %d buckets (last %dh): %s",
-        len(ids), len(rows), len(groups), window_h, ids,
+        "select_daily_reel: %d gem_ids in last %dh (cap=%d)",
+        len(ids), window_h, max_frames,
     )
     return ids

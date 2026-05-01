@@ -2,7 +2,11 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] - 2026-04-29
+## [Unreleased] - 2026-05-01
+
+### v2.38.1 — reel: pass ALL reacted gems through, no bucket filter; s7 cadence 10s→7s (Claude Sonnet 4.6)
+
+`select_daily_reel_gems` in `ig_selection.py` previously grouped gems into 4-hour per-camera buckets and picked one representative per bucket, capped at 6. This silently dropped 52 of 58 reacted gems on 2026-04-30. Removed the bucket grouping entirely — every gem with `discord_reactions >= 1` in the 24h window comes through, oldest-first, capped at 90 (Instagram's 90s reel limit at 1s/frame). `_MAX_FRAMES` in `reel_stitcher.py` raised from 10 to 90 to match. `daily_reel_min_frames` raised from 3 to 6 (no reel on genuinely quiet days). `daily_reel_bucket_hours` key removed from config. s7-cam `cycle_seconds` dropped from 10 to 7 for slightly higher capture cadence on the best-quality brooder source.
 
 ### v2.38.0 — social: daily reel with Discord approval gate (Claude Sonnet 4.6)
 

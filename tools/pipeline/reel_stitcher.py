@@ -1,4 +1,4 @@
-# Author: Claude Opus 4.7 (1M context)
+# Author: Claude Opus 4.7 (1M context) / updated Claude Sonnet 4.6 01-May-2026
 # Date: 20-April-2026
 # PURPOSE: Stitch N Guardian gem JPEGs into a 9:16 MP4 suitable for
 #          posting to Instagram as a Reel. Per-frame center-crop to
@@ -54,11 +54,10 @@ from tools.pipeline.store import resolve_gem_image_path
 
 log = logging.getLogger("pipeline.reel_stitcher")
 
-# Carousels cap at 10; short-reel pacing (6-12s is the engagement sweet
-# spot) naturally falls in the 6-10 frame range at 1s/frame. Enforced
-# here and echoed in scripts/ig-post.py so the error surfaces early.
+# _MAX_FRAMES: 90 frames × 1s/frame − 89 × 0.15s xfade ≈ 77s, under
+# Instagram's 90s reel limit. All reacted gems come through; no bucketing.
 _MIN_FRAMES = 2
-_MAX_FRAMES = 10
+_MAX_FRAMES = 90
 
 _FRAME_JPEG_QUALITY = 92
 _FFMPEG_TIMEOUT_S = 300
