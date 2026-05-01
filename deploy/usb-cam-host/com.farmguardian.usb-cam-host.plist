@@ -13,7 +13,11 @@
   Tailor per-host:
     - ProgramArguments: point at the Python venv and the repo checkout on that box
     - USB_CAM_PORT: keep 8089 unless it collides
-    - USB_CAM_DEVICE_INDEX: 0 unless the host has multiple cameras
+    - USB_CAM_DEVICE_INDEX: verify per-host — do NOT assume 0=built-in, 1=USB.
+        On MacBook Air (192.168.0.50): index 0 = external USB webcam (enumerates
+        first), index 1 = built-in FaceTime HD. To verify on any host:
+        python3 -c "import cv2; [print(i, cv2.VideoCapture(i).isOpened()) for i in range(4)]"
+        then cross-check with: system_profiler SPCameraDataType
 -->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
