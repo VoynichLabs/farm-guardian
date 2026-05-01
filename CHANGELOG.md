@@ -4,6 +4,10 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-05-01
 
+### v2.38.3 — monitoring: noon + 8pm pipeline digest to Discord (Claude Sonnet 4.6)
+
+New `scripts/pipeline-digest.py` posts a status summary to #farm-2026 at noon (stories since midnight) and 8pm (stories since noon + reel status). Shows queue depth, oldest unposted gem date, and IG quota used. Posts as username "farm-pipeline" so it's visually distinct from gem posts and can't interfere with the reaction-quality-gate cross-reference. Two new LaunchAgents: `com.farmguardian.pipeline-digest-noon` (12:00) and `com.farmguardian.pipeline-digest-evening` (20:00). `--dry-run` flag for testing.
+
 ### v2.38.2 — pipeline: drop individual-bird ID from VLM schema; disable dead GWTC camera (Claude Sonnet 4.6)
 
 Removed "birdadette" / "birdadotta" from the `individuals_visible` enum in both `tools/pipeline/schema.json` and `~/.lmstudio/config-presets/Birds.preset.json`. The VLM was wasting inference budget trying to identify specific birds by name and getting it wrong every time (false positives documented 2026-04-23). Enum is now `["adult-survivor","chick","unknown-bird"]`. `any_special_chick` boolean kept as a lightweight flag. GWTC laptop is hardware-dead; set `enabled: false` in Guardian `config.json` and pipeline `tools/pipeline/config.json` to stop the 3× capture retry + 20s penalty burning every cycle.
