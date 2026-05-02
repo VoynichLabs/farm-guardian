@@ -5,9 +5,9 @@ venv/
 .venv/
 *.egg-info/
 
-# Config and secrets
-config.json
+# Secrets only — config.json and tools/pipeline/config.json are committed (no real creds in them)
 .env
+bubba-workspace/secrets/
 
 # Runtime data
 events/

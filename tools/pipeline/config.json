@@ -1,0 +1,111 @@
+{
+  "guardian_db_path": "data/guardian.db",
+  "archive_root": "data/archive",
+  "lm_studio_base": "http://localhost:1234",
+  "vlm_model_id": "nvidia/nemotron-3-nano-omni",
+  "vlm_load_context_length": 8192,
+  "vlm_max_tokens": 600,
+  "vlm_temperature": 0.2,
+  "vlm_timeout_seconds": 300,
+  "std_dev_floor": 5.0,
+  "exposure_p50_floor": 25.0,
+  "exposure_p50_ceiling": 230.0,
+  "exposure_std_floor": 15.0,
+  "motion_delta_threshold": 2.3,
+  "capture_retry_max": 3,
+  "downscale_decent_long_edge_px": 1920,
+  "downscale_decent_jpeg_quality": 85,
+  "retention_days_strong": 365,
+  "retention_days_decent": 7,
+  "retention_days_concerns": null,
+  "raw_retention_hours": 24,
+  "instagram": {
+    "enabled": false,
+    "auto_dry_run": false,
+    "min_hours_between_posts": 6,
+    "min_hours_per_camera": 12,
+    "farm_2026_repo_path": "/Users/macmini/Documents/GitHub/farm-2026",
+    "meta_env_file": "/Users/macmini/bubba-workspace/secrets/farm-guardian-meta.env",
+    "stories": {
+      "enabled": false,
+      "auto_dry_run": false,
+      "min_hours_between_stories": 2
+    },
+    "reels": {
+      "enabled": true,
+      "auto_dry_run": false,
+      "output_root": "data/reels",
+      "seconds_per_frame": 1.0,
+      "crossfade_seconds": 0.15,
+      "frames_per_reel_default": 6
+    },
+    "scheduled": {
+      "daily_carousel_max_items": 10,
+      "daily_carousel_min_items": 2,
+      "daily_carousel_bucket_minutes": 15,
+      "story_window_minutes": 120,
+      "weekly_reel_window_days": 7,
+      "weekly_reel_max_frames": 8,
+      "weekly_reel_bucket_hours": 6,
+      "daily_reel_window_hours": 24,
+      "daily_reel_max_frames": 90,
+      "daily_reel_min_frames": 6
+    }
+  },
+  "cameras": {
+    "house-yard": {
+      "cycle_seconds": 45,
+      "capture_method": "reolink_snapshot",
+      "reolink_base": "http://192.168.0.88",
+      "context": "Reolink E1 Outdoor Pro 4K PTZ camera (192.168.0.88); currently aimed at the yard, sky, and coop approach",
+      "burst_size": 1,
+      "motion_gate": false,
+      "vlm_bypass": true,
+      "enabled": true
+    },
+    "usb-cam": {
+      "cycle_seconds": 2,
+      "capture_method": "ip_webcam",
+      "ip_webcam_base": "http://192.168.0.68:8089",
+      "photo_path": "/photo.jpg",
+      "trigger_focus": false,
+      "context": "Generic USB webcam (UVC 1920x1080), plugged into the GWTC Gateway laptop at 192.168.0.68 and served on port 8089 by a Windows scheduled task ('usb-cam-host', running interactively as the 'cam' autologon user, C:\\farm-services\\usb-cam-host\\start.bat). 24-Apr-2026: moved from the Mac Mini to GWTC because the Mini's heat-lamp-lit brooder angle red-clipped the sensor and produced unusable frames; the GWTC coop run is natural-daylight and this cheap UVC sensor handles it cleanly (1920x1080 full color). device_index=1 on the Windows side because device 0 is GWTC's built-in Hy-HD-Camera already held by MediaMTX for the 'gwtc' RTSP path.",
+      "burst_size": 1,
+      "enabled": true
+    },
+    "s7-cam": {
+      "cycle_seconds": 7,
+      "priority": 1,
+      "capture_method": "ip_webcam",
+      "ip_webcam_base": "http://192.168.0.249:8080",
+      "photo_path": "/photo.jpg",
+      "trigger_focus": true,
+      "focus_wait": 2.0,
+      "context": "Samsung Galaxy S7 running IP Webcam app, plugged into a USB wall brick for power (untethered from MBA 26-Apr-2026, v2.37.8). 26-Apr-2026 v2.37.10: switched FROM /photoaf.jpg TO /photo.jpg + explicit /focus + 2s wait. /photoaf.jpg's built-in AF was running concurrently with our /focus call and the two were interfering \u2014 frames came back rated 'soft' even with continuous-picture mode active. One AF cycle (explicit /focus, sleep 2s, fetch /photo.jpg) is more reliable than two. Continuous-picture AF + incandescent WB set at Guardian startup (v2.27.7). Sony IMX260 sensor, 1920x1080, f/1.7. Best-quality source in the fleet \u2014 aimed at the NESTING BOX (2026-04-30 onward). Cadence dropped to 3s and priority=1 so when the VLM slot opens, s7 wins ties. 2026-04-30: moved from brooder to the NESTING BOX.",
+      "burst_size": 1,
+      "require_face": true,
+      "enabled": true,
+      "motion_gate": true,
+      "laplacian_floor": 60.0
+    },
+    "gwtc": {
+      "cycle_seconds": 20,
+      "capture_method": "reolink_snapshot",
+      "context": "Gateway laptop (Windows 11, 192.168.0.68) built-in webcam streamed via ffmpeg+MediaMTX; 1280x720, fixed focus, 2026-04-30: moved to the ROOF OF THE COOP for an overhead/approach view. Previously was in the coop run interior. Pipeline pulls Guardian's snapshot API rather than RTSP direct \u2014 Guardian's ring buffer rides through the dshow-zombie windows that farmcam-watchdog takes ~90s to clear. Burst-of-3 with median-selection dodges the transient H.264 decode artifacts Boss sees after the laptop gets jostled (vertical stripes, smearing).",
+      "burst_size": 3,
+      "burst_interval_seconds": 0.4,
+      "motion_gate": true,
+      "enabled": true
+    },
+    "mba-cam": {
+      "cycle_seconds": 10,
+      "capture_method": "ip_webcam",
+      "ip_webcam_base": "http://192.168.0.50:8089",
+      "photo_path": "/photo.jpg",
+      "trigger_focus": false,
+      "context": "MacBook Air 2013 FaceTime HD camera (1280x720), served at 192.168.0.50:8089 via usb-cam-host (com.farmguardian.usb-cam-host LaunchAgent on the MBA). Optional brooder monitor \u2014 loading/unloading that LaunchAgent is the on/off switch; no config change needed. Currently watching the brooder with chicks. device_index=0 on MBA = FaceTime HD (USB cam is on GWTC, so FaceTime is the only camera on this box).",
+      "burst_size": 1,
+      "enabled": true
+    }
+  }
+}

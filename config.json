@@ -1,0 +1,350 @@
+{
+  "cameras": [
+    {
+      "name": "house-yard",
+      "ip": "192.168.0.88",
+      "port": 80,
+      "username": "admin",
+      "password": "YOUR_CAMERA_PASSWORD",
+      "onvif_port": 8000,
+      "type": "ptz",
+      "source": "snapshot",
+      "snapshot_method": "reolink",
+      "snapshot_interval": 5.0,
+      "night_snapshot_interval": 2.0,
+      "motion_burst_enabled": true,
+      "motion_burst_duration_s": 30,
+      "motion_burst_interval_s": 1.0,
+      "detection_enabled": true
+    },
+    {
+      "name": "s7-cam",
+      "ip": "192.168.0.249",
+      "port": 8080,
+      "username": "",
+      "password": "",
+      "type": "fixed",
+      "source": "snapshot",
+      "snapshot_method": "http_url",
+      "http_base_url": "http://192.168.0.249:8080",
+      "http_photo_path": "/photoaf.jpg",
+      "http_trigger_focus": false,
+      "http_startup_gets": [
+        "/settings/focusmode?set=continuous-picture",
+        "/settings/whitebalance?set=incandescent",
+        "/settings/orientation?set=portrait",
+        "/settings/photo_rotation?set=90"
+      ],
+      "snapshot_interval": 7.0,
+      "detection_enabled": false
+    },
+    {
+      "name": "usb-cam",
+      "type": "fixed",
+      "source": "snapshot",
+      "snapshot_method": "http_url",
+      "http_base_url": "http://192.168.0.68:8089",
+      "http_photo_path": "/photo.jpg",
+      "http_trigger_focus": false,
+      "snapshot_interval": 5.0,
+      "detection_enabled": false
+    },
+    {
+      "name": "gwtc",
+      "ip": "192.168.0.68",
+      "port": 8554,
+      "username": "",
+      "password": "",
+      "type": "fixed",
+      "rtsp_transport": "tcp",
+      "rtsp_url_override": "rtsp://192.168.0.68:8554/gwtc",
+      "snapshot_interval": 3.0,
+      "detection_enabled": false,
+      "enabled": true
+    },
+    {
+      "name": "mba-cam",
+      "type": "fixed",
+      "source": "snapshot",
+      "snapshot_method": "http_url",
+      "http_base_url": "http://192.168.0.50:8089",
+      "http_photo_path": "/photo.jpg",
+      "http_trigger_focus": false,
+      "snapshot_interval": 5.0,
+      "detection_enabled": false,
+      "enabled": true
+    }
+  ],
+  "discovery": {
+    "rescan_interval_seconds": 300
+  },
+  "detection": {
+    "model": "yolov8n.pt",
+    "confidence_threshold": 0.45,
+    "class_confidence_thresholds": {
+      "bird": 0.45,
+      "cat": 0.5,
+      "dog": 0.5,
+      "bear": 0.4
+    },
+    "frame_interval_seconds": 0.25,
+    "night_window_enabled": true,
+    "night_window_start": "20:00",
+    "night_window_end": "09:00",
+    "night_window_timezone": "America/New_York",
+    "predator_classes": [
+      "bird",
+      "cat",
+      "dog",
+      "bear"
+    ],
+    "ignore_classes": [
+      "person",
+      "car",
+      "truck",
+      "bicycle",
+      "umbrella",
+      "frisbee",
+      "toothbrush",
+      "sheep",
+      "cow",
+      "horse",
+      "zebra",
+      "giraffe",
+      "elephant",
+      "kite",
+      "sports ball",
+      "baseball bat",
+      "baseball glove",
+      "skateboard",
+      "surfboard",
+      "tennis racket",
+      "bottle",
+      "cup",
+      "fork",
+      "knife",
+      "spoon",
+      "bowl",
+      "banana",
+      "apple",
+      "sandwich",
+      "orange",
+      "broccoli",
+      "carrot",
+      "hot dog",
+      "pizza",
+      "donut",
+      "cake",
+      "chair",
+      "couch",
+      "bed",
+      "toilet",
+      "tv",
+      "laptop",
+      "mouse",
+      "remote",
+      "keyboard",
+      "cell phone",
+      "microwave",
+      "oven",
+      "toaster",
+      "sink",
+      "refrigerator",
+      "book",
+      "clock",
+      "vase",
+      "scissors",
+      "teddy bear",
+      "hair drier",
+      "motorcycle",
+      "airplane",
+      "bus",
+      "train",
+      "boat",
+      "fire hydrant",
+      "stop sign",
+      "parking meter",
+      "bench",
+      "backpack",
+      "handbag",
+      "suitcase",
+      "tie",
+      "snowboard",
+      "potted plant",
+      "dining table",
+      "traffic light"
+    ],
+    "alert_cooldown_seconds": 300,
+    "bird_min_bbox_width_pct": 8.0,
+    "min_dwell_frames": 3,
+    "no_alert_zone": []
+  },
+  "alerts": {
+    "discord_webhook_url": "https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN",
+    "include_snapshot": true,
+    "mention_on_alert": false
+  },
+  "storage": {
+    "events_dir": "events",
+    "exports_dir": "data/exports",
+    "max_days_retained": 30,
+    "save_all_detections": false,
+    "save_predator_snapshots": true
+  },
+  "tracking": {
+    "track_timeout_seconds": 60,
+    "min_detections_for_track": 2
+  },
+  "database": {
+    "path": "data/guardian.db",
+    "backup_daily": true,
+    "backup_dir": "data/backups",
+    "retention_days": 365
+  },
+  "deterrent": {
+    "enabled": true,
+    "response_delay_seconds": 1.5,
+    "response_rules": {
+      "hawk": {
+        "level": 2,
+        "actions": [
+          "spotlight",
+          "audio_alarm"
+        ]
+      },
+      "bobcat": {
+        "level": 3,
+        "actions": [
+          "spotlight",
+          "siren",
+          "audio_alarm"
+        ]
+      },
+      "coyote": {
+        "level": 3,
+        "actions": [
+          "spotlight",
+          "siren",
+          "audio_alarm"
+        ]
+      },
+      "raccoon": {
+        "level": 2,
+        "actions": [
+          "spotlight",
+          "audio_alarm"
+        ]
+      },
+      "possum": {
+        "level": 1,
+        "actions": [
+          "spotlight"
+        ]
+      }
+    },
+    "spotlight_brightness": 100,
+    "spotlight_duration_seconds": 120,
+    "siren_duration_seconds": 10,
+    "cooldown_seconds": 300,
+    "effectiveness_window_seconds": 60
+  },
+  "ptz": {
+    "patrol_enabled": false,
+    "patrol_mode": "sweep",
+    "patrol_interval_seconds": 45,
+    "detection_zoom_level": 2.0,
+    "track_timeout_seconds": 60,
+    "return_to_patrol_delay_seconds": 10,
+    "presets": [
+      {
+        "name": "yard-center",
+        "pan": 180,
+        "tilt": 25,
+        "zoom": 1.0,
+        "dwell": 45,
+        "patrol": true
+      },
+      {
+        "name": "coop-approach",
+        "pan": 220,
+        "tilt": 30,
+        "zoom": 1.5,
+        "dwell": 30,
+        "patrol": true
+      },
+      {
+        "name": "fence-line",
+        "pan": 120,
+        "tilt": 20,
+        "zoom": 1.0,
+        "dwell": 30,
+        "patrol": true
+      },
+      {
+        "name": "sky-watch",
+        "pan": 180,
+        "tilt": 10,
+        "zoom": 1.0,
+        "dwell": 20,
+        "patrol": true
+      },
+      {
+        "name": "driveway",
+        "pan": 300,
+        "tilt": 25,
+        "zoom": 1.0,
+        "dwell": 20,
+        "patrol": true
+      }
+    ],
+    "sweep": {
+      "pan_speed": 15,
+      "tilt_speed": 10,
+      "tilt_steps": 3,
+      "tilt_burst_seconds": 1.5,
+      "position_poll_interval": 1.0,
+      "stall_threshold": 3,
+      "start_pan": 3620,
+      "dead_zone_pan": [
+        6800,
+        440
+      ],
+      "dead_zone_skip_speed": 60,
+      "dwell_at_edge": 2.0
+    }
+  },
+  "sky_watch": {
+    "enabled": false,
+    "camera": "house-yard",
+    "preset_id": 0
+  },
+  "ebird": {
+    "enabled": false
+  },
+  "reports": {
+    "daily_summary_time": "23:59",
+    "export_formats": [
+      "json",
+      "markdown"
+    ],
+    "discord_daily_report": false
+  },
+  "streaming": {
+    "hls_output_dir": "/tmp/guardian_hls",
+    "segment_duration": 3,
+    "buffer_segments": 5,
+    "video_bitrate": "2M",
+    "framerate": 15,
+    "snapshot_interval": 10,
+    "prefer_hw_encode": true
+  },
+  "logging": {
+    "level": "INFO",
+    "file": "guardian.log"
+  },
+  "dashboard": {
+    "enabled": true,
+    "host": "0.0.0.0",
+    "port": 6530
+  }
+}
