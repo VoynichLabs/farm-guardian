@@ -1,4 +1,4 @@
-# Author: Claude Opus 4.7 (1M context)
+# Author: Claude Opus 4.7 (1M context); updated Claude Sonnet 4.6 02-May-2026
 # Date: 20-April-2026 (initial 20-Apr-2026; extension whitelist added 20-Apr-2026 for Phase 3 reels)
 # PURPOSE: Commit a local image OR short video into the farm-2026 repo's
 #          public/photos/ directory and push to origin, so the media
@@ -150,6 +150,26 @@ def _github_raw_url(owner: str, repo: str, branch: str, path_in_repo: str) -> st
     return f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{path_clean}"
 
 
+def _push_with_rebase_retry(repo_path: Path, branch: str, max_retries: int = 2) -> None:
+    """Push to origin, retrying with pull --rebase on ref-lock failures.
+
+    social-publisher, ig-daily-reel, and archive-throwback all push to
+    farm-2026 concurrently. When two pushes race, one gets a stale ref error
+    ("cannot lock ref ... but expected ..."). Fix: pull --rebase to fast-forward
+    past the other script's commit, then retry the push.
+    """
+    for attempt in range(max_retries + 1):
+        try:
+            _git(repo_path, "push", "origin", branch)
+            return
+        except GitHelperError as e:
+            if attempt < max_retries and ("cannot lock ref" in str(e) or "stale" in str(e) or "non-fast-forward" in str(e)):
+                log.warning("git_helper: push conflict (attempt %d/%d), rebasing: %s", attempt + 1, max_retries, str(e)[:120])
+                _git(repo_path, "pull", "--rebase", "origin", branch)
+            else:
+                raise
+
+
 def commit_image_to_farm_2026(
     local_image: Path,
     subdir: str,
@@ -240,7 +260,10 @@ def commit_image_to_farm_2026(
         status = _git(repo_path, "status", "--porcelain", "--", rel_path)
         if status.stdout.strip():
             _git(repo_path, "commit", "-m", commit_message)
-            _git(repo_path, "push", "origin", branch)
+            # Push with pull-rebase retry: multiple scripts (social-publisher,
+            # ig-daily-reel, archive-throwback) push to farm-2026 concurrently.
+            # If refs diverged since our commit, pull --rebase and retry once.
+            _push_with_rebase_retry(repo_path, branch)
             log.info("git_helper: committed+pushed %s", rel_path)
         else:
             log.info("git_helper: %s is clean after add (already committed), skipping commit", rel_path)
