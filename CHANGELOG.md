@@ -2,6 +2,12 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased] - 2026-04-30
+
+### v2.38.5 — camera alignment: mba-cam recommissioned; usb-cam on GWTC; s7-cam to nesting box; gwtc to roof of coop (Claude Sonnet 4.6)
+
+Fleet re-alignment as of 2026-04-30. `mba-cam` (MacBook Air 2013 FaceTime HD) recommissioned as optional brooder monitor at `http://192.168.0.50:8089` — `com.farmguardian.usb-cam-host` LaunchAgent loaded on MBA, `device_index=0` = FaceTime HD (USB cam is on GWTC so FaceTime is the only camera on that box). Added `mba-cam` to both `config.json` and `tools/pipeline/config.json` with brooder context. `usb-cam` confirmed on GWTC at `192.168.0.68:8089` (device_index=1 on Windows, device 0 = Hy-HD-Camera held by MediaMTX). Updated pipeline contexts: s7-cam → nesting box, gwtc → roof of coop. `HARDWARE_INVENTORY.md` updated with all physical positions and MBA recommission notes. `farm-2026/lib/cameras.ts` updated: usb-cam label/device to GWTC, mba-cam device string to FaceTime HD HTTP snapshot, s7-cam aspectRatio to `"9 / 16"` (portrait since v2.35.2). No code changes — config and docs only.
+
 ## [Unreleased] - 2026-05-01
 
 ### v2.38.4 — reel: resolution cap + Discord preview transcode (Claude Sonnet 4.6)
