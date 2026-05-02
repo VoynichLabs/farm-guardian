@@ -5,11 +5,41 @@
     <key>Label</key>
     <string>com.farmguardian.s7-settings-watchdog</string>
 
+    <!-- Checks if S7 IP Webcam is serving real frames (not stuck in boot-race
+         black-screen state). If black screen detected, SSHes to GWTC and uses
+         ADB to force-stop + relaunch IP Webcam, then waits 60s for camera HAL
+         to init before re-asserting settings. Falls back to settings-only if
+         ADB not available (phone not connected to GWTC USB or not yet authorised).
+         Inline to avoid TCC block on ~/Documents reads from launchd processes. -->
     <key>ProgramArguments</key>
     <array>
-        <string>/bin/sh</string>
+        <string>/bin/bash</string>
         <string>-c</string>
-        <string>ts=$(date -u +%Y-%m-%dT%H:%M:%SZ); wb_code=$(/usr/bin/curl -sS -m 5 -o /dev/null -w '%{http_code}' 'http://192.168.0.249:8080/settings/whitebalance?set=incandescent'); fm_code=$(/usr/bin/curl -sS -m 5 -o /dev/null -w '%{http_code}' 'http://192.168.0.249:8080/settings/focusmode?set=continuous-picture'); or_code=$(/usr/bin/curl -sS -m 5 -o /dev/null -w '%{http_code}' 'http://192.168.0.249:8080/settings/orientation?set=portrait'); pr_code=$(/usr/bin/curl -sS -m 5 -o /dev/null -w '%{http_code}' 'http://192.168.0.249:8080/settings/photo_rotation?set=90'); echo "$ts wb=$wb_code fm=$fm_code or=$or_code pr=$pr_code" &gt;&gt; /tmp/s7-settings-watchdog.log</string>
+        <string>
+S7=http://192.168.0.249:8080
+GWTC=192.168.0.68
+ADB="C:\\farm-services\\platform-tools\\adb.exe"
+LOG=/tmp/s7-settings-watchdog.log
+stamp(){ date -u +%Y-%m-%dT%H:%M:%SZ; }
+apply(){ wb=0; fm=0; or=0; pr=0
+  /usr/bin/curl -sS -m 5 "$S7/settings/whitebalance?set=incandescent"    &gt;/dev/null 2&gt;&amp;1 &amp;&amp; wb=1
+  /usr/bin/curl -sS -m 5 "$S7/settings/focusmode?set=continuous-picture" &gt;/dev/null 2&gt;&amp;1 &amp;&amp; fm=1
+  /usr/bin/curl -sS -m 5 "$S7/settings/orientation?set=portrait"         &gt;/dev/null 2&gt;&amp;1 &amp;&amp; or=1
+  /usr/bin/curl -sS -m 5 "$S7/settings/photo_rotation?set=90"            &gt;/dev/null 2&gt;&amp;1 &amp;&amp; pr=1
+  echo "$(stamp) settings wb=$wb fm=$fm or=$or pr=$pr" &gt;&gt; "$LOG"; }
+bytes=$(/usr/bin/curl -sS -m 15 "$S7/photoaf.jpg" -o /dev/null -w "%{size_download}" 2&gt;/dev/null || echo 0)
+if [ "$bytes" -gt 10000 ]; then
+  echo "$(stamp) frame_ok bytes=$bytes" &gt;&gt; "$LOG"
+  apply
+else
+  echo "$(stamp) black_screen bytes=$bytes — adb restart" &gt;&gt; "$LOG"
+  ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes markb@"$GWTC" \
+    "$ADB shell am force-stop com.pas.webcam 2&gt;&amp;1 &amp;&amp; $ADB shell monkey -p com.pas.webcam -c android.intent.category.LAUNCHER 1 2&gt;&amp;1" &gt;/dev/null 2&gt;&amp;1 \
+    &amp;&amp; { echo "$(stamp) adb ok — sleeping 60s" &gt;&gt; "$LOG"; sleep 60; } \
+    || echo "$(stamp) adb unavailable — settings only" &gt;&gt; "$LOG"
+  apply
+fi
+        </string>
     </array>
 
     <key>StartInterval</key>
