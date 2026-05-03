@@ -11,6 +11,10 @@ This is a snapshot from the {camera_name} camera at a small backyard flock in Ha
 
 **No named individuals.** Do not refer to any bird by name. Use "turkey poult," "chicken chick," "bantam chick," or "young bird."
 
+**Coloration matters — describe it specifically.** These bantam chicks are rare-breed exotic birds and many are strikingly colored. When a bird is sharp in frame, describe its actual colors and markings: "black-and-gold laced," "chipmunk-striped in brown and cream," "solid white with a crest," "rust-orange with dark wing tips," "barred black-and-white," etc. Don't write "colorful chick" — describe the actual colors you see. This is the detail that makes a caption worth reading.
+
+**Expression and demeanor.** When a bird's face is visible and in focus, describe what it looks like: alert and upright, curious with head tilted, drowsy with half-closed eyes, startled with neck stretched, calm and relaxed. A bird staring directly into the lens with bright open eyes is the best shot the farm gets — say so specifically.
+
 Guidance on specific fields:
 - `scene`: use `"nesting-box"` for frames from this camera.
 - `bird_count`: count ONLY objects with a visible head, beak, or feathers. Waterers, feeders, and equipment are zero. If you can't confidently identify a head and body, don't count it.
@@ -26,24 +30,25 @@ Guidance on specific fields:
 - `bird_face_visible`: true if at least one bird's eye, beak, or facial profile is visible — including partial or side-on views. False only when every bird is fully turned away with no head detail.
 - `subject_coverage_pct`: percent of the total frame area covered by birds. Exclude bedding, walls, feeders, waterers, heat lamp.
 - `largest_subject_pct`: percent of the frame covered by the single largest bird only.
-- `share_worth`: lead with sharpness and behavior — these are the primary criteria.
+- `share_worth`: sharpness + a visible face is the primary bar. A blurry bird or a bird's rear end is worthless regardless of other qualities.
   - **"strong"** — ANY of these, and none of the skip triggers below:
-    1. At least one bird looking DIRECTLY at the camera with a visible eye. Eye contact is the best shot the farm gets.
-    2. Crisp feather or plumage detail on a bird filling a meaningful portion of the frame — individual feather edges, down texture, color gradation visible at the pixel level.
-    3. A clear behavior moment: sparring, mid-wing-flap, mid-stretch, dust-bathing, drinking, eating, or any posture that reads as active and intentional. The subject must be sharp.
-  - **"skip"** — ANY of these demotes the frame regardless of other qualities:
-    1. All subjects blurry, smeared, or unrecognizable.
+    1. At least one bird looking DIRECTLY at the camera with a sharp, visible eye. This is the best shot the farm gets — prioritize it every time.
+    2. A sharp bird face in profile or three-quarter view where the eye and beak are clearly visible and the plumage detail is crisp — individual feather edges, down texture, color markings readable at the pixel level.
+    3. A clear active-behavior moment where the subject is sharp: sparring, mid-wing-flap, mid-stretch, drinking, eating. The bird's face or body detail must be in focus — blurry action is still blurry.
+  - **"skip"** — ANY of these demotes the frame:
+    1. Every bird in frame is blurry, smeared, or unrecognizable.
     2. No birds in frame, or activity=none-visible.
-    3. Every bird facing fully away with no face visible.
-    4. A uniform huddle-pile with no individual distinguishable and no notable posture.
-  - **"decent"**: clear, in-focus frame that doesn't hit a strong trigger and isn't killed by a skip trigger. Archive-worthy but unremarkable.
+    3. Every bird facing fully away — only backs, tails, or rear ends visible, no face or eye on any subject.
+    4. A pile of indistinct fluff where no individual bird is distinguishable and no face is visible. A blob of feathers is not a photo.
+  - **"decent"**: clear, in-focus frame with visible birds that doesn't hit a strong trigger and isn't killed by a skip trigger. A sideways group shot with some faces partially visible is decent. Archive-worthy but not remarkable.
   - When in doubt between `decent` and `skip`, lean `skip`.
 - `share_reason`: one specific sentence about THIS frame — not a restatement of the rules. E.g., "Bronze turkey poult looking directly into the lens, left eye sharp" or "All three birds in motion, no sharp faces visible, minor blur throughout."
-- `caption_draft`: one or two sentences, up to ~200 chars. Be SPECIFIC and OBSERVATIONAL — describe what is actually in this frame.
-  - Name the species when you can tell them apart: "a bronze turkey poult," "a bantam chick," "the larger standard chick."
-  - Lead with the most interesting thing in the frame: eye contact, a striking color pattern, a behavior, an unusual posture.
-  - Include visible detail: feather/down color and markings, what the bird is doing, where in the frame it is.
-  - **Every caption must be different.** If the scene looks similar to a previous frame, find a different specific detail to lead with — a different bird, a different angle, a different action.
-  - Good examples: "A bronze turkey poult stares directly into the lens, its bare pink snood clearly visible." / "Three bantam chicks crowd the waterer while the larger standard chick stands apart at the back." / "A small black-and-white bantam chick mid-stretch, one wing fanned out to the right."
-  - Bad examples: "Turkey poults in the nesting box." / "Chicks eating." / "Young birds in the brooder." — too generic, no specific detail.
+- `caption_draft`: one or two sentences, up to ~200 chars. Lead with the sharpest, most interesting bird in frame — its colors, its expression, what it's doing.
+  - **Colors first.** If a bird is sharp, describe its actual coloration: "a chipmunk-striped chick in brown and cream," "a rust-and-black bantam," "a solid white crested chick," "a barred black-and-white bird." Never write just "a colorful chick" — say what colors.
+  - **Expression when visible.** If you can see a face clearly: "staring directly into the lens," "head tilted, one eye fixed on the camera," "alert with neck stretched," "drowsy, eyes half-closed." These details are what make the caption worth reading.
+  - **Species when distinguishable.** "a bronze turkey poult," "the larger standard chick," "a bantam chick."
+  - **Action.** What is the bird doing? Pecking, drinking, preening, stretching, sparring, standing still?
+  - **Every caption must be different.** Find a different lead detail each time — a different bird, a different color, a different expression or action.
+  - Good examples: "A chipmunk-striped bantam chick stares directly into the lens, one bright eye sharp in focus." / "Two bronze turkey poults flank the waterer while a rust-colored bantam chick preens behind them." / "A tiny barred black-and-white chick mid-stretch, one wing fanned out, looking alert."
+  - Bad examples: "Chicks in the nesting box." / "Young birds eating." / "Colorful chicks." — no specific color, no expression, no action.
 - `concerns`: only populate if you see an injured bird, dead bird, abnormal posture, fighting beyond normal pecking, or an environmental hazard. Empty array otherwise.
