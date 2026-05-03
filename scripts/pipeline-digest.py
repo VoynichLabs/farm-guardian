@@ -4,6 +4,8 @@
 # PURPOSE: Post a pipeline status digest to Discord at noon and 8pm.
 #          Noon slot shows stories posted since midnight.
 #          Evening slot shows stories posted since noon, plus reel status.
+#          Story counts combine image_archive reacted-gem Story metadata
+#          with the shared social ledger's archive fallback Story rows.
 #          Both show queue depth, oldest queued gem, and IG quota used in
 #          the rolling 24h Graph API window.
 #          Queue depth excludes rows marked story-permanent-skip by the
@@ -68,8 +70,43 @@ def _window_start_utc(slot: str) -> dt.datetime:
     return start_local.astimezone(dt.timezone.utc)
 
 
-def _stories_in_window(db_path: Path, since_utc: dt.datetime) -> dict:
-    """Return count and per-camera breakdown of stories posted since since_utc."""
+def _parse_iso(ts: str) -> dt.datetime | None:
+    try:
+        return dt.datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        return None
+
+
+def _story_ledger_counts(ledger_path: Path, since_utc: dt.datetime) -> dict:
+    """Return IG Story publish counts by social ledger lane."""
+    counts = {"gem": 0, "archive": 0}
+    if not ledger_path.exists():
+        return counts
+    with ledger_path.open("r", encoding="utf-8") as fh:
+        for raw in fh:
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                entry = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if entry.get("lane") not in counts or not entry.get("ig_media_id"):
+                continue
+            ts = _parse_iso(entry.get("ts", ""))
+            if ts is None or ts < since_utc:
+                continue
+            counts[entry["lane"]] += 1
+    return counts
+
+
+def _stories_in_window(db_path: Path, ledger_path: Path, since_utc: dt.datetime) -> dict:
+    """Return Story counts posted since since_utc.
+
+    image_archive has the camera breakdown for reacted gem Stories.
+    The social ledger is the shared source for archive fallback Story
+    publishes, so combine them without double-counting gem rows.
+    """
     cutoff = since_utc.isoformat()
     with sqlite3.connect(str(db_path)) as c:
         rows = c.execute(
@@ -82,9 +119,17 @@ def _stories_in_window(db_path: Path, since_utc: dt.datetime) -> dict:
             """,
             (cutoff,),
         ).fetchall()
-    total = sum(r[1] for r in rows)
+    db_reacted_total = sum(r[1] for r in rows)
     by_cam = {r[0]: r[1] for r in rows}
-    return {"total": total, "by_cam": by_cam}
+    ledger_counts = _story_ledger_counts(ledger_path, since_utc)
+    reacted_total = max(db_reacted_total, ledger_counts["gem"])
+    archive_total = ledger_counts["archive"]
+    return {
+        "total": reacted_total + archive_total,
+        "reacted": reacted_total,
+        "archive": archive_total,
+        "by_cam": by_cam,
+    }
 
 
 def _queue_depth(db_path: Path) -> dict:
@@ -154,7 +199,7 @@ def _reel_status_today() -> str:
 def _build_message(slot: str, stories: dict, queue: dict,
                    quota: int, reel: str) -> str:
     now_local = dt.datetime.now().astimezone()
-    date_str = now_local.strftime("%b %-d")
+    date_str = f"{now_local.strftime('%b')} {now_local.day}"
     slot_label = "noon" if slot == "noon" else "8 pm"
     window_label = "since midnight" if slot == "noon" else "since noon"
 
@@ -165,11 +210,19 @@ def _build_message(slot: str, stories: dict, queue: dict,
     if n == 0:
         lines.append(f"Stories posted {window_label}: none")
     else:
+        lane_parts = []
+        if stories.get("reacted"):
+            lane_parts.append(f"reacted gems {stories['reacted']}")
+        if stories.get("archive"):
+            lane_parts.append(f"archive fallback {stories['archive']}")
         cam_parts = "  ·  ".join(
             f"{cam} {count}" for cam, count in stories["by_cam"].items()
         )
         lines.append(f"Stories posted {window_label}: **{n}**")
-        lines.append(f"  {cam_parts}")
+        if lane_parts:
+            lines.append("  " + "  ·  ".join(lane_parts))
+        if cam_parts:
+            lines.append(f"  {cam_parts}")
 
     lines.append("")
 
@@ -229,7 +282,7 @@ def main(argv: list[str] | None = None) -> int:
     ledger_path = REPO_ROOT / social_cfg["ledger_path"]
 
     since_utc = _window_start_utc(args.slot)
-    stories = _stories_in_window(db_path, since_utc)
+    stories = _stories_in_window(db_path, ledger_path, since_utc)
     queue = _queue_depth(db_path)
     quota = _quota_used_rolling_24h(ledger_path)
     reel = _reel_status_today() if args.slot == "evening" else ""

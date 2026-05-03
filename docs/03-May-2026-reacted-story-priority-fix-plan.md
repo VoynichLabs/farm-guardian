@@ -5,7 +5,7 @@
 In scope:
 - Fix the hourly social publisher so a non-empty reacted-gem Story queue always blocks the on-this-day archive fallback.
 - Let the publisher skip over a small number of failing oldest gem rows within the same tick so one bad row does not stall every later reacted gem.
-- Clarify the pipeline digest quota label as rolling 24h usage.
+- Clarify the pipeline digest quota label as rolling 24h usage and make its Story count include archive fallback Stories from the shared ledger.
 - Update docs and changelog with the actual priority rule.
 
 Out of scope:
@@ -22,14 +22,14 @@ The bug is in the decision boundary after the gem lane. `_drain_gem_queue()` cur
 
 To reduce backlog stalls, `_drain_gem_queue()` will still cap successful posts at `max_per_tick`, but may attempt a bounded look-ahead beyond that success cap. Local file/path-style permanent failures will be marked in `image_archive.ig_story_skip_reason` with a `story-permanent-skip:` prefix so future selector runs skip dead rows. Transient API/git failures are logged and retried on future ticks. Quota-style errors still stop the whole tick.
 
-`scripts/pipeline-digest.py` stays read-only. Its quota line will say "rolling 24h" because it reads `tools.social.ledger.count_last_24h()`, not local calendar-day usage.
+`scripts/pipeline-digest.py` stays read-only. Its quota line will say "rolling 24h" because it reads `tools.social.ledger.count_last_24h()`, not local calendar-day usage. Its Story count will combine `image_archive` reacted-gem Story metadata with social-ledger `archive` lane rows so "Stories posted" and "quota used" are talking about the same publishing surface.
 
 ## TODO
 
 1. [x] Patch `tools/social/publisher.py` to return queue depth and block archive fallback whenever queue depth is greater than zero.
 2. [x] Add bounded look-ahead in the gem drain loop so bad oldest rows do not prevent all later reacted gems from posting.
 3. [x] Mark local file/path-style permanent failures as `story-permanent-skip` and exclude them from future Story queue selections.
-4. [x] Patch `scripts/pipeline-digest.py` wording from "today" to "rolling 24h."
+4. [x] Patch `scripts/pipeline-digest.py` wording from "today" to "rolling 24h" and include archive fallback Stories in the Story count.
 5. [x] Update `CLAUDE.md`, `docs/SOCIAL_MEDIA_MAP.md`, and the Instagram architecture doc with the clarified priority invariant.
 6. [x] Update `CHANGELOG.md`.
 7. [x] Verify with compile checks and a local monkeypatch test of the gem-drain behavior.
