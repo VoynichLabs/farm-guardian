@@ -2,6 +2,14 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased] - 2026-05-03
+
+### v2.39.1 - social: enforce reacted Story queue priority (GPT-5.5)
+
+Fixed the hourly `social-publisher` priority bug behind the noon digest showing a large reaction queue while archive/iPhone fallback content had consumed IG quota. `_drain_gem_queue()` now returns queue depth and attempt count, and `run_tick()` blocks archive fallback whenever the reacted Story queue is non-empty, even if all attempted gem posts fail. This restores the rule: a Discord reaction is the highest-priority Story signal.
+
+The gem drain still caps successful posts at `tools/social/config.json::max_per_tick` but now uses bounded look-ahead over queued rows so a few bad oldest gems do not prevent later reacted gems from posting in the same tick. File/path-style permanent failures are marked as `ig_story_skip_reason='story-permanent-skip:...'` and excluded from future Story queue counts; transient API/git failures are left retryable. Quota-style 403s still stop the tick cleanly. The pipeline digest now labels quota usage as `rolling 24h`, matching the shared social ledger it actually reads. Updated social/on-this-day docs to reflect that archive stories are now social-publisher fallback, not a competing 90-minute lane.
+
 ## [Unreleased] - 2026-05-02
 
 ### v2.39.0 - social: S7 daily time-lapse Reel lane (GPT-5.5)

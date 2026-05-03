@@ -12,7 +12,7 @@ Verified against `launchctl list | grep farmguardian` and `~/Library/LaunchAgent
 
 **2026-05-02 exception:** the S7 daily time-lapse Reel is not reaction-gated. It selects sharp, safe `s7-cam` frames from one fixed portrait angle, posts automatically at 21:00 local, then sends a Discord notice that mentions Mark.
 
-Cameras and the iPhone catalog are the two raw sources. Camera frames flow through the VLM enricher (LM Studio, every cycle) and only the ones the VLM rates `share_worth=strong` get dropped into Discord `#farm-2026` for Boss to react to. **A Boss reaction on Discord is the quality gate.** Every outbound lane (IG photo, IG carousel, IG story, IG reel, FB Page, Nextdoor) reads `image_archive.discord_reactions > 0` as its filter. The iPhone catalog runs a parallel "on-this-day" lane with no reaction gate — it's pre-curated archival content. Every successful IG post auto-mirrors to the FB Page. Engagement automation (likes/comments on IG and Nextdoor) runs as separate session-capped tools, not on a schedule.
+Cameras and the iPhone catalog are the two raw sources. Camera frames flow through the VLM enricher (LM Studio, every cycle) and only the ones the VLM rates `share_worth=strong` get dropped into Discord `#farm-2026` for Boss to react to. **A Boss reaction on Discord is the quality gate.** Every outbound lane (IG photo, IG carousel, IG story, IG reel, FB Page, Nextdoor) reads `image_archive.discord_reactions > 0` as its filter. The iPhone catalog runs a parallel "on-this-day" lane with no reaction gate — it's pre-curated archival content, and the unified Story publisher only uses it when the reacted Story queue is empty. Every successful IG post auto-mirrors to the FB Page. Engagement automation (likes/comments on IG and Nextdoor) runs as separate session-capped tools, not on a schedule.
 
 ---
 
@@ -23,10 +23,10 @@ Cameras and the iPhone catalog are the two raw sources. Camera frames flow throu
 | **IG S7 time-lapse reel** | `tools/pipeline/ig_poster.py::post_reel_to_ig` | `com.farmguardian.ig-s7-daily-reel` | daily 21:00 | sharp, safe `s7-cam` frames from the past 24h, bucketed across the day and ffmpeg-stitched into one fixed-angle time-lapse Reel. No source-frame or final-preview reaction gate. After IG/FB publish, posts a Discord notice as `farm-reel-s7` mentioning `<@293569238386606080>`. State: `data/reels/s7/posted/`. Script: `scripts/ig-s7-daily-reel.py`. |
 | **IG photo** (single) | `tools/pipeline/ig_poster.py` | none — emergency CLI only | manual | reaction-gated gem |
 | **IG carousel** | `tools/pipeline/ig_poster.py::post_carousel_to_ig` | `com.farmguardian.ig-daily-carousel` | daily 18:00 | today's reacted strong+sharp gems |
-| **IG story** | `tools/pipeline/ig_poster.py::post_gem_to_story` | (rolled into `social-publisher`) | hourly | every unposted reacted gem, FIFO, 25/tick cap |
+| **IG story** | `tools/pipeline/ig_poster.py::post_gem_to_story` | (rolled into `social-publisher`) | hourly | every unposted reacted gem, FIFO, 5-success/tick cap, shared 25 rolling-24h IG quota |
 | **IG reel** | `tools/pipeline/ig_poster.py::post_reel_to_ig` | `com.farmguardian.ig-daily-reel` | daily 18:00 | past 24h reacted gems, ffmpeg-stitched; **Discord approval gate**: reel MP4 posted to `#farm-2026` first — Boss must react before it publishes to IG (checked on the next day's 18:00 run). Unreacted reels expire after 48h. State: `data/reels/pending/`, `posted/`, `expired/`. Script: `scripts/ig-daily-reel.py`. |
 | **FB Page** ("Yorkies App") | `tools/pipeline/fb_poster.py` | none — tail-called from each `ig_poster` success | mirrors IG | every successful IG post auto-dual-posts |
-| **On-this-day → IG/FB stories** | `tools/on_this_day/post_daily.py` (via `scripts/on-this-day-stories.py`) | (rolled into `social-publisher`) | hourly | iPhone catalog at `~/bubba-workspace/projects/photos-curation/photo-catalog/master-catalog.csv` |
+| **On-this-day → IG/FB stories** | `tools/on_this_day/post_daily.py` (via `scripts/on-this-day-stories.py`) | (rolled into `social-publisher`) | hourly fallback only | iPhone catalog at `~/bubba-workspace/projects/photos-curation/photo-catalog/master-catalog.csv`; runs only when reacted Story queue depth is zero |
 | **Unified social publisher** | `scripts/social-publisher.py` | `com.farmguardian.social-publisher` | hourly (`StartInterval=3600`) | runs gem-lane + on-this-day in one tick |
 | **Nextdoor** (Hampton CT) | `tools/nextdoor/crosspost.py` (via `scripts/nextdoor-crosspost.py`) | `com.farmguardian.nextdoor-crosspost` | 08:00 throwback + 18:30 today | 1 reacted live-cam gem + 1 archive photo per day |
 
@@ -52,10 +52,11 @@ Cameras and the iPhone catalog are the two raw sources. Camera frames flow throu
 - **Reel quota note:** the mixed daily Reel and S7 time-lapse Reel both consume one IG `media` publish when they post. The shared ledger is checked before Reel publishing so a full 25-per-24h window delays the Reel instead of retrying into a known hard cap.
 
 - **Reaction-gate trust signal:** `image_archive.discord_reactions` — single source of truth. Every outbound lane filters `WHERE discord_reactions > 0`. Cross-reference from a Discord message back to its `image_archive` row is by `(camera_id, ts ±60s)`, NOT sha256 (Discord CDN re-encodes). Reactions from Larry / Bubba / Egon (other Claude instances) don't count.
+- **Reacted Story queue priority:** `social-publisher` must treat any non-empty reacted Story queue as higher priority than on-this-day fallback. Archive/iPhone fallback stories run only when queue depth is zero; failed gem publish attempts do not make archive fallback eligible. The gem drain has bounded look-ahead, and local file/path-style permanent failures are marked `story-permanent-skip` so dead oldest rows stop poisoning the FIFO queue while transient API/git failures remain retryable.
 - **Cookie-lift session bootstrap** (no logins, no 2FA): `tools/chrome_session/decrypt.py`, shared by IG-engage and Nextdoor. Per-track Playwright Chromium persistent profiles at `~/Library/Application Support/farm-{ig-engage,nextdoor}/profile/`.
 - **Browser automation stack** (when standing up a new social surface): Playwright + persistent profile, `tools/chrome_session/codegen.py` codegen wrapper, `chrome-devtools` MCP, Claude-for-Chrome extension. Index doc: `~/bubba-workspace/skills/browser-automation/SKILL.md`.
 - **Tokens:** `~/bubba-workspace/secrets/farm-guardian-meta.env` (`0600`, gitignored) — non-expiring IG + FB long-lived tokens. Discord bot token in `~/.openclaw/openclaw.json`.
-- **IG publish quota — HARD LIMIT:** Instagram Graph API caps Business accounts at **25 `media` publishes per rolling 24h**, shared across BOTH the gem lane (`ig-2hr-story` + `ig-daily-carousel` + `ig-weekly-reel`) AND the on-this-day archive lane. Both lanes detect the 403 and stop the batch cleanly so the next tick resumes when a slot frees. Don't "fix" the 403 by cranking timeouts or regenerating tokens — it's a hard quota, not auth.
+- **IG publish quota — HARD LIMIT:** Instagram Graph API caps Business accounts at **25 `media` publishes per rolling 24h**, shared across reacted stories, carousels, mixed Reels, S7 time-lapse Reels, and on-this-day fallback stories. The publisher/reel runners detect the 403 and stop cleanly so the next tick resumes when a slot frees. Don't "fix" the 403 by cranking timeouts or regenerating tokens — it's a hard quota, not auth.
 - **FB cross-post is a SETTLED capability** (live since 2026-04-21, CHANGELOG v2.35.1). All four lanes — photo, carousel, story, reel — verified. Tokens non-expiring. Don't re-research Meta scopes; the "Manage everything on your Page" Use Case is already attached. Toggle: `FB_CROSSPOST_ENABLED=0` to disable without code change.
 
 ## Kill switches
@@ -75,7 +76,7 @@ These are the canonical runbooks for each track. They live in `~/bubba-workspace
 - **FB cross-post** — `~/bubba-workspace/skills/farm-facebook-crosspost/SKILL.md`
 - **Nextdoor (both lanes)** — `~/bubba-workspace/skills/farm-nextdoor-engage/SKILL.md`
 - **On-this-day archive lane** — `../tools/on_this_day/README.md` (in this repo)
-- **IG architecture (canonical)** — `20-Apr-2026-ig-scheduled-posting-architecture.md` (sibling file; slightly out of date on cadence — the social-publisher unification 23-Apr supersedes the four-LaunchAgent diagram, but the rest is current)
+- **IG architecture (canonical)** — `20-Apr-2026-ig-scheduled-posting-architecture.md` (sibling file; detailed Instagram posting architecture and operational notes)
 
 ---
 

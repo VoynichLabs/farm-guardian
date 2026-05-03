@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-# Author: Claude Sonnet 4.6
-# Date: 01-May-2026
+# Author: GPT-5.5
+# Date: 03-May-2026
 # PURPOSE: Post a pipeline status digest to Discord at noon and 8pm.
 #          Noon slot shows stories posted since midnight.
 #          Evening slot shows stories posted since noon, plus reel status.
-#          Both show queue depth, oldest queued gem, and IG quota used today.
+#          Both show queue depth, oldest queued gem, and IG quota used in
+#          the rolling 24h Graph API window.
+#          Queue depth excludes rows marked story-permanent-skip by the
+#          publisher after local file/path failures.
 #          Posts to DISCORD_WEBHOOK_URL as username "farm-pipeline" so it
 #          is visually distinct from gem posts and can't trigger the
 #          reaction-quality-gate cross-reference.
@@ -97,6 +100,10 @@ def _queue_depth(db_path: Path) -> dict:
                AND bird_count >= 1
                AND (has_concerns = 0 OR has_concerns IS NULL)
                AND image_path IS NOT NULL
+               AND (
+                   ig_story_skip_reason IS NULL
+                   OR ig_story_skip_reason NOT LIKE 'story-permanent-skip:%'
+               )
             """
         ).fetchone()[0]
         oldest_row = c.execute(
@@ -109,6 +116,10 @@ def _queue_depth(db_path: Path) -> dict:
                AND bird_count >= 1
                AND (has_concerns = 0 OR has_concerns IS NULL)
                AND image_path IS NOT NULL
+               AND (
+                   ig_story_skip_reason IS NULL
+                   OR ig_story_skip_reason NOT LIKE 'story-permanent-skip:%'
+               )
              ORDER BY ts ASC LIMIT 1
             """
         ).fetchone()
@@ -116,7 +127,7 @@ def _queue_depth(db_path: Path) -> dict:
     return {"count": count, "oldest": oldest}
 
 
-def _quota_used_today(ledger_path: Path) -> int:
+def _quota_used_rolling_24h(ledger_path: Path) -> int:
     """Count IG publishes in the rolling 24h window via the social ledger."""
     from tools.social import ledger
     return ledger.count_last_24h(ledger_path, platform="ig")
@@ -168,7 +179,7 @@ def _build_message(slot: str, stories: dict, queue: dict,
     lines.append(f"Reaction queue: **{q}** gems waiting  ·  oldest {oldest}")
 
     # Quota
-    lines.append(f"IG quota used today: **{quota} / 25**")
+    lines.append(f"IG quota used (rolling 24h): **{quota} / 25**")
 
     # Reel (evening only — it hasn't run yet at noon)
     if slot == "evening":
@@ -220,7 +231,7 @@ def main(argv: list[str] | None = None) -> int:
     since_utc = _window_start_utc(args.slot)
     stories = _stories_in_window(db_path, since_utc)
     queue = _queue_depth(db_path)
-    quota = _quota_used_today(ledger_path)
+    quota = _quota_used_rolling_24h(ledger_path)
     reel = _reel_status_today() if args.slot == "evening" else ""
 
     message = _build_message(args.slot, stories, queue, quota, reel)

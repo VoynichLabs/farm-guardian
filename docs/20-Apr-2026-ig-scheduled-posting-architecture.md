@@ -1,26 +1,29 @@
 # Instagram Posting — Scheduled Architecture (Current State)
 
 **Audience:** the next Claude Code session picking up Instagram work on `@pawel_and_pawleen`.
-**Last updated:** 2026-04-20 (afternoon — supersedes the 2026-04-20 morning plan docs).
+**Last updated:** 2026-05-03 (social-publisher reacted Story priority fix; `docs/SOCIAL_MEDIA_MAP.md` remains the shortest current map).
 **Status:** live in production.
 
 ---
 
 ## TL;DR
 
-Four LaunchAgents run the whole thing. Humans react on Discord `#farm-2026`; those reactions are the only quality gate; nothing gets posted to Instagram without a reaction.
+The current social pipeline is LaunchAgent-driven. Humans react on Discord `#farm-2026`; those reactions are the only quality gate for mixed gem lanes; nothing from the mixed camera/iPhone-gem lanes gets posted to Instagram without a reaction. The S7 daily time-lapse Reel and on-this-day fallback stories are explicit exceptions documented in `docs/SOCIAL_MEDIA_MAP.md`.
 
 ```
 LaunchAgent                                      Script                              Cadence
 ────────────────────────────────────────────────────────────────────────────────────────────────
 com.farmguardian.discord-reaction-sync           scripts/discord-reaction-sync.py    every 30 min
 com.farmguardian.archive-throwback               scripts/archive-throwback.py        daily 08:00 local
-com.farmguardian.ig-2hr-story                    scripts/ig-2hr-story.py             every 2 hours
+com.farmguardian.social-publisher                scripts/social-publisher.py         hourly
 com.farmguardian.ig-daily-carousel               scripts/ig-daily-carousel.py        daily 18:00 local
-com.farmguardian.ig-weekly-reel                  scripts/ig-weekly-reel.py           Sundays 19:00 local
+com.farmguardian.ig-daily-reel                   scripts/ig-daily-reel.py            daily 18:00 local
+com.farmguardian.ig-s7-daily-reel                scripts/ig-s7-daily-reel.py         daily 21:00 local
 ```
 
 Per-cycle auto-posting from the pipeline orchestrator is **dead** (config flag `instagram.enabled=false`). Do not re-enable it without Boss approval — it spams one-frame-per-strong+sharp-gem which is exactly what the scheduled architecture replaces.
+
+**Reacted Story queue priority (2026-05-03):** `social-publisher` posts reacted gems first using `select_all_unposted_story_gems()` with no time window. On-this-day archive/iPhone fallback stories may run only when the reacted Story queue depth is zero. A failed gem attempt does not make fallback eligible; queue depth is the gate. Local file/path-style permanent failures are marked `story-permanent-skip` and excluded from future Story queue counts; transient API/git failures remain retryable.
 
 ---
 
@@ -142,13 +145,14 @@ Boss drops a photo into #farm-2026 (iPhone → Discord app)
 
 ## The selection helpers ([`tools/pipeline/ig_selection.py`](../tools/pipeline/ig_selection.py))
 
-All three helpers require `discord_reactions >= 1` AND `has_concerns=0` AND `image_path IS NOT NULL`.
+Mixed-lane helpers require `discord_reactions >= 1` AND `has_concerns=0` AND `image_path IS NOT NULL`. The Story publisher uses the all-unposted helper, not a recent-window winner, so reacted gems are not silently dropped.
 
 | Helper | Window | VLM tier | Quality | Diversity bucket | Notes |
 |---|---|---|---|---|---|
 | `select_daily_carousel_gems` | today (UTC) | `strong` | `sharp` | (camera, 15 min) | Excludes gems with `ig_permalink` populated |
-| `select_best_story_gem` | last N min (default 120) | `strong` or `decent` | `sharp` or `soft` | — (picks single best) | Excludes gems with `ig_story_id` populated |
-| `select_weekly_reel_gems` | last N days (default 7) | `strong` | `sharp` | (camera, 6 hr) | Stitches an MP4 |
+| `select_all_unposted_story_gems` | no time window | `strong` or `decent` | `sharp` or `soft` | FIFO | Excludes gems with `ig_story_id` populated; used by `social-publisher` |
+| `select_daily_reel_gems` | past 24h | `strong` | `sharp` | none | Stitches all reacted gems into the mixed daily Reel preview |
+| `select_s7_daily_reel_gems` | past 24h | `strong` or `decent` | `sharp` | time buckets | S7 time-lapse exception; no source reaction gate |
 
 Ranking is by the `_score_gem` tuple: `(discord_reactions, tier_rank, quality_rank, bird_count, ts)`. Reaction count always beats VLM tags — a gem with 2 reactions wins over a gem with 1 regardless of VLM.
 
@@ -217,22 +221,27 @@ Migration is idempotent via `_add_column_if_missing` — call `ensure_schema(db_
 
 ## Plists ([`deploy/ig-scheduled/`](../deploy/ig-scheduled/))
 
-All four plists use `Label = com.farmguardian.*` (known-working TCC label family). Installed at `~/Library/LaunchAgents/`. Bootstrapped via `launchctl bootstrap gui/$(id -u) <plist>`.
+Production plists use `Label = com.farmguardian.*` (known-working TCC label family). Installed at `~/Library/LaunchAgents/`. Bootstrapped via `launchctl bootstrap gui/$(id -u) <plist>`.
 
 ```
 com.farmguardian.discord-reaction-sync   StartInterval=1800  RunAtLoad=true
-com.farmguardian.ig-2hr-story            StartInterval=7200  RunAtLoad=false
+com.farmguardian.social-publisher        StartInterval=3600  RunAtLoad=false
 com.farmguardian.ig-daily-carousel       StartCalendar Hour=18 Minute=0
-com.farmguardian.ig-weekly-reel          StartCalendar Weekday=0 Hour=19 Minute=0
+com.farmguardian.ig-daily-reel           StartCalendar Hour=18 Minute=0
+com.farmguardian.ig-s7-daily-reel        StartCalendar Hour=21 Minute=0
+com.farmguardian.pipeline-digest-noon    StartCalendar Hour=12 Minute=0
+com.farmguardian.pipeline-digest-evening StartCalendar Hour=20 Minute=0
 ```
 
-Check status: `launchctl list | grep farmguardian.ig`. Kickstart on demand: `launchctl kickstart gui/$(id -u)/com.farmguardian.ig-2hr-story`.
+Check status: `launchctl list | grep farmguardian`. Kickstart on demand: `launchctl kickstart gui/$(id -u)/com.farmguardian.social-publisher`.
 
 Logs:
 - `/tmp/discord-reaction-sync.{out,err}.log`
-- `/tmp/ig-2hr-story.{out,err}.log`
+- `/tmp/social-publisher.{out,err}.log`
 - `/tmp/ig-daily-carousel.{out,err}.log`
-- `/tmp/ig-weekly-reel.{out,err}.log`
+- `/tmp/ig-daily-reel.{out,err}.log`
+- `/tmp/ig-s7-daily-reel.{out,err}.log`
+- `/tmp/pipeline-digest-{noon,evening}.{out,err}.log`
 
 ---
 
@@ -289,10 +298,10 @@ venv/bin/python scripts/discord-reaction-sync.py --backfill
 
 ---
 
-## Known unresolved items (as of 2026-04-20)
+## Operational notes (as of 2026-05-03)
 
-1. **Backlog of reacted gems is an asset, not a problem.** Boss explicitly wants a queue of content waiting to be posted — the scheduled lanes draw from it over time. Don't try to "drain" the backlog unless Boss asks; the 2h story lane will naturally keep flowing fresh content while older reacted gems remain available for carousels and reels.
-2. **No auto-reel orchestration history yet.** The first weekly reel fires Sunday 19:00 local. Watch `/tmp/ig-weekly-reel.err.log` for the first real run. ffmpeg stitch tested offline; Graph API publish tested via the manual CLI but not via LaunchAgent.
+1. **Backlog of reacted gems is an asset, not a problem.** Boss explicitly wants a queue of content waiting to be posted — the scheduled lanes draw from it over time. Don't try to bypass the reaction gate; the hourly `social-publisher` Story lane drains reacted gems FIFO at the configured success cap while older reacted gems remain available for carousels and reels. Archive fallback stays blocked while this queue is non-empty.
+2. **Reel lanes are live.** The mixed daily Reel runs at 18:00 with Discord preview approval. The S7 time-lapse Reel runs at 21:00 without approval and posts a Discord notice mentioning Mark. Watch the lane-specific `/tmp/ig-*.err.log` files and `data/reels/**` state files for audit.
 3. **The stale CLI — [`scripts/ig-post.py`](../scripts/ig-post.py)** — still works and still takes `--mode {photo,story,reel}`. It's not used by any scheduled lane. Keep it around for emergencies (e.g., Boss wants to force-post a specific gem); don't use it in automation.
 4. **Orchestrator-internal hooks — `_maybe_post_to_ig`, `_maybe_post_to_story`** — still exist in [`orchestrator.py`](../tools/pipeline/orchestrator.py) but are `cfg["instagram"]["enabled"]=false`-gated. Left in place so the code doesn't bitrot; if a future design reverts to per-cycle posting, the plumbing is there.
 5. **Video drops (MP4/MOV) are skipped.** `_ingest_drop` only handles still-image extensions. If Boss wants videos he drops into Discord to flow to IG Reels, that's a new pipeline — the reel_stitcher currently only stitches stills.

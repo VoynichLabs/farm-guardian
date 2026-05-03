@@ -1,5 +1,5 @@
-# Author: Claude Opus 4.7 (1M context)
-# Date: 23-April-2026
+# Author: GPT-5.5
+# Date: 03-May-2026
 # PURPOSE: One-decider orchestrator for IG+FB story publishing across
 #          the gem lane and the archive lane. Fires every 60 min via
 #          com.farmguardian.social-publisher (see
@@ -28,6 +28,17 @@
 #          on_this_day.post_daily._publish_one_story helpers — this
 #          module does not re-implement them.
 #
+#          2026-05-03 priority fix: archive fallback is gated by gem
+#          queue depth, not by gem posted count. A non-empty reacted-gem
+#          queue blocks archive posting even when the oldest attempted
+#          gem rows fail. The drain loop may look ahead through a bounded
+#          number of queued rows to avoid one bad old row stalling later
+#          reacted gems, while still capping successful posts per tick.
+#          File/path-style permanent failures are marked in
+#          image_archive.ig_story_skip_reason with the
+#          story-permanent-skip prefix so the selector stops retrying
+#          dead rows; transient API/git failures are not marked.
+#
 # SRP/DRY check: Pass — decision logic only. Publish helpers are
 #                imported; ledger in tools.social.ledger. No Graph
 #                API calls in this file.
@@ -38,8 +49,8 @@ import argparse
 import datetime as dt
 import json
 import logging
+import sqlite3
 import sys
-import tempfile
 from pathlib import Path
 from typing import Optional
 
@@ -57,6 +68,15 @@ CONFIG_PATH = Path(__file__).parent / "config.json"
 # transient problem." 403 covers the Meta rate-limit response; the
 # "rate"/"limit" keywords catch the human-readable wrappers.
 _QUOTA_MARKERS = ("403", "rate limit", "rate-limit", "application request limit")
+_GEM_LOOKAHEAD_MULTIPLIER = 3
+_PERMANENT_GEM_ERROR_MARKERS = (
+    "filenotfounderror",
+    "no such file or directory",
+    "_prepare_story_image",
+    "resolve_gem_image_path",
+    "missing source",
+    "not found in image_archive",
+)
 
 
 def _load_config() -> dict:
@@ -66,6 +86,28 @@ def _load_config() -> dict:
 def _looks_like_quota_error(result: dict) -> bool:
     err = str(result.get("error") or "").lower()
     return any(marker in err for marker in _QUOTA_MARKERS)
+
+
+def _looks_like_permanent_gem_error(result: dict) -> bool:
+    err = str(result.get("error") or "").lower()
+    return any(marker in err for marker in _PERMANENT_GEM_ERROR_MARKERS)
+
+
+def _mark_story_permanent_skip(db_path: Path, gem_id: int, error: str) -> None:
+    reason = f"story-permanent-skip:{error}"[:500]
+    conn = sqlite3.connect(str(db_path))
+    try:
+        conn.execute(
+            """
+            UPDATE image_archive
+               SET ig_story_skip_reason = ?
+             WHERE id = ?
+            """,
+            (reason, gem_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 # ---------------------------------------------------------------------------
@@ -97,9 +139,10 @@ def _drain_gem_queue(
     max_per_tick: int,
     ledger_path: Path,
     dry_run: bool,
-) -> tuple[int, bool]:
-    """Post gems FIFO up to min(slots_remaining, max_per_tick).
-    Returns (posted_count, hit_quota_403). hit_quota_403=True means
+) -> tuple[int, bool, int, int]:
+    """Post gems FIFO up to min(slots_remaining, max_per_tick) successes.
+    Returns (posted_count, hit_quota_403, queue_depth, attempted_count).
+    hit_quota_403=True means
     the platform returned 403 mid-batch — publisher should exit the
     whole tick regardless of remaining gems.
 
@@ -110,19 +153,36 @@ def _drain_gem_queue(
 
     sched_cfg = (_load_guardian_config().get("instagram") or {}).get("scheduled") or {}
     all_gem_ids = select_all_unposted_story_gems(db_path=db_path, cfg=sched_cfg)
+    queue_depth = len(all_gem_ids)
     if not all_gem_ids:
         log.info("publisher: gem queue empty")
-        return 0, False
+        return 0, False, 0, 0
 
-    cap = min(slots_remaining, max_per_tick)
-    to_post = all_gem_ids[:cap]
+    success_cap = min(slots_remaining, max_per_tick)
+    if success_cap <= 0:
+        log.info(
+            "publisher: gem queue has %d but no slots are available this tick",
+            queue_depth,
+        )
+        return 0, False, queue_depth, 0
+
+    attempt_cap = min(
+        queue_depth,
+        max(success_cap, success_cap * _GEM_LOOKAHEAD_MULTIPLIER),
+    )
+    to_attempt = all_gem_ids[:attempt_cap]
     log.info(
-        "publisher: gem queue has %d; posting up to %d this tick (slots_free=%d, max_per_tick=%d)",
-        len(all_gem_ids), len(to_post), slots_remaining, max_per_tick,
+        "publisher: gem queue has %d; attempting up to %d to post %d this tick "
+        "(slots_free=%d, max_per_tick=%d)",
+        queue_depth, len(to_attempt), success_cap, slots_remaining, max_per_tick,
     )
 
     posted = 0
-    for gem_id in to_post:
+    attempted = 0
+    for gem_id in to_attempt:
+        if posted >= success_cap:
+            break
+        attempted += 1
         result = _post_gem(gem_id, db_path, farm_2026_repo, dry_run)
         if result.get("error"):
             if _looks_like_quota_error(result):
@@ -130,7 +190,21 @@ def _drain_gem_queue(
                     "publisher: gem %s got quota-style error; stopping batch (%s)",
                     gem_id, result["error"],
                 )
-                return posted, True
+                return posted, True, queue_depth, attempted
+            if _looks_like_permanent_gem_error(result):
+                if dry_run:
+                    log.error(
+                        "publisher: gem %s has permanent Story failure; "
+                        "dry-run would mark skip: %s",
+                        gem_id, result["error"],
+                    )
+                else:
+                    _mark_story_permanent_skip(db_path, gem_id, str(result["error"]))
+                    log.error(
+                        "publisher: gem %s has permanent Story failure; marked skip: %s",
+                        gem_id, result["error"],
+                    )
+                continue
             log.error("publisher: gem %s post failed: %s", gem_id, result["error"])
             continue
 
@@ -152,7 +226,7 @@ def _drain_gem_queue(
         )
         posted += 1
 
-    return posted, False
+    return posted, False, queue_depth, attempted
 
 
 # ---------------------------------------------------------------------------
@@ -243,7 +317,7 @@ def run_tick(dry_run: bool = False) -> dict:
         return summary
 
     # 1. Drain the gem queue (priority).
-    gems_posted, quota_hit = _drain_gem_queue(
+    gems_posted, quota_hit, gem_queue_depth, gem_attempts = _drain_gem_queue(
         db_path=db_path,
         farm_2026_repo=farm_2026,
         slots_remaining=slots_free,
@@ -252,6 +326,8 @@ def run_tick(dry_run: bool = False) -> dict:
         dry_run=dry_run,
     )
     summary["gems_posted"] = gems_posted
+    summary["gem_queue_depth_at_start"] = gem_queue_depth
+    summary["gem_attempts"] = gem_attempts
     slots_free -= gems_posted
 
     if quota_hit:
@@ -259,14 +335,22 @@ def run_tick(dry_run: bool = False) -> dict:
         log.info("publisher: platform quota hit; tick done (gems=%d)", gems_posted)
         return summary
 
-    # 2. Archive fallback — only if gem queue was empty this tick.
-    # We detect "gem queue empty" by: we posted zero gems AND the
-    # selector returned zero rows (gems_posted=0 and the log says
-    # "gem queue empty"). If we posted >=1 gem we do NOT fall back
-    # to archive this tick — Boss's rule is "archive only when
-    # there are NO reactions from today to post."
-    if gems_posted > 0:
-        log.info("publisher: gems posted this tick; skipping archive fallback")
+    # 2. Archive fallback: only if the reacted-gem queue was empty at
+    # the start of this tick. Failed gem attempts do not make archive
+    # eligible; Boss's reaction is the priority signal.
+    if gem_queue_depth > 0:
+        summary["archive_blocked_by_gem_queue"] = True
+        if gems_posted > 0:
+            log.info(
+                "publisher: gem queue had %d item(s), posted %d; skipping archive fallback",
+                gem_queue_depth, gems_posted,
+            )
+        else:
+            log.warning(
+                "publisher: gem queue had %d item(s) but none posted after %d attempt(s); "
+                "blocking archive fallback",
+                gem_queue_depth, gem_attempts,
+            )
         return summary
 
     if slots_free < reserve_floor:

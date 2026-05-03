@@ -97,39 +97,39 @@ Top-N is score-desc, ties broken by year-desc (2025 beats 2024 beats 2022).
 
 | Lane | Source of photos | Quality gate | Destination | Canonical code |
 |---|---|---|---|---|
-| **Gem lane** | Live cameras via `com.farmguardian.pipeline` | Boss's reactions on Discord `#farm-2026` (human-in-the-loop) | IG (`@pawel_and_pawleen`) + FB Page (*Yorkies App*) — stories every 2h, carousel daily 18:00, reel Sun 19:00 | `tools/pipeline/` (this repo), state in `data/image_archive.db` |
-| **Archive lane** (this doc) | Qwen-catalogued iPhone archive at `~/bubba-workspace/projects/photos-curation/photo-catalog/` | Automated content filter (farm/pet keywords in; hawks/receipts/etc. out) | Same IG + FB Page — stories every 90 min | `tools/on_this_day/` (this folder), state in `data/on-this-day/posted.json` |
+| **Gem lane** | Live cameras via `com.farmguardian.pipeline` | Boss's reactions on Discord `#farm-2026` (human-in-the-loop) | IG (`@pawel_and_pawleen`) + FB Page (*Yorkies App*) — reacted stories hourly through `social-publisher`, carousel daily 18:00, mixed Reel daily 18:00, S7 time-lapse Reel daily 21:00 | `tools/pipeline/` (this repo), state in `data/image_archive.db` |
+| **Archive lane** (this doc) | Qwen-catalogued iPhone archive at `~/bubba-workspace/projects/photos-curation/photo-catalog/` | Automated content filter (farm/pet keywords in; hawks/receipts/etc. out) | Same IG + FB Page — fallback stories through `social-publisher` only when the reacted Story queue is empty | `tools/on_this_day/` (this folder), state in `data/on-this-day/posted.json` |
 
-They share `fb_poster.py`, `git_helper.py`, and `ig_poster.py` helpers but have independent selectors, LaunchAgents, and state files. Both commit into `farm-2026/public/photos/` and use `raw.githubusercontent.com` URLs to feed Meta's media fetcher. Don't merge them — different content policies, different schemas.
+They share `fb_poster.py`, `git_helper.py`, and `ig_poster.py` helpers but have independent selectors and state files. `social-publisher` is the shared hourly decider for reacted Story queue vs archive fallback. Both commit into `farm-2026/public/photos/` and use `raw.githubusercontent.com` URLs to feed Meta's media fetcher. Don't merge the sources — different content policies, different schemas.
 
 **Zero-loss invariants:**
-- Gem lane: `select_all_unposted_story_gems` runs every 2h with **no time window**. Anything with `discord_reactions >= 1` and `ig_story_id IS NULL` gets FIFO-drained. Capped at 25/tick to respect IG's 24h publish quota; large backlogs drain over subsequent ticks.
+- Gem lane: `select_all_unposted_story_gems` runs hourly via `social-publisher` with **no time window**. Anything with `discord_reactions >= 1`, `ig_story_id IS NULL`, and no `story-permanent-skip` reason gets FIFO-drained. Capped by `tools/social/config.json::max_per_tick` (currently 5 successful posts/tick) and the shared 25-per-rolling-24h IG publish quota; large backlogs drain over subsequent ticks.
 - Archive lane: posted UUIDs are recorded in `data/on-this-day/posted.json`, never reposted. Cloud-only photos blacklist until tomorrow and retry on next day's ticks.
 
 ## Automation (v2.36.3) — you never type these commands
 
-Two LaunchAgents run this pipeline with zero human touch:
+`social-publisher` runs archive Story fallback with zero human touch. Reciprocation is a separate optional LaunchAgent:
 
 | Label | Cadence | Script | What it does |
 |---|---|---|---|
-| `com.farmguardian.on-this-day` | **every 90 min** (`StartInterval 5400`) | `scripts/on-this-day-stories.py` | Fires `post_daily.py --auto-story` — picks ONE top unposted candidate (today's on-this-day pool first, back-catalog fallback next) and publishes it as BOTH an FB Page Story AND an Instagram Story. Posted UUIDs are recorded in `data/on-this-day/posted.json` so the same photo is never re-cycled. |
+| `com.farmguardian.social-publisher` | hourly (`StartInterval 3600`) | `scripts/social-publisher.py` | Calls `tools.on_this_day.post_daily.run_auto_story_cycle()` only when the reacted Story queue is empty and enough IG quota remains. The cycle picks ONE top unposted candidate (today's on-this-day pool first, back-catalog fallback next) and publishes it as BOTH an FB Page Story AND an Instagram Story. Posted UUIDs are recorded in `data/on-this-day/posted.json` so the same photo is never re-cycled. |
 | `com.farmguardian.reciprocate` | every 4 hours (`StartInterval 14400`) | `scripts/reciprocate-harvest.py` | Scans the last 2 days of Page posts + Stories, aggregates reactors/commenters, writes `data/on-this-day/engagers-YYYY-MM-DD.{json,txt}`, and posts a summary to Discord channel **`1476787165638951026`** (via the Bubba bot token from `~/.openclaw/openclaw.json`). NEVER `#farm-2026` — that channel is the IG-gem reaction-quality-gate and we don't pollute its signal. |
 
 **Install (one-time, already done on this Mac Mini):**
 
 ```bash
-cp deploy/ig-scheduled/com.farmguardian.on-this-day.plist  ~/Library/LaunchAgents/
+cp deploy/ig-scheduled/com.farmguardian.social-publisher.plist  ~/Library/LaunchAgents/
 cp deploy/ig-scheduled/com.farmguardian.reciprocate.plist  ~/Library/LaunchAgents/
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.farmguardian.on-this-day.plist
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.farmguardian.social-publisher.plist
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.farmguardian.reciprocate.plist
 ```
 
 **Manual fire (debugging only):**
 
 ```bash
-launchctl kickstart -k gui/$(id -u)/com.farmguardian.on-this-day
+launchctl kickstart -k gui/$(id -u)/com.farmguardian.social-publisher
 launchctl kickstart -k gui/$(id -u)/com.farmguardian.reciprocate
-tail -f /tmp/on-this-day.out.log /tmp/reciprocate.out.log
+tail -f /tmp/social-publisher.out.log /tmp/reciprocate.out.log
 ```
 
 **Why Graph API doesn't auto-follow-back:** Meta does not expose a "Page likes user" or "Page follows user profile" action to Page access tokens. It's asymmetric by design; only a Page→Page follow is possible programmatically, and even that requires elevated scopes we don't hold. So the reciprocate tool surfaces the *click list* — profile name + FB URL + engagement summary — and Boss follows/friends manually from the Discord DM. If Meta ever opens the API for reciprocal follows, the list is ready.
@@ -138,7 +138,7 @@ tail -f /tmp/on-this-day.out.log /tmp/reciprocate.out.log
 
 ## Posted-state ledger
 
-`data/on-this-day/posted.json` is the single source of truth for which photos have already gone out. Keyed by Photos UUID; each entry records `posted_at`, `lanes` (`fb_story` / `ig_story` / both), `fb_post_id`, `ig_post_id`, `raw_url`. The selector respects this ledger via `already_posted(uuid)` so the 90-min LaunchAgent can't pick the same photo twice. Delete an entry to force a repost. Seeded 2026-04-22 with the four FB stories from the initial partial run.
+`data/on-this-day/posted.json` is the single source of truth for which photos have already gone out. Keyed by Photos UUID; each entry records `posted_at`, `lanes` (`fb_story` / `ig_story` / both), `fb_post_id`, `ig_post_id`, `raw_url`. The selector respects this ledger via `already_posted(uuid)` so social-publisher fallback can't pick the same photo twice. Delete an entry to force a repost. Seeded 2026-04-22 with the four FB stories from the initial partial run.
 
 An audit trail of every LaunchAgent tick lives at `data/on-this-day/auto-story-YYYY-MM-DD.ndjson` (one JSON row per fire — success, caption-safety skip, or no-candidate steady state).
 

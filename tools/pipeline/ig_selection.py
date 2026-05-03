@@ -21,6 +21,13 @@
 #          an empty result when the window has nothing worth posting.
 #          Scheduler scripts handle the "skip slot gracefully" path.
 #
+#          Story queue permanent skips (2026-05-03): social-publisher
+#          may mark local file/path failures as
+#          ig_story_skip_reason='story-permanent-skip:...'. Story
+#          selectors exclude those rows so dead old queue items do not
+#          block later reacted gems forever. Transient publish failures
+#          are not marked and remain eligible for retry.
+#
 #          Diversity rule (carousel + reel): group by (camera_id,
 #          time-bucket-minutes); pick highest-share gem per group;
 #          order chronologically. Avoids posting N near-identical
@@ -205,6 +212,7 @@ def select_best_story_gem(
       - has_concerns false
       - image_path populated
       - ig_story_id NULL (not already posted as a story)
+      - ig_story_skip_reason not marked story-permanent-skip
       - ts >= now - story_window_minutes
 
     Winner picked by _score_gem (strong+sharp+most birds+most recent).
@@ -230,6 +238,10 @@ def select_best_story_gem(
                AND (has_concerns = 0 OR has_concerns IS NULL)
                AND image_path IS NOT NULL
                AND ig_story_id IS NULL
+               AND (
+                   ig_story_skip_reason IS NULL
+                   OR ig_story_skip_reason NOT LIKE 'story-permanent-skip:%'
+               )
                AND discord_reactions >= 1
              ORDER BY ts DESC
             """,
@@ -277,6 +289,7 @@ def select_all_unposted_story_gems(
       - has_concerns false
       - image_path populated
       - ig_story_id NULL  (not already posted as a story)
+      - ig_story_skip_reason not marked story-permanent-skip
       - discord_reactions >= 1  (Boss gave it a thumbs-up)
 
     No ts cutoff: a gem that got reacted 4 days ago but wasn't posted
@@ -298,6 +311,10 @@ def select_all_unposted_story_gems(
                AND (has_concerns = 0 OR has_concerns IS NULL)
                AND image_path IS NOT NULL
                AND ig_story_id IS NULL
+               AND (
+                   ig_story_skip_reason IS NULL
+                   OR ig_story_skip_reason NOT LIKE 'story-permanent-skip:%'
+               )
                AND discord_reactions >= 1
              ORDER BY ts ASC
             """,
