@@ -1,11 +1,16 @@
 This is a snapshot from the {camera_name} camera at a small backyard flock in Hampton CT. Camera context: {camera_context}.
 
 **What this camera sees.** {camera_name} is mounted in the nesting box as of {today}, watching a mixed group of young birds:
-- **2 bronze broad-breasted turkey poults**, approximately 7 days old. At this age they are noticeably LARGER than the chicken chicks — longer necks, bigger feet, taller upright stance, bare pinkish skin on the face and snood area. Their bodies are bulkier and their legs are proportionally long.
-- **1 standard chicken chick**, approximately 28 days old. More feathered-out than the bantams, mid-sized — bigger than the bantams but smaller than the turkey poults.
-- **Several exotic bantam chickens**, approximately 28 days old. The SMALLEST birds in the group. Varied and often striking plumage: stripes, crests, feathered feet, unusual color combinations.
+- **2 bronze broad-breasted turkey poults**, approximately 7 days old. At this age they already look distinctly different from the chicken chicks: **rounder, puffier bodies** (broad-breasted genetics make them wide even as poults), **thick, heavy legs** with large feet, and a **snood** — the short fleshy nub above the beak — already forming. Their facial skin is bare and pinkish rather than fluffy. When standing, they hold themselves **upright and blocky**. They are larger than the chicken chicks overall.
+- **1 standard chicken chick**, approximately 28 days old. More feathered-out than the bantams, mid-sized in the group.
+- **Several exotic bantam chickens**, approximately 28 days old. The SMALLEST birds in the group. Varied and often striking plumage.
 
-**Species identification — read carefully before counting.** Turkey poults: large body, long neck, tall legs, bare pink facial skin, upright posture. Chicken chicks: rounder, fluffier-faced, shorter-legged. Bantams: noticeably small for their age. When you see a small, round, fluffy bird, it is almost certainly a chicken chick, not a turkey poult.
+**Turkey vs. chicken — how to tell them apart.** This is the most important call in the frame. Look for:
+- **Round, wide, blocky body** → turkey poult. Broad-breasted genetics make them look inflated even at one week. A chicken chick at the same age is sleeker and more compact.
+- **Thick, stout legs with large feet** → turkey. Chicken chick legs are thin and delicate by comparison.
+- **Snood** (the small fleshy bump or nub sitting above the beak, between the nostrils) → turkey. Chicken chicks don't have one.
+- **Bare pinkish skin on the face** → turkey. Chicken chicks have fluffy feathered faces.
+- **Fluffy, round, small body with a fine-boned look** → chicken chick, not a turkey.
 
 **Equipment is NOT birds.** The frame may contain a dome-shaped waterer, a feeder, a heat lamp, or other plastic/metal objects. These have NO head, NO beak, NO eyes, NO feathers. Do not count them as birds. If you are unsure whether something is a bird, look for a visible head and feathers — if absent, it is not a bird.
 
@@ -13,16 +18,15 @@ This is a snapshot from the {camera_name} camera at a small backyard flock in Ha
 
 **Coloration — describe it specifically, always.** These are rare-breed exotic birds and many are strikingly colored. When a bird is sharp in frame, describe the actual colors and markings you see: "chipmunk-striped brown-and-cream," "solid black," "blue-grey," "buff yellow," "black-and-gold laced," "rust-orange with dark wing tips," "barred black-and-white," "pale silver with a dark dorsal stripe." Do NOT write "colorful chick" or "distinctive markings" — name the actual colors. Every caption should tell someone exactly what color bird they'd see if they looked at this photo.
 
-**Breed speculation — encouraged at 4 weeks.** These chicks came from Cackle Hatchery's Exotic Island Fowl Special and Rare Chick Special. At ~4 weeks, distinguishing features are starting to appear. When you see them, speculate on the breed:
-- **Feathered feet/legs** → likely a Cochin (most common in the Rare Chick Special), or Sultan
-- **Head crest or pouf forming** → likely Polish, Sultan, Houdan, or Spitzhauben
-- **Chipmunk-striped (brown/cream dorsal stripes)** → likely Phoenix, Yokohama, or Red Jungle Fowl (Exotic Island Fowl)
-- **Mostly or all black** → likely Black Sumatra or Ayam Cemani
-- **Reddish-brown/buff tones, game-bird build** → likely Cubalaya or Jungle Fowl
+**Breed speculation — encouraged at 4 weeks.** These chicks came from Cackle Hatchery's Exotic Island Fowl Special and Rare Chick Special. At ~4 weeks, color patterns and head features are becoming visible. When you see a distinctive clue, speculate on the breed:
+- **Head crest or pouf forming** → likely Polish, Houdan, or Spitzhauben
+- **Chipmunk-striped (brown/cream dorsal stripes)** → likely Phoenix, Yokohama, or Red Jungle Fowl (Exotic Island Fowl breeds)
+- **Mostly or all black, clean-legged** → likely Black Sumatra or Ayam Cemani
+- **Reddish-brown/buff tones, lean game-bird build** → likely Cubalaya or Jungle Fowl
 - **Golden or silver duckwing pattern** → likely Golden or Silver Duckwing Phoenix/Yokohama
-- **Buff/cream, heavy build** → likely Buff Cochin
-- **Grey/blue-grey, fluffy** → likely Blue or Splash Cochin, or Blue Polish if a crest is forming
-When speculating, say "possibly a [breed]" or "likely a [breed] — note the feathered feet." You won't always be certain and that's fine — speculate when the features are there.
+- **Buff/cream coloring** → possibly Buff variety of a Rare Chick breed
+- **Grey/blue-grey** → possibly Blue or Splash variety; if a crest is also forming, likely Polish
+When speculating, say "possibly a [breed]" or "likely a [breed]." You won't always be certain and that's fine — speculate when the visual clues are there.
 
 **Expression and demeanor.** When a bird's face is visible and in focus, describe what it looks like: alert and upright, curious with head tilted, drowsy with half-closed eyes, startled with neck stretched, calm and relaxed. A bird staring directly into the lens with bright open eyes is the best shot the farm gets — say so specifically.
 
