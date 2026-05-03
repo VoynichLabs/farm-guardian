@@ -59,7 +59,7 @@ Amazon Prime Video, Hulu, RandomSalad Solitaire, Clipchamp, Exafunction Windsurf
 - `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run` — `SecurityHealth` and `TPCtrlServer` values removed.
 - Startup folders for `cam`, `markb`, and all-users purged.
 
-### Bird-on-keyboard defenses (evening, 18-Apr-2026)
+### Bird-on-keyboard defenses (evening, 18-Apr-2026) — REVERTED 2026-05-03
 
 After the afternoon strip, Boss deployed GWTC to the coop. It dropped off the LAN within a few hours. Boss observed birds walking on the keyboard (the laptop lid is open, coop-interior-facing — keyboard exposed). Most likely culprit: a bird hits `Win+L`, session locks, Realtek 8723DU USB WiFi drops, LAN invisibility follows. Boss is covering the keyboard physically; applied four registry/power defenses as a complement:
 
@@ -67,6 +67,8 @@ After the afternoon strip, Boss deployed GWTC to the coop. It dropped off the LA
 - **Power / Sleep / Lid buttons neutralized:** `powercfg` sets `PBUTTONACTION`, `SBUTTONACTION`, `LIDACTION` all to `0` (no action) on both AC and DC. Lid-close or a bird pressing the power/sleep key does nothing.
 - **USB selective suspend globally off:** `powercfg` sets the USB suspend setting (GUID `48e6b7a6-50f5-4782-a5d4-53bb8f07e226`) to `0` on both AC and DC. The Realtek USB WiFi adapter stays powered.
 - **Monitor timeout set to never:** `powercfg /change monitor-timeout-ac 0 && monitor-timeout-dc 0`. Avoids display-sleep side-effects on this adapter.
+
+**REVERTED 2026-05-03:** GWTC moved to the roof of the coop — chickens can no longer reach the keyboard. All bird-proofing reverted: `DisableLockWorkstation` registry value deleted (Win+L works again), power/sleep button actions restored to defaults, monitor timeout restored to 10 minutes. USB selective suspend left off — WiFi watchdog handles stability adequately.
 
 **Verified at 2026-04-18 17:00 ET after the bird-induced power cycle:** GWTC back on LAN, all services RUNNING, `/api/cameras/gwtc/frame` returns 200 + 117 KB JPEG showing the coop interior with birds visible — which is the job.
 
