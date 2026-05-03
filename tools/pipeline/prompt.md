@@ -1,52 +1,49 @@
 This is a snapshot from the {camera_name} camera at a small backyard flock in Hampton CT. Camera context: {camera_context}.
 
-**Location → age mapping.** The farm has two physically-separate bird groups and camera location tells you which you're seeing:
-- **Brooder cameras (`usb-cam`, `mba-cam`, `s7-cam`, `iphone-cam`)**: YOUNGER brooder birds (chicken chicks + turkey poults mixed), 1–4 weeks old, plus Birdadotta.
-- **Coop cameras (`gwtc`)**: OLDER chicks (the previous brooder cohort that has graduated to the coop run) and the four winter-survivor adults.
-- **Yard camera (`house-yard`)**: free-range adults or nothing; no chicks.
+**What this camera sees.** {camera_name} is mounted in the nesting box as of {today}, watching a mixed group of young birds:
+- **2 bronze broad-breasted turkey poults**, approximately 7 days old. At this age they are noticeably LARGER than the chicken chicks — longer necks, bigger feet, taller upright stance, bare pinkish skin on the face and snood area. Their bodies are bulkier and their legs are proportionally long.
+- **1 standard chicken chick**, approximately 28 days old. More feathered-out than the bantams, mid-sized — bigger than the bantams but smaller than the turkey poults.
+- **Several exotic bantam chickens**, approximately 28 days old. The SMALLEST birds in the group. Varied and often striking plumage: stripes, crests, feathered feet, unusual color combinations.
 
-Use camera_name to decide which group you're looking at — don't guess age from apparent size alone.
+**Species identification — read carefully before counting.** Turkey poults: large body, long neck, tall legs, bare pink facial skin, upright posture. Chicken chicks: rounder, fluffier-faced, shorter-legged. Bantams: noticeably small for their age. When you see a small, round, fluffy bird, it is almost certainly a chicken chick, not a turkey poult.
 
-Known birds in this flock as of {today}:
-- Birdadotta: A brooder chick, slightly SMALLER than her brood mates, with tiny WHITE TIPS on her wing feathers. She does NOT have a white spot on her head — that distinguishes her from any similar-looking sibling. Judge by current appearance only.
-- Four winter-survivor adults (mixed breeds — not individually distinct in most photos)
-- ~22 brooder birds, currently 1-4 weeks old. **This brooder holds BOTH chicken chicks AND turkey poults mixed together** — species call-outs matter. Turkey poults have longer necks, taller legs, proportionally larger feet, a more upright stance, and a distinctive bare/pink-skinned face and snood area even at this age; chicken chicks are rounder, shorter-legged, fluffier-faced, and smaller overall. When you can tell, say which is which. This is also a MIXED RARE-BREED / EXOTIC-ISLAND-FOWL chicken flock — individual chicks vary widely in down color, markings, crest shape, leg color, and feather pattern. Many individuals are visually striking in their own right (distinctive stripes, unusual color combinations, crested heads, feathered feet). Do NOT assume they all look alike — treat each chick as potentially remarkable and flag visual individuality generously. **Everyone in the brooder is still a chick/poult — nobody is a "hen" or "rooster" yet. Max age in-frame is ~4 weeks.**
-- Older-chick cohort in the coop (previous brooder group): larger, more feathered-out, starting to look adult-shaped. Separate from the current brooder chicks.
+**Equipment is NOT birds.** The frame may contain a dome-shaped waterer, a feeder, a heat lamp, or other plastic/metal objects. These have NO head, NO beak, NO eyes, NO feathers. Do not count them as birds. If you are unsure whether something is a bird, look for a visible head and feathers — if absent, it is not a bird.
+
+**No named individuals.** Do not refer to any bird by name. Use "turkey poult," "chicken chick," "bantam chick," or "young bird."
 
 Guidance on specific fields:
-- `scene`: pick the best match for what's visible; "other" only if nothing else fits.
-- `bird_count`: your best estimate; 0 if none visible.
-- `individuals_visible`: only include what you can actually see. "birdadotta" only if you see a brooder chick that is noticeably SMALLER than her brood mates, has tiny WHITE TIPS on her wing feathers, and has NO white spot on her head — that combination is unique to her in the brooder right now. "chick" for any other bird that looks like a chick (fluffy, small, brooder-aged). "adult-survivor" for any mature bird. "unknown-bird" for edge cases.
-- `any_special_chick`: true whenever at least one chick in frame has a visually notable feature — distinctive coloring (unusual combos, racing stripes, blocky patches, crests), markedly different size from siblings, unusual posture, or any characteristic that would make someone stop and look. Given this is a rare-breed mixed flock, err on the side of TRUE. Default to true if you can point to any individual chick and say "that one stands out." Only return false when the frame is a genuinely uniform blob of near-identical fluff.
-- `bird_face_visible`: true if at least one bird's face, eye, beak, or profile is visible to the camera — including partial views, slight head-turns, and birds where you can see the side of the head. False only when every bird in frame is clearly turned fully away (back, tail, rear) with no head detail at all. This flag matters for single-bird shots where a lone rear-view is not a gem; group-shot framing is judged separately. Neutral default: true for most frames with recognizable birds; false only for clear "fluffy ass, no head" solo compositions. S7 posts must have this flag true.
-- `subject_coverage_pct`: integer 0-100. **What percent of the total frame area is covered by birds, chicks, poults, or dogs — the subjects people care about.** Count every bird, not just the biggest one. Exclude bedding, coop walls, feeders, waterers, background yard, sky, the heat lamp, etc. Examples: a tight group portrait that fills most of the frame ≈ 60. A single bird centered with coop around it ≈ 25. One small chick in a corner with mostly empty bedding ≈ 5. An empty frame or "bird in the distance you can barely see" = 0-3.
-- `largest_subject_pct`: integer 0-100. **The single biggest bird's percent of the frame.** If there are multiple birds, measure only the one that occupies the most area. If there are no birds, 0. Examples: close-up portrait of one chick filling the frame ≈ 50-80. Medium shot of a bird with room around it ≈ 15-30. A bird seen small in the distance ≈ 3-8. Think of the bounding box you'd draw around just that one bird, and estimate its area as a fraction of the whole frame.
-- `apparent_age_days`: -1 for non-chick scenes (this means "not applicable"). For chicks, your best guess 1-60.
+- `scene`: use `"nesting-box"` for frames from this camera.
+- `bird_count`: count ONLY objects with a visible head, beak, or feathers. Waterers, feeders, and equipment are zero. If you can't confidently identify a head and body, don't count it.
+- `individuals_visible`: use `"chick"` for any young bird (turkey poults and chicken chicks both qualify). Use `"adult"` only for a fully mature bird. Use `"unknown-bird"` for edge cases.
+- `any_special_chick`: true if any individual bird has a visually notable feature — striking coloration, markedly different size, unusual posture, or anything that makes them stand out. Given the rare-breed bantam mix, err toward true. False only for a uniformly indistinct group.
+- `apparent_age_days`: best estimate for the most prominent birds visible. -1 only if no birds are present.
 - `activity`: what the majority of visible birds are doing. "none-visible" if no birds in frame.
-- `image_quality`: judge relative to the image's native resolution, NOT against an ideal high-resolution camera. A 720p or 1080p webcam frame can absolutely be "sharp" — sharpness is about focus and motion, not megapixels. Use "sharp" whenever the subjects are crisp and well-focused at the resolution given; feather edges, individual feathers visible on nearby birds, clear boundaries between objects. Use "soft" only for genuine focus softness or mild motion blur where details are hazy. Use "blurred" only when subjects are unidentifiable due to motion or heavy defocus. Do NOT penalize images for being low resolution.
-  - **Compression artifacts count as "blurred".** If you see vertical or horizontal banding, smeared/duplicated pixel columns or rows, blocky regions where the same color repeats in a grid, colored fringes that don't match object edges, or long uniform stripes running through the scene, tag the image as `blurred` regardless of how "sharp" individual edges look. These are H.264/H.265 decode errors from keyframe loss (common on the `gwtc` camera when the laptop is moved) — they are not photographic sharpness and should never be rated `sharp` or `soft`. They also disqualify the frame from `strong`.
-  - **Fixed-focus close-ups count as "blurred" or "soft".** Some cameras (especially `gwtc` and `mba-cam`) have fixed focus. A bird positioned closer than the camera's minimum focal distance will appear as a soft colored blob with no visible feather texture. If the nearest bird's feathers are indistinct even though the rest of the scene looks fine, that's a close-focus failure — tag as `soft` if still recognizable as a bird, `blurred` if not.
-- `share_worth`: tight rules, apply in order.
-  - **"strong" triggers (ANY of these, and none of the skip conditions below):**
-    1. A bird looking DIRECTLY at the camera with a clear visible face — eye contact, beak pointing roughly toward the lens, face unobstructed. These are the best shots the farm has and should always be `strong`.
-    2. Sharp, intricate feather / wing-pattern / plumage detail visible — individual feather edges, the pattern of a wing, color gradation on a chick's down. Crisp texture at the pixel level.
-    3. A clear portrait of a single identifiable bird (especially Birdadotta if she's visible) or a rare-behavior moment (dust-bathing, sparring, mid-stretch, mid-wing-flap, mid-jump, eating something specific, drinking). The subject is obvious and the composition reads as intentional.
-  - **"skip" triggers (ALL of these demote the frame regardless of other qualities):**
-    1. A group of chicks huddling or sleeping with no visible faces, no individual bird distinguishable, and no unusual posture. A fluffy pile of indistinct chicks is NOT archive-worthy — this is the single most common boring frame.
-    2. `activity=none-visible`, empty frame, or no birds in frame.
-    3. Compression artifacts, heavy motion blur, subject out of focus beyond recognition.
-  - **"decent"** is the middle band: clear, archive-worthy frames that don't hit a `strong` trigger and aren't disqualified by a `skip` trigger. A group shot with multiple visible faces but no clear portrait subject is `decent`. A sharp foraging shot where the bird's face is sideways is `decent`. Normal in-focus frames of birds doing ordinary things are `decent`.
-  - If in doubt between `decent` and `skip`, lean `skip`. We'd rather lose a decent frame than drown the gallery in huddle-pile noise.
-- `caption_draft`: **one or two descriptive sentences (up to ~200 chars).** Plain language, no proper names, no attribution to real artists or writers. Be SPECIFIC and OBSERVATIONAL — describe what's actually visible in the frame, not a generic label.
-  - **Species matters.** Distinguish between "chicken chicks" and "turkey poults" (or "a turkey poult" / "a chicken chick" / "a mixed group of chicks and poults") whenever you can tell them apart — don't default to "chicks" for everything. If you genuinely can't tell, "young birds" or "the brooder flock" is fine, but try first.
-  - **Nobody in the brooder is a "hen" or "rooster" or adult chicken.** They are chicks (chickens) or poults (turkeys), 1–4 weeks old. "Hen" / "rooster" / "adult" terminology applies only to `house-yard` or `gwtc` frames showing the four winter-survivor adults.
-  - **Include visible detail** — down color / markings ("a black-and-yellow striped chick"), posture ("mid-stretch," "head cocked toward the camera"), what they're doing ("beak deep in the feeder," "drinking from the waterer nipple," "perched on the edge of the brooder tub"), notable individuals ("Birdadotta, the small chick with white wing tips, front-and-center"), and scene context ("under the heat lamp," "in the wood-shaving bedding"). Prefer concrete nouns and verbs over vague ones.
-  - Examples of good captions:
-    - "A tall turkey poult stands center-frame with its head up, surrounded by four smaller chicken chicks pecking at the bedding under the heat lamp."
-    - "Close-up of a black-and-yellow striped chicken chick looking directly at the camera, one eye sharply in focus."
-    - "Birdadotta, the small chick with white-tipped wings, preening next to a larger sibling in the wood-shavings."
-  - Examples of bad/weak captions to avoid:
-    - "Chicks in the brooder." (too generic, no detail)
-    - "A hen under the heat lamp." (wrong — no hens in the brooder)
-    - "Cute baby birds." (no specifics, no species, no action)
-- `concerns`: only populate if you see something a chicken-keeper should know about — injured bird, dead bird, abnormal posture, fighting/bullying, escape risk, predator visible, environmental hazard. Empty array otherwise.
+- `image_quality`: judge on focus and motion, not on resolution. A 1080p webcam frame can be "sharp."
+  - `sharp`: subjects are crisp and well-focused; feather edges visible on nearby birds; no motion smear.
+  - `soft`: mild defocus or motion blur; subjects recognizable but lacking texture.
+  - `blurred`: heavy motion blur, defocus beyond recognition, OR compression artifacts (banding, blocky regions, streaked/smeared pixel columns, colored fringes that don't match object edges). Artifacts always disqualify from `sharp`.
+  - Fixed-focus close-up failure (bird too close for the lens): `soft` if recognizable as a bird, `blurred` if not.
+- `bird_face_visible`: true if at least one bird's eye, beak, or facial profile is visible — including partial or side-on views. False only when every bird is fully turned away with no head detail.
+- `subject_coverage_pct`: percent of the total frame area covered by birds. Exclude bedding, walls, feeders, waterers, heat lamp.
+- `largest_subject_pct`: percent of the frame covered by the single largest bird only.
+- `share_worth`: lead with sharpness and behavior — these are the primary criteria.
+  - **"strong"** — ANY of these, and none of the skip triggers below:
+    1. At least one bird looking DIRECTLY at the camera with a visible eye. Eye contact is the best shot the farm gets.
+    2. Crisp feather or plumage detail on a bird filling a meaningful portion of the frame — individual feather edges, down texture, color gradation visible at the pixel level.
+    3. A clear behavior moment: sparring, mid-wing-flap, mid-stretch, dust-bathing, drinking, eating, or any posture that reads as active and intentional. The subject must be sharp.
+  - **"skip"** — ANY of these demotes the frame regardless of other qualities:
+    1. All subjects blurry, smeared, or unrecognizable.
+    2. No birds in frame, or activity=none-visible.
+    3. Every bird facing fully away with no face visible.
+    4. A uniform huddle-pile with no individual distinguishable and no notable posture.
+  - **"decent"**: clear, in-focus frame that doesn't hit a strong trigger and isn't killed by a skip trigger. Archive-worthy but unremarkable.
+  - When in doubt between `decent` and `skip`, lean `skip`.
+- `share_reason`: one specific sentence about THIS frame — not a restatement of the rules. E.g., "Bronze turkey poult looking directly into the lens, left eye sharp" or "All three birds in motion, no sharp faces visible, minor blur throughout."
+- `caption_draft`: one or two sentences, up to ~200 chars. Be SPECIFIC and OBSERVATIONAL — describe what is actually in this frame.
+  - Name the species when you can tell them apart: "a bronze turkey poult," "a bantam chick," "the larger standard chick."
+  - Lead with the most interesting thing in the frame: eye contact, a striking color pattern, a behavior, an unusual posture.
+  - Include visible detail: feather/down color and markings, what the bird is doing, where in the frame it is.
+  - **Every caption must be different.** If the scene looks similar to a previous frame, find a different specific detail to lead with — a different bird, a different angle, a different action.
+  - Good examples: "A bronze turkey poult stares directly into the lens, its bare pink snood clearly visible." / "Three bantam chicks crowd the waterer while the larger standard chick stands apart at the back." / "A small black-and-white bantam chick mid-stretch, one wing fanned out to the right."
+  - Bad examples: "Turkey poults in the nesting box." / "Chicks eating." / "Young birds in the brooder." — too generic, no specific detail.
+- `concerns`: only populate if you see an injured bird, dead bird, abnormal posture, fighting beyond normal pecking, or an environmental hazard. Empty array otherwise.
