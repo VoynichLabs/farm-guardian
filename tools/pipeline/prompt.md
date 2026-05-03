@@ -1,6 +1,6 @@
 This is a snapshot from the {camera_name} camera at a small backyard flock in Hampton CT. Camera context: {camera_context}.
 
-**What this camera sees.** {camera_name} is mounted in the nesting box as of {today}, watching a mixed group of young birds:
+**What this camera may see.** The camera context above tells you where {camera_name} is pointed. The young birds in this flock as of {today} include:
 - **2 bronze broad-breasted turkey poults**, approximately 7 days old. At this age they already look distinctly different from the chicken chicks: **rounder, puffier bodies** (broad-breasted genetics make them wide even as poults), **thick, heavy legs** with large feet, and a **snood** — the short fleshy nub above the beak — already forming. Their facial skin is bare and pinkish rather than fluffy. When standing, they hold themselves **upright and blocky**. They are larger than the chicken chicks overall.
 - **1 standard chicken chick**, approximately 28 days old. More feathered-out than the bantams, mid-sized in the group.
 - **Several exotic bantam chickens**, approximately 28 days old. The SMALLEST birds in the group. Varied and often striking plumage.
@@ -31,7 +31,7 @@ When speculating, say "possibly a [breed]" or "likely a [breed]." You won't alwa
 **Expression and demeanor.** When a bird's face is visible and in focus, describe what it looks like: alert and upright, curious with head tilted, drowsy with half-closed eyes, startled with neck stretched, calm and relaxed. A bird staring directly into the lens with bright open eyes is the best shot the farm gets — say so specifically.
 
 Guidance on specific fields:
-- `scene`: use `"nesting-box"` for frames from this camera.
+- `scene`: pick the best match for what you actually see in the image. Use the camera_context to help, but trust your eyes — if it looks like a brooder, call it brooder; nesting-box if you see a nest area; yard if open outdoor space; coop for the run/coop interior; other if nothing fits.
 - `bird_count`: count ONLY objects with a visible head, beak, or feathers. Waterers, feeders, and equipment are zero. If you can't confidently identify a head and body, don't count it.
 - `individuals_visible`: use `"chick"` for any young bird (turkey poults and chicken chicks both qualify). Use `"adult"` only for a fully mature bird. Use `"unknown-bird"` for edge cases.
 - `any_special_chick`: true if any individual bird has a visually notable feature — striking coloration, markedly different size, unusual posture, or anything that makes them stand out. Given the rare-breed bantam mix, err toward true. False only for a uniformly indistinct group.
@@ -58,15 +58,17 @@ Guidance on specific fields:
   - **"decent"**: clear, in-focus frame with visible birds that doesn't hit a strong trigger and isn't killed by a skip trigger. A sideways group shot with some faces partially visible is decent. Archive-worthy but not remarkable.
   - When in doubt between `decent` and `skip`, lean `skip`.
 - `share_reason`: one specific sentence about THIS frame — not a restatement of the rules. E.g., "Bronze turkey poult looking directly into the lens, left eye sharp" or "All three birds in motion, no sharp faces visible, minor blur throughout."
-- `overall_score`: integer 0–10. Strict score. Most frames should land in the 4–6 range. 9–10 should be genuinely rare.
-  - **0–2**: No birds visible, empty frame, or completely unusable (heavy blur, artifacts).
-  - **3–4**: Birds present but all backs, all blurry, or faces completely obscured. Little value.
-  - **5**: Decent. Birds visible, some faces showing, nothing special. A typical acceptable frame.
-  - **6**: Noticeably better than typical. Multiple faces visible, good sharpness, interesting colors, pleasing group composition.
-  - **7**: Good. At least one bird with a clear sharp face looking toward the camera, or a genuinely interesting behavior moment. Something a viewer would stop and look at.
-  - **8**: Very good. Direct eye contact from a bird with vivid plumage visible, OR a multi-bird scene with real variety and multiple clear faces.
-  - **9–10**: Reserve for frames that are objectively exceptional — a bird staring straight into the lens with sharp eyes AND striking color detail, or a complex scene with multiple species doing different interesting things that would stop a stranger mid-scroll. If you're giving a 9, ask yourself: would this make someone say "wow"? If not, it's a 7.
-  - A group of birds sleeping together is a **5 or 6** — not a 9, even if the image is sharp. Sleeping is ordinary. Reserve high scores for alert, active, or visually striking frames.
+- `overall_score`: integer 0–10. Score purely on **image quality and how much you can see** — not on what the birds are doing. Sleeping birds can score just as high as active ones if they're sharp and their faces are visible. Most frames should land in the 4–6 range. 9–10 is rare.
+  - **What raises the score:** more birds sharp and in focus; more faces and eyes clearly visible; vivid color/plumage detail readable; birds filling a meaningful portion of the frame; multiple individuals distinguishable.
+  - **What lowers the score:** blur, soft focus, motion smear; birds facing away with no faces visible; only one small bird visible in a mostly empty frame; compression artifacts.
+  - **Activity does not affect score.** Sleeping, eating, alert, huddling — all equal if the image quality and visibility are the same.
+  - **0–2**: No birds, empty frame, or totally unusable (heavy blur, artifacts throughout).
+  - **3–4**: Birds present but mostly backs or fully blurred. Little of interest visible.
+  - **5**: One or a few birds visible with some face detail, ordinary sharpness. A typical acceptable frame.
+  - **6**: Multiple birds with clear faces, good sharpness, visible plumage colors. Better than typical.
+  - **7**: Several sharp birds with faces clearly visible, good coverage, striking colors on at least one.
+  - **8**: Many sharp birds filling the frame, faces prominent, vivid color variety visible across individuals.
+  - **9–10**: Exceptional composition AND sharpness — multiple birds, many faces, striking plumage detail, the kind of frame that would stop someone mid-scroll. Reserve for genuinely outstanding shots.
   - This score must be consistent with `share_worth`: 0–4 → skip; 5–6 → decent; 7–10 → strong.
 - `caption_draft`: 2–4 sentences, up to ~450 chars. **Describe the whole scene — all the birds, not just one.** This goes on social media. Make it vivid.
   - **Describe only the birds.** Do NOT mention the heat lamp, wood shavings, bedding, the nesting box walls, or the wooden structure. Those are background. The birds are the subject.
