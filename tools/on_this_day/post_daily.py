@@ -1,6 +1,15 @@
-# Author: Claude Opus 4.7 (1M context)
-# Date: 21-April-2026
-# PURPOSE: CLI orchestrator for the on-this-day Facebook pipeline.
+# Author: GPT-5.5
+# Date: 03-May-2026
+# PURPOSE: DISABLED publish orchestrator for the on-this-day Facebook
+#          pipeline. Dry-run candidate selection still works, but every
+#          publish/auto-story path exits unless
+#          FARM_ON_THIS_DAY_STORIES_ENABLED=1 is explicitly set.
+#          Boss rejected the current selector/back-catalog fallback on
+#          03-May-2026 after irrelevant old photos polluted daily Reel
+#          material. Future redesign must be exact-date-only.
+#
+#          Historical behavior:
+#          CLI orchestrator for the on-this-day Facebook pipeline.
 #          Given a calendar date (default: today), select ranked
 #          candidates from 2022/2024/2025, and either:
 #            - --dry-run (default): write candidates to
@@ -60,6 +69,7 @@ log = logging.getLogger("on_this_day.post_daily")
 FARM_GUARDIAN_ROOT = Path(__file__).resolve().parents[2]
 FARM_2026_REPO = Path("/Users/macmini/Documents/GitHub/farm-2026")
 CANDIDATES_DIR = FARM_GUARDIAN_ROOT / "data" / "on-this-day"
+_ENABLE_ENV = "FARM_ON_THIS_DAY_STORIES_ENABLED"
 
 # Posted-state ledger. Each UUID we've ever posted as a story is
 # recorded here with the timestamp and lanes hit, so the --auto-story
@@ -732,7 +742,9 @@ def _pick_fallback_from_back_catalog(exclude: set[str] | None = None) -> Optiona
 
 
 def run_auto_story_cycle(dry_commit: bool = False) -> dict:
-    """One LaunchAgent tick. Walks the candidate queue top-down
+    """Disabled unless FARM_ON_THIS_DAY_STORIES_ENABLED=1.
+
+    Historical behavior: one LaunchAgent tick. Walks the candidate queue top-down
     (today's on-this-day pool first, back-catalog fallback next),
     skipping UUIDs already posted or failed-today. Publishes the first
     candidate that exports successfully as a FB + IG Story and records
@@ -744,6 +756,18 @@ def run_auto_story_cycle(dry_commit: bool = False) -> dict:
     empty return (no_candidate=True) is a normal steady-state result
     when the catalog is genuinely exhausted.
     """
+    if os.environ.get(_ENABLE_ENV) != "1":
+        log.warning(
+            "auto-story disabled; set %s=1 only after exact-date selection is redesigned",
+            _ENABLE_ENV,
+        )
+        return {
+            "posted": False,
+            "disabled": True,
+            "target_date": dt.date.today().isoformat(),
+            "reason": "on-this-day publishing disabled",
+        }
+
     target_date = dt.date.today()
     tried: set[str] = set()
     attempts: list[dict] = []
@@ -852,14 +876,17 @@ def _parse_date(s: str) -> dt.date:
 
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="On-this-day Facebook publisher (historical iPhone photos).",
+        description=(
+            "Disabled on-this-day publisher. Dry-run selection is allowed; "
+            "publish paths require FARM_ON_THIS_DAY_STORIES_ENABLED=1."
+        ),
     )
     p.add_argument("--date", type=_parse_date, default=None,
                    help="Target calendar date YYYY-MM-DD. Default: today (local).")
     p.add_argument("--top-n", type=int, default=DEFAULT_TOP_N,
                    help=f"Candidates to rank. Default: {DEFAULT_TOP_N}.")
     p.add_argument("--publish", action="store_true",
-                   help="Actually post to FB. Without this, --dry-run is implied.")
+                   help="Disabled unless FARM_ON_THIS_DAY_STORIES_ENABLED=1.")
     p.add_argument("--publish-n", type=int, default=DEFAULT_PUBLISH_N,
                    help=f"How many of the top candidates to publish when --publish. "
                         f"Default: {DEFAULT_PUBLISH_N}. Carousel lane caps at "
@@ -881,10 +908,7 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--dry-commit", action="store_true",
                    help="Publish path: export + caption but skip farm-2026 push + FB call.")
     p.add_argument("--auto-story", action="store_true",
-                   help="One-cycle mode: pick the top unposted candidate and "
-                        "post it as a FB+IG Story. Respects the posted ledger "
-                        "so the same photo isn't published twice. This is what "
-                        "the LaunchAgent fires every 90 minutes.")
+                   help="Disabled unless FARM_ON_THIS_DAY_STORIES_ENABLED=1.")
     return p.parse_args()
 
 
@@ -894,6 +918,14 @@ def main() -> int:
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
     )
     args = _parse_args()
+
+    if (args.auto_story or args.publish) and os.environ.get(_ENABLE_ENV) != "1":
+        log.warning(
+            "on-this-day publish path disabled; set %s=1 only after exact-date "
+            "selection is redesigned",
+            _ENABLE_ENV,
+        )
+        return 0
 
     # Auto-story short-circuits before the candidate write-JSON path
     # because it's driven by the posted ledger, not by top-N selection.

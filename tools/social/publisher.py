@@ -14,10 +14,10 @@
 #               until either the queue is empty OR we've posted
 #               max_per_tick OR quota is tight. Every reacted gem
 #               is eligible forever — no stale cutoff.
-#            3. Only if the gem queue is EMPTY AND slots_free >=
-#               archive_reserve_floor, post one from the archive
-#               lane. This guarantees gem-priority: even a single
-#               queued gem blocks the archive fallback from running.
+#            3. Only if archive fallback is enabled, the gem queue is
+#               EMPTY, and slots_free >= archive_reserve_floor, post one
+#               from the archive lane. This guarantees gem-priority:
+#               even a single queued gem blocks the archive fallback.
 #            4. Stop on 403 (platform-side quota disagreement with
 #               our ledger — rare, happens when carousel/reel lanes
 #               or other agents publish outside this process).
@@ -38,6 +38,12 @@
 #          image_archive.ig_story_skip_reason with the
 #          story-permanent-skip prefix so the selector stops retrying
 #          dead rows; transient API/git failures are not marked.
+#
+#          2026-05-03 throwback deactivation: archive/on-this-day
+#          fallback is disabled unless tools/social/config.json sets
+#          archive_fallback_enabled=true. Boss rejected the current
+#          throwback selection quality after old winter photos leaked
+#          into daily Reel material.
 #
 # SRP/DRY check: Pass — decision logic only. Publish helpers are
 #                imported; ledger in tools.social.ledger. No Graph
@@ -270,6 +276,7 @@ def run_tick(dry_run: bool = False) -> dict:
     cfg = _load_config()
     quota = int(cfg["ig_rolling_24h_quota"])
     reserve_floor = int(cfg["archive_reserve_floor"])
+    archive_fallback_enabled = bool(cfg.get("archive_fallback_enabled", True))
     max_per_tick = int(cfg["max_per_tick"])
     ledger_path = REPO_ROOT / cfg["ledger_path"]
     prune_hours = int(cfg["ledger_prune_older_than_hours"])
@@ -292,6 +299,7 @@ def run_tick(dry_run: bool = False) -> dict:
         "dry_run": dry_run,
         "gems_posted": 0,
         "archive_posted": 0,
+        "archive_fallback_enabled": archive_fallback_enabled,
         "quota_stopped": False,
     }
 
@@ -351,6 +359,11 @@ def run_tick(dry_run: bool = False) -> dict:
                 "blocking archive fallback",
                 gem_queue_depth, gem_attempts,
             )
+        return summary
+
+    if not archive_fallback_enabled:
+        summary["archive_fallback_disabled"] = True
+        log.info("publisher: archive fallback disabled by config; skipping")
         return summary
 
     if slots_free < reserve_floor:

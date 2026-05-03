@@ -1,20 +1,20 @@
 # Instagram Posting — Scheduled Architecture (Current State)
 
 **Audience:** the next Claude Code session picking up Instagram work on `@pawel_and_pawleen`.
-**Last updated:** 2026-05-03 (social-publisher reacted Story priority fix; `docs/SOCIAL_MEDIA_MAP.md` remains the shortest current map).
+**Last updated:** 2026-05-03 (throwback/on-this-day disabled; `docs/SOCIAL_MEDIA_MAP.md` remains the shortest current map).
 **Status:** live in production.
 
 ---
 
 ## TL;DR
 
-The current social pipeline is LaunchAgent-driven. Humans react on Discord `#farm-2026`; those reactions are the only quality gate for mixed gem lanes; nothing from the mixed camera/iPhone-gem lanes gets posted to Instagram without a reaction. The S7 daily time-lapse Reel and on-this-day fallback stories are explicit exceptions documented in `docs/SOCIAL_MEDIA_MAP.md`.
+The current social pipeline is LaunchAgent-driven. Humans react on Discord `#farm-2026`; those reactions are the only quality gate for mixed gem lanes; nothing from the mixed camera/iPhone-gem lanes gets posted to Instagram without a reaction. The S7 daily time-lapse Reel is an explicit no-reaction exception documented in `docs/SOCIAL_MEDIA_MAP.md`. Throwback/on-this-day archive posting is disabled as of 2026-05-03.
 
 ```
 LaunchAgent                                      Script                              Cadence
 ────────────────────────────────────────────────────────────────────────────────────────────────
 com.farmguardian.discord-reaction-sync           scripts/discord-reaction-sync.py    every 30 min
-com.farmguardian.archive-throwback               scripts/archive-throwback.py        daily 08:00 local
+com.farmguardian.archive-throwback               scripts/archive-throwback.py        OFF/fail-closed
 com.farmguardian.social-publisher                scripts/social-publisher.py         hourly
 com.farmguardian.ig-daily-carousel               scripts/ig-daily-carousel.py        daily 18:00 local
 com.farmguardian.ig-daily-reel                   scripts/ig-daily-reel.py            daily 18:00 local
@@ -23,7 +23,9 @@ com.farmguardian.ig-s7-daily-reel                scripts/ig-s7-daily-reel.py    
 
 Per-cycle auto-posting from the pipeline orchestrator is **dead** (config flag `instagram.enabled=false`). Do not re-enable it without Boss approval — it spams one-frame-per-strong+sharp-gem which is exactly what the scheduled architecture replaces.
 
-**Reacted Story queue priority (2026-05-03):** `social-publisher` posts reacted gems first using `select_all_unposted_story_gems()` with no time window. On-this-day archive/iPhone fallback stories may run only when the reacted Story queue depth is zero. A failed gem attempt does not make fallback eligible; queue depth is the gate. Local file/path-style permanent failures are marked `story-permanent-skip` and excluded from future Story queue counts; transient API/git failures remain retryable.
+**Throwback/on-this-day disabled (2026-05-03):** Boss rejected the current archive/on-this-day selection quality after irrelevant old photos polluted daily Reel material. `scripts/archive-throwback.py` exits unless `FARM_ARCHIVE_THROWBACK_ENABLED=1`; `scripts/on-this-day-stories.py` and direct `tools.on_this_day.post_daily --publish/--auto-story` paths exit unless `FARM_ON_THIS_DAY_STORIES_ENABLED=1`; `tools/social/config.json::archive_fallback_enabled=false` blocks social-publisher archive fallback; `scripts/discord-reaction-sync.py` ignores new `Archive` webhook drops. Future TODO: redesign as exact-date-only sourcing, e.g. May 3 2025 / May 3 2024 for May 3, with strict date provenance and better captions.
+
+**Reacted Story queue priority (2026-05-03):** `social-publisher` posts reacted gems first using `select_all_unposted_story_gems()` with no time window. If archive fallback is redesigned later, it may run only when the reacted Story queue depth is zero. A failed gem attempt does not make fallback eligible; queue depth is the gate. Local file/path-style permanent failures are marked `story-permanent-skip` and excluded from future Story queue counts; transient API/git failures remain retryable.
 
 ---
 
@@ -75,34 +77,17 @@ Two ingest paths feed the same reaction gate:
 **(C) Archive throwback (slow-day content pump) — added v2.34.0**
 
 ```
-Daily at 08:00 local, [archive-throwback.py] picks N candidates:
-  - N=3 from the Photos Library catalog
-    (~/bubba-workspace/projects/photos-curation/photo-catalog/
-     master-catalog.csv — 21,640 photos with Qwen VLM metadata,
-     filtered by farm/pet keyword score)
-  - N=2 from farm-2026/public/photos/<month>/ and curated dirs
-    (birds, coop, enclosure, history — NOT brooder/carousel/
-     stories/yard-diary which are IG output dirs)
-                              │
-                              ▼
-State file data/archive-throwback-state.json tracks already-
-sent UUIDs + gallery paths so re-runs don't repeat.
-HEIC -> JPEG via macOS `sips`.
-                              │
-                              ▼
-Posts to Discord #farm-2026 with author="Archive" (NOT a
-Guardian camera). Scene description from the VLM catalog
-becomes the Discord message body — which later becomes the
-IG caption_draft if Boss reacts.
-                              │
-                              ▼
-Boss reacts to the ones he wants on IG. Existing drop-ingest
-path (B) takes over. No other plumbing needed.
+DISABLED 2026-05-03. archive-throwback.py exits 0 unless
+FARM_ARCHIVE_THROWBACK_ENABLED=1 is explicitly set.
+
+scripts/discord-reaction-sync.py also ignores new messages authored
+by the Archive webhook, so stale Archive posts in #farm-2026 do not
+become new synthetic discord-drop gems after this decision.
 ```
 
-Purpose: on quiet brooder days OR when Boss isn't actively reacting, Discord keeps getting fresh archive material for curation. The scheduled IG lanes draw from whatever reacted gems exist, so the reaction gate stays the sole quality filter. Boss just has to react to what he likes; nothing else is required from him.
+Reason: Boss rejected the current throwback picker after old, irrelevant photos polluted daily Reel material. There is enough live content right now. Future TODO: redesign this as strict exact-date-only sourcing, e.g. May 3 2025 / May 3 2024 for May 3, with date provenance and better captions before re-enabling.
 
-**TCC note:** this lane requires Claude Code to have Full Disk Access granted in System Settings → Privacy & Security (so the Photos Library reads don't fail). The harvester-gallery source works without it.
+Historical behavior: this lane used to pick catalog and farm-2026 gallery candidates, post them to Discord with author="Archive", and let Boss reactions route them into IG lanes via the human-drop ingest path. That flow is now intentionally off.
 
 **(B) Human drops (Boss's iPhone photos, shares from anyone) — added v2.33.0**
 
@@ -300,7 +285,7 @@ venv/bin/python scripts/discord-reaction-sync.py --backfill
 
 ## Operational notes (as of 2026-05-03)
 
-1. **Backlog of reacted gems is an asset, not a problem.** Boss explicitly wants a queue of content waiting to be posted — the scheduled lanes draw from it over time. Don't try to bypass the reaction gate; the hourly `social-publisher` Story lane drains reacted gems FIFO at the configured success cap while older reacted gems remain available for carousels and reels. Archive fallback stays blocked while this queue is non-empty.
+1. **Backlog of reacted gems is an asset, not a problem.** Boss explicitly wants a queue of content waiting to be posted — the scheduled lanes draw from it over time. Don't try to bypass the reaction gate; the hourly `social-publisher` Story lane drains reacted gems FIFO at the configured success cap while older reacted gems remain available for carousels and reels. Archive fallback is disabled; if redesigned later, it stays blocked while this queue is non-empty.
 2. **Reel lanes are live.** The mixed daily Reel runs at 18:00 with Discord preview approval. The S7 time-lapse Reel runs at 21:00 without approval and posts a Discord notice mentioning Mark. Watch the lane-specific `/tmp/ig-*.err.log` files and `data/reels/**` state files for audit.
 3. **The stale CLI — [`scripts/ig-post.py`](../scripts/ig-post.py)** — still works and still takes `--mode {photo,story,reel}`. It's not used by any scheduled lane. Keep it around for emergencies (e.g., Boss wants to force-post a specific gem); don't use it in automation.
 4. **Orchestrator-internal hooks — `_maybe_post_to_ig`, `_maybe_post_to_story`** — still exist in [`orchestrator.py`](../tools/pipeline/orchestrator.py) but are `cfg["instagram"]["enabled"]=false`-gated. Left in place so the code doesn't bitrot; if a future design reverts to per-cycle posting, the plumbing is there.

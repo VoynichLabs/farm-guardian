@@ -1,6 +1,7 @@
 {
   "ig_rolling_24h_quota": 25,
   "archive_reserve_floor": 5,
+  "archive_fallback_enabled": false,
   "max_per_tick": 5,
   "ledger_path": "data/social/publish_ledger.ndjson",
   "ledger_prune_older_than_hours": 48

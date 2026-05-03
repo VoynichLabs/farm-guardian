@@ -1,26 +1,25 @@
 #!/usr/bin/env python3
-# Author: Claude Opus 4.7 (1M context)
-# Date: 22-April-2026
-# PURPOSE: LaunchAgent entrypoint for the on-this-day → FB Stories
-#          lane. Fires once per day via
-#          ~/Library/LaunchAgents/com.farmguardian.on-this-day.plist
-#          (09:00 local). Computes today's local calendar date,
-#          delegates to tools.on_this_day.post_daily.main() with
-#          --publish (story lane). No CLI args — LaunchAgents are not
-#          a place for ad-hoc configuration.
+# Author: GPT-5.5
+# Date: 03-May-2026
+# PURPOSE: DISABLED LaunchAgent entrypoint for the on-this-day FB/IG
+#          lane. Boss rejected the current throwback/on-this-day
+#          selection quality on 03-May-2026; it was surfacing irrelevant
+#          old photos and polluting daily Reel material. This script now
+#          exits successfully unless FARM_ON_THIS_DAY_STORIES_ENABLED=1
+#          is explicitly set.
 #
-#          This replaces the expectation that Boss would ever type
-#          `python3 -m tools.on_this_day.post_daily --publish` at the
-#          terminal. He shouldn't, and now doesn't have to.
+#          Future TODO: redesign as exact-date-only "on this day"
+#          sourcing, e.g. May 3 2025 / May 3 2024 for May 3, with
+#          strict date provenance and better captions before re-enabling.
 #
-# SRP/DRY check: Pass — thin shim. All real logic is in
-#                tools.on_this_day.post_daily. Mirrors the
-#                scripts/ig-*.py pattern so deploy/install flows
-#                are identical.
+# SRP/DRY check: Pass - thin fail-closed shim. All real on-this-day
+#                logic remains in tools.on_this_day.post_daily for a
+#                future redesign.
 
 from __future__ import annotations
 
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -30,17 +29,25 @@ if str(_REPO_ROOT) not in sys.path:
 
 from tools.on_this_day import post_daily  # noqa: E402
 
+_ENABLE_ENV = "FARM_ON_THIS_DAY_STORIES_ENABLED"
+
 
 def main() -> int:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
     )
-    # --auto-story: one cycle, picks the top unposted candidate
-    # (today's on-this-day pool first, back-catalog fallback next),
-    # publishes as FB + IG Story, records to the posted ledger. The
-    # LaunchAgent fires this every 90 min so Boss sees a steady drip
-    # without the terminal-typing he refuses to do.
+    if os.environ.get(_ENABLE_ENV) != "1":
+        logging.getLogger("on-this-day-stories").warning(
+            "on-this-day stories disabled; set %s=1 only after exact-date "
+            "selection is redesigned",
+            _ENABLE_ENV,
+        )
+        return 0
+
+    # Historical behavior when explicitly re-enabled: --auto-story runs
+    # one cycle and publishes a candidate as FB + IG Story. Do not set
+    # the enable env until exact-date-only selection has been redesigned.
     sys.argv = [sys.argv[0], "--auto-story"]
     return post_daily.main()
 

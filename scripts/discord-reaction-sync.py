@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
-# Author: Claude Opus 4.7 (1M context)
-# Date: 20-April-2026 (initial); extended 2026-04-20 to ingest human
-#       drops alongside Guardian-webhook gem reactions.
+# Author: GPT-5.5
+# Date: 03-May-2026
 # PURPOSE: Two jobs, run in one pass over #farm-2026:
 #
 #          1. GUARDIAN GEMS — for every reacted message whose author is
@@ -19,6 +18,10 @@
 #             duplicate rows. camera_id='discord-drop'. vlm_json's
 #             caption_draft is populated from the Discord message text
 #             so the IG caption builder has something narrative to use.
+#
+#             2026-05-03: messages authored by the Archive webhook are
+#             explicitly ignored. The archive throwback picker is disabled
+#             after poor old-photo selection polluted daily Reel material.
 #
 #          Bot reactions (Larry, Bubba, Egon — other Claude instances)
 #          are excluded from BOTH paths; only real-human reactions count.
@@ -77,6 +80,7 @@ def _setup_logging() -> None:
 # gem_poster's _USERNAME_BY_CAMERA renames; other cameras fall through
 # to their raw camera name.
 _KNOWN_CAMERAS = {"s7-cam", "house-yard", "mba-cam", "usb-cam", "gwtc", "iphone-cam"}
+_BLOCKED_DROP_AUTHORS = {"archive"}
 
 
 def _camera_for_username(username: str) -> Optional[str]:
@@ -445,6 +449,7 @@ def main(argv: list[str] | None = None) -> int:
     # AND at least one attachment is a still image.
     guardian_msgs: list[dict] = []
     drop_msgs: list[dict] = []
+    blocked_drop_msgs = 0
     for m in messages:
         if not m.get("reactions"):
             continue
@@ -452,6 +457,9 @@ def main(argv: list[str] | None = None) -> int:
         cam = _camera_for_username(author)
         if cam is not None:
             guardian_msgs.append(m)
+            continue
+        if author.lower() in _BLOCKED_DROP_AUTHORS:
+            blocked_drop_msgs += 1
             continue
         attachments = m.get("attachments") or []
         has_image = any(
@@ -462,8 +470,9 @@ def main(argv: list[str] | None = None) -> int:
             drop_msgs.append(m)
 
     log.info(
-        "messages with reactions: %d (guardian gems) + %d (human drops)",
-        len(guardian_msgs), len(drop_msgs),
+        "messages with reactions: %d (guardian gems) + %d (human drops); "
+        "skipped disabled archive drops=%d",
+        len(guardian_msgs), len(drop_msgs), blocked_drop_msgs,
     )
 
     if not guardian_msgs and not drop_msgs:

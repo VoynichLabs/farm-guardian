@@ -1,17 +1,15 @@
 #!/usr/bin/env python3
-# Author: Claude Opus 4.7 (1M context)
-# Date: 20-April-2026
-# PURPOSE: Slow-day content pipeline — post archive photos to Discord
-#          #farm-2026 so Boss can react to the ones he wants surfaced
-#          on Instagram. When Boss reacts, the existing drop-ingest
-#          path (discord-reaction-sync.py v2.33.0) picks them up and
-#          they flow into the scheduled IG lanes automatically. The
-#          reaction gate stays the sole quality filter — throwback
-#          just ensures there's ALWAYS material sitting in Discord
-#          for Boss to curate, even on days when the brooder is quiet
-#          or Boss is traveling.
+# Author: GPT-5.5
+# Date: 03-May-2026
+# PURPOSE: DISABLED archive throwback pipeline. This script used to post
+#          catalog/gallery archive photos to Discord #farm-2026 so Boss
+#          could react and route them into IG lanes via
+#          discord-reaction-sync.py. Boss rejected the current selection
+#          quality on 03-May-2026 after irrelevant winter/old photos
+#          leaked into daily Reel material. It now exits successfully
+#          unless FARM_ARCHIVE_THROWBACK_ENABLED=1 is explicitly set.
 #
-#          Two content sources, both live:
+#          Historical content sources, now disabled:
 #            1. Photos Library catalog — 21,640 photos cataloged by
 #               LM Studio + Qwen at /Users/macmini/bubba-workspace/
 #               projects/photos-curation/photo-catalog/master-catalog.csv
@@ -22,22 +20,27 @@
 #               curated to the farm's public website via the existing
 #               discord_harvester flow. Safe to re-surface to IG.
 #
-#          State file tracks what's already been thrown back so we
-#          don't repeat. Each day the LaunchAgent sends N candidates
-#          (default 3 catalog + 2 gallery = 5 total) to Discord;
-#          Boss reacts; IG lanes take it from there.
+#          Future TODO: redesign as exact-date-only "on this day"
+#          sourcing, e.g. May 3 2025 / May 3 2024 for May 3, with
+#          strict date provenance and better captions before re-enabling.
 #
-# SRP/DRY check: Pass — single responsibility is "pick N archive
-#                photos and post them to Discord for curation." The
-#                downstream flow (reaction sync -> image_archive ->
-#                IG lanes) is entirely the existing machinery; this
-#                script doesn't touch image_archive directly.
+#          Historical behavior: state file tracked what had already
+#          been thrown back so daily LaunchAgent runs did not repeat
+#          catalog/gallery candidates. That behavior is now off.
+#
+# SRP/DRY check: Pass - single responsibility is "disabled unless
+#                explicitly re-enabled, then pick N archive photos and
+#                post them to Discord for curation." The downstream flow
+#                (reaction sync -> image_archive -> IG lanes) remains
+#                existing machinery; this script does not touch
+#                image_archive directly.
 
 """
-archive-throwback.py — daily archive content → Discord for Boss curation.
+archive-throwback.py — DISABLED archive content → Discord for Boss curation.
 
 Invocation:
-  LaunchAgent cadence: daily 08:00 local
+  LaunchAgent cadence: daily 08:00 local, but fail-closed unless
+  FARM_ARCHIVE_THROWBACK_ENABLED=1
   (deploy/ig-scheduled/com.farmguardian.archive-throwback.plist).
 
   Manual (testing):
@@ -45,7 +48,7 @@ Invocation:
                    [--n-from-catalog N] [--n-from-gallery N]
 
 Exit codes:
-  0 — all posts succeeded (or dry-run)
+  0 — disabled, all posts succeeded, or dry-run
   1 — one or more posts failed (logged individually)
   2 — config error (webhook missing, catalog unreachable)
 """
@@ -112,6 +115,7 @@ _MONTH_NAMES = {
 }
 
 _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".heic"}
+_ENABLE_ENV = "FARM_ARCHIVE_THROWBACK_ENABLED"
 
 
 def _setup_logging() -> None:
@@ -180,6 +184,7 @@ def _read_catalog(already_sent: set[str]) -> list[dict]:
     aren't in the already-sent set. Returns a list sorted by score
     descending. Catalog is 21k rows; streaming keeps memory flat."""
     log = logging.getLogger("archive-throwback")
+
     if not CATALOG_CSV.exists():
         log.warning("catalog not found at %s", CATALOG_CSV)
         return []
@@ -319,7 +324,10 @@ def _gallery_caption(path: Path) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Daily Discord throwback of archive photos for Boss curation.",
+        description=(
+            "Disabled archive throwback sender; set "
+            "FARM_ARCHIVE_THROWBACK_ENABLED=1 to run after redesign."
+        ),
     )
     parser.add_argument("--n-from-catalog", type=int, default=3)
     parser.add_argument("--n-from-gallery", type=int, default=2)
@@ -331,6 +339,13 @@ def main(argv: list[str] | None = None) -> int:
 
     _setup_logging()
     log = logging.getLogger("archive-throwback")
+    if os.environ.get(_ENABLE_ENV) != "1":
+        log.warning(
+            "archive throwback disabled; set %s=1 only after exact-date "
+            "throwback selection is redesigned",
+            _ENABLE_ENV,
+        )
+        return 0
 
     # Resolve webhook (shared with gem_poster — loaded from .env).
     from tools.pipeline.gem_poster import load_dotenv  # noqa: E402

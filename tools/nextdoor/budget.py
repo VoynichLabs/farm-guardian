@@ -1,5 +1,5 @@
-# Author: Claude Opus 4.7 (1M context)
-# Date: 23-April-2026
+# Author: GPT-5.5
+# Date: 03-May-2026
 # PURPOSE: UTC-day budget tracker for the Nextdoor automation. Mirrors
 #          tools/ig-engage/budget.py but with Nextdoor-tuned caps (much
 #          lower — Nextdoor audiences punish oversharing harder than IG)
@@ -10,7 +10,8 @@
 #            comment       — 3
 #            react         — 5   (post-reactions, not story reactions)
 #            post_today    — 1   (outbound live-cam reacted gem; 18:30 local)
-#            post_throwback — 1  (outbound archive-throwback drop; 08:00 local)
+#            post_throwback — 1  (reserved; throwback lane disabled unless
+#                                  FARM_NEXTDOOR_THROWBACK_ENABLED=1)
 #
 #          Kill switch file: /tmp/nextdoor-off
 #          Challenge cooldown file: /tmp/nextdoor-cooldown-until (epoch)

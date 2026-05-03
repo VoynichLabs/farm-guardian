@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-# Author: Claude Opus 4.7 (1M context)
-# Date: 23-April-2026
+# Author: GPT-5.5
+# Date: 03-May-2026
 # PURPOSE: LaunchAgent entry point for the Nextdoor two-lane outbound
 #          cross-poster. Thin wrapper around
 #          tools.nextdoor.crosspost.main(); auto-infers lane from the
-#          local clock when --lane isn't supplied (morning = throwback,
-#          afternoon/evening = today).
+#          local clock when --lane isn't supplied. Morning still maps
+#          to throwback, but tools.nextdoor.crosspost now fail-closes
+#          that lane unless FARM_NEXTDOOR_THROWBACK_ENABLED=1.
 #
 # SRP/DRY check: Pass — just a launcher.
 

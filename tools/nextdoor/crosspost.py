@@ -1,9 +1,10 @@
-# Author: Claude Opus 4.7 (1M context)
-# Date: 23-April-2026
+# Author: GPT-5.5
+# Date: 03-May-2026
 # PURPOSE: Nextdoor outbound cross-post lane. Two tick types, dispatched
 #          by --lane:
 #            - "today"     — 1 reacted LIVE-CAM gem from today; fires 18:30.
-#            - "throwback" — 1 reacted archive-throwback drop; fires 08:00.
+#            - "throwback" — DISABLED 2026-05-03 unless
+#              FARM_NEXTDOOR_THROWBACK_ENABLED=1 is explicitly set.
 #
 #          Both lanes share primitives, the farm-nextdoor profile, the
 #          challenge detector, and the kill switch. Captions come from the
@@ -21,6 +22,11 @@
 #
 #          Plan: docs/23-Apr-2026-nextdoor-crosspost-plan.md.
 #
+#          2026-05-03 throwback deactivation: Boss rejected the current
+#          throwback selection quality. The throwback lane must stay off
+#          until it is redesigned as exact-date-only "on this day"
+#          sourcing with strict provenance.
+#
 # SRP/DRY check: Pass — one file, one responsibility (orchestrate one
 #                Nextdoor cross-post tick). No scheduling, no caption
 #                authoring (delegated), no scoring (delegated to SQL).
@@ -30,6 +36,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sqlite3
 import sys
 import time
@@ -46,12 +53,8 @@ REPO_ROOT = _HERE.parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from playwright.sync_api import Page, sync_playwright  # noqa: E402
-
 import budget  # noqa: E402
 import caption_writer  # noqa: E402
-import challenge  # noqa: E402
-import primitives  # noqa: E402
 
 log = logging.getLogger("nextdoor.crosspost")
 
@@ -63,6 +66,7 @@ MARKER = Path.home() / "Library" / "Application Support" / "farm-nextdoor" / "bo
 DATA_DIR = REPO_ROOT / "data" / "nextdoor"
 POSTS_LOG = DATA_DIR / "posts.json"
 SHOT_DIR = DATA_DIR / "shots"
+_THROWBACK_ENABLE_ENV = "FARM_NEXTDOOR_THROWBACK_ENABLED"
 
 STEALTH_INIT = r"""
 Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
@@ -219,7 +223,7 @@ def _resolve_image_path(raw: str) -> Path | None:
     return None
 
 
-def _shot(page: Page, name: str, lane: Lane) -> None:
+def _shot(page, name: str, lane: Lane) -> None:
     try:
         SHOT_DIR.mkdir(parents=True, exist_ok=True)
         path = SHOT_DIR / f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{lane}-{name}.png"
@@ -255,6 +259,15 @@ def run_tick(lane: Lane, dry_run: bool = False, headed: bool = False) -> dict:
         "gem_id": None,
     }
 
+    if lane == "throwback" and os.environ.get(_THROWBACK_ENABLE_ENV) != "1":
+        summary["disabled"] = True
+        summary["reason"] = (
+            "throwback lane disabled; set "
+            f"{_THROWBACK_ENABLE_ENV}=1 only after exact-date sourcing is redesigned"
+        )
+        log.warning(summary["reason"])
+        return summary
+
     ok, why = gate_checks(lane)
     if not ok:
         summary["reason"] = why
@@ -280,6 +293,10 @@ def run_tick(lane: Lane, dry_run: bool = False, headed: bool = False) -> dict:
         caption = caption_writer.write_caption(image_path, lane)
         summary["caption"] = caption
         log.info("caption for gem %s (%s): %r", gem["id"], lane, caption)
+
+        import challenge  # noqa: E402
+        import primitives  # noqa: E402
+        from playwright.sync_api import sync_playwright  # noqa: E402
 
         with sync_playwright() as pw:
             ctx = pw.chromium.launch_persistent_context(
@@ -410,7 +427,7 @@ def main(argv: list[str]) -> int:
     logging.getLogger().addHandler(fh)
     summary = run_tick(lane=lane, dry_run=args.dry_run, headed=headed)
     print(json.dumps(summary, indent=2, default=str))
-    return 0 if summary["posted"] or args.dry_run else 1
+    return 0 if summary["posted"] or args.dry_run or summary.get("disabled") else 1
 
 
 if __name__ == "__main__":

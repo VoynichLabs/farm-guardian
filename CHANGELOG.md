@@ -4,6 +4,12 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-05-03
 
+### v2.39.2 - social: disable throwback/on-this-day content (GPT-5.5)
+
+Disabled the archive throwback and on-this-day Story lanes after Boss rejected the current selection quality. The catalog/gallery throwback picker was surfacing irrelevant old photos, including winter images, and those synthetic `discord-drop` rows could then pollute daily Reel material because they looked "recent" by Discord post time rather than actual photo date.
+
+`scripts/archive-throwback.py` now exits 0 unless `FARM_ARCHIVE_THROWBACK_ENABLED=1` is explicitly set. `scripts/on-this-day-stories.py` and direct `tools.on_this_day.post_daily --publish/--auto-story` paths now exit 0 unless `FARM_ON_THIS_DAY_STORIES_ENABLED=1` is explicitly set. `tools/social/config.json` now sets `archive_fallback_enabled=false`, and `social-publisher` skips on-this-day/archive fallback when that flag is false. `tools/nextdoor/crosspost.py` now refuses the `throwback` lane unless `FARM_NEXTDOOR_THROWBACK_ENABLED=1`, leaving only the live "today" lane active. `scripts/discord-reaction-sync.py` now ignores new `Archive` webhook drops so stale throwback Discord messages cannot enter `image_archive` as fresh synthetic gems. Future TODO: redesign throwbacks as exact-date-only sourcing, e.g. May 3 2025 / May 3 2024 for May 3, with strict date provenance and better captions before re-enabling. For now there is enough live content and no throwback path should post.
+
 ### v2.39.1 - social: enforce reacted Story queue priority (GPT-5.5)
 
 Fixed the hourly `social-publisher` priority bug behind the noon digest showing a large reaction queue while archive/iPhone fallback content had consumed IG quota. `_drain_gem_queue()` now returns queue depth and attempt count, and `run_tick()` blocks archive fallback whenever the reacted Story queue is non-empty, even if all attempted gem posts fail. This restores the rule: a Discord reaction is the highest-priority Story signal.

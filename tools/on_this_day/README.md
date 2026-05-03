@@ -1,11 +1,13 @@
 # `tools/on_this_day/` — Historical iPhone → Facebook publisher
 
-**Status:** Live as of 2026-04-21 (v2.36.0). Dry-run verified; publish path untested in production.
+**Status:** DISABLED as of 2026-05-03. The current selector/back-catalog fallback produced irrelevant old content, so no on-this-day or throwback archive path should publish until it is redesigned.
 **Owner:** Boss · **Plan:** [`docs/21-Apr-2026-on-this-day-fb-pipeline-plan.md`](../../docs/21-Apr-2026-on-this-day-fb-pipeline-plan.md)
 
 ## What this is
 
-Daily, at a cadence Boss sets, pick a pretty iPhone photo from **this calendar date** in **2022, 2024, or 2025** (never 2023 — Boss excluded it on purpose), and post it to the Facebook Page *Yorkies App* with an auto-generated caption.
+Historical intent: pick a pretty iPhone photo from **this calendar date** in **2022, 2024, or 2025** (never 2023 — Boss excluded it on purpose), and post it to the Facebook Page *Yorkies App* with an auto-generated caption.
+
+Current decision: do not publish from this lane. `scripts/on-this-day-stories.py` and direct `tools.on_this_day.post_daily --publish/--auto-story` paths exit unless `FARM_ON_THIS_DAY_STORIES_ENABLED=1`, and `tools/social/config.json` sets `archive_fallback_enabled=false` so `social-publisher` does not call the archive fallback. Future TODO: redesign as strict exact-date-only sourcing, e.g. May 3 2025 / May 3 2024 for May 3, with no loose back-catalog/gallery fallback.
 
 The selector draws from ~78k non-trashed, non-hidden photos in the Mac Mini's Photos library, joined against the Qwen 3.5-35B–described master catalog at
 `~/bubba-workspace/projects/photos-curation/photo-catalog/master-catalog.csv` (21,639 rows as of 2026-04-21 — backfill needed; see below).
@@ -22,15 +24,14 @@ python3 -m tools.on_this_day.catalog_backfill --status
 # Multi-hour run; resumable (per-UUID sidecar skip).
 python3 -m tools.on_this_day.catalog_backfill --run
 
-# Dry-run for today (default). Writes data/on-this-day/YYYY-MM-DD-candidates.json.
+# Selector dry-run only. Do not publish until the lane is redesigned.
+# Writes data/on-this-day/YYYY-MM-DD-candidates.json.
 python3 -m tools.on_this_day.post_daily
 
 # Dry-run for a specific date — also shows filtered rows with reasons.
 python3 -m tools.on_this_day.post_daily --date 2026-04-21 --include-rejected
 
-# DEFAULT (v2.36.2+): publish top-8 as separate 24-hour FB Stories,
-# one story per photo. Stories don't dilute the feed and give us
-# per-photo engagement signals for the later "best-of" promotion step.
+# DISABLED: do not run publish commands until exact-date selection is fixed.
 python3 -m tools.on_this_day.post_daily --publish
 
 # Post more stories (no hard cap; the default is 8).
@@ -98,21 +99,21 @@ Top-N is score-desc, ties broken by year-desc (2025 beats 2024 beats 2022).
 | Lane | Source of photos | Quality gate | Destination | Canonical code |
 |---|---|---|---|---|
 | **Gem lane** | Live cameras via `com.farmguardian.pipeline` | Boss's reactions on Discord `#farm-2026` (human-in-the-loop) | IG (`@pawel_and_pawleen`) + FB Page (*Yorkies App*) — reacted stories hourly through `social-publisher`, carousel daily 18:00, mixed Reel daily 18:00, S7 time-lapse Reel daily 21:00 | `tools/pipeline/` (this repo), state in `data/image_archive.db` |
-| **Archive lane** (this doc) | Qwen-catalogued iPhone archive at `~/bubba-workspace/projects/photos-curation/photo-catalog/` | Automated content filter (farm/pet keywords in; hawks/receipts/etc. out) | Same IG + FB Page — fallback stories through `social-publisher` only when the reacted Story queue is empty | `tools/on_this_day/` (this folder), state in `data/on-this-day/posted.json` |
+| **Archive lane** (this doc) | Qwen-catalogued iPhone archive at `~/bubba-workspace/projects/photos-curation/photo-catalog/` | DISABLED; previous automated filter was not good enough | OFF. `scripts/on-this-day-stories.py` exits unless `FARM_ON_THIS_DAY_STORIES_ENABLED=1`; `social-publisher` skips fallback while `archive_fallback_enabled=false` | `tools/on_this_day/` (this folder), state in `data/on-this-day/posted.json` |
 
-They share `fb_poster.py`, `git_helper.py`, and `ig_poster.py` helpers but have independent selectors and state files. `social-publisher` is the shared hourly decider for reacted Story queue vs archive fallback. Both commit into `farm-2026/public/photos/` and use `raw.githubusercontent.com` URLs to feed Meta's media fetcher. Don't merge the sources — different content policies, different schemas.
+They share `fb_poster.py`, `git_helper.py`, and `ig_poster.py` helpers but have independent selectors and state files. `social-publisher` used to be the shared hourly decider for reacted Story queue vs archive fallback; archive fallback is now disabled by config. Don't merge the sources — different content policies, different schemas.
 
 **Zero-loss invariants:**
 - Gem lane: `select_all_unposted_story_gems` runs hourly via `social-publisher` with **no time window**. Anything with `discord_reactions >= 1`, `ig_story_id IS NULL`, and no `story-permanent-skip` reason gets FIFO-drained. Capped by `tools/social/config.json::max_per_tick` (currently 5 successful posts/tick) and the shared 25-per-rolling-24h IG publish quota; large backlogs drain over subsequent ticks.
-- Archive lane: posted UUIDs are recorded in `data/on-this-day/posted.json`, never reposted. Cloud-only photos blacklist until tomorrow and retry on next day's ticks.
+- Archive lane: disabled. If re-enabled later, posted UUIDs are recorded in `data/on-this-day/posted.json`, never reposted. Cloud-only photos blacklist until tomorrow and retry on next day's ticks.
 
 ## Automation (v2.36.3) — you never type these commands
 
-`social-publisher` runs archive Story fallback with zero human touch. Reciprocation is a separate optional LaunchAgent:
+`social-publisher` no longer runs archive Story fallback. Reciprocation is a separate optional LaunchAgent:
 
 | Label | Cadence | Script | What it does |
 |---|---|---|---|
-| `com.farmguardian.social-publisher` | hourly (`StartInterval 3600`) | `scripts/social-publisher.py` | Calls `tools.on_this_day.post_daily.run_auto_story_cycle()` only when the reacted Story queue is empty and enough IG quota remains. The cycle picks ONE top unposted candidate (today's on-this-day pool first, back-catalog fallback next) and publishes it as BOTH an FB Page Story AND an Instagram Story. Posted UUIDs are recorded in `data/on-this-day/posted.json` so the same photo is never re-cycled. |
+| `com.farmguardian.social-publisher` | hourly (`StartInterval 3600`) | `scripts/social-publisher.py` | Reacted gem Story lane only while `archive_fallback_enabled=false`. It must not call `tools.on_this_day.post_daily.run_auto_story_cycle()` until the archive lane is redesigned and explicitly re-enabled. |
 | `com.farmguardian.reciprocate` | every 4 hours (`StartInterval 14400`) | `scripts/reciprocate-harvest.py` | Scans the last 2 days of Page posts + Stories, aggregates reactors/commenters, writes `data/on-this-day/engagers-YYYY-MM-DD.{json,txt}`, and posts a summary to Discord channel **`1476787165638951026`** (via the Bubba bot token from `~/.openclaw/openclaw.json`). NEVER `#farm-2026` — that channel is the IG-gem reaction-quality-gate and we don't pollute its signal. |
 
 **Install (one-time, already done on this Mac Mini):**
@@ -138,19 +139,19 @@ tail -f /tmp/social-publisher.out.log /tmp/reciprocate.out.log
 
 ## Posted-state ledger
 
-`data/on-this-day/posted.json` is the single source of truth for which photos have already gone out. Keyed by Photos UUID; each entry records `posted_at`, `lanes` (`fb_story` / `ig_story` / both), `fb_post_id`, `ig_post_id`, `raw_url`. The selector respects this ledger via `already_posted(uuid)` so social-publisher fallback can't pick the same photo twice. Delete an entry to force a repost. Seeded 2026-04-22 with the four FB stories from the initial partial run.
+`data/on-this-day/posted.json` is the historical source of truth for which photos already went out. Keyed by Photos UUID; each entry records `posted_at`, `lanes` (`fb_story` / `ig_story` / both), `fb_post_id`, `ig_post_id`, `raw_url`. The selector respects this ledger via `already_posted(uuid)` if the lane is ever re-enabled. Do not delete entries to force reposts while this lane is disabled. Seeded 2026-04-22 with the four FB stories from the initial partial run.
 
 An audit trail of every LaunchAgent tick lives at `data/on-this-day/auto-story-YYYY-MM-DD.ndjson` (one JSON row per fire — success, caption-safety skip, or no-candidate steady state).
 
-## Publishing strategy (v2.36.2)
+## Publishing strategy (disabled 2026-05-03)
 
-Three lanes, one shared selector:
+Historical lanes, all currently disabled:
 
-1. **Story lane (default, `--publish`)** — every top candidate goes out as its own 24-hour FB Page Story. Stories are cheap: they don't compete for feed real estate, Boss can post many per day, and each one produces its own performance signal (impressions, reactions, taps-forward/backward). This is the firehose.
-2. **Carousel lane (`--publish --carousel`)** — curated "best-of" feed post. Use this AFTER letting the stories run for a day or two, reading insights, and picking the winners. One carousel per chosen date. Per-photo captions are dropped (FB only renders the /feed message once per carousel); the carousel-level caption is `"On this day — {Month Day}, from {years}."`.
-3. **Single lane (`--publish --single` or `--uuid`)** — one feed post per photo. Rarely wanted; lives for granular manual control.
+1. **Story lane (default, `--publish`)** — DISABLED. Previously every top candidate went out as its own 24-hour FB Page Story.
+2. **Carousel lane (`--publish --carousel`)** — DISABLED. Previously intended as a curated "best-of" feed post after story performance review.
+3. **Single lane (`--publish --single` or `--uuid`)** — DISABLED. Previously one feed post per photo for manual control.
 
-The loop Boss described: **post many stories → harvest insights → promote the winners to a carousel**. That's why the story lane writes each `fb_post_id` + caption + UUID + score into `data/on-this-day/YYYY-MM-DD-publish-result.json` — future insight-scraping code reads that file to know which posts to pull metrics for.
+The old loop was **post many stories → harvest insights → promote the winners to a carousel**. Do not resume that loop until exact-date-only candidate selection is fixed.
 
 ## Content policy — non-negotiables
 
@@ -158,7 +159,7 @@ The loop Boss described: **post many stories → harvest insights → promote th
 2. **Never hashtags.** Boss was explicit. Clean feed on the Page.
 3. **Never 2023.** Do not remove the year filter without asking Boss.
 4. **Never editorialize in captions.** Use the Qwen `scene_description` verbatim as the sentence body. Do not invent emotions, do not attribute to the photographer, do not mention "Boss"/"Mark" in public copy. See `feedback_no_editorializing` in memory.
-5. **Never auto-post without a review step for now.** The `--dry-run` → human-eyeballs → `--publish` loop is the quality gate. A Discord-reaction gate is feasible later but needs schema work on `image_archive` (see plan doc).
+5. **Never auto-post from this lane right now.** The previous selector/on-this-day behavior is not trusted.
 
 ## Gotchas the next assistant will hit
 
@@ -184,5 +185,5 @@ The loop Boss described: **post many stories → harvest insights → promote th
 ## Next steps (not yet done)
 
 - **Run the full catalog backfill.** 56k uncatalogued photos — hours of LM Studio time. Boss should kick this off when the machine will otherwise be idle.
-- **Consider a LaunchAgent** to run `post_daily.py` (dry-run) every morning at, say, 07:00 local, then Boss reviews and manually runs `--publish --uuid <…>` when he's happy. That matches the "quality gate is human review" model we started with.
+- **Redesign before re-enabling.** Exact-date-only sourcing is required, e.g. May 3 2025 / May 3 2024 for May 3. Do not use loose back-catalog/gallery fallback.
 - **Consider widening eligible years** once Boss has an opinion on how the feed feels. 2023 is excluded intentionally; 2021 is probably thin catalog-wise but could be added.

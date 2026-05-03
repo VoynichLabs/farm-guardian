@@ -26,8 +26,9 @@
     <key>StandardErrorPath</key>
     <string>/tmp/nextdoor-crosspost.err.log</string>
 
-    <!-- Two fires per day. Script auto-picks the lane from the local hour
-         (morning = throwback, evening = today). -->
+    <!-- Two fires per day. Morning maps to the throwback lane, which is
+         fail-closed unless FARM_NEXTDOOR_THROWBACK_ENABLED=1; evening is
+         the active live "today" lane. -->
     <key>StartCalendarInterval</key>
     <array>
         <dict>
