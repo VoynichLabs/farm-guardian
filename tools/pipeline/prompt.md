@@ -1,16 +1,20 @@
 This is a snapshot from the {camera_name} camera at a small backyard flock in Hampton CT. Camera context: {camera_context}.
 
-**What this camera may see.** The camera context above tells you where {camera_name} is pointed. The young birds in this flock as of {today} include:
-- **2 bronze broad-breasted turkey poults**, approximately 7 days old. At this age they already look distinctly different from the chicken chicks: **rounder, puffier bodies** (broad-breasted genetics make them wide even as poults), **thick, heavy legs** with large feet, and a **snood** — the short fleshy nub above the beak — already forming. Their facial skin is bare and pinkish rather than fluffy. When standing, they hold themselves **upright and blocky**. They are larger than the chicken chicks overall.
-- **1 standard chicken chick**, approximately 28 days old. More feathered-out than the bantams, mid-sized in the group.
-- **Several exotic bantam chickens**, approximately 28 days old. The SMALLEST birds in the group. Varied and often striking plumage.
+**Read the camera context first.** The `Camera context:` line above tells you exactly what this camera is pointed at and what subjects to expect. Trust it completely — do not invent subjects that aren't consistent with it. If the context says "coop" or "overhead" or "older birds," you are NOT looking at turkey poults or young bantam chicks. If the context says "nesting box," you ARE.
 
-**Turkey vs. chicken — how to tell them apart.** This is the most important call in the frame. Look for:
-- **Round, wide, blocky body** → turkey poult. Broad-breasted genetics make them look inflated even at one week. A chicken chick at the same age is sleeker and more compact.
-- **Thick, stout legs with large feet** → turkey. Chicken chick legs are thin and delicate by comparison.
-- **Snood** (the small fleshy bump or nub sitting above the beak, between the nostrils) → turkey. Chicken chicks don't have one.
-- **Bare pinkish skin on the face** → turkey. Chicken chicks have fluffy feathered faces.
-- **Fluffy, round, small body with a fine-boned look** → chicken chick, not a turkey.
+**Nesting box cameras (s7-cam, mba-cam when watching the nesting box)** — the young flock as of {today}:
+- **2 bronze broad-breasted turkey poults**, ~7 days old: rounder/puffier bodies, thick heavy legs with large feet, a snood (fleshy nub above the beak), bare pinkish facial skin, upright blocky stance. Larger than the chicken chicks.
+- **1 standard chicken chick**, ~28 days old. More feathered-out than the bantams, mid-sized.
+- **Several exotic bantam chickens**, ~28 days old. The SMALLEST birds. Varied and striking plumage.
+
+**Turkey vs. chicken (nesting box cameras only):**
+- **Round, wide, blocky body + thick legs + snood + bare pink face** → turkey poult.
+- **Fluffy, fine-boned, feathered face** → chicken chick.
+
+**Coop/overhead cameras (usb-cam, gwtc)** — you are seeing older birds:
+- **Adult chickens** (fully grown, mixed breeds) and **older feathered chicks** that have graduated from the brooder. More adult-shaped, fully feathered. No turkey poults here.
+- The angle may be overhead — expect to see backs, tops of heads, and bird rumps rather than faces. That is normal for these cameras.
+- Score conservatively: these are lower-quality sensors at awkward angles. A 6 is a good shot here.
 
 **Equipment is NOT birds.** The frame may contain a dome-shaped waterer, a feeder, a heat lamp, or other plastic/metal objects. These have NO head, NO beak, NO eyes, NO feathers. Do not count them as birds. If you are unsure whether something is a bird, look for a visible head and feathers — if absent, it is not a bird.
 

@@ -74,7 +74,7 @@
       "ip_webcam_base": "http://192.168.0.68:8089",
       "photo_path": "/photo.jpg",
       "trigger_focus": false,
-      "context": "Generic USB webcam (UVC 1920x1080), plugged into the GWTC Gateway laptop at 192.168.0.68 and served on port 8089 by a Windows scheduled task ('usb-cam-host', running interactively as the 'cam' autologon user, C:\\farm-services\\usb-cam-host\\start.bat). 24-Apr-2026: moved from the Mac Mini to GWTC because the Mini's heat-lamp-lit brooder angle red-clipped the sensor and produced unusable frames; the GWTC coop run is natural-daylight and this cheap UVC sensor handles it cleanly (1920x1080 full color). device_index=1 on the Windows side because device 0 is GWTC's built-in Hy-HD-Camera already held by MediaMTX for the 'gwtc' RTSP path.",
+      "context": "Cheap generic USB webcam (UVC, 1920x1080, lower image quality than the S7) mounted inside the CHICKEN COOP RUN, watching the older bird flock in natural daylight. Subjects: the four winter-survivor adult chickens (fully grown, mixed breeds) and the previous brooder cohort that has graduated to the coop (older chicks, well-feathered, starting to look adult-shaped). NO turkey poults, NO young bantam chicks in this view — those are in the nesting box. Camera angle is fixed and may be partially obstructed by birds very close to the lens. Score conservatively — this is a budget sensor and a 7 here is a genuinely good shot for this camera.",
       "burst_size": 1,
       "enabled": true
     },
@@ -96,7 +96,7 @@
     "gwtc": {
       "cycle_seconds": 20,
       "capture_method": "reolink_snapshot",
-      "context": "Gateway laptop (Windows 11, 192.168.0.68) built-in webcam streamed via ffmpeg+MediaMTX; 1280x720, fixed focus, 2026-04-30: moved to the ROOF OF THE COOP for an overhead/approach view. Previously was in the coop run interior. Pipeline pulls Guardian's snapshot API rather than RTSP direct \u2014 Guardian's ring buffer rides through the dshow-zombie windows that farmcam-watchdog takes ~90s to clear. Burst-of-3 with median-selection dodges the transient H.264 decode artifacts Boss sees after the laptop gets jostled (vertical stripes, smearing).",
+      "context": "Gateway laptop built-in webcam (1280x720, fixed focus, lower quality), mounted on the ROOF OF THE COOP pointing down for an overhead/approach view of the coop run and surrounding area. Subjects: adult chickens and older feathered chicks in the coop run, or the yard/approach area \u2014 whatever is below the camera. NO turkey poults, NO young bantam chicks. Angle is overhead so you may see bird backs and tops of heads rather than faces. Images may have compression artifacts (vertical stripes, smearing) from H.264 decode issues \u2014 tag those as blurred. Score conservatively for this low-resolution overhead camera.",
       "burst_size": 3,
       "burst_interval_seconds": 0.4,
       "motion_gate": true,
