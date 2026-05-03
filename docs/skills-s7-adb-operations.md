@@ -1,12 +1,16 @@
 # S7 Operations via ADB (and via IP Webcam's HTTP settings API)
 
-> **⚠️ ARCHAEOLOGY as of 2026-04-26.** The S7 is no longer USB-tethered to the MacBook Air — Boss has moved it to a standalone USB power brick (wall-direct) for charging only. ADB-over-USB to this phone is therefore **not available in normal operation**. The HTTP settings API (everything served by IP Webcam at `http://192.168.0.249:8080/...`) is unaffected and remains the supported path for runtime tuning.
+> **STATUS as of 2026-05-02:** S7 is in the nesting box, USB-connected to the GWTC laptop (192.168.0.68) for power. ADB is installed on GWTC at `C:\farm-services\platform-tools\adb.exe`. **USB debugging is enabled on the phone** but GWTC's ADB key is not yet authorized — the phone needs to show "Allow USB debugging from this computer?" and Boss needs to tap Allow (plus "Always allow"). Until that's done, ADB from GWTC shows an empty device list.
 >
-> If you came here looking for "how do I recover a wedged IP Webcam," the answer is no longer "ssh to the MBA and adb..."; it's **walk to the phone**. See `docs/16-Apr-2026-s7-ipwebcam-frozen-incident.md` § "Recovery — phone-side hands-on, no remote escape hatch."
+> **How to complete GWTC ADB authorization (one-time):**
+> 1. Phone must be unlocked and the USB connection must be in **File Transfer (MTP)** mode — pull down the notification bar, tap the "USB for charging" notification, select "File Transfer". Charge-only mode suppresses the ADB interface entirely.
+> 2. On the Mac Mini: `ssh markb@192.168.0.68 'C:\farm-services\platform-tools\adb.exe devices'`
+> 3. Watch the phone screen — an "Allow USB debugging?" dialog appears. Tap **Allow** and check **"Always allow from this computer"**.
+> 4. Re-run `adb devices` — should show `ce12160cec2f2f0901  device`.
 >
-> The ADB sections below remain useful for the occasional case where Boss reconnects the cable for a deep settings tweak or one-off diagnostic, and as historical context for why certain code (e.g. `tools/s7-battery-monitor/`) was written the way it was.
+> Once authorized, `s7-settings-watchdog` can auto-fix the black-screen boot race by ADB force-stopping and relaunching IP Webcam (v2.38.6, 2026-05-02).
 
-**Last updated:** 26-April-2026 (architecture change — S7 untethered from MBA)
+**Last updated:** 02-May-2026 (S7 moved to nesting box / GWTC USB; ADB installed on GWTC; watchdog updated with black-screen detection)
 **Cross-refs:** `CHANGELOG.md` (v2.27.7 camera tuning, v2.27.8 battery monitor [BROKEN under new arch], v2.27.9 freeze incident, v2.35.2 EXIF orientation fix) · `docs/16-Apr-2026-s7-ipwebcam-frozen-incident.md` · `tools/s7-battery-monitor/monitor.py` (LaunchAgent disabled 2026-04-26)
 
 ## Orientation — PORTRAIT (fixed, deliberate, 2026-04-21)
