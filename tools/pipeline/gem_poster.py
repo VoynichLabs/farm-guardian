@@ -239,8 +239,7 @@ def post_gem(
         return False
     username = _USERNAME_BY_CAMERA.get(camera_name, camera_name)
     content = caption if caption else f"New {camera_name} gem."
-    # Discord content length cap is 2000; captions are already ≤200 in the
-    # schema, so this is belt-and-suspenders.
+    # Discord content length cap is 2000; belt-and-suspenders truncation.
     if len(content) > 1900:
         content = content[:1900] + "…"
     try:

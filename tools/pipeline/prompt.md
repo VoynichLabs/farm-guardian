@@ -58,12 +58,20 @@ Guidance on specific fields:
   - **"decent"**: clear, in-focus frame with visible birds that doesn't hit a strong trigger and isn't killed by a skip trigger. A sideways group shot with some faces partially visible is decent. Archive-worthy but not remarkable.
   - When in doubt between `decent` and `skip`, lean `skip`.
 - `share_reason`: one specific sentence about THIS frame — not a restatement of the rules. E.g., "Bronze turkey poult looking directly into the lens, left eye sharp" or "All three birds in motion, no sharp faces visible, minor blur throughout."
-- `caption_draft`: 2–4 sentences, up to ~450 chars. **Describe the whole scene, not just one bird.** If there are multiple birds, describe what each group or individual is doing and what color/pattern they are. This is what goes on social media — make it vivid and complete.
-  - **Paint the full picture.** Where are the birds? What's happening in the foreground vs. background? Is one bird alone on a perch while others huddle below? Say so. A scene with a lone bird standing over a pile of sleeping ones is a story — tell it.
-  - **Colors for every bird you can see.** "a white fluffy chick," "a barred black-and-white bird," "a rust-and-dark-brown bird perched up high," "a buff-orange chick face-down in the shavings." Never "a colorful group."
-  - **Expression and posture where visible.** "looking directly into the lens," "head down, eyes closed," "standing tall, alert." 
-  - **Species when you can tell.** Turkey poults vs. bantam chicks vs. the larger standard chick.
-  - **Every caption must describe THIS specific frame differently.** Different birds, different details, different arrangement every time.
-  - Good examples: "A dark reddish-brown chick stands alone on the roost above the heat lamp while six others pile together in the shavings below — a white fluffy one in the center, a barred black-and-white bird to the right, all tucked in tight under the orange glow." / "A chipmunk-striped chick — possibly a Phoenix — holds eye contact with the camera while two rust-orange bantams sleep pressed against it, their faces buried in the shavings."
-  - Bad examples: "A bronze turkey poult looks into the lens." / "Chicks sleeping." / "Birds under the heat lamp." — one bird, no scene, no color detail.
+- `overall_score`: integer 0–10. Your overall judgment of this frame's value as a photo worth keeping.
+  - **0–2**: No birds visible, or completely unusable (totally blurry, artifacts throughout).
+  - **3–4**: Birds present but all backs/rear ends, or all faces blurred beyond recognition. Little value.
+  - **5–6**: Decent frame. Birds visible with some faces, ordinary activity. Archive-worthy but not remarkable.
+  - **7–8**: Good frame. At least one clear face, interesting posture or color, something a viewer would pause on.
+  - **9–10**: Exceptional. Direct eye contact, vivid plumage detail, unusual behavior, or a composition that tells a story with multiple interesting subjects. The kind of shot worth sharing.
+  - This score must be consistent with `share_worth`: score 0–4 → skip; 5–6 → decent; 7–10 → strong.
+- `caption_draft`: 2–4 sentences, up to ~450 chars. **Describe the whole scene — all the birds, not just one.** This goes on social media. Make it vivid.
+  - **Describe only the birds.** Do NOT mention the heat lamp, wood shavings, bedding, the nesting box walls, or the wooden structure. Those are background. The birds are the subject.
+  - **Paint the full picture.** Who's where? One bird alone on the perch while others huddle below? Say so. A lone sentry above a pile of sleepers is a story — tell it.
+  - **Colors for every visible bird.** "a white fluffy chick," "three dark mottled birds in black and grey," "a rust-and-brown bantam," "a barred black-and-white chick." Never "a colorful group."
+  - **Expression and posture.** "looking directly at the camera," "eyes closed, heads tucked," "standing tall and alert," "pressed together, fast asleep."
+  - **Species when distinguishable.** Turkey poults vs. bantam chicks vs. the larger standard chick.
+  - **Every caption must be different.** Find a different angle, different birds, different detail each frame.
+  - Good examples: "A white chick stands alert in the center while three dark mottled birds — black-and-grey speckled — doze pressed together on the perch above, heads tucked in tight. A second white bird picks its way along the beam behind them." / "A chipmunk-striped bantam, possibly a Phoenix, locks eyes with the camera while two rust-orange birds sleep against it, faces buried."
+  - Bad examples: "A white chick stands beneath the heat lamp on wood shavings." / "Birds sleeping in the nesting box." — mentions the lamp/shavings, describes only one bird.
 - `concerns`: only populate if you see an injured bird, dead bird, abnormal posture, fighting beyond normal pecking, or an environmental hazard. Empty array otherwise.

@@ -17,11 +17,12 @@
       "subject_coverage_pct":{ "type": "integer", "minimum": 0, "maximum": 100 },
       "largest_subject_pct": { "type": "integer", "minimum": 0, "maximum": 100 },
       "share_worth":        { "type": "string", "enum": ["skip","decent","strong"] },
+      "overall_score":      { "type": "integer", "minimum": 0, "maximum": 10 },
       "share_reason":       { "type": "string", "maxLength": 200 },
       "caption_draft":      { "type": "string", "maxLength": 450 },
       "concerns":           { "type": "array",  "items": { "type": "string", "maxLength": 200 } }
     },
-    "required": ["scene","bird_count","individuals_visible","any_special_chick","apparent_age_days","activity","lighting","composition","image_quality","bird_face_visible","subject_coverage_pct","largest_subject_pct","share_worth","share_reason","caption_draft","concerns"],
+    "required": ["scene","bird_count","individuals_visible","any_special_chick","apparent_age_days","activity","lighting","composition","image_quality","bird_face_visible","subject_coverage_pct","largest_subject_pct","share_worth","overall_score","share_reason","caption_draft","concerns"],
     "additionalProperties": false
   }
 }

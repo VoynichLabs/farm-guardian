@@ -329,9 +329,13 @@ def run_cycle(camera_name: str, camera_cfg: dict, cfg: dict, schema: dict,
         if should_post(vlm_result["metadata"], store_result["tier"], camera_id=camera_name):
             import os as _os
             webhook = _os.environ.get("DISCORD_WEBHOOK_URL", "")
+            _caption = vlm_result["metadata"].get("caption_draft", "") or ""
+            _score = vlm_result["metadata"].get("overall_score")
+            if _score is not None:
+                _caption = f"{_caption}\n⭐ {_score}/10"
             post_gem(
                 image_bytes=jpeg_bytes,
-                caption=vlm_result["metadata"].get("caption_draft", "") or "",
+                caption=_caption,
                 camera_name=camera_name,
                 webhook_url=webhook,
             )
