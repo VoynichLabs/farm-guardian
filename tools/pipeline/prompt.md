@@ -11,7 +11,18 @@ This is a snapshot from the {camera_name} camera at a small backyard flock in Ha
 
 **No named individuals.** Do not refer to any bird by name. Use "turkey poult," "chicken chick," "bantam chick," or "young bird."
 
-**Coloration matters — describe it specifically.** These bantam chicks are rare-breed exotic birds and many are strikingly colored. When a bird is sharp in frame, describe its actual colors and markings: "black-and-gold laced," "chipmunk-striped in brown and cream," "solid white with a crest," "rust-orange with dark wing tips," "barred black-and-white," etc. Don't write "colorful chick" — describe the actual colors you see. This is the detail that makes a caption worth reading.
+**Coloration — describe it specifically, always.** These are rare-breed exotic birds and many are strikingly colored. When a bird is sharp in frame, describe the actual colors and markings you see: "chipmunk-striped brown-and-cream," "solid black," "blue-grey," "buff yellow," "black-and-gold laced," "rust-orange with dark wing tips," "barred black-and-white," "pale silver with a dark dorsal stripe." Do NOT write "colorful chick" or "distinctive markings" — name the actual colors. Every caption should tell someone exactly what color bird they'd see if they looked at this photo.
+
+**Breed speculation — encouraged at 4 weeks.** These chicks came from Cackle Hatchery's Exotic Island Fowl Special and Rare Chick Special. At ~4 weeks, distinguishing features are starting to appear. When you see them, speculate on the breed:
+- **Feathered feet/legs** → likely a Cochin (most common in the Rare Chick Special), or Sultan
+- **Head crest or pouf forming** → likely Polish, Sultan, Houdan, or Spitzhauben
+- **Chipmunk-striped (brown/cream dorsal stripes)** → likely Phoenix, Yokohama, or Red Jungle Fowl (Exotic Island Fowl)
+- **Mostly or all black** → likely Black Sumatra or Ayam Cemani
+- **Reddish-brown/buff tones, game-bird build** → likely Cubalaya or Jungle Fowl
+- **Golden or silver duckwing pattern** → likely Golden or Silver Duckwing Phoenix/Yokohama
+- **Buff/cream, heavy build** → likely Buff Cochin
+- **Grey/blue-grey, fluffy** → likely Blue or Splash Cochin, or Blue Polish if a crest is forming
+When speculating, say "possibly a [breed]" or "likely a [breed] — note the feathered feet." You won't always be certain and that's fine — speculate when the features are there.
 
 **Expression and demeanor.** When a bird's face is visible and in focus, describe what it looks like: alert and upright, curious with head tilted, drowsy with half-closed eyes, startled with neck stretched, calm and relaxed. A bird staring directly into the lens with bright open eyes is the best shot the farm gets — say so specifically.
 
@@ -49,6 +60,6 @@ Guidance on specific fields:
   - **Species when distinguishable.** "a bronze turkey poult," "the larger standard chick," "a bantam chick."
   - **Action.** What is the bird doing? Pecking, drinking, preening, stretching, sparring, standing still?
   - **Every caption must be different.** Find a different lead detail each time — a different bird, a different color, a different expression or action.
-  - Good examples: "A chipmunk-striped bantam chick stares directly into the lens, one bright eye sharp in focus." / "Two bronze turkey poults flank the waterer while a rust-colored bantam chick preens behind them." / "A tiny barred black-and-white chick mid-stretch, one wing fanned out, looking alert."
-  - Bad examples: "Chicks in the nesting box." / "Young birds eating." / "Colorful chicks." — no specific color, no expression, no action.
+  - Good examples: "A chipmunk-striped chick — possibly a Phoenix — stares directly into the lens, one bright eye sharp in focus." / "Two bronze turkey poults crowd the waterer while a blue-grey chick with a developing crest, likely Polish, stands watching behind them." / "A rust-and-black bantam mid-stretch, one wing fanned wide, head turned alertly toward the camera." / "A buff-yellow chick with visibly feathered feet — probably a Buff Cochin — sits relaxed in the foreground, eyes half-closed."
+  - Bad examples: "Chicks in the nesting box." / "Young birds eating." / "Colorful chicks." / "A distinctive-looking chick." — no color, no breed hint, no expression, no action.
 - `concerns`: only populate if you see an injured bird, dead bird, abnormal posture, fighting beyond normal pecking, or an environmental hazard. Empty array otherwise.
