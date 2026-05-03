@@ -2,6 +2,14 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased] - 2026-05-02
+
+### v2.39.0 - social: S7 daily time-lapse Reel lane (GPT-5.5)
+
+Added a second daily Reel lane for `s7-cam`: `scripts/ig-s7-daily-reel.py` selects sharp, safe S7 frames from the past 24 hours, buckets them across the day for a fixed-angle time-lapse, stitches the MP4 with the existing reel stitcher, posts it through the existing IG/FB Reel publisher without a final approval gate, writes audit state under `data/reels/s7/posted/`, and sends a Discord notice mentioning Mark as `<@293569238386606080>`. New LaunchAgent deploy copy: `deploy/ig-scheduled/com.farmguardian.ig-s7-daily-reel.plist`, scheduled daily at 21:00 local. The existing mixed daily Reel remains Discord-approval-gated at 18:00.
+
+Refactored `scripts/ig-daily-reel.py` into a thin shim over new `tools/pipeline/daily_reel_runner.py`, so mixed and S7 Reel lanes share Discord upload/transcode, caption, quota-ledger, stitch, publish, and audit handling. Added `select_s7_daily_reel_gems()` plus S7 schedule keys in `tools/pipeline/config.json`. Documented Mark's Discord user ID (`293569238386606080`) in `CLAUDE.md`, `docs/SOCIAL_MEDIA_MAP.md`, `docs/20-Apr-2026-ig-scheduled-posting-architecture.md`, and `docs/skills-farm-2026-discord-post.md`.
+
 ## [Unreleased] - 2026-04-30
 
 ### v2.38.5 — camera alignment: mba-cam recommissioned; usb-cam on GWTC; s7-cam to nesting box; gwtc to roof of coop (Claude Sonnet 4.6)

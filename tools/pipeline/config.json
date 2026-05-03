@@ -49,7 +49,12 @@
       "weekly_reel_bucket_hours": 6,
       "daily_reel_window_hours": 24,
       "daily_reel_max_frames": 90,
-      "daily_reel_min_frames": 6
+      "daily_reel_min_frames": 6,
+      "s7_daily_reel_window_hours": 24,
+      "s7_daily_reel_bucket_minutes": 15,
+      "s7_daily_reel_max_frames": 90,
+      "s7_daily_reel_min_frames": 12,
+      "s7_daily_reel_require_source_reactions": false
     }
   },
   "cameras": {

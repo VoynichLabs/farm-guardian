@@ -130,6 +130,8 @@ Boss drops a photo into #farm-2026 (iPhone → Discord app)
 
 **Larry, Bubba, Egon** are Claude instances on other machines. Their Discord user IDs are in [`tools/discord_harvester.py`](../tools/discord_harvester.py) `BOT_USER_IDS`. Their reactions do NOT count. Only actual humans.
 
+**Mark's Discord user ID:** `293569238386606080`. Mention format is `<@293569238386606080>`. His user ID is also used by `scripts/discord-reaction-sync.py` as `BOSS_DISCORD_USER_ID` so photos he personally drops into `#farm-2026` can be treated as already approved.
+
 **VLM tags (share_worth, image_quality, bird_count) are inputs to the Discord-post gate**, not the Instagram-post gate. They filter out obvious junk before humans see it, but a strong+sharp VLM tag does NOT mean Instagram-worthy. Boss has seen the VLM tag heat-lamp-orange-cast clipped frames as `strong+sharp`. The reaction gate is the backstop. Drops skip the VLM entirely — they're synthetic rows with default fields, only reactions matter.
 
 **Larry, Bubba, Egon** are Claude instances on other machines. Their Discord user IDs are in [`tools/discord_harvester.py`](../tools/discord_harvester.py) `BOT_USER_IDS`. Their reactions do NOT count. Only actual humans.

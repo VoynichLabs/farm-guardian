@@ -1,5 +1,5 @@
-# Author: Claude Sonnet 4.6
-# Date: 01-May-2026
+# Author: GPT-5.5
+# Date: 03-May-2026
 # PURPOSE: Select Instagram-post-eligible gems from image_archive on
 #          wall-clock windows (day, 2-hour, week). Pure SELECT +
 #          scoring + diversity filtering; no posting, no I/O beyond
@@ -12,6 +12,8 @@
 #                select_best_story_gem(db_path, cfg)
 #            - Daily reel at 18:00 (Discord-approved before IG post):
 #                select_daily_reel_gems(db_path, cfg)
+#            - S7 daily time-lapse reel at 21:00:
+#                select_s7_daily_reel_gems(db_path, cfg)
 #            - Weekly reel Sunday 19:00 (retired 29-Apr-2026):
 #                select_weekly_reel_gems(db_path, cfg)
 #
@@ -449,5 +451,102 @@ def select_daily_reel_gems(
     log.info(
         "select_daily_reel: %d gem_ids in last %dh (cap=%d)",
         len(ids), window_h, max_frames,
+    )
+    return ids
+
+
+def select_s7_daily_reel_gems(
+    db_path: Path,
+    cfg: dict,
+    now: Optional[datetime] = None,
+) -> list[int]:
+    """Return representative S7 frames for the daily time-lapse Reel.
+
+    This lane is intentionally different from the mixed daily Reel:
+    source frames do not require individual Discord reactions by default.
+    The value is the fixed-angle S7 time-lapse effect, so selection favors
+    broad time coverage across the last 24h rather than only reacted gems.
+
+    Criteria:
+      - camera_id = 's7-cam'
+      - image_quality = 'sharp'
+      - bird_count >= 1
+      - has_concerns false
+      - image_path populated
+      - ts >= now - s7_daily_reel_window_hours
+      - optional discord_reactions >= 1 when
+        s7_daily_reel_require_source_reactions is true
+
+    Diversity: group by N-minute buckets, pick the highest-scoring frame
+    per bucket, cap at max frames, return oldest-first.
+
+    cfg keys:
+      s7_daily_reel_window_hours (int, default 24)
+      s7_daily_reel_bucket_minutes (int, default 15)
+      s7_daily_reel_max_frames (int, default 90)
+      s7_daily_reel_min_frames (int, default 12)
+      s7_daily_reel_require_source_reactions (bool, default false)
+    """
+    window_h = int(cfg.get("s7_daily_reel_window_hours", 24))
+    bucket_min = max(1, int(cfg.get("s7_daily_reel_bucket_minutes", 15)))
+    max_frames = int(cfg.get("s7_daily_reel_max_frames", 90))
+    min_frames = int(cfg.get("s7_daily_reel_min_frames", 12))
+    require_reactions = bool(cfg.get("s7_daily_reel_require_source_reactions", False))
+    now = _ensure_timezone(now)
+    cutoff_iso = (now - timedelta(hours=window_h)).isoformat()
+
+    reaction_clause = "AND discord_reactions >= 1" if require_reactions else ""
+    with sqlite3.connect(str(db_path)) as c:
+        c.row_factory = sqlite3.Row
+        rows = c.execute(
+            f"""
+            SELECT id, camera_id, ts, share_worth, image_quality, bird_count,
+                   discord_reactions
+              FROM image_archive
+             WHERE ts >= ?
+               AND camera_id = 's7-cam'
+               AND image_quality = 'sharp'
+               AND bird_count >= 1
+               AND (has_concerns = 0 OR has_concerns IS NULL)
+               AND image_path IS NOT NULL
+               {reaction_clause}
+             ORDER BY ts ASC
+            """,
+            (cutoff_iso,),
+        ).fetchall()
+
+    if not rows:
+        log.info("select_s7_daily_reel: no candidates in last %dh", window_h)
+        return []
+
+    groups: dict[str, list[dict]] = {}
+    for row in rows:
+        item = dict(row)
+        groups.setdefault(_bucket_key(item["ts"], bucket_min), []).append(item)
+
+    representatives = [max(group, key=_score_gem) for group in groups.values()]
+    representatives.sort(key=_score_gem, reverse=True)
+    representatives = representatives[:max_frames]
+    representatives.sort(key=lambda item: item["ts"])
+
+    if len(representatives) < min_frames:
+        log.info(
+            "select_s7_daily_reel: only %d bucketed S7 frames in last %dh "
+            "(need >=%d); quiet day",
+            len(representatives),
+            window_h,
+            min_frames,
+        )
+        return []
+
+    ids = [row["id"] for row in representatives]
+    log.info(
+        "select_s7_daily_reel: picked %d frames from %d raw S7 candidates "
+        "in %d buckets (last %dh, reactions_required=%s)",
+        len(ids),
+        len(rows),
+        len(groups),
+        window_h,
+        require_reactions,
     )
     return ids

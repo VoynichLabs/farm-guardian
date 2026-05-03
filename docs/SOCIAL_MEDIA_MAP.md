@@ -10,6 +10,8 @@ Verified against `launchctl list | grep farmguardian` and `~/Library/LaunchAgent
 
 ## The one-paragraph version
 
+**2026-05-02 exception:** the S7 daily time-lapse Reel is not reaction-gated. It selects sharp, safe `s7-cam` frames from one fixed portrait angle, posts automatically at 21:00 local, then sends a Discord notice that mentions Mark.
+
 Cameras and the iPhone catalog are the two raw sources. Camera frames flow through the VLM enricher (LM Studio, every cycle) and only the ones the VLM rates `share_worth=strong` get dropped into Discord `#farm-2026` for Boss to react to. **A Boss reaction on Discord is the quality gate.** Every outbound lane (IG photo, IG carousel, IG story, IG reel, FB Page, Nextdoor) reads `image_archive.discord_reactions > 0` as its filter. The iPhone catalog runs a parallel "on-this-day" lane with no reaction gate — it's pre-curated archival content. Every successful IG post auto-mirrors to the FB Page. Engagement automation (likes/comments on IG and Nextdoor) runs as separate session-capped tools, not on a schedule.
 
 ---
@@ -18,6 +20,7 @@ Cameras and the iPhone catalog are the two raw sources. Camera frames flow throu
 
 | Surface | Code | LaunchAgent | Cadence | Source |
 |---|---|---|---|---|
+| **IG S7 time-lapse reel** | `tools/pipeline/ig_poster.py::post_reel_to_ig` | `com.farmguardian.ig-s7-daily-reel` | daily 21:00 | sharp, safe `s7-cam` frames from the past 24h, bucketed across the day and ffmpeg-stitched into one fixed-angle time-lapse Reel. No source-frame or final-preview reaction gate. After IG/FB publish, posts a Discord notice as `farm-reel-s7` mentioning `<@293569238386606080>`. State: `data/reels/s7/posted/`. Script: `scripts/ig-s7-daily-reel.py`. |
 | **IG photo** (single) | `tools/pipeline/ig_poster.py` | none — emergency CLI only | manual | reaction-gated gem |
 | **IG carousel** | `tools/pipeline/ig_poster.py::post_carousel_to_ig` | `com.farmguardian.ig-daily-carousel` | daily 18:00 | today's reacted strong+sharp gems |
 | **IG story** | `tools/pipeline/ig_poster.py::post_gem_to_story` | (rolled into `social-publisher`) | hourly | every unposted reacted gem, FIFO, 25/tick cap |
@@ -43,6 +46,10 @@ Cameras and the iPhone catalog are the two raw sources. Camera frames flow throu
 ---
 
 ## Shared infrastructure
+
+- **S7 time-lapse exception:** `com.farmguardian.ig-s7-daily-reel` does not use `discord_reactions`; it selects sharp, safe `s7-cam` frames and posts a Discord notice after publishing.
+- **Mark's Discord user ID:** `293569238386606080`. Mention format is `<@293569238386606080>`. The S7 daily time-lapse Reel notice uses this mention so Mark gets alerted when the auto-post lands.
+- **Reel quota note:** the mixed daily Reel and S7 time-lapse Reel both consume one IG `media` publish when they post. The shared ledger is checked before Reel publishing so a full 25-per-24h window delays the Reel instead of retrying into a known hard cap.
 
 - **Reaction-gate trust signal:** `image_archive.discord_reactions` — single source of truth. Every outbound lane filters `WHERE discord_reactions > 0`. Cross-reference from a Discord message back to its `image_archive` row is by `(camera_id, ts ±60s)`, NOT sha256 (Discord CDN re-encodes). Reactions from Larry / Bubba / Egon (other Claude instances) don't count.
 - **Cookie-lift session bootstrap** (no logins, no 2FA): `tools/chrome_session/decrypt.py`, shared by IG-engage and Nextdoor. Per-track Playwright Chromium persistent profiles at `~/Library/Application Support/farm-{ig-engage,nextdoor}/profile/`.

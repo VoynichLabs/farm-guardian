@@ -1,6 +1,6 @@
 # Post Camera Frames to the #farm-2026 Discord Channel
 
-**Last updated:** 16-April-2026
+**Last updated:** 02-May-2026
 **Cross-refs:** `CHANGELOG.md` (v2.27.8 initial wiring, v2.27.9 incident context) · `docs/16-Apr-2026-s7-ipwebcam-frozen-incident.md`
 
 ## Purpose
@@ -36,6 +36,7 @@ Expected: `HTTP:200`. The response body is the Discord message JSON with CDN URL
 ### The webhook
 
 - **Webhook name:** `Farm Guardian` (Boss-created)
+- **Mark's user ID:** `293569238386606080`. Mention format is `<@293569238386606080>`. The S7 daily time-lapse Reel notice uses this mention.
 - **Guild ID:** `1471632570616643657` (the farm Discord server — shared across agents)
 - **Channel ID:** `1482466978806497522` — confirmed to be `#farm-2026` via the Discord webhook GET endpoint.
 - **URL lives in:** the repo's `.env` file (gitignored), key `DISCORD_WEBHOOK_URL`. Also injected into the `com.farmguardian.s7-battery-monitor.plist` LaunchAgent's `EnvironmentVariables` on whichever Mac hosts the battery monitor. Never hardcode it anywhere else.
