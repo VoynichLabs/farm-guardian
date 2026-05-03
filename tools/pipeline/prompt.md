@@ -58,20 +58,23 @@ Guidance on specific fields:
   - **"decent"**: clear, in-focus frame with visible birds that doesn't hit a strong trigger and isn't killed by a skip trigger. A sideways group shot with some faces partially visible is decent. Archive-worthy but not remarkable.
   - When in doubt between `decent` and `skip`, lean `skip`.
 - `share_reason`: one specific sentence about THIS frame — not a restatement of the rules. E.g., "Bronze turkey poult looking directly into the lens, left eye sharp" or "All three birds in motion, no sharp faces visible, minor blur throughout."
-- `overall_score`: integer 0–10. Your overall judgment of this frame's value as a photo worth keeping.
-  - **0–2**: No birds visible, or completely unusable (totally blurry, artifacts throughout).
-  - **3–4**: Birds present but all backs/rear ends, or all faces blurred beyond recognition. Little value.
-  - **5–6**: Decent frame. Birds visible with some faces, ordinary activity. Archive-worthy but not remarkable.
-  - **7–8**: Good frame. At least one clear face, interesting posture or color, something a viewer would pause on.
-  - **9–10**: Exceptional. Direct eye contact, vivid plumage detail, unusual behavior, or a composition that tells a story with multiple interesting subjects. The kind of shot worth sharing.
-  - This score must be consistent with `share_worth`: score 0–4 → skip; 5–6 → decent; 7–10 → strong.
+- `overall_score`: integer 0–10. Strict score. Most frames should land in the 4–6 range. 9–10 should be genuinely rare.
+  - **0–2**: No birds visible, empty frame, or completely unusable (heavy blur, artifacts).
+  - **3–4**: Birds present but all backs, all blurry, or faces completely obscured. Little value.
+  - **5**: Decent. Birds visible, some faces showing, nothing special. A typical acceptable frame.
+  - **6**: Noticeably better than typical. Multiple faces visible, good sharpness, interesting colors, pleasing group composition.
+  - **7**: Good. At least one bird with a clear sharp face looking toward the camera, or a genuinely interesting behavior moment. Something a viewer would stop and look at.
+  - **8**: Very good. Direct eye contact from a bird with vivid plumage visible, OR a multi-bird scene with real variety and multiple clear faces.
+  - **9–10**: Reserve for frames that are objectively exceptional — a bird staring straight into the lens with sharp eyes AND striking color detail, or a complex scene with multiple species doing different interesting things that would stop a stranger mid-scroll. If you're giving a 9, ask yourself: would this make someone say "wow"? If not, it's a 7.
+  - A group of birds sleeping together is a **5 or 6** — not a 9, even if the image is sharp. Sleeping is ordinary. Reserve high scores for alert, active, or visually striking frames.
+  - This score must be consistent with `share_worth`: 0–4 → skip; 5–6 → decent; 7–10 → strong.
 - `caption_draft`: 2–4 sentences, up to ~450 chars. **Describe the whole scene — all the birds, not just one.** This goes on social media. Make it vivid.
   - **Describe only the birds.** Do NOT mention the heat lamp, wood shavings, bedding, the nesting box walls, or the wooden structure. Those are background. The birds are the subject.
   - **Paint the full picture.** Who's where? One bird alone on the perch while others huddle below? Say so. A lone sentry above a pile of sleepers is a story — tell it.
   - **Colors for every visible bird.** "a white fluffy chick," "three dark mottled birds in black and grey," "a rust-and-brown bantam," "a barred black-and-white chick." Never "a colorful group."
   - **Expression and posture.** "looking directly at the camera," "eyes closed, heads tucked," "standing tall and alert," "pressed together, fast asleep."
   - **Species when distinguishable.** Turkey poults vs. bantam chicks vs. the larger standard chick.
-  - **Every caption must be different.** Find a different angle, different birds, different detail each frame.
+  - **Every caption must describe what is physically different in THIS frame.** You are seeing a new image each time — look at it fresh. What bird is closest? Which one is sharpest? Who has their face toward the camera right now? What are the specific colors you see? Do not reuse the same sentence structure or the same birds as a previous caption. If the birds are in the same pile, find a different individual to lead with, or describe the pile from a different angle.
   - Good examples: "A white chick stands alert in the center while three dark mottled birds — black-and-grey speckled — doze pressed together on the perch above, heads tucked in tight. A second white bird picks its way along the beam behind them." / "A chipmunk-striped bantam, possibly a Phoenix, locks eyes with the camera while two rust-orange birds sleep against it, faces buried."
   - Bad examples: "A white chick stands beneath the heat lamp on wood shavings." / "Birds sleeping in the nesting box." — mentions the lamp/shavings, describes only one bird.
 - `concerns`: only populate if you see an injured bird, dead bird, abnormal posture, fighting beyond normal pecking, or an environmental hazard. Empty array otherwise.
