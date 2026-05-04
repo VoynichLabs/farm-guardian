@@ -1,5 +1,5 @@
-# Author: Claude Opus 4.6 (1M context); Claude Sonnet 4.6 (edits 27-April-2026 — sweep_raw() for vlm_bypass cameras, v2.37.13)
-# Date: 13-April-2026
+# Author: Claude Opus 4.6 (1M context); Claude Sonnet 4.6 (edits 27-April-2026 — sweep_raw() for vlm_bypass cameras, v2.37.13; 04-May-2026 — sqlite timeout=30 to fix DB lock errors, v2.40.2)
+# Date: 13-April-2026 (last touched 04-May-2026)
 # PURPOSE: Daily retention sweep for the image archive. Deletes JPEGs whose
 #          retained_until has passed, sets image_path to NULL on those rows,
 #          and leaves metadata rows intact forever. Never touches rows with
@@ -21,7 +21,7 @@ def sweep(db_path: Path, archive_root: Path, dry_run: bool = False) -> dict:
     deleted = 0
     freed_bytes = 0
     errors: list[str] = []
-    with sqlite3.connect(str(db_path)) as c:
+    with sqlite3.connect(str(db_path), timeout=30) as c:
         c.row_factory = sqlite3.Row
         rows = c.execute("""
             SELECT id, image_path, bytes FROM image_archive
@@ -69,7 +69,7 @@ def sweep_raw(db_path: Path, archive_root: Path, camera_id: str,
     deleted = 0
     freed_bytes = 0
     errors: list[str] = []
-    with sqlite3.connect(str(db_path)) as c:
+    with sqlite3.connect(str(db_path), timeout=30) as c:
         c.row_factory = sqlite3.Row
         rows = c.execute("""
             SELECT id, image_path FROM image_archive

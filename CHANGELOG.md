@@ -34,7 +34,26 @@ for cam,vals in sorted(by_cam.items()):
 ```
 **Log:** `/tmp/pipeline.err.log` — **Pause/resume:** dashboard at `http://localhost:6530` (VLM button in status bar) or `curl -X POST http://localhost:6530/api/v1/pipeline/pause|resume`.
 
-**Known issue:** ~143 `database is locked` errors today — frames occasionally dropped under DB write contention. Not yet investigated.
+**DB lock fix (v2.40.3):** Root cause found — `store.py` and `retention.py` used the SQLite default 5-second timeout while `database.py` (used by guardian.py) uses 30s. Under concurrent writes from both processes, the pipeline lost the race and dropped frames. Fixed by adding `timeout=30` to all `sqlite3.connect()` calls in both files. Restart pipeline to apply.
+
+### v2.40.3 — fix: SQLite timeout in store.py + retention.py (Claude Sonnet 4.6)
+
+Root cause of the `database is locked` errors: `store.py` and `retention.py` used
+`sqlite3.connect()` with the default 5-second timeout while `database.py` (opened by
+guardian.py) uses 30s. Under concurrent writes from both processes, the pipeline lost
+the race 186+ times today and silently dropped frames at the "store" stage.
+
+**Fix:** added `timeout=30` to all `sqlite3.connect()` calls in both files — three
+calls in `store.py` (ensure_schema, store(), store_raw()) and two in `retention.py`
+(sweep(), sweep_raw()). Matches the pattern already in `database.py`. Root cause: WAL
+mode still serializes writes; a 5-second window was just too short when guardian.py holds
+a write lock during its own periodic DB operations.
+
+**Also in this entry:** updated CLAUDE.md VLM model reference to `qwen/qwen3.5-9b`
+(was stale `qwen3.6-35b-a3b as of 2026-04-23`). Added "After a manual model swap, reload
+via native API" section to `docs/13-Apr-2026-lm-studio-reference.md` — documents the
+`context_length=8192` reload pattern that prevents KV-cache inflation after UI model
+swaps, verified 2026-05-04 (10.6s → 0.3s bare text call).
 
 ### v2.40.2 — social: S7 backlog Reel lane (Claude Sonnet 4.6)
 

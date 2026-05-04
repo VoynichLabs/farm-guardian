@@ -96,7 +96,7 @@ production dependency of the Farm Guardian image pipeline.** The pipeline
 LaunchAgent (`com.farmguardian.pipeline`) calls LM Studio every camera
 cycle for every enabled camera — `tools/pipeline/vlm_enricher.py` POSTs
 each captured frame to `/v1/chat/completions` against the current VLM
-(qwen3.6-35b-a3b as of 2026-04-23) to produce `share_worth`,
+(qwen/qwen3.5-9b as of 2026-05-04) to produce `share_worth`,
 `caption_draft`, and the rest of the structured output that drives the
 Discord gem lane, the IG gem-reaction pipeline, and the FB cross-post.
 **If LM Studio goes down, the whole gem/caption/curation stack stops

@@ -443,6 +443,44 @@ param is the reliable cross-model solution.
 
 ---
 
+## After a manual model swap in the LM Studio UI, always reload via native API (2026-05-04)
+
+**Symptom:** you swap models in the LM Studio GUI while the pipeline is running. The new model is "loaded" but inference is 3–4× slower than expected. A bare "Say OK" text call takes 10+ seconds instead of <1 s.
+
+**Root cause:** LM Studio UI loads models at their **default context window** (32k–131k tokens). This pre-allocates a massive KV cache, which makes every prefill significantly slower — even for small 500-token prompts.
+
+**Fix:** unload and reload via the native API with explicit `context_length=8192`:
+
+```bash
+# 1. Identify the model ID currently loaded
+curl -s http://localhost:1234/api/v1/models | python3 -c "import sys,json; [print(m['id']) for m in json.load(sys.stdin)['data'] if m.get('state')=='loaded']"
+
+# 2. Unload it
+curl -s -X DELETE "http://localhost:1234/api/v1/models/<model-id>/unload"
+
+# 3. Wait for VRAM to flush (6 seconds is sufficient)
+sleep 6
+
+# 4. Reload with constrained context
+curl -s -X POST http://localhost:1234/api/v1/models/load \
+  -H "Content-Type: application/json" \
+  -d '{"model":"<model-id>","context_length":8192,"flash_attention":true}'
+```
+
+**Verification:** after reload, run a bare text call and confirm <1 s:
+
+```bash
+time curl -s -X POST http://localhost:1234/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"<model-id>","messages":[{"role":"user","content":"Say OK"}],"max_tokens":5}' | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['choices'][0]['message']['content'])"
+```
+
+**Why this matters:** the pipeline (Guardian VLM enricher) holds a long-running process with `_load_configs()` called once at startup. It cannot detect the post-swap context window automatically. The only way to get it right is to reload via API every time a model is swapped via the UI.
+
+**Verified 2026-05-04:** qwen3.5-9b post-UI-swap was 10.6 s/call; after native API reload with `context_length=8192` it dropped to 0.3 s on bare text (full image+prompt calls run ~22–26 s, which is expected given the 87-line Birds preset prompt).
+
+---
+
 ## Reference and pointers
 
 - This document: `farm-guardian/docs/13-Apr-2026-lm-studio-reference.md`

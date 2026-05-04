@@ -1,5 +1,5 @@
-# Author: Claude Opus 4.6 (1M context), Claude Opus 4.7 (1M context) — IG columns 20-Apr-2026, story columns 20-Apr-2026 (Phase 2); Claude Sonnet 4.6 (edits 27-April-2026 — store_raw() for vlm_bypass cameras, v2.37.13)
-# Date: 13-April-2026 (last touched 27-April-2026)
+# Author: Claude Opus 4.6 (1M context), Claude Opus 4.7 (1M context) — IG columns 20-Apr-2026, story columns 20-Apr-2026 (Phase 2); Claude Sonnet 4.6 (edits 27-April-2026 — store_raw() for vlm_bypass cameras, v2.37.13; 04-May-2026 — sqlite timeout=30 to fix DB lock errors, v2.40.2)
+# Date: 13-April-2026 (last touched 04-May-2026)
 # PURPOSE: Persist a captured + enriched image. Writes JPEG to disk per tier
 #          (full-res for share_worth=strong, downscaled for decent, discard
 #          for skip), writes a sidecar .json next to the JPEG, and inserts a
@@ -164,7 +164,7 @@ def resolve_gem_image_path(gem_row: dict, db_path: Path) -> Path:
 
 def ensure_schema(db_path: Path) -> None:
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(str(db_path)) as c:
+    with sqlite3.connect(str(db_path), timeout=30) as c:
         # Step 1: base schema. CREATE TABLE IF NOT EXISTS is idempotent; on a
         # pre-existing DB the table already exists and this is a no-op. Note
         # the CREATE TABLE definition includes the late columns — fresh DBs
@@ -316,7 +316,7 @@ def store(
             log.warning("curation link failed for %s (archive row still written): %s", fname, e)
 
     # Insert DB row
-    with _DB_LOCK, sqlite3.connect(str(db_path)) as c:
+    with _DB_LOCK, sqlite3.connect(str(db_path), timeout=30) as c:
         cursor = c.execute("""
             INSERT INTO image_archive (
                 camera_id, ts, image_path, image_tier, sha256,
@@ -390,7 +390,7 @@ def store_raw(
     sha = hashlib.sha256(jpeg_bytes).hexdigest()
     image_path_rel = str(jpath.relative_to(archive_root.parent)) if archive_root.parent in jpath.parents else str(jpath)
 
-    with _DB_LOCK, sqlite3.connect(str(db_path)) as c:
+    with _DB_LOCK, sqlite3.connect(str(db_path), timeout=30) as c:
         cursor = c.execute("""
             INSERT INTO image_archive (
                 camera_id, ts, image_path, image_tier, sha256,
