@@ -3,7 +3,7 @@
   "archive_root": "data/archive",
   "birds_preset_path": "~/.lmstudio/config-presets/Birds.preset.json",
   "lm_studio_base": "http://localhost:1234",
-  "vlm_model_id": "zai-org/glm-4.6v-flash",
+  "vlm_model_id": "qwen/qwen3.5-9b",
   "vlm_load_context_length": 8192,
   "vlm_max_tokens": 600,
   "vlm_temperature": 0.2,
