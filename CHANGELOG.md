@@ -4,6 +4,33 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-05-04
 
+### v2.40.2 — social: S7 backlog Reel lane (Claude Sonnet 4.6)
+
+Drains the s7-cam story-queue backlog (291 reacted gems, Apr 17 → May 4) by stitching
+each eligible calendar date into a portrait time-lapse Reel instead of posting each gem
+individually as a story.
+
+New pieces:
+- `tools/pipeline/ig_selection.py::select_s7_backlog_reel_gems(db_path, date_str, cfg)` —
+  selects the best ≤50 reacted s7-cam gems for a specific past date, scored by
+  `_score_gem()` then sorted chronologically for the reel.
+- `tools/pipeline/ig_selection.py::mark_gems_used_in_backlog_reel(db_path, gem_ids, date_str)` —
+  sets `ig_story_skip_reason='used-in-backlog-reel:YYYY-MM-DD'` so used gems leave the
+  story queue permanently.
+- `S7_BACKLOG_REEL_LANE` in `daily_reel_runner.py` — auto-post, no approval gate, Discord
+  notice with source date label.
+- Optional `target_date` threaded through `run_lane()`, `_build_publish_and_notify()`,
+  `_select_gems()`, and `main(--date YYYY-MM-DD)` in `daily_reel_runner.py`. Existing
+  MIXED and S7_DAILY lanes are unaffected.
+- `scripts/ig-s7-backlog-reel.py` — finds the oldest eligible backlog date automatically,
+  calls the runner, exits 0 when backlog is empty (self-terminating).
+- `deploy/ig-scheduled/com.farmguardian.ig-s7-backlog-reel.plist` — daily 12:00 local.
+- LaunchAgent bootstrapped to `~/Library/LaunchAgents/` on 2026-05-04.
+
+Dates with < 10 eligible gems (Apr 17, 20, 21, 25 in the current backlog) are skipped;
+their gems drain normally as individual stories. Expected: ~12 backlog Reels over 12 days,
+clearing ~255 gems from the story queue. Quota cost: 1 IG publish/day while backlog exists.
+
 ### v2.40.1 — pipeline: pause/resume GUI + model swap to qwen/qwen3.5-9b (Claude Sonnet 4.6)
 
 Flag-file pause/resume for the VLM pipeline — no Claude session needed to pause for a model swap.

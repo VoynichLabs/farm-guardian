@@ -4,7 +4,7 @@ This is the current, live map of how cute photos of the flock get from camera fr
 
 **This file is the source of truth for how the social pipeline runs *today*.** The dated docs in this directory (e.g. `19-Apr-2026-instagram-posting-plan.md`, `23-Apr-2026-nextdoor-plan.md`) are frozen planning artifacts — they're useful for *why* a thing exists, not *what's running now*. If those docs and this file disagree, this file wins; update it instead of writing another dated doc.
 
-Verified against `launchctl list | grep farmguardian` and `~/Library/LaunchAgents/com.farmguardian.*` on 2026-04-26. Throwback deactivation updated 2026-05-03. Story image hosting updated 2026-05-04.
+Verified against `launchctl list | grep farmguardian` and `~/Library/LaunchAgents/com.farmguardian.*` on 2026-05-04. Throwback deactivation updated 2026-05-03. Story image hosting updated 2026-05-04. S7 backlog reel lane added 2026-05-04.
 
 ---
 
@@ -21,6 +21,7 @@ Cameras and iPhone live ingest are the active raw sources. Camera frames flow th
 | Surface | Code | LaunchAgent | Cadence | Source |
 |---|---|---|---|---|
 | **IG S7 time-lapse reel** | `tools/pipeline/ig_poster.py::post_reel_to_ig` | `com.farmguardian.ig-s7-daily-reel` | daily 21:00 | sharp, safe `s7-cam` frames from the past 24h, bucketed across the day and ffmpeg-stitched into one fixed-angle time-lapse Reel. No source-frame or final-preview reaction gate. After IG/FB publish, posts a Discord notice as `farm-reel-s7` mentioning `<@293569238386606080>`. State: `data/reels/s7/posted/`. Script: `scripts/ig-s7-daily-reel.py`. |
+| **IG S7 backlog reel** | `tools/pipeline/ig_poster.py::post_reel_to_ig` | `com.farmguardian.ig-s7-backlog-reel` | daily 12:00 | drains the s7-cam story-queue backlog one calendar date at a time (oldest first). Each run finds the oldest date with ≥10 unprocessed reacted s7-cam gems, picks the best 50 by score, stitches a portrait Reel, auto-posts to IG/FB, marks those gems `used-in-backlog-reel:YYYY-MM-DD` so they leave the story queue, then sends a Discord notice. Self-terminating: exits 0 with "backlog empty" when all eligible dates are processed. State: `data/reels/s7-backlog/posted/`. Script: `scripts/ig-s7-backlog-reel.py`. |
 | **IG photo** (single) | `tools/pipeline/ig_poster.py` | none — emergency CLI only | manual | reaction-gated gem |
 | **IG carousel** | `tools/pipeline/ig_poster.py::post_carousel_to_ig` | `com.farmguardian.ig-daily-carousel` | daily 18:00 | today's reacted strong+sharp gems |
 | **IG story** | `tools/pipeline/ig_poster.py::post_gem_to_story` | (rolled into `social-publisher`) | hourly | every unposted reacted gem, FIFO, 5-success/tick cap, shared 25 rolling-24h IG quota |
