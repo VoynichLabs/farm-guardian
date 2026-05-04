@@ -4,6 +4,15 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-05-04
 
+### v2.40.1 — pipeline: pause/resume GUI + model swap to qwen/qwen3.5-9b (Claude Sonnet 4.6)
+
+Flag-file pause/resume for the VLM pipeline — no Claude session needed to pause for a model swap.
+
+- `orchestrator.py`: `_PAUSE_FLAG = Path("/tmp/farm-pipeline.pause")` checked after all capture/quality gates, before VLM call. When flag exists: captures still run (frames aren't dropped from history), VLM is skipped, cycle logs `status: paused`. Resume = remove the file.
+- `api.py`: three new endpoints — `GET /api/v1/pipeline/status` (returns `{paused: bool}`), `POST /api/v1/pipeline/pause` (touches flag), `POST /api/v1/pipeline/resume` (removes flag).
+- `static/index.html` + `static/app.js`: VLM status indicator in the sys-strip on the dashboard with a one-click PAUSE / RESUME button. Updates every 5s on the existing dashboard poll loop. Green "RUNNING" / amber "PAUSED"; button color flips to match.
+- `tools/pipeline/config.json`: `vlm_model_id` changed from `nvidia/nemotron-3-nano-omni` → `qwen/qwen3.5-9b` (smaller/faster model loaded by Boss 04-May-2026).
+
 ### v2.40.0 — pipeline: Birds preset as single source of truth for VLM prompt + schema (Claude Sonnet 4.6)
 
 The LM Studio Birds preset (`~/.lmstudio/config-presets/Birds.preset.json`) is now the single source of truth for the VLM user-message template and structured output schema. Previously the pipeline read `tools/pipeline/prompt.md` and `tools/pipeline/schema.json` independently, which had diverged from the preset.

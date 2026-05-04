@@ -157,6 +157,7 @@ async function loadDashboard() {
         renderCameraGrid(cameras);
         renderDashboardDetections(detections);
         loadDashboardPTZStatus();
+        updatePipelineStatus();
     } catch (err) {
         console.error('Dashboard load error:', err);
     }
@@ -287,6 +288,37 @@ function renderDashboardDetections(detections) {
             <td style="color:${isPred ? 'var(--red)' : 'var(--text-2)'};">${isPred ? 'PRED' : '--'}</td>
         </tr>`;
     }).join('');
+}
+
+// ─────────────────────────────────────────
+// Pipeline pause / resume
+// ─────────────────────────────────────────
+async function updatePipelineStatus() {
+    try {
+        const s = await api.get('/api/v1/pipeline/status').catch(() => null);
+        if (!s) return;
+        const statusEl = document.getElementById('dash-pipeline-status');
+        const btnEl = document.getElementById('pipeline-toggle-btn');
+        if (!statusEl || !btnEl) return;
+        if (s.paused) {
+            statusEl.textContent = 'PAUSED';
+            statusEl.style.color = 'var(--amber)';
+            btnEl.textContent = 'RESUME';
+            btnEl.className = 'btn btn-green';
+        } else {
+            statusEl.textContent = 'RUNNING';
+            statusEl.style.color = 'var(--green)';
+            btnEl.textContent = 'PAUSE';
+            btnEl.className = 'btn btn-amber';
+        }
+    } catch (_) {}
+}
+
+async function togglePipeline() {
+    const statusEl = document.getElementById('dash-pipeline-status');
+    const paused = statusEl && statusEl.textContent === 'PAUSED';
+    await api.post(paused ? '/api/v1/pipeline/resume' : '/api/v1/pipeline/pause', {}).catch(() => {});
+    await updatePipelineStatus();
 }
 
 // ─────────────────────────────────────────

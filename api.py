@@ -1,4 +1,4 @@
-# Author: Claude Opus 4.6 (1M context)
+# Author: Claude Opus 4.6 (1M context); Claude Sonnet 4.6 (04-May-2026 — pipeline pause/resume endpoints, v2.40.1)
 # Date: 14-April-2026
 # PURPOSE: REST API for Farm Guardian v2 (Phase 4). Provides structured JSON endpoints
 #          for detection history, animal patterns, deterrent effectiveness, and full
@@ -14,6 +14,7 @@
 # SRP/DRY check: Pass — single responsibility is structured API for LLM tool access.
 
 import logging
+import pathlib
 from datetime import date, datetime
 from typing import Optional
 
@@ -366,6 +367,26 @@ def create_api_router() -> APIRouter:
         else:
             ok = ctrl.disable_guard(camera_id)
         return {"ok": ok, "guard_enabled": enabled}
+
+    # ------------------------------------------------------------------
+    # Pipeline pause / resume
+    # ------------------------------------------------------------------
+    _PAUSE_FLAG = pathlib.Path("/tmp/farm-pipeline.pause")
+
+    @router.get("/pipeline/status")
+    async def pipeline_status():
+        paused = _PAUSE_FLAG.exists()
+        return {"paused": paused, "flag_path": str(_PAUSE_FLAG)}
+
+    @router.post("/pipeline/pause")
+    async def pipeline_pause():
+        _PAUSE_FLAG.touch()
+        return {"paused": True}
+
+    @router.post("/pipeline/resume")
+    async def pipeline_resume():
+        _PAUSE_FLAG.unlink(missing_ok=True)
+        return {"paused": False}
 
     # ------------------------------------------------------------------
     # Reports export

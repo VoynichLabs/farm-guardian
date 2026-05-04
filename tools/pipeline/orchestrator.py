@@ -91,6 +91,7 @@ else:
 log = logging.getLogger("pipeline.orchestrator")
 
 _STOP = threading.Event()
+_PAUSE_FLAG = Path("/tmp/farm-pipeline.pause")
 
 # Module-level motion gate — holds one 64x64 thumbnail per camera that
 # opts in via `motion_gate: true` in its config block. Lives at module
@@ -253,6 +254,12 @@ def run_cycle(camera_name: str, camera_cfg: dict, cfg: dict, schema: dict,
             result.update(status="gated", stage="motion", metrics=motion_metrics)
             return result
         last_gate_metrics = {**last_gate_metrics, **motion_metrics}
+
+    # Pause gate: flag-file control plane — touch /tmp/farm-pipeline.pause
+    # to skip VLM inference without stopping capture. Resume = remove file.
+    if _PAUSE_FLAG.exists():
+        result.update(status="paused", reason="pipeline paused via flag file")
+        return result
 
     # Enrich via VLM
     try:
