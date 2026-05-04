@@ -4,6 +4,38 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-05-04
 
+### HANDOFF NOTE — next agent reading this (2026-05-04 ~17:05 local)
+
+Pipeline is running on **`qwen/qwen3.5-9b`** — current speed winner (p50 ~6.7s/call).
+
+**Model speed comparison tested today:**
+| Model | p50 | avg | verdict |
+|---|---|---|---|
+| qwen3.5-9b (dense) | 6.7s | 9.9s | ✅ running now |
+| qwen3.6-35b-a3b (MoE) | 17.5s | 16.7s | slower than expected |
+| google/gemma-4-31b | untested — failed to produce output | — |
+| zai-org/glm-4.6v-flash | untested — failed to produce output | — |
+| qwen3.5-35b-a3b (April ref) | ~4.5s | — | old benchmark, shorter prompt era |
+
+**To pull fresh inference timing stats:**
+```bash
+grep "inference_ms" /tmp/pipeline.err.log | tail -200 | python3 -c "
+import sys, re
+times=[]; by_cam={}
+for line in sys.stdin:
+    ms_m=re.search(r'inference_ms.*?(\d+)',line); cam_m=re.search(r'orchestrator (\S+):',line)
+    if cam_m and ms_m:
+        cam=cam_m.group(1); ms=int(ms_m.group(1)); times.append(ms); by_cam.setdefault(cam,[]).append(ms)
+s=sorted(times)
+print(f'overall n={len(times)} avg={sum(times)/len(times)/1000:.1f}s p50={s[len(s)//2]/1000:.1f}s min={min(times)/1000:.1f}s max={max(times)/1000:.1f}s')
+for cam,vals in sorted(by_cam.items()):
+    sv=sorted(vals); print(f'  {cam:12s} n={len(vals)} avg={sum(vals)/len(vals)/1000:.1f}s p50={sv[len(sv)//2]/1000:.1f}s')
+"
+```
+**Log:** `/tmp/pipeline.err.log` — **Pause/resume:** dashboard at `http://localhost:6530` (VLM button in status bar) or `curl -X POST http://localhost:6530/api/v1/pipeline/pause|resume`.
+
+**Known issue:** ~143 `database is locked` errors today — frames occasionally dropped under DB write contention. Not yet investigated.
+
 ### v2.40.2 — social: S7 backlog Reel lane (Claude Sonnet 4.6)
 
 Drains the s7-cam story-queue backlog (291 reacted gems, Apr 17 → May 4) by stitching
