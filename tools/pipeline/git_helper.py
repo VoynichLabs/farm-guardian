@@ -160,12 +160,17 @@ def _push_with_rebase_retry(repo_path: Path, branch: str, max_retries: int = 2) 
     """
     for attempt in range(max_retries + 1):
         try:
-            _git(repo_path, "push", "origin", branch)
+            _git(repo_path, "push", "origin", branch, timeout=300)
             return
         except GitHelperError as e:
-            if attempt < max_retries and ("cannot lock ref" in str(e) or "stale" in str(e) or "non-fast-forward" in str(e)):
+            if attempt < max_retries and (
+                "cannot lock ref" in str(e)
+                or "stale" in str(e)
+                or "non-fast-forward" in str(e)
+                or "fetch first" in str(e)
+            ):
                 log.warning("git_helper: push conflict (attempt %d/%d), rebasing: %s", attempt + 1, max_retries, str(e)[:120])
-                _git(repo_path, "pull", "--rebase", "origin", branch)
+                _git(repo_path, "pull", "--rebase", "origin", branch, timeout=300)
             else:
                 raise
 

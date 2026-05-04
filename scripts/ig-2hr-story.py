@@ -78,7 +78,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Select the gem but skip 9:16 prep + git push + Graph API.",
+        help="Select the gem but skip 9:16 prep + local hosting + Graph API.",
     )
     args = parser.parse_args(argv)
     _setup_logging()
@@ -94,8 +94,10 @@ def main(argv: list[str] | None = None) -> int:
         log.error("guardian db not found: %s", db_path)
         return 1
     if not farm_2026.exists():
-        log.error("farm_2026 repo not found: %s", farm_2026)
-        return 1
+        log.warning(
+            "farm_2026 repo not found but Story posting now uses local Guardian hosting: %s",
+            farm_2026,
+        )
 
     from tools.pipeline.ig_selection import select_all_unposted_story_gems
     from tools.pipeline.ig_poster import post_gem_to_story, IGPosterError

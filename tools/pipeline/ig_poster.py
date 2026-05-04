@@ -3,8 +3,7 @@
 # PURPOSE: Post curated gems to Instagram @pawel_and_pawleen via Meta
 #          Graph API. Parallels gem_poster.py (which posts to Discord)
 #          but with a multi-step container+publish flow required by
-#          Instagram, plus the farm-2026 git-commit hop that produces
-#          an IG-fetcher-compatible GitHub raw URL.
+#          Instagram, plus a public media URL that the IG fetcher can pull.
 #
 #          Phase 4 scope (20-Apr-2026): core feed-post flow —
 #          _load_credentials, _create_container, _publish,
@@ -38,10 +37,10 @@
 #
 # SRP/DRY check: Pass — SRP is orchestrating the Graph API container
 #                + publish flow (both feed and story lanes). DRY:
-#                reuses git_helper.py for the farm-2026 commit hop;
-#                story posting reuses _graph_request, _wait_for_container,
-#                _publish, _load_credentials, _lookup_gem, and
-#                _local_path_for_gem from the feed-post code above.
+#                feed/carousel/reel posting reuses git_helper.py for the
+#                farm-2026 commit hop; story posting reuses the local Guardian
+#                public asset route plus _graph_request, _wait_for_container,
+#                _publish, _load_credentials, _lookup_gem, and _local_path_for_gem.
 
 from __future__ import annotations
 
@@ -75,6 +74,9 @@ _META_ENV_FILE = Path("/Users/macmini/bubba-workspace/secrets/farm-guardian-meta
 # Caption limits per Meta docs
 _IG_CAPTION_MAX_CHARS = 2200
 _IG_HASHTAG_MAX_COUNT = 30
+_STORY_PUBLIC_BASE_URL = "https://guardian.markbarney.net"
+_STORY_ASSET_DIRNAME = "story-assets"
+_PIPELINE_CONFIG_FILE = Path(__file__).resolve().parent / "config.json"
 
 
 class IGPosterError(RuntimeError):
@@ -688,8 +690,8 @@ def _prepare_story_image(local_path: Path) -> Path:
     result to a new JPEG in a temp location.
 
     Returns the path to the prepared JPEG. The caller is responsible
-    for deleting it after the commit+post step (post_gem_to_story
-    wraps this in a try/finally with an unlink).
+    for deleting it after the host+post step (post_gem_to_story wraps
+    this in a try/finally with an unlink).
 
     Strategy — native-height center crop:
       h, w = img.shape[:2]
@@ -745,6 +747,48 @@ def _prepare_story_image(local_path: Path) -> Path:
     if not ok:
         raise ValueError(f"_prepare_story_image: cv2.imwrite failed for {tmp_path}")
     return Path(tmp_path)
+
+
+def _story_public_base_url() -> str:
+    """Public Guardian base URL used by Meta to fetch local Story assets."""
+    env_url = os.environ.get("FARM_GUARDIAN_PUBLIC_BASE_URL")
+    if env_url:
+        return env_url.rstrip("/")
+    try:
+        cfg = json.loads(_PIPELINE_CONFIG_FILE.read_text(encoding="utf-8"))
+        cfg_url = (cfg.get("instagram") or {}).get("story_public_base_url")
+        if cfg_url:
+            return str(cfg_url).rstrip("/")
+    except Exception as exc:
+        log.debug("could not read story_public_base_url from %s: %s", _PIPELINE_CONFIG_FILE, exc)
+    return _STORY_PUBLIC_BASE_URL
+
+
+def _story_asset_root(db_path: Path) -> Path:
+    """Story assets live beside the Guardian image archive under data/."""
+    return db_path.parent / _STORY_ASSET_DIRNAME
+
+
+def _story_asset_url(filename: str) -> str:
+    return f"{_story_public_base_url()}/api/v1/images/story-assets/{filename}"
+
+
+def _publish_story_asset(prepared_image: Path, db_path: Path, filename: str) -> tuple[Path, str]:
+    """Copy a prepared Story JPEG into the local public asset store.
+
+    Returns (asset_path, public_url). The URL path ends in the image extension
+    because Meta rejects query-string-only image endpoints during Story
+    container creation.
+    """
+    requested = Path(filename)
+    if requested.name != filename or requested.suffix.lower() not in {".jpg", ".jpeg", ".png"}:
+        raise ValueError(f"invalid story asset filename: {filename!r}")
+
+    asset_root = _story_asset_root(db_path)
+    asset_root.mkdir(parents=True, exist_ok=True)
+    asset_path = asset_root / filename
+    shutil.copy2(prepared_image, asset_path)
+    return asset_path, _story_asset_url(filename)
 
 
 def _create_story_container(
@@ -891,8 +935,8 @@ def post_gem_to_story(
       2. Resolve local full-res JPEG.
       3. _prepare_story_image center-crops to 9:16 (native height,
          no upscale).
-      4. Commit the 9:16 JPEG to farm-2026/public/photos/stories/ and
-         derive the GitHub raw URL.
+      4. Copy the 9:16 JPEG to data/story-assets/ and derive the public
+         Guardian HTTPS URL.
       5. _load_credentials.
       6. _create_story_container — media_type=STORIES, no caption.
       7. _wait_for_container — standard 30s timeout works for stories
@@ -901,18 +945,18 @@ def post_gem_to_story(
       9. _write_story_metadata writes ig_story_id + ig_story_posted_at
          back to the gem row. Does NOT touch ig_permalink.
 
-    dry_run=True stops BEFORE the git commit AND before any Graph API
-    call — predicts the raw URL and returns. Still runs
+    dry_run=True stops BEFORE writing the Story asset AND before any Graph API
+    call — predicts the public asset URL and returns. Still runs
     _prepare_story_image to exercise the 9:16 prep path? No: skip the
     prep too (there's no output path to predict on the prep, and we
     want dry-run to be zero side effects). The dry-run return still
-    includes a predicted raw_url so operators can audit.
+    includes a predicted raw_url for backwards-compatible operator logs.
 
     Returns (never raises except IGPosterError at credential gate):
       {
         "gem_id": int,
         "dry_run": bool,
-        "raw_url": str | None,
+        "raw_url": str | None,      # backwards-compatible key; local HTTPS Story URL
         "caption": None,          # stories have no caption
         "story_id": str | None,
         "permalink": str | None,
@@ -939,43 +983,30 @@ def post_gem_to_story(
 
         local_path = _local_path_for_gem(gem, db_path)
 
-        subdir = "stories"
         stamped_name = (
             f"{datetime.now(timezone.utc).strftime('%Y-%m-%d')}"
             f"-gem{gem_id}-story.jpg"
         )
 
         if dry_run:
-            result["raw_url"] = (
-                f"https://raw.githubusercontent.com/VoynichLabs/farm-2026/main/"
-                f"public/photos/{subdir}/{stamped_name}"
-            )
+            result["raw_url"] = _story_asset_url(stamped_name)
             log.info(
-                "ig_poster STORY DRY RUN: would prepare+commit %s -> %s and post as story",
+                "ig_poster STORY DRY RUN: would prepare+host %s -> %s and post as story",
                 local_path, result["raw_url"],
             )
             return result
 
-        # 3-4. Prepare 9:16 image, stage under the stamped name, commit+push.
-        import shutil as _shutil
-        import tempfile
+        # 3-4. Prepare 9:16 image and publish it through the Guardian tunnel.
         prepared = _prepare_story_image(local_path)
         try:
-            with tempfile.TemporaryDirectory() as td:
-                staging = Path(td) / stamped_name
-                _shutil.copy2(prepared, staging)
-                committed_path, raw_url = commit_image_to_farm_2026(
-                    local_image=staging,
-                    subdir=subdir,
-                    repo_path=farm_2026_repo_path,
-                    commit_message=f"public/photos/{subdir}: gem {gem_id} story (ig auto)",
-                )
+            asset_path, raw_url = _publish_story_asset(prepared, db_path, stamped_name)
         finally:
             try:
                 prepared.unlink()
             except OSError:
                 pass
         result["raw_url"] = raw_url
+        log.info("ig_poster: hosted story asset %s -> %s", asset_path, raw_url)
 
         # 5. Credentials
         creds = _load_credentials()

@@ -5,6 +5,8 @@
 **Status:** approved by Boss, implementation in-flight.
 **Prereq reading (≤15 min):** [`HOW_IT_ALL_FITS.md`](HOW_IT_ALL_FITS.md) for the 10,000-ft system map, then [`20-Apr-2026-ig-next-phases-plan.md`](20-Apr-2026-ig-next-phases-plan.md) for the spec this plan operationalizes, then [`19-Apr-2026-instagram-posting-plan.md`](19-Apr-2026-instagram-posting-plan.md) for account voice / hashtag / framing rules.
 
+**2026-05-04 Story-hosting update:** the Story section below is superseded for image hosting only. Story assets are no longer committed to `farm-2026/public/photos/stories/` or served from GitHub raw URLs. `post_gem_to_story()` now writes the prepared JPEG to `data/story-assets/` and passes Meta `https://guardian.markbarney.net/api/v1/images/story-assets/<name>.jpg`. Reels still use the farm-2026 public media path.
+
 ---
 
 ## Context
@@ -99,7 +101,7 @@ return img[:, x0:x0 + target_w]
 
 Write result as JPEG quality 92 to a `tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)` path. Caller is responsible for cleanup (via `tempfile.TemporaryDirectory` context-manager at the `post_gem_to_story` level).
 
-Subdir under `farm-2026/public/photos/` is `stories/YYYY-MM/` (separate from `brooder/` so feed and story imagery don't mix in the repo tree).
+Superseded 2026-05-04: Story images are stored under `data/story-assets/` in the Farm Guardian repo and served by Guardian's `/api/v1/images/story-assets/<name>.jpg` route. The URL must keep the `.jpg` extension.
 
 ### `post_gem_to_story` flow
 
@@ -108,7 +110,7 @@ Mirrors `post_gem_to_ig` minus caption:
 1. `_lookup_gem(db_path, gem_id)` — existing.
 2. `resolve_gem_image_path(gem, db_path)` — promoted helper (see Phase 3b).
 3. `_prepare_story_image(local_path)` → temp 9:16 JPEG.
-4. `commit_image_to_farm_2026(staging_path, subdir="stories/YYYY-MM", ...)` → raw URL.
+4. `_publish_story_asset(staging_path, db_path, filename)` → local Guardian HTTPS URL ending in `.jpg`.
 5. `_load_credentials()` — existing.
 6. `_create_story_container(ig_id, image_url, user_token)` — no caption field. IG rejects `caption` on stories with a 400.
 7. `_wait_for_container(container_id, user_token, timeout_s=30)` — standard photo timeout (stories are images, same latency).
@@ -133,7 +135,7 @@ Fires **after** `_maybe_post_to_ig`, not instead of. A single gem could in theor
 ### Verification
 
 1. Helper test: `_prepare_story_image` on a 1920×1080 fixture → assert 607×1080 JPEG output.
-2. CLI dry-run: `python3 scripts/ig-post.py --mode story --gem-id N --dry-run` → raw URL printed, no git push, no Graph API.
+2. CLI dry-run: `python3 scripts/ig-post.py --mode story --gem-id N --dry-run` → local Guardian Story URL printed, no file write, no Graph API.
 3. CLI real: one story without `--dry-run` → visually confirm on `@pawel_and_pawleen` for 24h. SQL-check `ig_story_id` populated.
 4. Orchestrator dry-run: flip `stories.enabled=true`, leave `auto_dry_run=true`. Let daemon run for a few cycles. Grep `/tmp/guardian.*.log` + pipeline log for `story_dry_run` lines. Audit skip-reason distribution before flipping `auto_dry_run=false`.
 5. Re-post sanity: attempt `--mode story` twice on the same gem; latest post wins (documented v1 semantics).

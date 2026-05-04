@@ -4,6 +4,14 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-05-03
 
+### v2.39.4 - social: host Story assets from the Mac Mini (GPT-5.5)
+
+Instagram Story publishing no longer uses `raw.githubusercontent.com` as the canonical image host. `post_gem_to_story()` now writes the prepared 9:16 JPEG into Farm Guardian's local data store and feeds Meta a public `https://guardian.markbarney.net/api/v1/images/story-assets/<name>.jpg` URL served by the Mac Mini through the existing Cloudflare tunnel. Feed, carousel, and reel lanes keep the existing farm-2026 media path; the social publisher no longer blocks the Story gem lane if the farm-2026 checkout is unavailable.
+
+### v2.39.3 - pipeline: retry farm-2026 pushes after "fetch first" rejections (Claude Sonnet 4.7)
+
+`tools/pipeline/git_helper.py` now treats GitHub's standard `fetch first` push rejection the same as the existing stale-ref / non-fast-forward cases, and gives the push/rebase path a longer timeout so the shared farm-2026 repo can finish large pushes without tripping the default 60s cap. When the branch is behind remote, the helper will `git pull --rebase origin main` and retry instead of bailing out on the first rejected push. This keeps the IG story publisher usable when another machine has pushed to the shared repo first.
+
 ### v2.39.2 - social: disable throwback/on-this-day content (GPT-5.5)
 
 Disabled the archive throwback and on-this-day Story lanes after Boss rejected the current selection quality. The catalog/gallery throwback picker was surfacing irrelevant old photos, including winter images, and those synthetic `discord-drop` rows could then pollute daily Reel material because they looked "recent" by Discord post time rather than actual photo date.

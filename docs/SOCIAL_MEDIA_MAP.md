@@ -4,7 +4,7 @@ This is the current, live map of how cute photos of the flock get from camera fr
 
 **This file is the source of truth for how the social pipeline runs *today*.** The dated docs in this directory (e.g. `19-Apr-2026-instagram-posting-plan.md`, `23-Apr-2026-nextdoor-plan.md`) are frozen planning artifacts — they're useful for *why* a thing exists, not *what's running now*. If those docs and this file disagree, this file wins; update it instead of writing another dated doc.
 
-Verified against `launchctl list | grep farmguardian` and `~/Library/LaunchAgents/com.farmguardian.*` on 2026-04-26. Throwback deactivation updated 2026-05-03.
+Verified against `launchctl list | grep farmguardian` and `~/Library/LaunchAgents/com.farmguardian.*` on 2026-04-26. Throwback deactivation updated 2026-05-03. Story image hosting updated 2026-05-04.
 
 ---
 
@@ -54,6 +54,7 @@ Cameras and iPhone live ingest are the active raw sources. Camera frames flow th
 - **Reaction-gate trust signal:** `image_archive.discord_reactions` — single source of truth. Every outbound lane filters `WHERE discord_reactions > 0`. Cross-reference from a Discord message back to its `image_archive` row is by `(camera_id, ts ±60s)`, NOT sha256 (Discord CDN re-encodes). Reactions from Larry / Bubba / Egon (other Claude instances) don't count.
 - **Throwback/on-this-day disabled:** archive throwback Discord posts, on-this-day archive Stories, and the Nextdoor throwback lane are OFF as of 2026-05-03. Boss said there is enough live content and the current throwback picker is bad. Future TODO: exact-date-only sourcing, e.g. May 3 2025 / May 3 2024 for May 3, with strict date provenance and better captions.
 - **Reacted Story queue priority:** if archive fallback is redesigned later, `social-publisher` must still treat any non-empty reacted Story queue as higher priority. Fallback stories may run only when queue depth is zero; failed gem publish attempts do not make archive fallback eligible. The gem drain has bounded look-ahead, and local file/path-style permanent failures are marked `story-permanent-skip` so dead oldest rows stop poisoning the FIFO queue while transient API/git failures remain retryable.
+- **Story image hosting:** reacted gem Stories are hosted from the Mac Mini, not GitHub. `post_gem_to_story()` writes prepared 9:16 JPEGs to `data/story-assets/`, and Guardian serves them at `https://guardian.markbarney.net/api/v1/images/story-assets/<name>.jpg`. Keep the extension URL shape; Meta rejects the existing query-string archive endpoint even when the bytes are valid JPEG.
 - **Cookie-lift session bootstrap** (no logins, no 2FA): `tools/chrome_session/decrypt.py`, shared by IG-engage and Nextdoor. Per-track Playwright Chromium persistent profiles at `~/Library/Application Support/farm-{ig-engage,nextdoor}/profile/`.
 - **Browser automation stack** (when standing up a new social surface): Playwright + persistent profile, `tools/chrome_session/codegen.py` codegen wrapper, `chrome-devtools` MCP, Claude-for-Chrome extension. Index doc: `~/bubba-workspace/skills/browser-automation/SKILL.md`.
 - **Tokens:** `~/bubba-workspace/secrets/farm-guardian-meta.env` (`0600`, gitignored) — non-expiring IG + FB long-lived tokens. Discord bot token in `~/.openclaw/openclaw.json`.

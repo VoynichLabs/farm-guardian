@@ -1,4 +1,4 @@
-# Author: Claude Opus 4.6 (1M context)
+# Author: Claude Opus 4.6 (1M context); updated GPT-5.5 04-May-2026
 # Date: 14-April-2026
 # PURPOSE: REST API surface for Farm Guardian's image archive (the dataset
 #          produced by tools/pipeline/*). Public endpoints serve curated gems,
@@ -11,6 +11,14 @@
 #          row has has_concerns = 1 even though URL guessing should never
 #          surface such an id (layer 3). Review mutations are filesystem-first,
 #          DB-last so that a DB rollback doesn't leave orphan hardlinks.
+#
+#          04-May-2026: Added GET /api/v1/images/story-assets/{filename} to serve
+#          9:16-cropped Story assets from data/story-assets/. This
+#          gives ig_poster a .jpg-terminated public HTTPS URL that Meta's
+#          Graph API media fetcher accepts, replacing the raw.githubusercontent.com
+#          approach. Files are written by ig_poster.post_gem_to_story before
+#          the container-create call and are served through the Cloudflare
+#          tunnel at guardian.markbarney.net.
 # SRP/DRY check: Pass — single responsibility is the /api/v1/images/* HTTP
 #                surface. SQL lives in database.py; thumbnailing in
 #                images_thumb.py; auth in images_auth.py.
@@ -50,6 +58,7 @@ _VALID_TIERS_REVIEW = {"strong", "decent", "skip"}
 _VALID_ORDERS = {"newest", "oldest", "random"}
 _VALID_IMAGE_SIZES = {"thumb", "1920", "full"}
 _SIZE_PX = {"thumb": 480, "1920": 1920, "full": 0}
+_VALID_STORY_ASSET_EXTENSIONS = {".jpg", ".jpeg", ".png"}
 
 _PUBLIC_CACHE_LIST = "public, max-age=60, s-maxage=300"
 _PUBLIC_CACHE_IMAGE = "public, max-age=86400, immutable"
@@ -107,6 +116,15 @@ def _public_url(base: str, image_id: int, size: str) -> str:
     return f"{base}/api/v1/images/gems/{image_id}/image?size={size}"
 
 
+def _story_asset_media_type(path: Path) -> str:
+    ext = path.suffix.lower()
+    if ext in {".jpg", ".jpeg"}:
+        return "image/jpeg"
+    if ext == ".png":
+        return "image/png"
+    return "application/octet-stream"
+
+
 # ---------------------------------------------------------------------------
 # FS helpers for the review mutations (filesystem-first, DB-last)
 # ---------------------------------------------------------------------------
@@ -161,6 +179,12 @@ def build_images_router(db: GuardianDB, config: dict) -> APIRouter:
     images_cfg = config.get("images", {}) or {}
     db_path = Path(config.get("database", {}).get("path", "data/guardian.db"))
     data_root = Path(images_cfg.get("data_root", str(db_path.parent)))
+    story_assets_dir = Path(images_cfg.get("story_assets_dir", "story-assets"))
+    story_assets_root = (
+        story_assets_dir
+        if story_assets_dir.is_absolute()
+        else data_root / story_assets_dir
+    )
     images_thumb.configure(data_root)
 
     router = APIRouter(prefix="/api/v1/images", tags=["images"])
@@ -324,6 +348,29 @@ def build_images_router(db: GuardianDB, config: dict) -> APIRouter:
                 "Cache-Control": _PUBLIC_CACHE_IMAGE,
                 "ETag": etag,
             },
+        )
+
+    @router.get("/story-assets/{filename}")
+    async def get_story_asset(filename: str, request: Request):
+        """Serve generated IG Story assets from the Mac Mini via extension URLs.
+
+        Meta's media fetcher requires the URL itself to end in .jpg/.jpeg/.png,
+        so this route intentionally uses a filename path segment instead of the
+        existing query-string image endpoint.
+        """
+        rid = _req_id(request)
+        requested = Path(filename)
+        if requested.name != filename or requested.suffix.lower() not in _VALID_STORY_ASSET_EXTENSIONS:
+            return _error("not_found", "story asset not found", 404, rid)
+
+        asset_path = story_assets_root / filename
+        if not asset_path.is_file():
+            return _error("not_found", "story asset not found", 404, rid)
+
+        return Response(
+            content=asset_path.read_bytes(),
+            media_type=_story_asset_media_type(asset_path),
+            headers={"Cache-Control": _PUBLIC_CACHE_IMAGE},
         )
 
     @router.get("/recent")

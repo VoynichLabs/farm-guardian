@@ -320,9 +320,11 @@ def run_tick(dry_run: bool = False) -> dict:
         summary["error"] = f"db missing: {db_path}"
         return summary
     if not farm_2026.exists():
-        log.error("publisher: farm-2026 repo missing: %s", farm_2026)
-        summary["error"] = f"farm-2026 missing: {farm_2026}"
-        return summary
+        log.warning(
+            "publisher: farm-2026 repo missing but Story gem lane now uses local "
+            "Guardian hosting: %s",
+            farm_2026,
+        )
 
     # 1. Drain the gem queue (priority).
     gems_posted, quota_hit, gem_queue_depth, gem_attempts = _drain_gem_queue(

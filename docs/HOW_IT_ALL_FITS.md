@@ -1,6 +1,6 @@
 # How It All Fits — Photos, Metadata, and the Instagram Pipeline
 
-**Last updated:** 2026-04-20
+**Last updated:** 2026-05-04
 **Audience:** a human or an AI agent who is new to this project and needs the 10,000-ft view of where the farm's photographs live, how they get tagged, and how they end up on Instagram.
 **Companion docs:** [`19-Apr-2026-instagram-posting-plan.md`](./19-Apr-2026-instagram-posting-plan.md) · [`20-Apr-2026-ig-poster-implementation-plan.md`](./20-Apr-2026-ig-poster-implementation-plan.md) · [`20-Apr-2026-instagram-manager-agent-plan.md`](./20-Apr-2026-instagram-manager-agent-plan.md)
 
@@ -8,7 +8,7 @@
 
 ## The one-paragraph version
 
-A handful of cameras — a PTZ in the yard, two phones over the brooder, a laptop cam in the coop run, and two more laptop-hosted USB cams — shoot frames every 2–600 seconds. Each frame passes a three-stage quality gate (std-dev, exposure, motion), then the frames that survive get run through a local VLM (LM Studio, Gemma-4-31b) which returns rich JSON metadata: scene type, bird count, activity, image quality, share-worthiness, concerns flag, and a caption draft. Everything lands in `data/guardian.db` → `image_archive` with the JPEG in `data/archive/YYYY-MM/<camera>/*.jpg`. A predicate called `should_post_ig()` watches the stream for `tier=strong` + `image_quality=sharp` gems, builds a caption from the VLM's draft + a verified hashtag library, commits the full-res JPEG into `farm-2026/public/photos/brooder/` (GitHub raw URL is the only image origin Instagram's fetcher accepts), and posts to `@pawel_and_pawleen` via the Meta Graph API. All the tokens live in macOS keychain and never expire.
+A handful of cameras — a PTZ in the yard, two phones over the brooder, a laptop cam in the coop run, and two more laptop-hosted USB cams — shoot frames every 2–600 seconds. Each frame passes a three-stage quality gate (std-dev, exposure, motion), then the frames that survive get run through a local VLM (LM Studio, Gemma-4-31b) which returns rich JSON metadata: scene type, bird count, activity, image quality, share-worthiness, concerns flag, and a caption draft. Everything lands in `data/guardian.db` → `image_archive` with the JPEG in `data/archive/YYYY-MM/<camera>/*.jpg`. Feed/carousel/reel publishers use the farm-2026 public media path; reacted Story publishing writes prepared 9:16 JPEGs to `data/story-assets/` and serves them through Guardian at extension URLs Meta accepts. All tokens live in macOS keychain and never expire.
 
 ---
 
@@ -54,12 +54,12 @@ As of 2026-04-20 this table had 6,952 rows across 7 days, with 205 `strong`-tier
 
 | Path | What's there |
 |---|---|
-| `public/photos/brooder/` | Every photo the IG pipeline has ever posted (committed right before publish because IG's fetcher needs the `raw.githubusercontent.com` URL — see [§gotcha](#the-one-gotcha-that-shapes-the-whole-image-hosting-path) below). |
+| `public/photos/brooder/` | Feed photos the IG pipeline has posted through the farm-2026 public media path. |
 | `public/photos/yard-diary/` | Thrice-daily yard wide-shots (`YYYY-MM-DD-{morning,noon,evening}.jpg`), captured by `scripts/yard-diary-capture.py` via its own launchd plist. Independent of the VLM pipeline — it's a time-lapse record. |
 | `public/photos/coop/` | Build-documentation photos (enclosure install, hardware drops). Hand-curated. |
 | `public/photos/iphone-drops/YYYY-MM-DD/` | (Planned, not yet auto-populated) AirDropped iPhone shots that feed captions-on-tap posting. See `19-Apr-2026-instagram-posting-plan.md` §iPhone channel. |
 
-Everything under `public/` is served by Next.js on Railway at `https://farm.markbarney.net/photos/...` AND by GitHub at `https://raw.githubusercontent.com/VoynichLabs/farm-2026/main/public/photos/...` — IG only accepts the latter.
+Everything under `public/` is served by Next.js on Railway at `https://farm.markbarney.net/photos/...` and by GitHub raw URLs. Feed/carousel/reel lanes still use this path where needed. Reacted Story assets do not: they stay on the Mac Mini under `data/story-assets/` and are served by Guardian.
 
 ### 3. Historical / analysis archives (NOT yet wired into auto-posting)
 
@@ -74,17 +74,18 @@ These pools contain tagged photos from prior manual work. They're candidates for
 
 ---
 
-## The one gotcha that shapes the whole image-hosting path
+## The one gotcha that shapes image-hosting paths
 
 Instagram's media fetcher rejects any `image_url` that does not end in `.jpg`, `.jpeg`, `.png`, or `.mp4`. This is not documented; it was discovered the hard way on 2026-04-19. Consequences:
 
 - `https://guardian.markbarney.net/api/v1/images/gems/{id}/image?size=1920` → rejected (9004 / 2207052 "Media download has failed"), even though the response body is valid `image/jpeg`.
+- `https://guardian.markbarney.net/api/v1/images/story-assets/2026-05-04-gem123-story.jpg` → works because the URL ends in `.jpg` and is served directly from the Mac Mini through Cloudflare Tunnel.
 - `https://farm.markbarney.net/photos/brooder/pic.jpg` → works, but requires a 2–5 min wait for Railway to rebuild after the git push.
 - `https://raw.githubusercontent.com/VoynichLabs/farm-2026/main/public/photos/brooder/pic.jpg` → works immediately, live the instant the push lands.
 
-So the auto-poster commits the JPEG to `farm-2026/public/photos/brooder/` and uses the raw URL. The commit-and-push step is implemented in [`tools/pipeline/git_helper.py`](../tools/pipeline/git_helper.py) with `GIT_TERMINAL_PROMPT=0` + `GIT_ASKPASS=/bin/echo` so the osxkeychain helper handles auth non-interactively inside a Python subprocess.
+So reacted Stories now use `data/story-assets/` plus the Guardian route `/api/v1/images/story-assets/<name>.jpg`. Feed/carousel/reel media that still needs farm-2026 hosting uses [`tools/pipeline/git_helper.py`](../tools/pipeline/git_helper.py) with `GIT_TERMINAL_PROMPT=0` + `GIT_ASKPASS=/bin/echo` so the osxkeychain helper handles auth non-interactively inside a Python subprocess.
 
-IG caches the image on Meta's CDN after ingestion — the raw URL is only read once, so deleting or renaming the source file later doesn't break the post.
+IG caches the image on Meta's CDN after ingestion. The source URL is only read during container creation, so deleting or renaming the source file later doesn't break an already-created post, but new Story container creation needs the local asset to return HTTP 200 at that moment.
 
 ---
 

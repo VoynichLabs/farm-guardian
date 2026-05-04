@@ -4,6 +4,8 @@
 **Status:** Plan — V1 docs + manual pipeline live; V2 auto-posting from pipeline not yet built
 **Related:** `~/bubba-workspace/skills/farm-instagram-post/SKILL.md` · `~/.claude/projects/-Users-macmini-bubba-workspace/memory/farm-instagram.md`
 
+**2026-05-04 update:** this is a historical V1/V2 planning artifact. Reacted gem Stories no longer use GitHub raw URLs; they are hosted from the Mac Mini at `https://guardian.markbarney.net/api/v1/images/story-assets/<name>.jpg`. The GitHub raw workflow below still describes feed/carousel/reel-era hosting decisions, not the current Story publisher.
+
 ---
 
 ## Scope
@@ -29,6 +31,8 @@
 Verified 2026-04-19. The URL returns a correct 1920×1080 `image/jpeg` with proper headers to any ordinary HTTPS client, including curl with `User-Agent: facebookexternalhit/1.1`. Meta's server-side fetcher still rejects it with `9004 / 2207052 "Media download has failed. The media URI doesn't meet our requirements."`
 
 The heuristic appears to be URL-extension-based: URLs that don't end in `.jpg`/`.jpeg`/`.png`/`.mp4` are rejected without being fetched. `picsum.photos/...` (redirects, no extension) also fails. Wikipedia Commons URLs ending in `1280px-Cat03.jpg` succeed immediately.
+
+For reacted gem Stories, the current workaround is not GitHub: `post_gem_to_story()` writes the prepared 9:16 JPEG into `data/story-assets/`, and Guardian serves it through Cloudflare Tunnel at `/api/v1/images/story-assets/<filename>.jpg`.
 
 **Workaround (the V1 working pipeline — verified 2026-04-19, first real post at `https://www.instagram.com/p/DXVpa4Ek4Lb/`):**
 

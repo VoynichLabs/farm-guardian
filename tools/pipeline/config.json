@@ -25,6 +25,7 @@
     "min_hours_between_posts": 6,
     "min_hours_per_camera": 12,
     "farm_2026_repo_path": "/Users/macmini/Documents/GitHub/farm-2026",
+    "story_public_base_url": "https://guardian.markbarney.net",
     "meta_env_file": "/Users/macmini/bubba-workspace/secrets/farm-guardian-meta.env",
     "stories": {
       "enabled": false,

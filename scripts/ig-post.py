@@ -44,7 +44,7 @@ Usage:
   scripts/ig-post.py --mode reel --gem-ids N,N,N,N,N,N --caption "..." [--dry-run]
 
 Examples:
-  # Dry-run a photo — predict the raw URL without publishing
+  # Dry-run a photo — predict the public media URL without publishing
   scripts/ig-post.py --gem-id 6849 --caption "Chick portrait." --dry-run
 
   # Real story
@@ -261,7 +261,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Predict the raw URL + caption without publishing or committing.",
+        help="Predict the public media URL + caption without publishing or committing.",
     )
     parser.add_argument(
         "--db-path",
