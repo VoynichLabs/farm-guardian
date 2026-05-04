@@ -409,6 +409,40 @@ memory pressure from LM Studio.
 
 ---
 
+## Disabling reasoning / thinking on OpenAI-compat endpoint (v2.40.0)
+
+**TL;DR: pass `"reasoning_effort": "none"` in the request body. It works.**
+
+LM Studio 0.4.8+ added `reasoning_effort` to the `/v1/chat/completions` endpoint.
+Documented values are `low`, `medium`, `high`, `max`. The undocumented value `"none"`
+is also accepted and fully disables the thinking/reasoning block.
+
+Empirically verified 2026-04-26 against Nemotron and Qwen3.6-35b-A3B:
+
+```bash
+curl -s -X POST http://localhost:1234/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "nvidia/nemotron-3-nano-omni", "reasoning_effort": "none", ...}'
+```
+
+Response: `reasoning_content: ""`, `reasoning_tokens: 0`, `finish_reason: stop`.
+
+**Why not `"reasoning": "off"`?** That field exists on the *native* `/api/v1/chat`
+endpoint but is silently ignored on `/v1/chat/completions`. Using it on the
+OpenAI-compat endpoint causes the model to burn its full reasoning budget, return
+the reasoning block in `reasoning_content`, and emit empty `content` — which
+breaks the JSON response validator. Confirmed broken 2026-04-26. Do not revert.
+
+The pipeline sets `reasoning_effort: "none"` in every request body in
+`tools/pipeline/vlm_enricher.py`. This is model-agnostic — works on any reasoning
+model loaded in LM Studio without any preset-level thinking-disable flag.
+
+The Birds preset also carries `ext.virtualModel.customField.nvidia.nemotron3NanoOmni.enableThinking: false`
+as a load-time belt-and-suspenders for Nemotron specifically, but the API-call
+param is the reliable cross-model solution.
+
+---
+
 ## Reference and pointers
 
 - This document: `farm-guardian/docs/13-Apr-2026-lm-studio-reference.md`

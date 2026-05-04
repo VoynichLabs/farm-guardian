@@ -1,8 +1,24 @@
 # 29-Apr-2026 — Pipeline Control GUI + LM Studio Preset Integration Plan
 
 **Author:** Claude Sonnet 4.6  
-**Status:** Awaiting implementation  
-**Target version:** v2.38.0
+**Status:** Part 2 (preset integration) DONE in v2.40.0 (04-May-2026). Part 1 (GUI pause/resume) still pending.  
+**Target version:** v2.38.0 (original target); preset integration shipped as v2.40.0
+
+---
+
+## Implementation notes (v2.40.0, 04-May-2026)
+
+Part 2 was implemented with two differences from the spec below:
+
+1. **Prompt template moved to preset, not just system prompt.** The plan said "user prompt (from `prompt.md`) stays in `prompt.md`." Instead, the full `prompt.md` content was written into `llm.prediction.systemPrompt` in the preset. The orchestrator reads it as the *user-message* template (not the system turn — `vlm_enricher.py:_SYSTEM_PROMPT` stays as the system turn). Result: `prompt.md` is no longer the live source when `birds_preset_path` is configured.
+
+2. **Schema stored in standard `llm.prediction.structured` field, not custom `ext.farmGuardian.responseSchema`.** The plan proposed a custom string-encoded field. Instead the existing standard LM Studio structured-output field (`llm.prediction.structured.jsonSchema`) is used directly — same field LM Studio's UI already reads. No custom field parsing needed.
+
+3. **Config key is `birds_preset_path`, not `lm_preset_path`.** More explicit about which preset.
+
+4. **Preset loading is in `orchestrator.py:_load_configs()`, not `vlm_enricher.py`.** Keeps `enrich()` signature unchanged.
+
+To edit the VLM prompt going forward: edit `llm.prediction.systemPrompt` in `~/.lmstudio/config-presets/Birds.preset.json`. Pipeline picks it up on restart. See `docs/04-May-2026-vlm-preset-alignment-plan.md`.
 
 ---
 

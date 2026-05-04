@@ -143,7 +143,7 @@ Ship these in order. Each phase is landable on its own; don't jump ahead until t
 14. **Decouple capture from VLM.** Capture writes JPEGs to an `inbox/` folder; VLM is a separate worker picking newest-per-camera with a drop-oldest policy. Required for sub-30s cadences to work under ~100s/call VLM latency. Details in the deleted earlier plan; happy to re-draft on request.
 15. **Model-agnostic selection.** Replace exact-string `vlm_model_id` check with pattern-match fallback. `vlm_enricher.py:52,104`.
 16. **Stop the VLM from grading itself.** Move `share_worth` + `share_reason` generation into a `grader.py` that reads the VLM's observational fields. Eliminates the prompt-regurgitation failure mode that produced 45/75 of today's "strong" gems with the literal prompt-definition as reason.
-17. **Prompt context leakage.** Strip scene furniture (`heat lamp`, `feeder`, `brooder`) from `prompt.md`'s `{camera_context}`. 44% of captions parrot the word "heat lamp" back today.
+17. **Prompt context leakage.** Strip scene furniture (`heat lamp`, `feeder`, `brooder`) from the camera context in the prompt. 44% of captions parrot the word "heat lamp" back today. **As of v2.40.0, the prompt template lives in `~/.lmstudio/config-presets/Birds.preset.json` (`llm.prediction.systemPrompt`), not `tools/pipeline/prompt.md`.**
 
 ## Rollback plan
 

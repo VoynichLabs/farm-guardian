@@ -78,7 +78,7 @@ Counterbalance the cross-modal cells via a Latin square nested inside the day's 
 
 Inherits the audio plan's metrics (bird_count_delta, face_toward_rate, motion_density, alarm_posture_count, response_duration). Adds:
 
-- `screen_directed_attention`: VLM judgment per frame on whether visible birds' bodies / heads are oriented toward the GWTC screen specifically (vs the rest of the run). Requires a one-time prompt addition to `tools/pipeline/prompt.md` and a corresponding schema field.
+- `screen_directed_attention`: VLM judgment per frame on whether visible birds' bodies / heads are oriented toward the GWTC screen specifically (vs the rest of the run). Requires a one-time prompt addition and a corresponding schema field. **As of v2.40.0, prompt and schema both live in `~/.lmstudio/config-presets/Birds.preset.json` (`llm.prediction.systemPrompt` and `llm.prediction.structured.jsonSchema`), not in `tools/pipeline/prompt.md` / `schema.json` directly.**
 - `peck_at_screen_count`: bursts of motion within an ROI defined as the bottom-2/3 of the camera's view of the screen surface (where a chicken would peck). Captured by optical-flow analysis on the gwtc frame stack, not by the VLM.
 
 The first metric requires touching the pipeline schema (an additive, non-breaking change). The second is computed entirely in `analyze.py` from already-archived frames. **Neither change is part of the scaffold tranche.** Schema additions + frontend coordination get their own plan + commit when the pilot is ready to start.
