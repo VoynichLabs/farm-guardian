@@ -2,6 +2,23 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased] - 2026-05-04
+
+### v2.40.0 — pipeline: Birds preset as single source of truth for VLM prompt + schema (Claude Sonnet 4.6)
+
+The LM Studio Birds preset (`~/.lmstudio/config-presets/Birds.preset.json`) is now the single source of truth for the VLM user-message template and structured output schema. Previously the pipeline read `tools/pipeline/prompt.md` and `tools/pipeline/schema.json` independently, which had diverged from the preset.
+
+Changes:
+- Birds preset `llm.prediction.systemPrompt` updated from a one-sentence stub to the full 87-line prompt template (identical content to `prompt.md`, with `{camera_name}` / `{camera_context}` / `{today}` template vars intact for runtime substitution).
+- Birds preset schema synced to match `schema.json`: `overall_score` field added, `caption_draft` maxLength corrected from 200 → 450, all 17 required fields present.
+- Birds preset temperature corrected from 0.38 → 0.2 (matches `vlm_temperature` in `tools/pipeline/config.json`).
+- `orchestrator.py` `_load_configs()` now reads `birds_preset_path` from `tools/pipeline/config.json`; parses `llm.prediction.systemPrompt` as `prompt_template` and `llm.prediction.structured.jsonSchema` as the response schema. Falls back to `schema.json` + `prompt.md` if preset path is missing.
+- `tools/pipeline/config.json` gains `"birds_preset_path": "~/.lmstudio/config-presets/Birds.preset.json"`.
+- `schema.json` and `prompt.md` kept as fallback; not deleted.
+- `reasoning_effort: "none"` is unchanged — already correctly disabling reasoning on the OpenAI-compat endpoint for all models (confirmed 2026-04-26).
+
+To update the VLM prompt going forward: edit `llm.prediction.systemPrompt` in the Birds preset file. Pipeline picks it up on next restart. Plan: `docs/04-May-2026-vlm-preset-alignment-plan.md`.
+
 ## [Unreleased] - 2026-05-03
 
 ### v2.39.4 - social: host Story assets from the Mac Mini (GPT-5.5)

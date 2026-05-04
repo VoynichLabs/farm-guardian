@@ -1,4 +1,4 @@
-# Author: Claude Opus 4.7 (1M context); Claude Sonnet 4.6 (edits 27-April-2026 — vlm_bypass mode: run_raw_cycle, dedicated raw threads, raw retention sweep, v2.37.13; 28-April-2026 — sharpness gate wired in, v2.37.14)
+# Author: Claude Opus 4.7 (1M context); Claude Sonnet 4.6 (edits 27-April-2026 — vlm_bypass mode: run_raw_cycle, dedicated raw threads, raw retention sweep, v2.37.13; 28-April-2026 — sharpness gate wired in, v2.37.14; 04-May-2026 — Birds preset as prompt/schema source, v2.40.0)
 # Date: 17-April-2026
 # PURPOSE: Main entry point for the multi-cam image pipeline. Schedules per-
 #          camera capture cycles at their configured cadences, runs each
@@ -636,8 +636,33 @@ def _maybe_post_to_story(
 def _load_configs():
     here = Path(__file__).parent
     cfg = json.loads((here / "config.json").read_text())
-    schema = json.loads((here / "schema.json").read_text())
-    prompt_template = (here / "prompt.md").read_text()
+
+    # If birds_preset_path is configured, use the LM Studio Birds preset as the
+    # single source of truth for both the prompt template and the response schema.
+    # This keeps the pipeline and the LM Studio UI preset in sync — editing the
+    # preset file in ~/.lmstudio/config-presets/ updates both at once.
+    preset_path_raw = cfg.get("birds_preset_path")
+    if preset_path_raw:
+        preset_path = Path(preset_path_raw).expanduser()
+        if preset_path.exists():
+            preset = json.loads(preset_path.read_text())
+            pfields = {f["key"]: f["value"] for f in preset.get("operation", {}).get("fields", [])}
+            prompt_template = pfields.get("llm.prediction.systemPrompt", "")
+            structured = pfields.get("llm.prediction.structured", {})
+            schema = {
+                "name": "farm_image_metadata",
+                "strict": True,
+                "schema": structured.get("jsonSchema", {}),
+            }
+            log.info("loaded prompt+schema from Birds preset: %s", preset_path)
+        else:
+            log.warning("birds_preset_path configured but missing: %s — falling back to schema.json+prompt.md", preset_path)
+            schema = json.loads((here / "schema.json").read_text())
+            prompt_template = (here / "prompt.md").read_text()
+    else:
+        schema = json.loads((here / "schema.json").read_text())
+        prompt_template = (here / "prompt.md").read_text()
+
     repo_root = Path(__file__).resolve().parents[2]
     db_path = repo_root / cfg["guardian_db_path"]
     archive_root = repo_root / cfg["archive_root"]
