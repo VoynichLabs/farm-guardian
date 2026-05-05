@@ -36,18 +36,20 @@ for cam,vals in sorted(by_cam.items()):
 
 **DB lock fix (v2.40.3):** Root cause found — `store.py` and `retention.py` used the SQLite default 5-second timeout while `database.py` (used by guardian.py) uses 30s. Under concurrent writes from both processes, the pipeline lost the race and dropped frames. Fixed by adding `timeout=30` to all `sqlite3.connect()` calls in both files. Restart pipeline to apply.
 
-### v2.40.3 — fix: SQLite timeout in store.py + retention.py (Claude Sonnet 4.6)
+### v2.40.3 — fix: SQLite DB lock errors — two-part fix (Claude Sonnet 4.6)
 
-Root cause of the `database is locked` errors: `store.py` and `retention.py` used
-`sqlite3.connect()` with the default 5-second timeout while `database.py` (opened by
-guardian.py) uses 30s. Under concurrent writes from both processes, the pipeline lost
-the race 186+ times today and silently dropped frames at the "store" stage.
+**Part 1 (store.py + retention.py):** added `timeout=30` to all `sqlite3.connect()`
+calls — three in `store.py` (ensure_schema, store(), store_raw()) and two in
+`retention.py` (sweep(), sweep_raw()). These were using the default 5s timeout.
 
-**Fix:** added `timeout=30` to all `sqlite3.connect()` calls in both files — three
-calls in `store.py` (ensure_schema, store(), store_raw()) and two in `retention.py`
-(sweep(), sweep_raw()). Matches the pattern already in `database.py`. Root cause: WAL
-mode still serializes writes; a 5-second window was just too short when guardian.py holds
-a write lock during its own periodic DB operations.
+**Part 2 (the real root cause — discord-reaction-sync.py):** `discord-reaction-sync`
+fires every 30 minutes, loops over potentially hundreds of Discord messages with 0.5s
+sleeps between each, does DB writes (UPDATE/INSERT), but only called `conn.commit()`
+once at the very end. This meant the SQLite write lock was held for the entire sync
+duration — potentially several minutes — while the pipeline's store attempts timed out
+and dropped frames. Fixed by: (1) adding `timeout=30` to its `sqlite3.connect()` call;
+(2) committing after each message rather than once at the end. The write lock is now
+released between messages, so the pipeline can write during the 0.5s inter-message gaps.
 
 **Also in this entry:** updated CLAUDE.md VLM model reference to `qwen/qwen3.5-9b`
 (was stale `qwen3.6-35b-a3b as of 2026-04-23`). Added "After a manual model swap, reload

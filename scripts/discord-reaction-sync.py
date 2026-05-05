@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# Author: GPT-5.5
-# Date: 03-May-2026
+# Author: GPT-5.5; Claude Sonnet 4.6 (04-May-2026 — per-message commit to fix DB lock contention, v2.40.3)
+# Date: 03-May-2026 (last touched 04-May-2026)
 # PURPOSE: Two jobs, run in one pass over #farm-2026:
 #
 #          1. GUARDIAN GEMS — for every reacted message whose author is
@@ -484,7 +484,9 @@ def main(argv: list[str] | None = None) -> int:
     drops_inserted = 0
     drops_updated = 0
     drops_skipped = 0
-    conn = sqlite3.connect(str(db_path))
+    # timeout=30: match database.py; commit per-message so the write lock is
+    # released between Discord API calls and doesn't starve the pipeline writer.
+    conn = sqlite3.connect(str(db_path), timeout=30)
     try:
         # ---- 1. Guardian-gem reaction updates ----
         for i, msg in enumerate(guardian_msgs):
@@ -506,6 +508,7 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 continue
             _update_gem_reactions(conn, gem_id, msg["id"], human_count)
+            conn.commit()  # release write lock between messages
             updated_gems += 1
             log.info(
                 "updated gem_id=%s discord_reactions=%d (msg=%s cam=%s)",
@@ -536,6 +539,7 @@ def main(argv: list[str] | None = None) -> int:
                 if result is None:
                     drops_skipped += 1
                     continue
+                conn.commit()  # release write lock between messages
                 action, gem_id = result
                 if action == "insert":
                     drops_inserted += 1
@@ -550,7 +554,6 @@ def main(argv: list[str] | None = None) -> int:
                         gem_id, human_count, msg["id"], author, idx,
                     )
 
-        conn.commit()
     finally:
         conn.close()
 
