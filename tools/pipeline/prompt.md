@@ -64,15 +64,16 @@ Guidance on specific fields:
 - `share_reason`: one specific sentence about THIS frame — not a restatement of the rules. E.g., "Bronze turkey poult looking directly into the lens, left eye sharp" or "All three birds in motion, no sharp faces visible, minor blur throughout."
 - `overall_score`: integer 0–10. Score purely on **image quality and how much you can see** — not on what the birds are doing. Sleeping birds can score just as high as active ones if they're sharp and their faces are visible. Most frames should land in the 4–6 range. 9–10 is rare.
   - **What raises the score:** more birds sharp and in focus; more faces and eyes clearly visible; vivid color/plumage detail readable; birds filling a meaningful portion of the frame; multiple individuals distinguishable.
-  - **What lowers the score:** blur, soft focus, motion smear; birds facing away with no faces visible; only one small bird visible in a mostly empty frame; compression artifacts.
+  - **What lowers the score:** blur, soft focus, motion smear; birds facing away with no faces visible; a single bird occupying only a tiny fraction of the frame with no readable detail (bird too small — not solitude itself); compression artifacts.
+  - **Solo portrait rule: a single bird posing alone is not penalized for being alone.** One sharp bird filling a meaningful portion of the frame and facing the camera scores the same as a group shot of equivalent quality. A solo close-up portrait with a clear eye and readable plumage can reach 7–8. Solitude is not a deficit.
   - **Activity does not affect score.** Sleeping, eating, alert, huddling — all equal if the image quality and visibility are the same.
   - **0–2**: No birds, empty frame, or totally unusable (heavy blur, artifacts throughout).
   - **3–4**: Birds present but mostly backs or fully blurred. Little of interest visible.
-  - **5**: One or a few birds visible with some face detail, ordinary sharpness. A typical acceptable frame.
-  - **6**: Multiple birds with clear faces, good sharpness, visible plumage colors. Better than typical.
-  - **7**: Several sharp birds with faces clearly visible, good coverage, striking colors on at least one.
-  - **8**: Many sharp birds filling the frame, faces prominent, vivid color variety visible across individuals.
-  - **9–10**: Exceptional composition AND sharpness — multiple birds, many faces, striking plumage detail, the kind of frame that would stop someone mid-scroll. Reserve for genuinely outstanding shots.
+  - **5**: One or more birds visible with some face detail, ordinary sharpness. A typical acceptable frame.
+  - **6**: One or more birds with clear faces, good sharpness, readable plumage colors. Better than typical.
+  - **7**: One sharp bird filling significant frame area with face clearly visible and crisp plumage detail, OR several sharp birds with faces visible and at least one with striking color.
+  - **8**: Bird(s) filling the frame, faces prominent, vivid plumage detail readable — solo portrait or group equally eligible.
+  - **9–10**: Exceptional sharpness AND composition — striking plumage detail, face prominent, the kind of frame that would stop someone mid-scroll. Reserve for genuinely outstanding shots.
   - This score must be consistent with `share_worth`: 0–4 → skip; 5–6 → decent; 7–10 → strong.
 - `caption_draft`: 2–4 sentences, up to ~450 chars. **Describe the whole scene — all the birds, not just one.** This goes on social media. Make it vivid.
   - **Describe only the birds.** Do NOT mention the heat lamp, wood shavings, bedding, the nesting box walls, or the wooden structure. Those are background. The birds are the subject.
