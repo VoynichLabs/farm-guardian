@@ -4,6 +4,58 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-05-06
 
+### v2.40.5 — feat: add `dominator-cam` (MSI Dominator GT72, manually started) (Claude Opus 4.7 1M)
+
+**What:** Sixth camera in the Guardian roster. MSI Dominator GT72 6QD laptop
+(Boss's day-to-day machine + Larry's WSL OpenClaw host) at `192.168.0.194`,
+serving the built-in BisonCam NB Pro via the existing `usb-cam-host` HTTP
+snapshot pattern on port `8089`.
+
+**Why:** Boss wanted the option to bring an extra camera online from the
+Dominator without leaving a service running on a laptop he uses for other
+work. Same opportunistic posture as the retired `iphone-cam`.
+
+**How:**
+
+- Deployed `tools/usb-cam-host/usb_cam_host.py` to
+  `C:\farm-services\dominator-cam\` with a dedicated venv
+  (`D:\python\python.exe -m venv venv`, `pip install fastapi uvicorn
+  opencv-python numpy requests`).
+- Wrote a Dominator-specific `start.bat` — no `:loop` retry, friendly
+  "close window to stop" messaging. Sourced from
+  `deploy/usb-cam-host/start-usb-cam-host.bat`.
+- Created desktop shortcut
+  `C:\Users\User\OneDrive\Desktop\dominator-cam.lnk`. **No scheduled task,
+  no Shawl service.** Boss double-clicks to start; closes the cmd window
+  to stop.
+- Registered `dominator-cam` in both `config.json` and
+  `tools/pipeline/config.json` via `scripts/add-camera.py add
+  dominator-cam --url http://192.168.0.194:8089/photo.jpg --interval 10
+  --no-probe`.
+- Restarted `com.farmguardian.guardian` + `com.farmguardian.pipeline`.
+- Updated `HARDWARE_INVENTORY.md` (new camera row, new host row, stamp
+  bumped to 2026-05-06).
+- Updated `farm-2026/lib/cameras.ts` (display overlay for the new
+  camera).
+
+**Verified live:** with `start.bat` running on the Dominator, `/health`
+on `http://192.168.0.194:8089` returns `camera_open: true` and
+`/photo.jpg` returns a valid 1920×1080 JPEG (~585 KB). Guardian's
+`/api/cameras` lists `dominator-cam` with `online: true, capturing:
+true`. With `start.bat` not running, the camera appears in the roster
+but `is_live` is false — the iphone-cam-style opportunistic pattern.
+
+**The Fn+F6 trap (worth knowing):** the GT72 has an Fn+F6 webcam toggle
+that cuts USB power to the BisonCam at the EC level via the `Micro Star
+SCM` service. When toggled off, the camera is invisible to Windows
+entirely — `Get-PnpDevice -Class Camera` returns nothing, no
+`usbvideo`-bound device even with `-PresentOnly:$false`, no entries in
+the `MSI_Device` WMI class with `Active=False`. There is no documented
+CLI to flip the toggle remotely. **If `dominator-cam` ever stops
+working with no other changes, ask Boss to press Fn+F6 once before
+chasing software/driver theories.** Saved as Bubba auto-memory
+`feedback_msi_fnf6_webcam_toggle.md`. Plan: `docs/06-May-2026-dominator-camera-plan.md`.
+
 ### v2.40.4 — fix: publisher quota cap + digest quota context (Claude Sonnet 4.6)
 
 **Problem:** Story publisher was exhausting all 25 rolling IG slots by late morning

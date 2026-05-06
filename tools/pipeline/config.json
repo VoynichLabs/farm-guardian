@@ -76,7 +76,7 @@
       "ip_webcam_base": "http://192.168.0.68:8089",
       "photo_path": "/photo.jpg",
       "trigger_focus": false,
-      "context": "Cheap generic USB webcam (UVC, 1920x1080, lower image quality than the S7) mounted inside the CHICKEN COOP RUN, watching the older bird flock in natural daylight. Subjects: the four winter-survivor adult chickens (fully grown, mixed breeds) and the previous brooder cohort that has graduated to the coop (older chicks, well-feathered, starting to look adult-shaped). NO turkey poults, NO young bantam chicks in this view — those are in the nesting box. Camera angle is fixed and may be partially obstructed by birds very close to the lens. Score conservatively — this is a budget sensor and a 7 here is a genuinely good shot for this camera.",
+      "context": "Cheap generic USB webcam (UVC, 1920x1080, lower image quality than the S7) mounted inside the CHICKEN COOP RUN, watching the older bird flock in natural daylight. Subjects: the four winter-survivor adult chickens (fully grown, mixed breeds) and the previous brooder cohort that has graduated to the coop (older chicks, well-feathered, starting to look adult-shaped). NO turkey poults, NO young bantam chicks in this view \u2014 those are in the nesting box. Camera angle is fixed and may be partially obstructed by birds very close to the lens. Score conservatively \u2014 this is a budget sensor and a 7 here is a genuinely good shot for this camera.",
       "burst_size": 1,
       "enabled": true
     },
@@ -111,6 +111,16 @@
       "photo_path": "/photo.jpg",
       "trigger_focus": false,
       "context": "MacBook Air 2013 FaceTime HD camera (1280x720), served at 192.168.0.50:8089 via usb-cam-host (com.farmguardian.usb-cam-host LaunchAgent on the MBA). Optional brooder monitor \u2014 loading/unloading that LaunchAgent is the on/off switch; no config change needed. Currently watching the brooder with chicks. device_index=0 on MBA = FaceTime HD (USB cam is on GWTC, so FaceTime is the only camera on this box).",
+      "burst_size": 1,
+      "enabled": true
+    },
+    "dominator-cam": {
+      "cycle_seconds": 10.0,
+      "capture_method": "ip_webcam",
+      "ip_webcam_base": "http://192.168.0.194:8089",
+      "photo_path": "/photo.jpg",
+      "trigger_focus": false,
+      "context": "MSI Dominator GT72 6QD (Windows 10, 192.168.0.194) built-in BisonCam NB Pro webcam. Opportunistic \u2014 only live when Boss double-clicks the desktop shortcut. Aim varies.",
       "burst_size": 1,
       "enabled": true
     }
