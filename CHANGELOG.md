@@ -2,7 +2,57 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] - 2026-05-04
+## [Unreleased] - 2026-05-06
+
+### Docs — 2026-05-06 — S7 orientation regression + standalone-power state reconciliation (Claude Opus 4.7)
+
+**Incident (2026-05-06 ~08:27 local):** Boss reported s7-cam captures back in
+landscape. Diagnosis:
+
+1. `GET /status.json` on the S7 (`192.168.0.249:8080`) reported
+   `orientation=landscape, photo_rotation=-1, photo_size=1920x1080` —
+   IP Webcam was running but its sticky setting had reverted to default
+   landscape (likely after an in-app crash/restart cycle).
+2. `com.farmguardian.s7-settings-watchdog` was loaded and ticking every
+   10 min, but `/tmp/s7-settings-watchdog.log` showed a 5+ hour run of
+   `black_screen bytes=00 — adb restart` → `adb unavailable — settings
+   only` → `settings wb=0 fm=0 or=0 pr=0`. Both the photo probe AND the
+   four `/settings/?set=…` re-curls were failing every cycle —
+   IP Webcam's HTTP server was wedged hard enough that even the
+   watchdog's HTTP-only fallback couldn't get through.
+3. Manual `curl http://192.168.0.249:8080/settings/orientation?set=portrait`
+   plus `…/settings/photo_rotation?set=90` succeeded (HTTP 200 `<result>Ok</result>`).
+   `/status.json` re-confirmed `orientation=portrait, photo_rotation=90`.
+   No code change shipped; orientation restored at the phone-side setting.
+
+**Power-chain state change (recorded today):** The S7 is **no longer
+USB-tethered to GWTC** — Boss moved it back to a standalone USB wall
+brick in the coop. Timeline so far: MBA-USB → standalone brick
+(2026-04-26) → GWTC-USB (2026-05-02, with ADB authorized so the
+watchdog could ADB-restart IP Webcam, see v2.38.6) → standalone brick
+again (≤2026-05-06). The phone is reachable only over WiFi; there is
+**no ADB host of any kind** in the current configuration.
+
+**Stale plist branch (logged here, not yet fixed in code):**
+`deploy/s7-settings-watchdog/com.farmguardian.s7-settings-watchdog.plist`
+still contains the SSH-to-GWTC ADB recovery branch
+(`ssh markb@192.168.0.68 … adb shell am force-stop com.pas.webcam`)
+that was added in v2.38.6 for the 2026-05-02 GWTC-USB setup. With the
+phone now standalone again, every 10-min cycle wastes ~5s on an SSH
+that succeeds but finds no device, then logs `adb unavailable —
+settings only`. The HTTP-only fallback is the only path that runs.
+The SSH+ADB branch should be ripped out next time the plist is touched
+(or Boss may move the phone back to GWTC-USB and the branch comes
+alive again — keep for now, just know it's dead in current
+configuration).
+
+**Updated:** `CLAUDE.md` Camera 2 (s7-cam) paragraph to reflect the
+current standalone-power state, the watchdog's HTTP-only re-assertion
+role, and the wedge failure mode that disables the watchdog's
+recovery path. `CLAUDE.md` operational-skills line for
+`skills-s7-adb-operations.md` flagged as currently inapplicable (no
+ADB host in current config). `docs/skills-s7-adb-operations.md` got a
+2026-05-06 banner at the top noting the move back to standalone power.
 
 ### HANDOFF NOTE — next agent reading this (2026-05-04 ~17:05 local)
 
