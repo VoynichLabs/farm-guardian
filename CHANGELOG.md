@@ -4,6 +4,34 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-05-06
 
+### v2.40.4 — fix: publisher quota cap + digest quota context (Claude Sonnet 4.6)
+
+**Problem:** Story publisher was exhausting all 25 rolling IG slots by late morning
+(5 stories/tick × 5 hourly ticks). At noon the backlog reel found 0 slots free and
+skipped, and the Discord digest showed "none" with no explanation.
+
+**Fixes (three files):**
+
+1. **`tools/social/config.json`** — added `publisher_daily_cap: 22`. Publisher now stops
+   at 22 per rolling 24h window, leaving 3 slots for reel lanes (backlog reel + S7 daily
+   reel + any others).
+
+2. **`tools/social/publisher.py`** — `run_tick()` reads `publisher_daily_cap` via
+   `cfg.get("publisher_daily_cap", cfg["ig_rolling_24h_quota"])`. The reel runner still
+   checks against `ig_rolling_24h_quota` (25) so it sees the reserved slots.
+
+3. **`scripts/pipeline-digest.py`** — `_build_message()` now shows quota context when
+   `stories=0` and `quota≥20`: _"Stories posted since midnight: **none** (quota 25/25
+   from prior window — publisher resumes when slots free)"_.
+
+**Verified live:** immediately after applying the fix, ran `scripts/ig-s7-backlog-reel.py`
+manually. It found 2 free slots (ledger pruned 5 aged-out entries), stitched 10 Apr 18
+gems into a portrait reel, and posted to IG at https://www.instagram.com/reel/DYArF6vnCer/
+with FB cross-post 935683606001623. Apr 18 gems marked `used-in-backlog-reel:2026-04-18`.
+Noon backlog reel will now fire daily and drain the remaining queue dates.
+
+---
+
 ### Docs — 2026-05-06 — S7 orientation regression + standalone-power state reconciliation (Claude Opus 4.7)
 
 **Incident (2026-05-06 ~08:27 local):** Boss reported s7-cam captures back in

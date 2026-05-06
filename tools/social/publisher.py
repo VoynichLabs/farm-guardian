@@ -1,5 +1,5 @@
-# Author: GPT-5.5
-# Date: 03-May-2026
+# Author: Claude Sonnet 4.6
+# Date: 06-May-2026
 # PURPOSE: One-decider orchestrator for IG+FB story publishing across
 #          the gem lane and the archive lane. Fires every 60 min via
 #          com.farmguardian.social-publisher (see
@@ -274,7 +274,8 @@ def _post_archive_one(dry_run: bool, ledger_path: Path) -> Optional[dict]:
 def run_tick(dry_run: bool = False) -> dict:
     """One decision cycle. Returns a summary dict. Never raises."""
     cfg = _load_config()
-    quota = int(cfg["ig_rolling_24h_quota"])
+    # publisher_daily_cap reserves slots for reel lanes; falls back to ig_rolling_24h_quota
+    quota = int(cfg.get("publisher_daily_cap", cfg["ig_rolling_24h_quota"]))
     reserve_floor = int(cfg["archive_reserve_floor"])
     archive_fallback_enabled = bool(cfg.get("archive_fallback_enabled", True))
     max_per_tick = int(cfg["max_per_tick"])

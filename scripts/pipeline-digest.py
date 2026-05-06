@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# Author: GPT-5.5
-# Date: 03-May-2026
+# Author: Claude Sonnet 4.6
+# Date: 06-May-2026
 # PURPOSE: Post a pipeline status digest to Discord at noon and 8pm.
 #          Noon slot shows stories posted since midnight.
 #          Evening slot shows stories posted since noon, plus reel status.
@@ -208,7 +208,13 @@ def _build_message(slot: str, stories: dict, queue: dict,
     # Stories
     n = stories["total"]
     if n == 0:
-        lines.append(f"Stories posted {window_label}: none")
+        if quota >= 20:
+            lines.append(
+                f"Stories posted {window_label}: **none** "
+                f"(quota {quota}/25 from prior window — publisher resumes when slots free)"
+            )
+        else:
+            lines.append(f"Stories posted {window_label}: none")
     else:
         lane_parts = []
         if stories.get("reacted"):

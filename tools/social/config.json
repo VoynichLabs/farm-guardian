@@ -1,5 +1,6 @@
 {
   "ig_rolling_24h_quota": 25,
+  "publisher_daily_cap": 22,
   "archive_reserve_floor": 5,
   "archive_fallback_enabled": false,
   "max_per_tick": 5,
