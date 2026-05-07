@@ -2,6 +2,31 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased] - 2026-05-07
+
+### v2.40.6 — fix: backlog reel — pool-based portrait selector, 4x/day, restored publisher (Claude Sonnet 4.6)
+
+Root cause of blurry/narrow reel: Apr 18 frames were pre-portrait-switch landscape (1920×1080),
+center-cropped to 607×1080. Root cause of date-staleness: date-by-date selector walked oldest
+dates first regardless of what Boss actually reacted to.
+
+**Changes:**
+- `tools/pipeline/ig_selection.py` — `select_s7_backlog_reel_gems` rewritten: no date scope,
+  `width=1080 AND height=1920` portrait filter, `discord_reactions>=1` quality gate (Boss's own
+  curation, not VLM ranking), chronological ASC, 25 max / 20 min frames.
+  `mark_gems_used_in_backlog_reel` no longer takes a date param.
+- `tools/pipeline/daily_reel_runner.py` — stripped all `target_date` plumbing from `_select_gems`,
+  `_build_publish_and_notify`, `run_lane`, `main`. Backlog lane uses hour-granularity state key
+  (`%Y-%m-%dT%H`) so 4 runs/day each get their own non-colliding posted file.
+- `scripts/ig-s7-backlog-reel.py` — reduced to a 3-line shim; `_find_next_target_date` deleted.
+- `deploy/ig-scheduled/com.farmguardian.ig-s7-backlog-reel.plist` — fires 4×/day at 09:00, 13:00,
+  17:00, 20:00 (was noon only). Reloaded live.
+- `tools/social/config.json` — `publisher_daily_cap` restored to 22 (was briefly 0 by mistake).
+
+**Dry-run verified:** 25 portrait gems oldest=2026-04-22, stitched 1080×1920, 21s reel, correct.
+**Pool as of 2026-05-07:** 228 Discord-reacted portrait gems. At 4 runs × 25 frames = 100/day,
+drain completes in ~2–3 days alongside the story publisher.
+
 ## [Unreleased] - 2026-05-06
 
 ### v2.40.5 — feat: add `dominator-cam` (MSI Dominator GT72, manually started) (Claude Opus 4.7 1M)

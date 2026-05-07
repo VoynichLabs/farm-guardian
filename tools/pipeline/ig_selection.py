@@ -1,5 +1,5 @@
 # Author: Claude Sonnet 4.6
-# Date: 04-May-2026
+# Date: 07-May-2026
 # PURPOSE: Select Instagram-post-eligible gems from image_archive on
 #          wall-clock windows (day, 2-hour, week). Pure SELECT +
 #          scoring + diversity filtering; no posting, no I/O beyond
@@ -573,43 +573,41 @@ def select_s7_daily_reel_gems(
 
 def select_s7_backlog_reel_gems(
     db_path: Path,
-    date_str: str,
     cfg: dict,
 ) -> list[int]:
-    """Return the best s7-cam reacted gems for a specific past calendar date.
+    """Return the next batch of s7-cam reacted portrait gems for the backlog drain.
 
-    Used by the S7 backlog Reel lane (ig-s7-backlog-reel) to drain the
-    story queue by stitching past days into time-lapse Reels rather than
-    posting each gem individually as a story.
+    Pool-based (no date scope): pulls the oldest max_frames chronologically from
+    all unposted, Discord-reacted, portrait-orientation s7-cam gems.  Discord
+    reactions are the quality gate — Boss already voted on these frames.  VLM
+    share_worth is intentionally NOT used here because it is unreliable as a
+    ranking signal.
 
     Criteria:
       - camera_id = 's7-cam'
-      - DATE(ts) = date_str  (UTC calendar date, e.g. '2026-04-22')
-      - discord_reactions >= 1
+      - width=1080, height=1920  (portrait frames only; pre-switch landscape excluded)
+      - discord_reactions >= 1   (Boss approved in Discord — the real quality gate)
       - has_concerns false
       - image_path populated
       - not already marked story-permanent-skip or used-in-backlog-reel
 
-    Scoring: _score_gem() (reactions > tier > quality > bird_count > ts).
-    Top s7_backlog_reel_max_frames picked by score, then sorted
-    chronologically so the reel plays oldest-first.
+    Ordering: chronological ASC (oldest first) so the reel has a time-lapse arc.
 
     cfg keys (all under instagram.scheduled):
-      s7_backlog_reel_max_frames (int, default 50)
-      s7_backlog_reel_min_frames (int, default 10)
+      s7_backlog_reel_max_frames (int, default 25)
+      s7_backlog_reel_min_frames (int, default 20)
     """
-    max_frames = int(cfg.get("s7_backlog_reel_max_frames", 50))
-    min_frames = int(cfg.get("s7_backlog_reel_min_frames", 10))
+    max_frames = int(cfg.get("s7_backlog_reel_max_frames", 25))
+    min_frames = int(cfg.get("s7_backlog_reel_min_frames", 20))
 
     with sqlite3.connect(str(db_path)) as c:
         c.row_factory = sqlite3.Row
         rows = c.execute(
             """
-            SELECT id, camera_id, ts, share_worth, image_quality,
-                   bird_count, discord_reactions
+            SELECT id, ts
               FROM image_archive
              WHERE camera_id = 's7-cam'
-               AND DATE(ts) = ?
+               AND width = 1080 AND height = 1920
                AND discord_reactions >= 1
                AND (has_concerns = 0 OR has_concerns IS NULL)
                AND image_path IS NOT NULL
@@ -617,50 +615,38 @@ def select_s7_backlog_reel_gems(
                     OR (ig_story_skip_reason NOT LIKE 'story-permanent-skip:%'
                         AND ig_story_skip_reason NOT LIKE 'used-in-backlog-reel:%'))
              ORDER BY ts ASC
+             LIMIT ?
             """,
-            (date_str,),
+            (max_frames,),
         ).fetchall()
 
     if len(rows) < min_frames:
         log.info(
-            "select_s7_backlog_reel: only %d eligible gems on %s (need >=%d); skipping",
+            "select_s7_backlog_reel: only %d eligible portrait gems in pool (need >=%d); backlog empty or exhausted",
             len(rows),
-            date_str,
             min_frames,
         )
         return []
 
-    items = [dict(row) for row in rows]
-    # Pick best frames by score, then restore chronological order for the reel
-    items.sort(key=_score_gem, reverse=True)
-    selected = items[:max_frames]
-    selected.sort(key=lambda r: r["ts"])
-
-    ids = [r["id"] for r in selected]
-    log.info(
-        "select_s7_backlog_reel: picked %d/%d gems for %s",
-        len(ids),
-        len(rows),
-        date_str,
-    )
+    ids = [r["id"] for r in rows]
+    log.info("select_s7_backlog_reel: picked %d portrait gems (oldest %s)", len(ids), rows[0]["ts"][:10])
     return ids
 
 
 def mark_gems_used_in_backlog_reel(
     db_path: Path,
     gem_ids: list[int],
-    date_str: str,
 ) -> None:
     """Mark gems as consumed by a backlog Reel so they leave the story queue.
 
-    Sets ig_story_skip_reason = 'used-in-backlog-reel:YYYY-MM-DD' on each
-    gem. select_all_unposted_story_gems and select_s7_backlog_reel_gems both
-    exclude these rows so the same gem never gets posted again as a story or
-    re-selected for a second backlog reel.
+    Sets ig_story_skip_reason = 'used-in-backlog-reel' on each gem.
+    select_all_unposted_story_gems and select_s7_backlog_reel_gems both
+    exclude these rows so the same gem never gets posted as a story or
+    re-selected for another backlog reel.
     """
     if not gem_ids:
         return
-    reason = f"used-in-backlog-reel:{date_str}"
+    reason = "used-in-backlog-reel"
     placeholders = ",".join("?" * len(gem_ids))
     with sqlite3.connect(str(db_path)) as c:
         c.execute(

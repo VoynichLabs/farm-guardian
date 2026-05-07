@@ -1,5 +1,5 @@
 # Author: Claude Sonnet 4.6
-# Date: 04-May-2026
+# Date: 07-May-2026
 # PURPOSE: Shared runner for scheduled Instagram Reel lanes. The
 #          existing mixed-camera daily Reel uses the approval-gated
 #          flow: build MP4, upload a Discord preview, wait for a human
@@ -408,14 +408,10 @@ def _select_gems(
     lane: DailyReelLane,
     db_path: Path,
     scheduled_cfg: dict,
-    target_date: str | None = None,
 ) -> list[int]:
     from tools.pipeline import ig_selection
 
     selector = getattr(ig_selection, lane.selector_name)
-    # Backlog selector requires date_str; other selectors ignore it via **kwargs pattern.
-    if target_date is not None and lane.lane_id == "s7-backlog":
-        return selector(db_path=db_path, date_str=target_date, cfg=scheduled_cfg)
     return selector(db_path=db_path, cfg=scheduled_cfg)
 
 
@@ -654,13 +650,8 @@ def _build_publish_and_notify(
     webhook_url: str,
     dry_run: bool,
     log: logging.Logger,
-    target_date: str | None = None,
 ) -> int:
-    """Build an auto-published reel and send an informational Discord notice.
-
-    target_date: when set (backlog lane), use this date as the posted-file key
-    and pass it to the selector instead of today's date.
-    """
+    """Build an auto-published reel and send an informational Discord notice."""
 
     from tools.pipeline.ig_poster import IGPosterError, post_reel_to_ig
 
@@ -669,7 +660,13 @@ def _build_publish_and_notify(
     reels_cfg = ig_cfg.get("reels") or {}
 
     _, posted_dir, _ = _state_dirs(reels_cfg, lane)
-    date_key = target_date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    # Backlog lane runs up to 4x/day — use hour-granularity key so each slot
+    # gets its own state file and the "already posted" guard doesn't block
+    # subsequent runs within the same calendar day.
+    if lane.lane_id == "s7-backlog":
+        date_key = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H")
+    else:
+        date_key = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     posted_file = posted_dir / f"{date_key}.json"
     if posted_file.exists():
         log.info("build: %s reel for %s already posted; skipping", lane.lane_id, date_key)
@@ -680,12 +677,12 @@ def _build_publish_and_notify(
         log.warning("build: IG quota is full; skipping %s reel", lane.lane_id)
         return 0
 
-    gem_ids = _select_gems(lane, db_path, scheduled_cfg, target_date=target_date)
+    gem_ids = _select_gems(lane, db_path, scheduled_cfg)
     if not gem_ids:
-        log.info("build: not enough frames for %s reel on %s", lane.lane_id, date_key)
+        log.info("build: not enough frames for %s reel", lane.lane_id)
         return 0
 
-    log.info("build: stitching %d frames for %s lane, date=%s", len(gem_ids), lane.lane_id, date_key)
+    log.info("build: stitching %d frames for %s lane", len(gem_ids), lane.lane_id)
     try:
         mp4_path = _stitch_reel(lane, gem_ids, db_path, reels_cfg, log)
     except Exception as exc:
@@ -717,10 +714,10 @@ def _build_publish_and_notify(
 
     _append_ledger(ledger_path, lane, date_key, result, dry_run)
 
-    # Mark backlog gems so they leave the story queue
-    if lane.lane_id == "s7-backlog" and target_date and not dry_run:
+    # Mark backlog gems so they leave the story queue and don't get re-selected
+    if lane.lane_id == "s7-backlog" and not dry_run:
         from tools.pipeline.ig_selection import mark_gems_used_in_backlog_reel
-        mark_gems_used_in_backlog_reel(db_path, gem_ids, target_date)
+        mark_gems_used_in_backlog_reel(db_path, gem_ids)
 
     if dry_run:
         log.info("build: dry-run OK; would post -> %s", result.get("raw_url"))
@@ -729,10 +726,8 @@ def _build_publish_and_notify(
     mention = f"<@{lane.mention_user_id}> " if lane.mention_user_id else ""
     frame_note = f" ({len(gem_ids)} frames)" if gem_ids else ""
     permalink = result.get("permalink") or result.get("raw_url") or ""
-    # Include the source date in the notice so it's clear this is a backlog reel
-    date_label = f" [{target_date}]" if target_date else ""
     notice = (
-        f"{mention}{lane.discord_title}{date_label}{frame_note} posted to IG\n"
+        f"{mention}{lane.discord_title}{frame_note} posted to IG\n"
         f"{permalink}\n\n{caption}"
     ).strip()
     notice_message_id = _post_video_to_discord(
@@ -771,13 +766,8 @@ def run_lane(
     lane: DailyReelLane,
     dry_run: bool = False,
     skip_build: bool = False,
-    target_date: str | None = None,
 ) -> int:
-    """Run one scheduled Reel lane tick.
-
-    target_date: 'YYYY-MM-DD' UTC date used by the backlog lane to target a
-    specific past date instead of today.
-    """
+    """Run one scheduled Reel lane tick."""
 
     log = logging.getLogger(lane.log_name)
     _load_env()
@@ -844,7 +834,6 @@ def run_lane(
         webhook_url=webhook_url,
         dry_run=dry_run,
         log=log,
-        target_date=target_date,
     )
 
 
@@ -860,17 +849,10 @@ def main(lane: DailyReelLane, argv: list[str] | None = None) -> int:
         action="store_true",
         help="Only run the pending approval check when this lane has one.",
     )
-    parser.add_argument(
-        "--date",
-        metavar="YYYY-MM-DD",
-        default=None,
-        help="Target a specific past date (backlog lane only).",
-    )
     args = parser.parse_args(argv)
     setup_logging()
     return run_lane(
         lane=lane,
         dry_run=args.dry_run,
         skip_build=args.skip_build,
-        target_date=args.date,
     )
