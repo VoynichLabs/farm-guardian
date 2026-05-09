@@ -122,6 +122,20 @@ orchard:
   long_tail:
     - orchard
 
+reel:
+  # Platform-level tags for Reel posts. Verified on ≥2 analytics sources
+  # (best-hashtags.com, top-hashtags.com, displaypurposes.com).
+  # Used by daily_reel_runner._build_reel_caption() via buckets_override
+  # alongside content buckets (chickens, chicks, homestead) so every reel
+  # gets consistent platform reach tags regardless of which gem won.
+  top_tier:
+    - reelsofinstagram
+    - instareels
+  mid_tier:
+    - reelsvideo
+    - reels
+  long_tail: []
+
 # FORBIDDEN — runtime safety net, enforced at load time.
 # Any of these appearing in a bucket above is a loader error.
 # Any of these appearing in a caption from --override-tags is a CLI warning.

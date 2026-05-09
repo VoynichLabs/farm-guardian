@@ -1,4 +1,4 @@
-# Author: Claude Opus 4.7 (1M context)
+# Author: Claude Opus 4.7 (1M context); Claude Sonnet 4.6 (09-May-2026 — gwtc/usb-cam/dominator-cam disabled)
 # Date: 23-April-2026
 # PURPOSE: Post strong-tier frames to the #farm-2026 Discord channel as they
 #          land. Called from orchestrator.run_cycle whenever store returns
@@ -33,16 +33,13 @@ _USERNAME_BY_CAMERA = {
 
 
 # Cameras whose frames are hard-disabled from Discord gem posting,
-# regardless of VLM verdict. 24-Apr-2026: Boss asked to pull mba-cam
-# (the MBA FaceTime HD overhead-brooder view) out of the gem lane
-# entirely — its frames are consistently low-quality (fixed-focus,
-# 720p, heat-lamp overexposure) and "basically all of them look the
-# same." Cadence is also dropped to 30 min in config so VLM cost is
-# minimal, but this gate is the belt-and-suspenders block on anything
-# that still slips through. Keep in sync with `gem_post_enabled: false`
-# entries in tools/pipeline/config.json — the config flag is currently
-# documentary; this set is the actual enforcement point.
-_GEM_POST_DISABLED_CAMERAS = frozenset({"mba-cam"})
+# regardless of VLM verdict. 24-Apr-2026: mba-cam excluded — fixed-focus
+# 720p overhead with heat-lamp overexposure, frames all look the same.
+# 09-May-2026: gwtc, usb-cam, dominator-cam added — these cameras are
+# time-lapse-only material; vlm_bypass=true in config means the VLM
+# never runs for them, but this frozenset is the belt-and-suspenders
+# block. The two levers (vlm_bypass + this set) must stay in sync.
+_GEM_POST_DISABLED_CAMERAS = frozenset({"mba-cam", "gwtc", "usb-cam", "dominator-cam"})
 
 # Non-s7 cameras rejected at these activity/composition tags even when the
 # VLM self-approves them as strong. Huddle/sleep/empty frames are the

@@ -2,6 +2,38 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased] - 2026-05-09
+
+### v2.40.8 — feat: time-lapse cameras bypass VLM; reel hashtag bucket (Claude Sonnet 4.6)
+
+Four cameras (mba-cam, gwtc, usb-cam, dominator-cam) are time-lapse-only
+material. Their frames aren't good enough for VLM gem curation or Discord
+posting, and feeding them into the VLM wastes LM Studio cycles and floods
+`#farm-2026` with noise. s7-cam and iPhone imports are unchanged.
+
+**Changes:**
+- `tools/pipeline/config.json` — added `"vlm_bypass": true` to mba-cam,
+  gwtc, usb-cam, and dominator-cam. Orchestrator now routes these four to
+  `run_raw_cycle()` (capture + store only, no VLM call, no Discord post).
+  house-yard already had this flag.
+- `tools/pipeline/gem_poster.py` — added gwtc, usb-cam, and dominator-cam
+  to `_GEM_POST_DISABLED_CAMERAS` (mba-cam was already there). Belt-and-
+  suspenders: these cameras cannot reach Discord even if vlm_bypass is
+  ever cleared.
+- `tools/pipeline/hashtags.yml` — added `reel` bucket with four verified
+  platform-level reel tags (reelsofinstagram, instareels, reelsvideo,
+  reels). Verified present on ≥2 analytics sources.
+- `tools/pipeline/daily_reel_runner.py` — `_build_reel_caption()` now
+  passes `buckets_override=["reel", "chickens", "chicks", "homestead"]`
+  to `pick_hashtags()`. Every reel gets consistent platform reach tags
+  plus farm content tags, regardless of which gem's metadata wins.
+- `docs/09-May-2026-pipeline-redesign-plan.md` — full plan doc with
+  Tracks 1-4, orientation decisions, and sequenced TODOs.
+
+**Verified:** config vlm_bypass dict correct; gem_poster and reel runner
+compile clean; hashtag loader passes forbidden-tag check; sample reel
+tag selection includes platform + farm tags.
+
 ## [Unreleased] - 2026-05-08
 
 ### v2.40.7 — fix: calibrate brooder/coop floor-pecking gem scores (GPT-5.5 Codex)

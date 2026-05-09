@@ -1,5 +1,5 @@
 # Author: Claude Sonnet 4.6
-# Date: 07-May-2026
+# Date: 09-May-2026
 # PURPOSE: Shared runner for scheduled Instagram Reel lanes. The
 #          existing mixed-camera daily Reel uses the approval-gated
 #          flow: build MP4, upload a Discord preview, wait for a human
@@ -400,7 +400,14 @@ def _build_reel_caption(
 
     journal = (best_meta.get("caption_draft") or "").strip() or fallback
     library = _load_hashtag_library(REPO_ROOT / "tools" / "pipeline" / "hashtags.yml")
-    tags = pick_hashtags(vlm_metadata=best_meta, library=library, last_n_tags_used=[])
+    # Reels always draw from the reel platform bucket + farm content buckets,
+    # regardless of which gem's scene won the best-metadata selection.
+    tags = pick_hashtags(
+        vlm_metadata=best_meta,
+        library=library,
+        last_n_tags_used=[],
+        buckets_override=["reel", "chickens", "chicks", "homestead"],
+    )
     return build_caption(journal_body=journal, hashtags=tags)
 
 
