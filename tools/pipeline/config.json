@@ -56,7 +56,11 @@
       "s7_daily_reel_bucket_minutes": 15,
       "s7_daily_reel_max_frames": 90,
       "s7_daily_reel_min_frames": 12,
-      "s7_daily_reel_require_source_reactions": false
+      "s7_daily_reel_require_source_reactions": false,
+      "timelapse_reel_window_hours": 24,
+      "timelapse_reel_bucket_minutes": 5,
+      "timelapse_reel_max_frames": 60,
+      "timelapse_reel_min_frames": 6
     }
   },
   "cameras": {
@@ -72,6 +76,7 @@
     },
     "usb-cam": {
       "cycle_seconds": 2,
+      "raw_retention_hours": 48,
       "capture_method": "ip_webcam",
       "ip_webcam_base": "http://192.168.0.68:8089",
       "photo_path": "/photo.jpg",
@@ -98,6 +103,7 @@
     },
     "gwtc": {
       "cycle_seconds": 20,
+      "raw_retention_hours": 48,
       "capture_method": "reolink_snapshot",
       "context": "Gateway laptop built-in webcam (1280x720, fixed focus, lower quality), mounted on the ROOF OF THE COOP pointing down for an overhead/approach view of the coop run and surrounding area. Subjects: adult chickens and older feathered chicks in the coop run, or the yard/approach area \u2014 whatever is below the camera. NO turkey poults, NO young bantam chicks. Angle is overhead so you may see bird backs and tops of heads rather than faces. Images may have compression artifacts (vertical stripes, smearing) from H.264 decode issues \u2014 tag those as blurred. Score conservatively for this low-resolution overhead camera.",
       "burst_size": 3,
@@ -108,6 +114,7 @@
     },
     "mba-cam": {
       "cycle_seconds": 10,
+      "raw_retention_hours": 48,
       "capture_method": "ip_webcam",
       "ip_webcam_base": "http://192.168.0.50:8089",
       "photo_path": "/photo.jpg",
@@ -119,6 +126,7 @@
     },
     "dominator-cam": {
       "cycle_seconds": 10.0,
+      "raw_retention_hours": 48,
       "capture_method": "ip_webcam",
       "ip_webcam_base": "http://192.168.0.194:8089",
       "photo_path": "/photo.jpg",

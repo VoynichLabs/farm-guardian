@@ -4,6 +4,53 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-05-09
 
+### v2.40.9 — feat: per-camera time-lapse reel lanes + LM Studio caption synthesis + landscape stitcher (Claude Sonnet 4.6)
+
+Four new IG Reel lanes — one per vlm_bypass camera — posting nightly time-lapse
+reels from mba-cam, gwtc, usb-cam, and dominator-cam. Three design blockers were
+resolved before this could ship:
+
+**Blocker fixes:**
+1. **Retention** — orchestrator's raw-frame pruner now checks `ccfg.get("raw_retention_hours")` before the
+   global default. mba-cam/gwtc/usb-cam/dominator-cam get `raw_retention_hours: 48` in config.json so
+   frames survive until after the 20:30–21:15 evening reel window (48h > 24h prune default).
+2. **Stitcher landscape mode** — `reel_stitcher.stitch_gems_to_reel()` now accepts `landscape=True`.
+   When set, frames are scaled to fit 1920×1080 with black bars (`_pre_fit_landscape_frame`) instead of
+   center-cropped to 405×720 or 607×1080 strips. Landscape time-lapse reels post as 16:9 MP4s.
+3. **Raw frame scorer** — `ig_selection._score_raw_frame(row)` uses `laplacian_var` (sharpness proxy)
+   as the primary rank key since VLM fields are all NULL for raw-tier rows. `select_timelapse_gems()`
+   groups by 5-minute time buckets, picks the sharpest frame per bucket, and spreads the cap evenly
+   across the day's timeline (rather than clustering at the best-lit hour).
+
+**Track 2 — LM Studio caption synthesis:**
+- `daily_reel_runner._generate_reel_caption()` checks `/v1/models` first (safe per
+  docs/13-Apr-2026-lm-studio-reference.md), then calls qwen3.5-9b with all collected `caption_drafts`
+  to synthesize a single cohesive 1-2 sentence caption. Falls back to `_build_reel_caption()` when
+  LM Studio is unreachable, model isn't loaded, or frames are raw-tier (no caption_drafts). Both
+  `_build_and_preview()` and `_build_publish_and_notify()` now call `_generate_reel_caption()`.
+
+**Track 4 — per-camera time-lapse lanes:**
+- `tools/pipeline/ig_selection.py` — added `_score_raw_frame()`, `select_timelapse_gems()`,
+  and 4 wrapper functions (one per camera).
+- `tools/pipeline/daily_reel_runner.py` — `DailyReelLane` gains `landscape_mode: bool` and
+  `discord_preview_scale: str` fields. `_make_discord_preview()` and `_post_video_to_discord()`
+  propagate the scale so landscape previews use "960:540" not the portrait "540:960". Added 4 new lane
+  constants: `MBA_CAM_TIMELAPSE_LANE`, `GWTC_TIMELAPSE_LANE`, `USB_CAM_TIMELAPSE_LANE`,
+  `DOMINATOR_CAM_TIMELAPSE_LANE` (all `landscape_mode=True`, `approval_required=False`).
+- `tools/pipeline/config.json` — added timelapse schedule keys under `instagram.scheduled`:
+  `timelapse_reel_window_hours: 24`, `timelapse_reel_bucket_minutes: 5`,
+  `timelapse_reel_max_frames: 60`, `timelapse_reel_min_frames: 6`.
+- 4 new script shims: `scripts/ig-mba-cam-timelapse-reel.py`, `ig-gwtc-timelapse-reel.py`,
+  `ig-usb-cam-timelapse-reel.py`, `ig-dominator-cam-timelapse-reel.py`.
+- 4 new LaunchAgent plists in `deploy/ig-scheduled/` firing at 20:30, 20:45, 21:00, 21:15 local.
+
+**Dominator-cam behavior:** when the camera is off all day, `select_dominator_cam_timelapse_gems`
+returns `[]` and the lane skips cleanly with no error — intentional, matches the manually-started
+camera's nature.
+
+**Verified:** all 8 modified/new Python files compile clean (`py_compile`). LaunchAgents not yet
+loaded — run `scripts/install-timelapse-agents.sh` (next step).
+
 ### v2.40.8 — feat: time-lapse cameras bypass VLM; reel hashtag bucket (Claude Sonnet 4.6)
 
 Four cameras (mba-cam, gwtc, usb-cam, dominator-cam) are time-lapse-only

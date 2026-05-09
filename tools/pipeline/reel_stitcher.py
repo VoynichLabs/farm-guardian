@@ -1,23 +1,32 @@
-# Author: Claude Opus 4.7 (1M context) / updated Claude Sonnet 4.6 01-May-2026
+# Author: Claude Opus 4.7 (1M context) / updated Claude Sonnet 4.6 01-May-2026; Claude Sonnet 4.6 09-May-2026 — landscape mode for time-lapse camera lanes
 # Date: 20-April-2026
-# PURPOSE: Stitch N Guardian gem JPEGs into a 9:16 MP4 suitable for
-#          posting to Instagram as a Reel. Per-frame center-crop to
-#          9:16 at the source's native height (no upscale), xfade
-#          crossfade between frames, H.264 high@4.1 yuv420p, silent
-#          AAC track (IG's fetcher occasionally rejects pure-video
-#          files, even when the API accepts the container).
+# PURPOSE: Stitch N Guardian gem JPEGs into an MP4 suitable for
+#          posting to Instagram as a Reel. Two output modes:
 #
-#          Pure stdlib + cv2 + ffmpeg subprocess. Both deps are already
-#          in the pipeline: cv2 via store.py (image decode), ffmpeg as
-#          a runtime dep via capture.py. No new Python packages.
+#          Portrait (default, landscape=False): center-crop each frame
+#          to 9:16 at the source's native height. Used by all reaction-
+#          gated and s7-cam lanes whose content is portrait-native or
+#          cropped from portrait sources.
+#
+#          Landscape (landscape=True): scale each frame to fit 1920×1080
+#          with black bars for any AR deviation. Used by time-lapse lanes
+#          for vlm_bypass cameras (mba-cam, gwtc, usb-cam, dominator-cam)
+#          which capture 16:9 frames that must not be center-cropped to a
+#          405×720 strip.
+#
+#          Common to both modes: xfade crossfade between frames, H.264
+#          high@4.1 yuv420p, silent AAC track (IG's fetcher occasionally
+#          rejects pure-video files, even when the API accepts the
+#          container). Pure stdlib + cv2 + ffmpeg subprocess.
 #
 #          Key design points:
 #            - Single ffmpeg subprocess per stitch. Chains xfade filters
 #              in one filter_complex expression so encode is one pass.
-#            - All frames pre-cropped to the same resolution before
+#            - All frames pre-processed to the same resolution before
 #              ffmpeg sees them (xfade can't handle a mid-reel
 #              resolution change). Fleet cams are 1920x1080 or
-#              1280x720 landscape; crops are 607x1080 or 405x720.
+#              1280x720 landscape; portrait crops are 607x1080 or
+#              405x720; landscape output is always 1920x1080.
 #            - If the input gem_ids span mixed-resolution cameras,
 #              upscale smaller frames to match the largest. This is
 #              the ONLY sanctioned upscale — callers are warned. Prefer
@@ -59,11 +68,16 @@ log = logging.getLogger("pipeline.reel_stitcher")
 _MIN_FRAMES = 2
 _MAX_FRAMES = 90
 
-# Hard cap per frame after 9:16 crop. Any source larger than this
-# (e.g. high-res discord-drop images) gets downscaled to fit. Keeps
-# ffmpeg from trying to encode a 3000×5000+ frame times 31 inputs.
+# Hard cap per frame after 9:16 crop (portrait mode). Any source larger
+# than this gets downscaled to fit. Keeps ffmpeg from encoding huge frames.
 _MAX_REEL_WIDTH = 1080
 _MAX_REEL_HEIGHT = 1920
+
+# Hard cap for landscape mode (time-lapse vlm_bypass cameras).
+# _pre_fit_landscape_frame always outputs exactly this resolution, so the
+# cap is effectively a no-op, but it's here for consistency.
+_MAX_LANDSCAPE_WIDTH = 1920
+_MAX_LANDSCAPE_HEIGHT = 1080
 
 _FRAME_JPEG_QUALITY = 92
 _FFMPEG_TIMEOUT_S = 300
@@ -128,6 +142,44 @@ def _pre_crop_frame(src: Path, dest: Path) -> tuple[int, int]:
     return ww, hh
 
 
+def _pre_fit_landscape_frame(src: Path, dest: Path) -> tuple[int, int]:
+    """Scale one JPEG to fit within 1920×1080 preserving aspect ratio.
+
+    Landscape (16:9) sources fill the frame exactly; portrait or unusual
+    AR sources receive black bars. Used by time-lapse lanes for cameras
+    that capture 16:9 frames (mba-cam 1280×720, usb-cam/dominator-cam
+    1920×1080). Returns (width, height) of the output, which is always
+    (_MAX_LANDSCAPE_WIDTH, _MAX_LANDSCAPE_HEIGHT) = (1920, 1080).
+    """
+    import cv2
+    img = cv2.imread(str(src))
+    if img is None:
+        raise ReelStitcherError(f"could not decode source JPEG: {src}")
+    h, w = img.shape[:2]
+    scale = min(_MAX_LANDSCAPE_WIDTH / w, _MAX_LANDSCAPE_HEIGHT / h)
+    new_w = int(w * scale) & ~1   # force even for H.264
+    new_h = int(h * scale) & ~1
+    if (new_w, new_h) != (w, h):
+        img = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_LANCZOS4)
+        h, w = img.shape[:2]
+    # Pad to exact 1920×1080 with black bars if needed.
+    if w < _MAX_LANDSCAPE_WIDTH or h < _MAX_LANDSCAPE_HEIGHT:
+        top = (_MAX_LANDSCAPE_HEIGHT - h) // 2
+        bottom = _MAX_LANDSCAPE_HEIGHT - h - top
+        left = (_MAX_LANDSCAPE_WIDTH - w) // 2
+        right = _MAX_LANDSCAPE_WIDTH - w - left
+        img = cv2.copyMakeBorder(
+            img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=(0, 0, 0),
+        )
+    ok = cv2.imwrite(
+        str(dest), img, [int(cv2.IMWRITE_JPEG_QUALITY), _FRAME_JPEG_QUALITY],
+    )
+    if not ok:
+        raise ReelStitcherError(f"cv2.imwrite failed writing {dest}")
+    hh, ww = img.shape[:2]
+    return ww, hh
+
+
 def _resize_frame(src: Path, dest: Path, target_w: int, target_h: int) -> None:
     """Resize src to (target_w, target_h) using INTER_LANCZOS4. Used to
     reconcile mixed-resolution input sets; callers guard with an
@@ -184,13 +236,14 @@ def stitch_gems_to_reel(
     db_path: Path,
     config: dict,
     output_path: Optional[Path] = None,
+    landscape: bool = False,
 ) -> Path:
-    """Stitch N Guardian gem JPEGs into a 9:16 MP4 Reel. Returns the
-    written MP4 path.
+    """Stitch N Guardian gem JPEGs into an MP4 Reel. Returns the written
+    MP4 path.
 
     Parameters:
       gem_ids
-          Ordered list of image_archive ids (2-10). Order drives the
+          Ordered list of image_archive ids (2-90). Order drives the
           reel's frame order.
       db_path
           Guardian SQLite DB path, used to resolve gem row -> JPEG path
@@ -207,6 +260,11 @@ def stitch_gems_to_reel(
           {output_root}/YYYY-MM/ is generated. Caller is responsible
           for ensuring output_root is absolute (relative paths resolve
           from CWD, which may not be the repo root).
+      landscape
+          When True, output a 16:9 (1920×1080) MP4 by scaling frames to
+          fit within 1920×1080 with black bars, rather than center-cropping
+          to 9:16. Use for time-lapse lanes on mba-cam, gwtc, usb-cam,
+          and dominator-cam which capture 16:9 frames.
 
     Raises:
       ReelStitcherError on any step's failure (bad config, missing
@@ -247,21 +305,27 @@ def stitch_gems_to_reel(
 
     work_dir = Path(tempfile.mkdtemp(prefix="reel-stitch-"))
     try:
-        # Pre-crop each JPEG to 9:16 native-height; collect dimensions.
+        # Pre-process each JPEG; collect dimensions.
+        # Portrait mode: center-crop to 9:16 at native height.
+        # Landscape mode: scale to fit 1920×1080 with black bars.
         cropped_paths: list[Path] = []
         crop_dims: list[tuple[int, int]] = []
         for i, src in enumerate(jpeg_sources):
             dest = work_dir / f"frame-{i:02d}.jpg"
             cropped_paths.append(dest)
-            w, h = _pre_crop_frame(src, dest)
+            if landscape:
+                w, h = _pre_fit_landscape_frame(src, dest)
+            else:
+                w, h = _pre_crop_frame(src, dest)
             crop_dims.append((w, h))
 
-        # Cap each frame at _MAX_REEL_WIDTH × _MAX_REEL_HEIGHT so a single
-        # high-res source (e.g. large discord-drop) doesn't force every
-        # other frame to be upscaled to a giant resolution.
+        # Cap per frame. In landscape mode, _pre_fit_landscape_frame already
+        # outputs 1920×1080, so this is a no-op but kept for consistency.
+        max_cap_w = _MAX_LANDSCAPE_WIDTH if landscape else _MAX_REEL_WIDTH
+        max_cap_h = _MAX_LANDSCAPE_HEIGHT if landscape else _MAX_REEL_HEIGHT
         for i, (p, (w, h)) in enumerate(zip(cropped_paths, list(crop_dims))):
-            if w > _MAX_REEL_WIDTH or h > _MAX_REEL_HEIGHT:
-                scale = min(_MAX_REEL_WIDTH / w, _MAX_REEL_HEIGHT / h)
+            if w > max_cap_w or h > max_cap_h:
+                scale = min(max_cap_w / w, max_cap_h / h)
                 new_w = int(w * scale) & ~1   # force even for H.264
                 new_h = int(h * scale) & ~1
                 log.info(

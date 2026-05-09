@@ -1,5 +1,5 @@
 # Author: Claude Sonnet 4.6
-# Date: 07-May-2026
+# Date: 07-May-2026; 09-May-2026 — _score_raw_frame + select_timelapse_gems for vlm_bypass lanes
 # PURPOSE: Select Instagram-post-eligible gems from image_archive on
 #          wall-clock windows (day, 2-hour, week). Pure SELECT +
 #          scoring + diversity filtering; no posting, no I/O beyond
@@ -18,6 +18,12 @@
 #                select_s7_backlog_reel_gems(db_path, date_str, cfg)
 #            - Weekly reel Sunday 19:00 (retired 29-Apr-2026):
 #                select_weekly_reel_gems(db_path, cfg)
+#            - Per-camera time-lapse reels (mba-cam/gwtc/usb-cam/dominator-cam):
+#                select_timelapse_gems(camera_id, db_path, cfg)
+#                select_mba_cam_timelapse_gems(db_path, cfg)  ← wrapper
+#                select_gwtc_timelapse_gems(db_path, cfg)     ← wrapper
+#                select_usb_cam_timelapse_gems(db_path, cfg)  ← wrapper
+#                select_dominator_cam_timelapse_gems(db_path, cfg) ← wrapper
 #
 #          Each helper returns the id(s) the caller should post, or
 #          an empty result when the window has nothing worth posting.
@@ -91,6 +97,18 @@ def _bucket_key(ts_iso: str, bucket_minutes: int) -> str:
     minute_of_day = dt.hour * 60 + dt.minute
     bucket_idx = minute_of_day // bucket_minutes
     return f"{dt.date().isoformat()}-{bucket_idx:04d}"
+
+
+def _score_raw_frame(row: dict) -> tuple:
+    """Rank key for raw-tier frames (vlm_bypass cameras) — higher is better.
+
+    VLM fields are all NULL for raw-tier rows. Laplacian variance is the
+    sharpness proxy captured at store_raw time; timestamp breaks ties so
+    diversity within a time bucket favors the sharpest capture.
+    """
+    laplacian = float(row.get("laplacian_var") or 0.0)
+    ts = row.get("ts") or ""
+    return (laplacian, ts)
 
 
 def _score_gem(row: dict) -> tuple:
@@ -631,6 +649,120 @@ def select_s7_backlog_reel_gems(
     ids = [r["id"] for r in rows]
     log.info("select_s7_backlog_reel: picked %d portrait gems (oldest %s)", len(ids), rows[0]["ts"][:10])
     return ids
+
+
+def select_timelapse_gems(
+    camera_id: str,
+    db_path: Path,
+    cfg: dict,
+    now: Optional[datetime] = None,
+) -> list[int]:
+    """Return representative raw-tier frames for a time-lapse Reel.
+
+    vlm_bypass cameras (mba-cam, gwtc, usb-cam, dominator-cam) write
+    image_tier='raw' rows with no VLM enrichment — discord_reactions,
+    share_worth, image_quality, and bird_count are all NULL. Selection
+    uses laplacian_var (sharpness proxy written by store_raw) instead
+    of _score_gem.
+
+    No Discord-reaction gate: these time-lapse reels are auto-posted
+    without a human approval step. The value is breadth-of-day coverage
+    showing the camera's view evolving over time.
+
+    Criteria:
+      - camera_id matches the specified camera
+      - image_tier = 'raw'
+      - image_path IS NOT NULL (not yet deleted by sweep_raw)
+      - ts >= now - timelapse_reel_window_hours
+
+    Diversity: group by N-minute time buckets; pick the frame with the
+    highest laplacian_var per bucket; cap at max_frames; return oldest-
+    first so the reel reads as a chronological time-lapse.
+
+    cfg keys (all under instagram.scheduled):
+      timelapse_reel_window_hours   (int, default 24)
+      timelapse_reel_bucket_minutes (int, default 5)
+      timelapse_reel_max_frames     (int, default 60)
+      timelapse_reel_min_frames     (int, default 6)
+
+    Returns [] if fewer than timelapse_reel_min_frames candidates qualify.
+    """
+    window_h = int(cfg.get("timelapse_reel_window_hours", 24))
+    bucket_min = max(1, int(cfg.get("timelapse_reel_bucket_minutes", 5)))
+    max_frames = int(cfg.get("timelapse_reel_max_frames", 60))
+    min_frames = int(cfg.get("timelapse_reel_min_frames", 6))
+    now = _ensure_timezone(now)
+    cutoff_iso = (now - timedelta(hours=window_h)).isoformat()
+
+    with sqlite3.connect(str(db_path)) as c:
+        c.row_factory = sqlite3.Row
+        rows = c.execute(
+            """
+            SELECT id, camera_id, ts, laplacian_var
+              FROM image_archive
+             WHERE camera_id = ?
+               AND image_tier = 'raw'
+               AND image_path IS NOT NULL
+               AND ts >= ?
+             ORDER BY ts ASC
+            """,
+            (camera_id, cutoff_iso),
+        ).fetchall()
+
+    if not rows:
+        log.info(
+            "select_timelapse: no raw frames for %s in last %dh",
+            camera_id, window_h,
+        )
+        return []
+
+    groups: dict[str, list[dict]] = {}
+    for row in rows:
+        item = dict(row)
+        groups.setdefault(_bucket_key(item["ts"], bucket_min), []).append(item)
+
+    representatives = [max(group, key=_score_raw_frame) for group in groups.values()]
+    # Cap at max_frames by taking every Nth representative to preserve
+    # temporal spread (rather than picking top-N by sharpness, which would
+    # cluster at the best-lit part of the day).
+    if len(representatives) > max_frames:
+        step = len(representatives) / max_frames
+        representatives = [representatives[int(i * step)] for i in range(max_frames)]
+
+    if len(representatives) < min_frames:
+        log.info(
+            "select_timelapse: only %d bucketed frames for %s in last %dh "
+            "(need >=%d); not enough for a reel",
+            len(representatives), camera_id, window_h, min_frames,
+        )
+        return []
+
+    # Sort chronologically — already ASC from SQL, but after bucketing
+    # representatives may be reordered by score; re-sort here.
+    representatives.sort(key=lambda r: r["ts"])
+    ids = [r["id"] for r in representatives]
+    log.info(
+        "select_timelapse: picked %d/%d bucketed frames for %s "
+        "(last %dh, %d-min buckets)",
+        len(ids), len(rows), camera_id, window_h, bucket_min,
+    )
+    return ids
+
+
+def select_mba_cam_timelapse_gems(db_path: Path, cfg: dict) -> list[int]:
+    return select_timelapse_gems("mba-cam", db_path, cfg)
+
+
+def select_gwtc_timelapse_gems(db_path: Path, cfg: dict) -> list[int]:
+    return select_timelapse_gems("gwtc", db_path, cfg)
+
+
+def select_usb_cam_timelapse_gems(db_path: Path, cfg: dict) -> list[int]:
+    return select_timelapse_gems("usb-cam", db_path, cfg)
+
+
+def select_dominator_cam_timelapse_gems(db_path: Path, cfg: dict) -> list[int]:
+    return select_timelapse_gems("dominator-cam", db_path, cfg)
 
 
 def mark_gems_used_in_backlog_reel(

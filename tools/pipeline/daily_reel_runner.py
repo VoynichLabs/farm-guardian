@@ -1,5 +1,5 @@
 # Author: Claude Sonnet 4.6
-# Date: 09-May-2026
+# Date: 09-May-2026 (updated 09-May-2026 — landscape mode + LM Studio caption synthesis + 4 timelapse lanes)
 # PURPOSE: Shared runner for scheduled Instagram Reel lanes. The
 #          existing mixed-camera daily Reel uses the approval-gated
 #          flow: build MP4, upload a Discord preview, wait for a human
@@ -62,6 +62,12 @@ class DailyReelLane:
     ledger_lane: str
     caption_fallback: str
     mention_user_id: Optional[str] = None
+    # landscape_mode: output 16:9 (1920×1080) instead of 9:16 center-crop.
+    # Use for vlm_bypass cameras that capture 16:9 frames.
+    landscape_mode: bool = False
+    # discord_preview_scale: ffmpeg scale filter for the Discord upload copy.
+    # Portrait lanes use "540:960" (9:16); landscape lanes use "960:540".
+    discord_preview_scale: str = "540:960"
 
 
 MIXED_DAILY_REEL_LANE = DailyReelLane(
@@ -106,6 +112,75 @@ S7_BACKLOG_REEL_LANE = DailyReelLane(
     ledger_lane="s7-backlog-reel",
     caption_fallback="A look back at the nesting box.",
     mention_user_id=MARK_DISCORD_USER_ID,
+)
+
+
+MBA_CAM_TIMELAPSE_LANE = DailyReelLane(
+    lane_id="mba-cam-timelapse",
+    log_name="ig-mba-cam-timelapse-reel",
+    description="Auto-post daily MBA-cam brooder time-lapse Reel.",
+    selector_name="select_mba_cam_timelapse_gems",
+    state_subdir="mba-cam-timelapse",
+    output_filename_prefix="reel-mba-cam-timelapse",
+    discord_username="farm-reel-mba-cam",
+    discord_title="MBA-cam brooder time-lapse",
+    approval_required=False,
+    ledger_lane="mba-cam-timelapse-reel",
+    caption_fallback="A day in the brooder.",
+    mention_user_id=MARK_DISCORD_USER_ID,
+    landscape_mode=True,
+    discord_preview_scale="960:540",
+)
+
+GWTC_TIMELAPSE_LANE = DailyReelLane(
+    lane_id="gwtc-timelapse",
+    log_name="ig-gwtc-timelapse-reel",
+    description="Auto-post daily GWTC coop-roof time-lapse Reel.",
+    selector_name="select_gwtc_timelapse_gems",
+    state_subdir="gwtc-timelapse",
+    output_filename_prefix="reel-gwtc-timelapse",
+    discord_username="farm-reel-gwtc",
+    discord_title="GWTC coop-roof time-lapse",
+    approval_required=False,
+    ledger_lane="gwtc-timelapse-reel",
+    caption_fallback="A day at the coop.",
+    mention_user_id=MARK_DISCORD_USER_ID,
+    landscape_mode=True,
+    discord_preview_scale="960:540",
+)
+
+USB_CAM_TIMELAPSE_LANE = DailyReelLane(
+    lane_id="usb-cam-timelapse",
+    log_name="ig-usb-cam-timelapse-reel",
+    description="Auto-post daily USB-cam coop-run time-lapse Reel.",
+    selector_name="select_usb_cam_timelapse_gems",
+    state_subdir="usb-cam-timelapse",
+    output_filename_prefix="reel-usb-cam-timelapse",
+    discord_username="farm-reel-usb-cam",
+    discord_title="USB-cam coop-run time-lapse",
+    approval_required=False,
+    ledger_lane="usb-cam-timelapse-reel",
+    caption_fallback="A day in the coop run.",
+    mention_user_id=MARK_DISCORD_USER_ID,
+    landscape_mode=True,
+    discord_preview_scale="960:540",
+)
+
+DOMINATOR_CAM_TIMELAPSE_LANE = DailyReelLane(
+    lane_id="dominator-cam-timelapse",
+    log_name="ig-dominator-cam-timelapse-reel",
+    description="Auto-post daily Dominator-cam time-lapse Reel when camera is live.",
+    selector_name="select_dominator_cam_timelapse_gems",
+    state_subdir="dominator-cam-timelapse",
+    output_filename_prefix="reel-dominator-cam-timelapse",
+    discord_username="farm-reel-dominator",
+    discord_title="Dominator-cam time-lapse",
+    approval_required=False,
+    ledger_lane="dominator-cam-timelapse-reel",
+    caption_fallback="A day on the farm.",
+    mention_user_id=MARK_DISCORD_USER_ID,
+    landscape_mode=True,
+    discord_preview_scale="960:540",
 )
 
 
@@ -261,9 +336,12 @@ def _count_human_reactions_on_message(
     return len(humans)
 
 
-def _make_discord_preview(mp4_path: Path, work_dir: Path) -> Path:
-    """Re-encode a lower-bitrate upload copy for Discord webhooks."""
+def _make_discord_preview(mp4_path: Path, work_dir: Path, scale: str = _DISCORD_PREVIEW_SCALE) -> Path:
+    """Re-encode a lower-bitrate upload copy for Discord webhooks.
 
+    scale: ffmpeg scale filter string. Portrait lanes use "540:960";
+    landscape lanes use "960:540".
+    """
     preview = work_dir / "discord-preview.mp4"
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
@@ -274,7 +352,7 @@ def _make_discord_preview(mp4_path: Path, work_dir: Path) -> Path:
         "-i",
         str(mp4_path),
         "-vf",
-        f"scale={_DISCORD_PREVIEW_SCALE}",
+        f"scale={scale}",
         "-c:v",
         "libx264",
         "-b:v",
@@ -304,9 +382,14 @@ def _post_video_to_discord(
     upload_filename: str,
     log: logging.Logger,
     timeout: int = 90,
+    preview_scale: str = _DISCORD_PREVIEW_SCALE,
 ) -> str | None:
-    """POST an MP4 to Discord via webhook with wait=true."""
+    """POST an MP4 to Discord via webhook with wait=true.
 
+    preview_scale: passed to _make_discord_preview if the file exceeds
+    the Discord size limit. Use "540:960" for portrait, "960:540" for
+    landscape lanes.
+    """
     if len(content) > 1900:
         content = content[:1900] + "..."
 
@@ -316,7 +399,7 @@ def _post_video_to_discord(
         if mp4_path.stat().st_size > _DISCORD_MAX_BYTES:
             tmp_dir = Path(tempfile.mkdtemp(prefix="reel-discord-"))
             try:
-                upload_path = _make_discord_preview(mp4_path, tmp_dir)
+                upload_path = _make_discord_preview(mp4_path, tmp_dir, scale=preview_scale)
                 log.info(
                     "discord: preview encoded %s -> %s (%.1f MB)",
                     mp4_path.name,
@@ -411,6 +494,124 @@ def _build_reel_caption(
     return build_caption(journal_body=journal, hashtags=tags)
 
 
+def _generate_reel_caption(
+    db_path: Path,
+    gem_ids: list[int],
+    fallback: str,
+    cfg: dict,
+    log: logging.Logger,
+) -> str:
+    """Synthesize a reel caption using LM Studio when available.
+
+    Collects caption_drafts from VLM-enriched frames, then calls the
+    currently-loaded model to synthesize a single cohesive caption from
+    all the drafts. Falls back to _build_reel_caption() when:
+      - LM Studio is unreachable
+      - The expected VLM model isn't loaded
+      - No caption_drafts exist (raw-tier / vlm_bypass frames)
+
+    This is strictly better-effort: the caption pipeline always succeeds
+    and the pipeline never blocks on LM Studio availability.
+
+    Per docs/13-Apr-2026-lm-studio-reference.md: always check /v1/models
+    before calling /v1/chat/completions; never auto-load; pass
+    reasoning_effort=none to suppress thinking budget on Qwen3.
+    """
+    import requests as _req
+
+    # Collect caption_drafts from up to 20 frames (prompt-length guard).
+    drafts: list[str] = []
+    for gem_id in gem_ids[:20]:
+        row = _fetch_gem_row(db_path, gem_id)
+        try:
+            meta = json.loads(row.get("vlm_json") or "{}") or {}
+        except json.JSONDecodeError:
+            meta = {}
+        draft = (meta.get("caption_draft") or "").strip()
+        if draft:
+            drafts.append(draft)
+
+    if not drafts:
+        # Raw-tier frames (vlm_bypass cameras) have no caption_drafts.
+        return _build_reel_caption(db_path, gem_ids, fallback)
+
+    lm_base = cfg.get("lm_studio_base", "http://localhost:1234")
+    vlm_model = cfg.get("vlm_model_id", "qwen/qwen3.5-9b")
+
+    # Verify LM Studio is up and the right model is loaded before calling.
+    try:
+        resp = _req.get(f"{lm_base}/v1/models", timeout=5)
+        if resp.status_code != 200:
+            raise RuntimeError(f"http={resp.status_code}")
+        loaded_ids = [m.get("id") for m in resp.json().get("data", [])]
+        if vlm_model not in loaded_ids:
+            log.info(
+                "lm_studio: %s not loaded (loaded=%s); using fallback caption",
+                vlm_model, loaded_ids,
+            )
+            return _build_reel_caption(db_path, gem_ids, fallback)
+    except Exception as exc:
+        log.info("lm_studio: unreachable (%s); using fallback caption", exc)
+        return _build_reel_caption(db_path, gem_ids, fallback)
+
+    drafts_block = "\n".join(f"- {d}" for d in drafts)
+    prompt = (
+        "You are writing a caption for an Instagram Reel from a small farm. "
+        "Below are descriptions of individual frames from the Reel:\n\n"
+        f"{drafts_block}\n\n"
+        "Write a single short caption (1-2 sentences, no hashtags) that captures "
+        "the spirit of what is happening. Be warm and specific to what is actually "
+        "in the frames. Do not mention cameras, AI, or technology."
+    )
+
+    try:
+        payload = {
+            "model": vlm_model,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 100,
+            "temperature": 0.7,
+            "reasoning_effort": "none",
+        }
+        vlm_timeout = int(cfg.get("vlm_timeout_seconds", 300))
+        resp = _req.post(
+            f"{lm_base}/v1/chat/completions",
+            json=payload,
+            timeout=vlm_timeout,
+        )
+        if resp.status_code != 200:
+            raise RuntimeError(f"chat endpoint returned http={resp.status_code}")
+        synthesized = resp.json()["choices"][0]["message"]["content"].strip()
+        log.info("lm_studio: synthesized reel caption: %r", synthesized[:80])
+    except Exception as exc:
+        log.warning("lm_studio: caption synthesis failed (%s); using fallback", exc)
+        return _build_reel_caption(db_path, gem_ids, fallback)
+
+    # Wrap with hashtags using the same bucket logic as _build_reel_caption.
+    from tools.pipeline.ig_poster import _load_hashtag_library, build_caption, pick_hashtags
+
+    best_meta: dict = {}
+    best_reactions = -1
+    for gem_id in gem_ids:
+        row = _fetch_gem_row(db_path, gem_id)
+        try:
+            meta = json.loads(row.get("vlm_json") or "{}") or {}
+        except json.JSONDecodeError:
+            meta = {}
+        reactions = row.get("discord_reactions") or 0
+        if reactions > best_reactions:
+            best_reactions = reactions
+            best_meta = meta
+
+    library = _load_hashtag_library(REPO_ROOT / "tools" / "pipeline" / "hashtags.yml")
+    tags = pick_hashtags(
+        vlm_metadata=best_meta,
+        library=library,
+        last_n_tags_used=[],
+        buckets_override=["reel", "chickens", "chicks", "homestead"],
+    )
+    return build_caption(journal_body=synthesized, hashtags=tags)
+
+
 def _select_gems(
     lane: DailyReelLane,
     db_path: Path,
@@ -445,6 +646,7 @@ def _stitch_reel(
             db_path=db_path,
             config=reels_cfg,
             output_path=mp4_path,
+            landscape=lane.landscape_mode,
         )
     except ReelStitcherError:
         raise
@@ -608,7 +810,7 @@ def _build_and_preview(
         return 1
 
     try:
-        caption = _build_reel_caption(db_path, gem_ids, lane.caption_fallback)
+        caption = _generate_reel_caption(db_path, gem_ids, lane.caption_fallback, cfg, log)
     except Exception as exc:
         log.exception("build: caption build failed: %s", exc)
         return 1
@@ -629,6 +831,7 @@ def _build_and_preview(
         username=lane.discord_username,
         upload_filename="daily-reel-preview.mp4",
         log=log,
+        preview_scale=lane.discord_preview_scale,
     )
     if not message_id:
         log.error("build: Discord preview post failed; not saving pending state")
@@ -697,7 +900,7 @@ def _build_publish_and_notify(
         return 1
 
     try:
-        caption = _build_reel_caption(db_path, gem_ids, lane.caption_fallback)
+        caption = _generate_reel_caption(db_path, gem_ids, lane.caption_fallback, cfg, log)
     except Exception as exc:
         log.exception("build: caption build failed: %s", exc)
         return 1
@@ -742,8 +945,9 @@ def _build_publish_and_notify(
         content=notice,
         webhook_url=webhook_url,
         username=lane.discord_username,
-        upload_filename="s7-timelapse-reel.mp4",
+        upload_filename=f"{lane.lane_id}-timelapse-reel.mp4",
         log=log,
+        preview_scale=lane.discord_preview_scale,
     )
 
     posted_dir.mkdir(parents=True, exist_ok=True)

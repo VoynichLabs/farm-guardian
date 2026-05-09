@@ -851,7 +851,8 @@ def _run_raw_camera_thread(camera_name: str, ccfg: dict, cfg: dict,
     capture cadence isn't gated by the main VLM-serialized tick loop, and
     runs a rolling raw-tier pruner inline so we don't grow unboundedly."""
     cadence = int(ccfg.get("cycle_seconds", 45))
-    retention_hours = int(cfg.get("raw_retention_hours", 24))
+    # Per-camera override takes precedence; global default is 24h.
+    retention_hours = int(ccfg.get("raw_retention_hours", cfg.get("raw_retention_hours", 24)))
     last_prune = 0.0
     prune_every = 300.0  # sweep once every 5 minutes
     # Initial stagger so thread doesn't wake in lockstep with main loop.
