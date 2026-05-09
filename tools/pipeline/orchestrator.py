@@ -1,4 +1,4 @@
-# Author: Claude Opus 4.7 (1M context); Claude Sonnet 4.6 (edits 27-April-2026 — vlm_bypass mode: run_raw_cycle, dedicated raw threads, raw retention sweep, v2.37.13; 28-April-2026 — sharpness gate wired in, v2.37.14; 04-May-2026 — Birds preset as prompt/schema source, v2.40.0)
+# Author: Claude Opus 4.7 (1M context); Claude Sonnet 4.6 (edits 27-April-2026 — vlm_bypass mode: run_raw_cycle, dedicated raw threads, raw retention sweep, v2.37.13; 28-April-2026 — sharpness gate wired in, v2.37.14; 04-May-2026 — Birds preset as prompt/schema source, v2.40.0); GPT-5.5 Codex (edits 08-May-2026 — static floor-pecking score calibration)
 # Date: 17-April-2026
 # PURPOSE: Main entry point for the multi-cam image pipeline. Schedules per-
 #          camera capture cycles at their configured cadences, runs each
@@ -107,6 +107,117 @@ def _decode_jpeg(jpeg_bytes: bytes) -> np.ndarray:
     if img is None:
         raise ValueError("jpeg decode failed")
     return img
+
+
+def _calibrate_static_floor_pecking_score(camera_name: str, metadata: dict) -> bool:
+    """Demote routine brooder/coop floor pecking below the gem bar.
+
+    The VLM sometimes sees sharp chickens and assigns a 6 even when the
+    actual photo is a flat floor snapshot: generic eating/foraging, partial
+    birds, no clean subject, and no story. This deterministic guard keeps
+    those cases aligned with the prompt rubric before storage/posting.
+    Returns True when metadata was changed.
+    """
+    if camera_name not in {"usb-cam", "gwtc"}:
+        return False
+    if metadata.get("scene") not in {"brooder", "coop"}:
+        return False
+    caption_text = " ".join(
+        str(metadata.get(field, ""))
+        for field in ("caption_draft", "share_reason")
+    ).lower()
+    routine_floor_terms = (
+        "peck",
+        "forag",
+        "feed",
+        "feeder",
+        "water bowl",
+        "waterer",
+        "ground",
+        "floor",
+    )
+    routine_floor_scene = (
+        metadata.get("activity") in {"eating", "drinking", "foraging"}
+        or any(term in caption_text for term in routine_floor_terms)
+    )
+    if not routine_floor_scene:
+        return False
+
+    composition = metadata.get("composition")
+    face_visible = bool(metadata.get("bird_face_visible"))
+    image_quality = metadata.get("image_quality")
+    largest = metadata.get("largest_subject_pct")
+    coverage = metadata.get("subject_coverage_pct")
+    bird_count = metadata.get("bird_count")
+    if not isinstance(bird_count, int):
+        bird_count = 0
+
+    scattered_equipment_terms = (
+        "background",
+        "nearby",
+        "shadow",
+        "fence line",
+        "under the fence",
+        "water bowl",
+        "waterer",
+        "feeder",
+    )
+    scattered_multi_bird_floor = (
+        bird_count >= 3
+        and any(term in caption_text for term in scattered_equipment_terms)
+        and any(
+            term in caption_text
+            for term in (
+                "peck",
+                "forag",
+                "ground",
+                "floor",
+                "feed",
+                "water bowl",
+                "waterer",
+            )
+        )
+    )
+
+    clean_portrait = (
+        composition == "portrait"
+        and face_visible
+        and image_quality == "sharp"
+        and isinstance(largest, int)
+        and largest >= 35
+    )
+    if clean_portrait and not scattered_multi_bird_floor:
+        return False
+
+    floor_snapshot = (
+        composition in {"group", "wide", "cluttered"}
+        or not face_visible
+        or scattered_multi_bird_floor
+    )
+    small_or_sparse = (
+        (isinstance(largest, int) and largest < 35)
+        or (isinstance(coverage, int) and coverage < 45)
+    )
+    if not (floor_snapshot or small_or_sparse):
+        return False
+
+    old_score = metadata.get("overall_score")
+    score_cap = 3
+    if image_quality == "sharp" and face_visible and not scattered_multi_bird_floor:
+        score_cap = 4
+    if isinstance(old_score, int):
+        metadata["overall_score"] = min(old_score, score_cap)
+    else:
+        metadata["overall_score"] = score_cap
+
+    if metadata["overall_score"] <= 4 and metadata.get("share_worth") != "skip":
+        metadata["share_worth"] = "skip"
+
+    metadata["share_reason"] = (
+        "Static brooder/coop-floor pecking scene lacks a clean subject, "
+        "standout behavior, or share-worthy story."
+    )
+    return True
 
 
 def run_raw_cycle(camera_name: str, camera_cfg: dict, cfg: dict,
@@ -297,6 +408,14 @@ def run_cycle(camera_name: str, camera_cfg: dict, cfg: dict, schema: dict,
                       reason=f"transient: {type(e).__name__}: {e}")
         return result
 
+    if _calibrate_static_floor_pecking_score(camera_name, vlm_result["metadata"]):
+        log.info(
+            "%s: calibrated static floor-pecking frame score=%s share_worth=%s",
+            camera_name,
+            vlm_result["metadata"].get("overall_score"),
+            vlm_result["metadata"].get("share_worth"),
+        )
+
     # Store
     try:
         store_result = store(
@@ -340,6 +459,8 @@ def run_cycle(camera_name: str, camera_cfg: dict, cfg: dict, schema: dict,
             _score = vlm_result["metadata"].get("overall_score")
             if _score is not None:
                 _caption = f"{_caption}\n⭐ {_score}/10"
+            if _score == 10:
+                _caption = f"<@293569238386606080> BIRD SELFIE 🔟\n{_caption}"
             post_gem(
                 image_bytes=jpeg_bytes,
                 caption=_caption,

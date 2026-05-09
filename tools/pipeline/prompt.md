@@ -49,32 +49,48 @@ Guidance on specific fields:
 - `bird_face_visible`: true if at least one bird's eye, beak, or facial profile is visible — including partial or side-on views. False only when every bird is fully turned away with no head detail.
 - `subject_coverage_pct`: percent of the total frame area covered by birds. Exclude bedding, walls, feeders, waterers, heat lamp.
 - `largest_subject_pct`: percent of the frame covered by the single largest bird only.
-- `share_worth`: sharpness + a visible face is the primary bar. A blurry bird or a bird's rear end is worthless regardless of other qualities.
-  - **"strong"** — ANY of these, and none of the skip triggers below:
-    1. At least one bird looking DIRECTLY at the camera with a sharp, visible eye. This is the best shot the farm gets — prioritize it every time.
-    2. A sharp bird face in profile or three-quarter view where the eye and beak are clearly visible and the plumage detail is crisp — individual feather edges, down texture, color markings readable at the pixel level.
-    3. A clear active-behavior moment where the subject is sharp: sparring, mid-wing-flap, mid-stretch, drinking, eating. The bird's face or body detail must be in focus — blurry action is still blurry.
+- `share_worth`: this is the **farm-gem gate**, not just a visibility flag. Sharpness + a visible face is necessary, but not sufficient for `strong`. A blurry bird, a bird's rear end, a bird hidden by wire mesh, or a flat floor-pecking snapshot is worthless regardless of how many birds are present.
+  - **"strong"** — the frame must be genuinely usable/interesting as a farm gem. Use `strong` only when at least one of these is true and none of the skip triggers apply:
+    1. A clean, sharp subject looking DIRECTLY at the camera with a visible eye. This is the best shot the farm gets — prioritize it every time.
+    2. A sharp face in profile or three-quarter view where the eye/beak are clearly visible, feather detail is crisp, and the subject is not hidden by wire, clutter, or other birds.
+    3. A standout behavior/story moment: sparring, wing-flap, stretch, dust-bath, drinking/eating with the face and body cleanly visible, or a clear interaction between birds. **Generic pecking at the floor is NOT standout behavior.**
+    4. Strong composition/light: a clean portrait, striking color/pattern, or a frame that would plausibly stop someone scrolling.
   - **"skip"** — ANY of these demotes the frame:
     1. Every bird in frame is blurry, smeared, or unrecognizable.
     2. No birds in frame, or activity=none-visible.
     3. Every bird facing fully away — only backs, tails, or rear ends visible, no face or eye on any subject.
     4. A pile of indistinct fluff where no individual bird is distinguishable and no face is visible. A blob of feathers is not a photo.
-  - **"decent"**: clear, in-focus frame with visible birds that doesn't hit a strong trigger and isn't killed by a skip trigger. A sideways group shot with some faces partially visible is decent. Archive-worthy but not remarkable.
-  - When in doubt between `decent` and `skip`, lean `skip`.
+    5. Wire mesh/fencing/cage bars dominate the view, cut across the subjects, or make the birds feel obstructed.
+    6. Cluttered brooder/coop floor: feeders, waterers, bedding, walls, shadows, or random floor texture dominate more than the birds.
+    7. Partial/obscured birds, cropped-off bodies, distant small birds, mostly backsides, or birds blocked by other birds/equipment.
+    8. Generic static eating/foraging/pecking on the brooder or coop floor with no clean subject, no eye contact, no interesting posture, and no story/action.
+    9. Multiple scattered chicks/birds around water bowls, feeders, fence lines, shadows, or background clutter where one bird is merely standing while others peck/forage nearby. That is a coop-floor inventory snapshot, not a gem.
+  - **"decent"**: clear, in-focus frame with visible birds that doesn't hit a strong trigger and isn't killed by a skip trigger. Archive-worthy but not remarkable.
+  - When in doubt between `decent` and `skip`, lean `skip`. When in doubt between `strong` and `decent`, lean `decent`.
 - `share_reason`: one specific sentence about THIS frame — not a restatement of the rules. E.g., "Bronze turkey poult looking directly into the lens, left eye sharp" or "All three birds in motion, no sharp faces visible, minor blur throughout."
-- `overall_score`: integer 0–10. Score purely on **image quality and how much you can see** — not on what the birds are doing. Sleeping birds can score just as high as active ones if they're sharp and their faces are visible. Most frames should land in the 4–6 range. 9–10 is rare.
-  - **What raises the score:** more birds sharp and in focus; more faces and eyes clearly visible; vivid color/plumage detail readable; birds filling a meaningful portion of the frame; multiple individuals distinguishable.
-  - **What lowers the score:** blur, soft focus, motion smear; birds facing away with no faces visible; a single bird occupying only a tiny fraction of the frame with no readable detail (bird too small — not solitude itself); compression artifacts.
-  - **Solo portrait rule: a single bird posing alone is not penalized for being alone.** One sharp bird filling a meaningful portion of the frame and facing the camera scores the same as a group shot of equivalent quality. A solo close-up portrait with a clear eye and readable plumage can reach 7–8. Solitude is not a deficit.
-  - **Activity does not affect score.** Sleeping, eating, alert, huddling — all equal if the image quality and visibility are the same.
-  - **0–2**: No birds, empty frame, or totally unusable (heavy blur, artifacts throughout).
-  - **3–4**: Birds present but mostly backs or fully blurred. Little of interest visible.
-  - **5**: One or more birds visible with some face detail, ordinary sharpness. A typical acceptable frame.
-  - **6**: One or more birds with clear faces, good sharpness, readable plumage colors. Better than typical.
-  - **7**: One sharp bird filling significant frame area with face clearly visible and crisp plumage detail, OR several sharp birds with faces visible and at least one with striking color.
-  - **8**: Bird(s) filling the frame, faces prominent, vivid plumage detail readable — solo portrait or group equally eligible.
-  - **9–10**: Exceptional sharpness AND composition — striking plumage detail, face prominent, the kind of frame that would stop someone mid-scroll. Reserve for genuinely outstanding shots.
+- `overall_score`: integer 0–10. This is the **farm-gem rating shown in Discord**, so score the whole photo: subject clarity, composition, story/behavior, and whether it is actually worth sharing. Do NOT score merely on bird visibility. Most routine camera frames should land in the 2–5 range. 6+ is intentionally uncommon.
+  - **What raises the score:** clean sharp subject; visible eye/face; vivid color/plumage detail; birds filling a meaningful portion of the frame; strong composition/light; direct eye contact; standout behavior or a clear little story.
+  - **What lowers the score:** blur, soft focus, motion smear; wire mesh/fencing/cage bars over the birds; cluttered floor/background; partial or cropped birds; birds facing away; backsides/rear ends; distant small birds; generic pecking/eating/foraging with no clear subject; compression artifacts.
+  - **Static brooder/coop-floor calibration:** floor-level or overhead snapshots of birds pecking/eating/foraging in the brooder or coop default to **2–4** unless there is a clean standout subject/action/composition. Merely visible chickens are not a 6.
+  - **Solo portrait rule: a single bird posing alone is not penalized for being alone.** One sharp bird filling a meaningful portion of the frame and facing the camera scores the same as a group shot of equivalent quality. A solo close-up portrait with a clear eye and readable plumage can reach 8–9. Solitude is not a deficit.
+  - **The bird selfie is a 10.** A bird filling the majority of the frame, staring directly into the lens, razor-sharp — that is a 10. Not a 7. Not an 8. If a bird posed for its portrait — close-up, direct eye contact, sharp — score it a 10.
+  - **Activity matters only when it creates a story.** Sparring, wing-flap, stretch, dust-bathing, drinking, or eating can raise the score if the subject is sharp and cleanly framed. Routine floor pecking does not raise the score.
+  - **0–2**: No birds, empty frame, totally unusable, heavy blur/artifacts, or only tiny/obscured birds.
+  - **3–4**: Birds present but mostly backs, partial bodies, wire-obstructed, distant, flat floor snapshots, or generic pecking with little interest visible. This is the expected range for routine brooder/coop-floor pecking scenes.
+  - **5**: One or more birds visible with some face/detail, ordinary sharpness, acceptable but not a gem.
+  - **6**: A genuinely usable/interesting farm-gem shot: clear subject, good sharpness, readable face/plumage, and decent composition or a small story. **Not** just visible chickens.
+  - **7**: Standout animal behavior, clean subject, strong composition/light, direct eye contact, or vivid subject detail. Better than a normal usable frame.
+  - **8**: Bird(s) filling the frame, faces prominent, vivid plumage detail readable, strong composition/story — solo portrait or group equally eligible.
+  - **9**: Exceptional sharpness AND composition — striking plumage detail, face prominent, multiple birds sharp or one large bird with striking color and pattern. The kind of frame that stops someone mid-scroll.
+  - **10**: The farm's best shot. Either: (a) a bird selfie — one bird close-up, filling the majority of the frame, looking DIRECTLY into the lens, razor-sharp; OR (b) a group portrait where 3 or more birds are all sharp, faces toward the camera, vivid plumage detail readable on each. Reserve 10 for genuinely outstanding shots that hit one of these two bars.
   - This score must be consistent with `share_worth`: 0–4 → skip; 5–6 → decent; 7–10 → strong.
+  - **Calibration examples:**
+    - Bad prior 6/10 case — Brooder Floor: flat floor snapshot, several birds pecking/eating, partial bodies and backs, no clean face, no standout action/story → `share_worth="skip"`, `overall_score=3`.
+    - Bad prior 6/10 case — Coop: chickens behind/through wire mesh, distant or partially obscured, generic pecking, cluttered run/floor dominates → `share_worth="skip"`, `overall_score=3`.
+    - Bad prior 6/10 case — Water bowl / feeder scatter: a white chick stands alert near a water bowl, a speckled chick pecks at the ground, a blue-grey bird passes a feeder, and other birds forage in shadows under the fence line → `share_worth="skip"`, `overall_score=3`.
+    - Ordinary visible chickens pecking on a clean floor, sharp but no eye contact/story → `share_worth="skip"` or `"decent"`, `overall_score=4`.
+    - Clear profile portrait of one sharp bird with readable eye/plumage and clean background → `share_worth="strong"`, `overall_score=7`.
+    - Bird selfie close-up, direct eye contact, razor-sharp, subject fills most of frame → `share_worth="strong"`, `overall_score=10`.
 - `caption_draft`: 2–4 sentences, up to ~450 chars. **Describe the whole scene — all the birds, not just one.** This goes on social media. Make it vivid.
   - **Describe only the birds.** Do NOT mention the heat lamp, wood shavings, bedding, the nesting box walls, or the wooden structure. Those are background. The birds are the subject.
   - **Paint the full picture.** Who's where? One bird alone on the perch while others huddle below? Say so. A lone sentry above a pile of sleepers is a story — tell it.

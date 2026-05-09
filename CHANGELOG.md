@@ -2,6 +2,23 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased] - 2026-05-08
+
+### v2.40.7 — fix: calibrate brooder/coop floor-pecking gem scores (GPT-5.5 Codex)
+
+Boss flagged static chicken coop / brooder-floor pecking snapshots landing in Discord as ⭐ 6/10.
+Those frames are visible chickens, but not farm gems: wire/mesh obstruction, partial birds, backsides,
+flat floor composition, and generic pecking should sit around 2–4 unless there is a clean subject,
+standout behavior, strong composition/light, or a clear story.
+
+**Changes:**
+- `tools/pipeline/prompt.md` — retuned `share_worth` and `overall_score` so 6/10 requires a genuinely usable/interesting farm-gem shot; 7+ now requires standout behavior, clean subject, strong composition/light, or story. Added explicit penalties for wire mesh, clutter, partial/obscured birds, backsides, distant birds, and generic floor pecking. Added concrete calibration examples for the two bad 6/10 classes, plus the water-bowl / feeder / shadow-bird scatter false positive.
+- `tools/pipeline/orchestrator.py` — added a deterministic post-VLM calibration guard for `usb-cam` and `gwtc` that caps routine eating/foraging brooder/coop floor snapshots at 3–4 and demotes them to `share_worth=skip` before storage/Discord posting. Extended it to catch multi-bird water-bowl/feeder/fence-shadow scatter captions even when the VLM labels the main activity `alert`.
+- `tools/pipeline/test_floor_pecking_calibration.py` — added focused synthetic coverage for the boss-flagged caption: bad 6/10 → score 3 + skip, with a clean close-portrait non-regression.
+- `~/.lmstudio/config-presets/Birds.preset.json` — synced the live Birds preset prompt with the repo fallback prompt; backup written before edit.
+
+**Verified:** `./venv/bin/python -m compileall tools/pipeline/orchestrator.py`; direct helper dry-run demotes a synthetic bad brooder-floor 6/10 frame to score 3 and keeps a close portrait at 8; `./venv/bin/python -m tools.pipeline.test_gem_poster_gate` passes synthetic cases; `PYTHONDONTWRITEBYTECODE=1 ./venv/bin/python -B -m tools.pipeline.test_floor_pecking_calibration` passes the exact water-bowl scatter case.
+
 ## [Unreleased] - 2026-05-07
 
 ### v2.40.6 — fix: backlog reel — pool-based portrait selector, 4x/day, restored publisher (Claude Sonnet 4.6)
