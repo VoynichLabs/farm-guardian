@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.farmguardian.guardian-restart</string>
+
+    <!-- Daily 03:00 restart of com.farmguardian.guardian to clear
+         accumulated file-descriptor leaks (EMFILE / "Too many open files").
+         -k kills the running process and starts a fresh one. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/launchctl</string>
+        <string>kickstart</string>
+        <string>-k</string>
+        <string>gui/501/com.farmguardian.guardian</string>
+    </array>
+
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>3</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/guardian-restart.out.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/tmp/guardian-restart.err.log</string>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>ThrottleInterval</key>
+    <integer>60</integer>
+</dict>
+</plist>
