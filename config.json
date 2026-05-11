@@ -35,7 +35,7 @@
         "/settings/orientation?set=portrait",
         "/settings/photo_rotation?set=90"
       ],
-      "snapshot_interval": 7.0,
+      "snapshot_interval": 5.0,
       "detection_enabled": false
     },
     {

@@ -2,7 +2,39 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] - 2026-05-09
+## [Unreleased] - 2026-05-11
+
+### v2.40.12 — docs: S7 camera architecture explainer + Guardian S7 snapshot interval 7s → 5s (Claude Opus 4.7)
+
+Boss asked for a written explanation of how the S7 phone fits into the pipeline — there was no single doc explaining that the S7 is self-driving (Android IP Webcam app), that the Mac Mini is purely a client polling its HTTP endpoint, and that the settings watchdog is the only "control" surface. Every future agent had to re-derive this from scattered context. Also bumped Guardian's S7 polling rate from every 7s to every 5s for a tighter dashboard cadence on the highest-quality camera in the fleet.
+
+**Changes:**
+- `docs/11-May-2026-s7-camera-explained.md` — new explainer doc. Covers: the phone runs IP Webcam, the four `/settings/*` startup GETs, the two separate consumers (Guardian's `config.json` + the pipeline's `tools/pipeline/config.json`), the 10-min settings watchdog, the wedge-mode limitation, and the "Guardian is a client of the phone, not a controller" mental model.
+- `config.json` — `s7-cam.snapshot_interval` changed `7.0` → `5.0`. Pipeline cadence (`tools/pipeline/config.json::s7-cam.cycle_seconds`) intentionally left at `7` so VLM/LM Studio load is unchanged; only Guardian's dashboard-side polling is faster now.
+
+**Verified:** `python -m json.tool config.json > /dev/null` parses clean; doc renders as expected.
+
+### v2.40.11 — fix: S7 backlog Reel duplicate selection guard (OpenAI GPT-5.5)
+
+Boss feedback on 11-May-2026: the S7 backlog Reel lane was reposting the exact same Reel repeatedly. The generated MP4 hashes matched across runs. Root cause: `mark_gems_used_in_backlog_reel()` stores the exact reason `used-in-backlog-reel`, while `select_s7_backlog_reel_gems()` only excluded `used-in-backlog-reel:%`, so the marked frames stayed eligible.
+
+**Changes:**
+- `tools/pipeline/ig_selection.py` — S7 backlog selector now excludes both the exact `used-in-backlog-reel` marker and colon-suffixed variants.
+- Paused the installed `com.farmguardian.ig-s7-backlog-reel` LaunchAgent pending review so no more duplicate IG/FB posts fire automatically.
+
+**Verified:** `./venv/bin/python -m py_compile tools/pipeline/ig_selection.py`; confirmed the repeated MP4s had identical SHA-256 and the fixed SQL predicate excludes the marked batch.
+
+### v2.40.10 — fix: daylight-only GWTC time-lapse reel selection + human approval gate (OpenAI GPT-5.5)
+
+Boss feedback on the 2026-05-10 20:45 ET GWTC coop-roof Reel: the posted video included black overnight frames and one daylight still with Boss in frame. Root cause was the new raw time-lapse selector: `select_timelapse_gems()` pulled the last 24h of `image_tier='raw'` rows for vlm_bypass cameras with no local daylight window and no human approval step.
+
+**Changes:**
+- `tools/pipeline/ig_selection.py` — raw time-lapse selectors now support a local daylight filter. Defaults apply it to `gwtc` only, keeping frames whose archive timestamp is between 06:00 and 20:00 America/New_York. The filter is configurable through `instagram.scheduled.timelapse_reel_daylight_*` keys.
+- `tools/pipeline/config.json` — added the daylight-window config (`timelapse_reel_daylight_only_cameras: ["gwtc"]`, start 6, end 20, timezone America/New_York).
+- `tools/pipeline/daily_reel_runner.py` — GWTC lane now requires Discord approval before IG/FB publish. Daylight filtering removes black frames; approval is the safety guard for daytime human/privacy frames.
+- `tools/pipeline/test_ig_selection_timelapse.py` — regression coverage for GWTC daylight filtering and non-GWTC all-hours behavior.
+
+**Verified:** `./venv/bin/python -m py_compile tools/pipeline/ig_selection.py tools/pipeline/daily_reel_runner.py scripts/ig-gwtc-timelapse-reel.py tools/pipeline/test_ig_selection_timelapse.py`; manual selector test functions passed (pytest is not installed in this venv); live dry selector on the 2026-05-11 GWTC posted window now selects 60 daylight frames spanning 06:04-19:49 EDT with no overnight frames. Daytime human frames can still occur, so the GWTC lane is now approval-gated before IG/FB publish.
 
 ### v2.40.9 — feat: per-camera time-lapse reel lanes + LM Studio caption synthesis + landscape stitcher (Claude Sonnet 4.6)
 

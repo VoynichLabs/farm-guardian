@@ -1,5 +1,5 @@
 # Author: Claude Sonnet 4.6
-# Date: 09-May-2026 (updated 09-May-2026 — landscape mode + LM Studio caption synthesis + 4 timelapse lanes)
+# Date: 09-May-2026 (updated 09-May-2026 — landscape mode + LM Studio caption synthesis + 4 timelapse lanes; 10-May-2026 — GWTC approval gate)
 # PURPOSE: Shared runner for scheduled Instagram Reel lanes. The
 #          existing mixed-camera daily Reel uses the approval-gated
 #          flow: build MP4, upload a Discord preview, wait for a human
@@ -135,13 +135,16 @@ MBA_CAM_TIMELAPSE_LANE = DailyReelLane(
 GWTC_TIMELAPSE_LANE = DailyReelLane(
     lane_id="gwtc-timelapse",
     log_name="ig-gwtc-timelapse-reel",
-    description="Auto-post daily GWTC coop-roof time-lapse Reel.",
+    description="Build a Discord-approved GWTC coop-roof time-lapse Reel.",
     selector_name="select_gwtc_timelapse_gems",
     state_subdir="gwtc-timelapse",
     output_filename_prefix="reel-gwtc-timelapse",
     discord_username="farm-reel-gwtc",
     discord_title="GWTC coop-roof time-lapse",
-    approval_required=False,
+    # GWTC has an outdoor/coop-roof privacy risk: humans can enter the frame.
+    # Require a Discord reaction before IG/FB publish so daylight reels still get
+    # a human veto instead of auto-posting a coop-work still.
+    approval_required=True,
     ledger_lane="gwtc-timelapse-reel",
     caption_fallback="A day at the coop.",
     mention_user_id=MARK_DISCORD_USER_ID,

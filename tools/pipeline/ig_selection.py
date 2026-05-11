@@ -1,5 +1,5 @@
 # Author: Claude Sonnet 4.6
-# Date: 07-May-2026; 09-May-2026 — _score_raw_frame + select_timelapse_gems for vlm_bypass lanes
+# Date: 07-May-2026; 09-May-2026 — _score_raw_frame + select_timelapse_gems for vlm_bypass lanes; 10-May-2026 — daylight filter for coop-roof time-lapse lanes; 11-May-2026 — S7 backlog duplicate guard
 # PURPOSE: Select Instagram-post-eligible gems from image_archive on
 #          wall-clock windows (day, 2-hour, week). Pure SELECT +
 #          scoring + diversity filtering; no posting, no I/O beyond
@@ -65,6 +65,7 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 log = logging.getLogger("pipeline.ig_selection")
 
@@ -109,6 +110,50 @@ def _score_raw_frame(row: dict) -> tuple:
     laplacian = float(row.get("laplacian_var") or 0.0)
     ts = row.get("ts") or ""
     return (laplacian, ts)
+
+
+def _parse_archive_ts(ts_iso: str) -> datetime:
+    """Parse archive timestamps into timezone-aware datetimes.
+
+    SQLite rows are written as UTC ISO strings with a '+00:00' suffix;
+    tolerate a trailing 'Z' and naive strings so tests/old rows do not
+    explode the selector.
+    """
+    clean = (ts_iso or "").replace("Z", "+00:00")
+    dt = datetime.fromisoformat(clean)
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _is_local_hour_in_window(
+    ts_iso: str,
+    *,
+    start_hour: int,
+    end_hour: int,
+    timezone_name: str,
+) -> bool:
+    """Return true when ts falls inside the configured local hour window.
+
+    The end hour is exclusive: start=6,end=20 accepts 06:00:00 through
+    19:59:59 local. Windows that wrap midnight are supported for future
+    callers, though the current GWTC use is daylight-only.
+    """
+    local_dt = _parse_archive_ts(ts_iso).astimezone(ZoneInfo(timezone_name))
+    hour = local_dt.hour
+    if start_hour == end_hour:
+        return True
+    if start_hour < end_hour:
+        return start_hour <= hour < end_hour
+    return hour >= start_hour or hour < end_hour
+
+
+def _timelapse_daylight_only_enabled(camera_id: str, cfg: dict) -> bool:
+    """Whether a raw time-lapse lane should discard non-daylight frames."""
+    cameras = cfg.get("timelapse_reel_daylight_only_cameras", ["gwtc"])
+    if isinstance(cameras, str):
+        cameras = [item.strip() for item in cameras.split(",") if item.strip()]
+    return camera_id in set(cameras or [])
 
 
 def _score_gem(row: dict) -> tuple:
@@ -630,7 +675,8 @@ def select_s7_backlog_reel_gems(
                AND (has_concerns = 0 OR has_concerns IS NULL)
                AND image_path IS NOT NULL
                AND (ig_story_skip_reason IS NULL
-                    OR (ig_story_skip_reason NOT LIKE 'story-permanent-skip:%'
+                    OR (ig_story_skip_reason != 'used-in-backlog-reel'
+                        AND ig_story_skip_reason NOT LIKE 'story-permanent-skip:%'
                         AND ig_story_skip_reason NOT LIKE 'used-in-backlog-reel:%'))
              ORDER BY ts ASC
              LIMIT ?
@@ -674,6 +720,7 @@ def select_timelapse_gems(
       - image_tier = 'raw'
       - image_path IS NOT NULL (not yet deleted by sweep_raw)
       - ts >= now - timelapse_reel_window_hours
+      - optional local daylight window for configured outdoor/privacy lanes
 
     Diversity: group by N-minute time buckets; pick the frame with the
     highest laplacian_var per bucket; cap at max_frames; return oldest-
@@ -684,6 +731,10 @@ def select_timelapse_gems(
       timelapse_reel_bucket_minutes (int, default 5)
       timelapse_reel_max_frames     (int, default 60)
       timelapse_reel_min_frames     (int, default 6)
+      timelapse_reel_daylight_only_cameras (list[str], default ["gwtc"])
+      timelapse_reel_daylight_start_hour   (int, default 6, inclusive local hour)
+      timelapse_reel_daylight_end_hour     (int, default 20, exclusive local hour)
+      timelapse_reel_timezone              (str, default "America/New_York")
 
     Returns [] if fewer than timelapse_reel_min_frames candidates qualify.
     """
@@ -691,6 +742,10 @@ def select_timelapse_gems(
     bucket_min = max(1, int(cfg.get("timelapse_reel_bucket_minutes", 5)))
     max_frames = int(cfg.get("timelapse_reel_max_frames", 60))
     min_frames = int(cfg.get("timelapse_reel_min_frames", 6))
+    daylight_only = _timelapse_daylight_only_enabled(camera_id, cfg)
+    daylight_start = int(cfg.get("timelapse_reel_daylight_start_hour", 6))
+    daylight_end = int(cfg.get("timelapse_reel_daylight_end_hour", 20))
+    daylight_tz = str(cfg.get("timelapse_reel_timezone", "America/New_York"))
     now = _ensure_timezone(now)
     cutoff_iso = (now - timedelta(hours=window_h)).isoformat()
 
@@ -715,6 +770,34 @@ def select_timelapse_gems(
             camera_id, window_h,
         )
         return []
+
+    if daylight_only:
+        raw_count = len(rows)
+        try:
+            rows = [
+                row for row in rows
+                if _is_local_hour_in_window(
+                    row["ts"],
+                    start_hour=daylight_start,
+                    end_hour=daylight_end,
+                    timezone_name=daylight_tz,
+                )
+            ]
+        except (ValueError, ZoneInfoNotFoundError) as exc:
+            log.warning(
+                "select_timelapse: invalid daylight window config for %s "
+                "(start=%s end=%s tz=%s): %s; using unfiltered rows",
+                camera_id, daylight_start, daylight_end, daylight_tz, exc,
+            )
+        else:
+            log.info(
+                "select_timelapse: daylight filter kept %d/%d raw frames for %s "
+                "(%02d:00-%02d:00 %s)",
+                len(rows), raw_count, camera_id,
+                daylight_start, daylight_end, daylight_tz,
+            )
+            if not rows:
+                return []
 
     groups: dict[str, list[dict]] = {}
     for row in rows:

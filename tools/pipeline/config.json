@@ -60,7 +60,13 @@
       "timelapse_reel_window_hours": 24,
       "timelapse_reel_bucket_minutes": 5,
       "timelapse_reel_max_frames": 60,
-      "timelapse_reel_min_frames": 6
+      "timelapse_reel_min_frames": 6,
+      "timelapse_reel_daylight_only_cameras": [
+        "gwtc"
+      ],
+      "timelapse_reel_daylight_start_hour": 6,
+      "timelapse_reel_daylight_end_hour": 20,
+      "timelapse_reel_timezone": "America/New_York"
     }
   },
   "cameras": {
