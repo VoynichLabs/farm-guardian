@@ -62,7 +62,8 @@
       "timelapse_reel_max_frames": 60,
       "timelapse_reel_min_frames": 6,
       "timelapse_reel_daylight_only_cameras": [
-        "gwtc"
+        "gwtc",
+        "usb-cam"
       ],
       "timelapse_reel_daylight_start_hour": 6,
       "timelapse_reel_daylight_end_hour": 20,
@@ -128,7 +129,7 @@
       "context": "MacBook Air 2013 FaceTime HD camera (1280x720), served at 192.168.0.50:8089 via usb-cam-host (com.farmguardian.usb-cam-host LaunchAgent on the MBA). Optional brooder monitor \u2014 loading/unloading that LaunchAgent is the on/off switch; no config change needed. Currently watching the brooder with chicks. device_index=0 on MBA = FaceTime HD (USB cam is on GWTC, so FaceTime is the only camera on this box).",
       "burst_size": 1,
       "vlm_bypass": true,
-      "enabled": true
+      "enabled": false
     },
     "dominator-cam": {
       "cycle_seconds": 10.0,

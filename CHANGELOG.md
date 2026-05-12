@@ -4,6 +4,19 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-05-11
 
+### v2.40.13 — chore+fix: temporarily disable mba-cam + make Guardian honor cam `enabled` flag (Claude Opus 4.7)
+
+Boss said the MacBook Air is going offline for a few days. The pipeline already skipped cameras with `enabled: false` (`tools/pipeline/orchestrator.py` does this in three places), but Guardian's `discovery.py` ignored the flag — so flipping `mba-cam.enabled` would have stopped the pipeline but left Guardian's dashboard poller hitting `http://192.168.0.50:8089/photo.jpg` every 5s and burying the log in HTTP timeouts. Fixed Guardian to honor the same flag the pipeline already honors, then flipped `mba-cam.enabled` in both configs.
+
+**Changes:**
+- `discovery.py` — `CameraDiscovery.scan()` now skips any camera whose config has `enabled: false`, removing it from the live registry. Default is `True` to preserve the historical implicit-enabled schema (existing entries without the key keep working).
+- `config.json` — `cameras[name=mba-cam].enabled` `true` → `false`.
+- `tools/pipeline/config.json` — `cameras.mba-cam.enabled` `true` → `false`. (The in-line `context` note still describes the LaunchAgent-on-MBA on/off switch as the canonical lever for a permanent move; for a *temporary* hold while the whole MBA is offline, the config flag is the cleaner local lever — no remote action needed.)
+
+**Re-enable later:** flip both `enabled` flags back to `true` and `launchctl kickstart -k gui/$(id -u)/com.farmguardian.guardian` + `… com.farmguardian.pipeline`.
+
+**Verified:** `python -m json.tool` on both configs parses clean; both LaunchAgents kickstarted; `curl -s http://localhost:6530/api/cameras` no longer lists `mba-cam`.
+
 ### v2.40.12 — docs: S7 camera architecture explainer + Guardian S7 snapshot interval 7s → 5s (Claude Opus 4.7)
 
 Boss asked for a written explanation of how the S7 phone fits into the pipeline — there was no single doc explaining that the S7 is self-driving (Android IP Webcam app), that the Mac Mini is purely a client polling its HTTP endpoint, and that the settings watchdog is the only "control" surface. Every future agent had to re-derive this from scattered context. Also bumped Guardian's S7 polling rate from every 7s to every 5s for a tighter dashboard cadence on the highest-quality camera in the fleet.

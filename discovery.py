@@ -1,5 +1,5 @@
-# Author: Claude Opus 4.6
-# Date: 13-April-2026 (v2.17.0 — per-camera rtsp_stream selector for main vs sub profile)
+# Author: Claude Opus 4.7
+# Date: 11-May-2026 (v2.40.13 — honor top-level cam `enabled` flag, default true)
 # PURPOSE: Camera discovery for Farm Guardian. Connects to cameras defined in config.json,
 #          validates ONVIF connectivity, retrieves RTSP stream URIs, and subscribes to
 #          motion alarm events. Supports three source types: ONVIF (auto-discovered),
@@ -9,6 +9,11 @@
 #          `rtsp_stream` ("main" → profile 0, "sub" → profile 1). Lets us pull the
 #          lighter H.264 sub-stream off the Reolink to survive lossy WiFi instead
 #          of the 4K HEVC main stream that produces decode-garbage frames.
+#          v2.40.13: Skip cameras whose config has `enabled: false` so an operator
+#          can park a camera (e.g. while its host MBA is offline) by flipping one
+#          flag instead of deleting the entry. Default is `true` to preserve the
+#          historical implicit-enabled schema; the pipeline already honors this
+#          flag at orchestrator.py.
 # SRP/DRY check: Pass — single responsibility is camera discovery and stream URL resolution.
 
 import logging
@@ -77,6 +82,15 @@ class CameraDiscovery:
 
         for cam_cfg in self._camera_configs:
             name = cam_cfg.get("name", "unnamed")
+            # v2.40.13 — honor the top-level `enabled` flag so a single config edit
+            # can park a camera while its host is offline. Default true to preserve
+            # backwards compatibility with the historical schema where every camera
+            # was implicitly enabled.
+            if not cam_cfg.get("enabled", True):
+                with self._lock:
+                    self._cameras.pop(name, None)
+                log.info("Camera '%s' disabled in config — skipping discovery", name)
+                continue
             try:
                 # USB cameras attached directly to this machine (AVFoundation).
                 # No network discovery needed — just validate the device index.

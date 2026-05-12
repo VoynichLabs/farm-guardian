@@ -72,7 +72,7 @@
       "http_trigger_focus": false,
       "snapshot_interval": 5.0,
       "detection_enabled": false,
-      "enabled": true
+      "enabled": false
     },
     {
       "name": "dominator-cam",
