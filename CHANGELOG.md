@@ -4,6 +4,20 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-05-11
 
+### v2.40.14 — ops: pipeline log pruner LaunchAgent (Claude Opus 4.7)
+
+Boss noticed `/tmp/pipeline.err.log` had ballooned to 814 MB during a window when LM Studio had no model loaded (auto-updated, didn't auto-reload) — the pipeline retried every cycle and dumped a full Python traceback per camera per failure. There was nothing rotating that file; `/tmp/` only clears on reboot, and reboots are rare on this Mini. Added a small LaunchAgent that prunes both pipeline logs every 30 minutes.
+
+**How it works:** if `/tmp/pipeline.err.log` or `/tmp/pipeline.out.log` exceeds 50 MB, the script keeps the last 10,000 lines and rewrites the file in place (`tail -n 10000 → tmp → cat tmp > file`). The `cat > file` preserves the inode so the running pipeline's stderr fd keeps working — `mv tmp file` would have broken the fd. Under threshold, the script is a no-op.
+
+**Files:**
+- `deploy/pipeline/farm-pipeline-log-prune.sh` — the prune script (deployed copy lives at `~/bin/farm-pipeline-log-prune.sh`, where the LaunchAgent points).
+- `deploy/pipeline/com.farmguardian.pipeline-log-prune.plist` — LaunchAgent, 30-min `StartInterval`, RunAtLoad, ThrottleInterval 60s. Deployed copy at `~/Library/LaunchAgents/com.farmguardian.pipeline-log-prune.plist`.
+
+**Bootstrapped:** `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.farmguardian.pipeline-log-prune.plist`. Verified active.
+
+**Tuning levers (edit the script):** `THRESHOLD_BYTES` (default 50 MB) and `KEEP_LINES` (default 10,000).
+
 ### v2.40.13 — chore+fix: temporarily disable mba-cam + make Guardian honor cam `enabled` flag (Claude Opus 4.7)
 
 Boss said the MacBook Air is going offline for a few days. The pipeline already skipped cameras with `enabled: false` (`tools/pipeline/orchestrator.py` does this in three places), but Guardian's `discovery.py` ignored the flag — so flipping `mba-cam.enabled` would have stopped the pipeline but left Guardian's dashboard poller hitting `http://192.168.0.50:8089/photo.jpg` every 5s and burying the log in HTTP timeouts. Fixed Guardian to honor the same flag the pipeline already honors, then flipped `mba-cam.enabled` in both configs.
