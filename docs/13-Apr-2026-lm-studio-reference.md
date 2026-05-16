@@ -481,6 +481,93 @@ time curl -s -X POST http://localhost:1234/v1/chat/completions \
 
 ---
 
+## Running LM Studio headless / auto-starting on machine login (researched 2026-05-16)
+
+**Why this section exists:** every time LM Studio loses the loaded model, the pipeline goes silent and Boss has to load it manually. Multiple agent sessions have re-derived the same web-search → "is there a built-in auto-start?" loop. The findings below are recorded once so the next agent does NOT re-search; if you came here looking for "how do I make LM Studio come back on its own," this is your one-stop answer.
+
+LM Studio installed on this Mini is **v0.4.11+1** (confirmed via the LM Studio Helper process annotation). Everything below was verified against the live `lms` CLI on this machine and the LM Studio docs site as of 2026-05-16.
+
+### Two officially supported paths
+
+The LM Studio docs (https://lmstudio.ai/docs/developer/core/headless) describe two options for headless / auto-start operation:
+
+**Option 1: llmster (the standalone daemon)** — since 0.4.0, the LM Studio core was extracted into a server-native daemon called `llmster`, controllable via `lms daemon`. Verified present on this Mini:
+
+```
+$ ~/.lmstudio/bin/lms daemon --help
+Commands:
+   up        Manually start the llmster daemon
+   down      Manually shutdown the llmster daemon
+   status    Check the status of the LM Studio daemon
+   update    Update the llmster daemon
+```
+
+For persistent auto-start, LM Studio's docs only show a `systemctl` recipe (Linux): https://lmstudio.ai/docs/developer/core/headless_llmster. **On macOS there is no built-in auto-start for the daemon** — wrapping `lms daemon up` in a user LaunchAgent is the equivalent. That's the right path if/when we decide to migrate off the desktop app entirely.
+
+**Option 2: Desktop app in headless mode** — keep the desktop app installed and enable one setting. From the same docs page (verbatim, pulled via raw `curl` + tag-strip — see methodology note below):
+
+> "Run the LLM service on machine login. Head to app settings ( Cmd / Ctrl + , ) and check the box to run the LLM server on login. When this setting is enabled, exiting the app will minimize it to the system tray, and the LLM server will continue to run in the background."
+
+The page's own `og:description` corroborates: *"GUI-less operation of LM Studio: run in the background, start on machine login, and load models on demand."*
+
+**Caveats on Option 2 that the docs DO NOT cover, and that matter:**
+
+1. **The docs do not give a literal UI label or sub-section** for the checkbox — only the prose above. The setting lives somewhere under `Cmd+,` but the exact tab/section is not stated.
+2. **On 2026-05-16, Boss could not find this checkbox in the LM Studio 0.4.11 settings panel.** Possibilities, in descending likelihood: (a) it's hidden behind a Power User / Developer mode selector (LM Studio has these), (b) it's in a non-obvious sub-section, (c) the docs are ahead of the 0.4.11 build. **If a future agent cannot locate this checkbox, do NOT spend another session searching the web for it — assume the docs are wrong about it for this version and go with the watchdog (see below) or Option 1.**
+3. **The setting only fires after GUI login, not at pre-login boot.** Since this Mini has autologin enabled (`macmini` user), that's effectively boot-time anyway.
+
+### Auto Server Start (separate from the on-login setting)
+
+Same docs page, verbatim:
+> "Your last server state will be saved and restored on app or service launch."
+
+Triggered programmatically via `lms server start`. The "last state" includes loaded models, so *in theory* a clean app launch restores the previously-loaded model. In practice this has not been reliable enough on this machine to prevent the recurring "no model loaded" failure — hence the watchdog (next section).
+
+### JIT (just-in-time) model loading — KEEP IT OFF
+
+Same docs page, verbatim:
+
+**When JIT loading is ON:**
+> "Calls to OpenAI-compatible `/v1/models` will return all downloaded models, not only the ones loaded into memory"
+> "Calls to inference endpoints will load the model into memory if it's not already loaded"
+
+**When JIT loading is OFF:**
+> "Calls to OpenAI-compatible `/v1/models` will return only the models loaded into memory"
+> "You have to first load the model into memory before being able to use it"
+
+**For Farm Guardian, JIT stays OFF.** Auto-loading via the chat endpoint is exactly the path that crashed the box on 2026-04-13 (see incident section above). The pipeline's `vlm_enricher.py` explicitly checks `list_loaded_models()` before each call and refuses if the wrong model is loaded — that is the correct, doc-compliant behaviour. Do not turn JIT on as a "convenience fix" for the recurring model-not-loaded issue; use the watchdog instead.
+
+### What we actually use to keep the model loaded
+
+`docs/16-May-2026-lmstudio-watchdog-plan.md` documents a tiny LaunchAgent + bash script that re-loads `qwen/qwen3.5-9b` via the documented Safe model swap pattern (above) any time it goes missing. It is the canonical answer to "how do I stop having to manually load the model after every LM Studio restart?" on this machine. If you are about to write your own auto-loader, read that plan first — the watchdog already covers it, and reinventing it (without the co-tenant skip rule, without the free-memory gate, etc.) is exactly the kind of avoidable mistake the reference doc exists to prevent.
+
+### Sources (LM Studio docs as of 2026-05-16)
+
+- Headless / service: https://lmstudio.ai/docs/developer/core/headless (canonical) — the `/docs/advanced/headless` and `/docs/app/api/headless` URLs redirect to the same SPA content.
+- llmster Linux systemd recipe: https://lmstudio.ai/docs/developer/core/headless_llmster
+- `lms server start` reference: https://lmstudio.ai/docs/cli/server-start
+
+### Methodology note: prefer raw HTML to WebFetch summaries
+
+The WebFetch tool's "verbatim" claims are themselves AI-generated and can confabulate, especially when the prompt asks for an exact quote. When verifying anything load-bearing from a third-party docs site, pull the raw HTML with `curl -fsSL <url>`, strip tags with a small Python snippet, and grep for the literal phrase yourself — that is the only way to be sure the quote actually appears on the page. Example:
+
+```bash
+curl -fsSL https://lmstudio.ai/docs/developer/core/headless -o /tmp/p.html
+python3 -c "
+import re, html
+h = open('/tmp/p.html').read()
+h = re.sub(r'<script[\s\S]*?</script>|<style[\s\S]*?</style>', ' ', h)
+text = html.unescape(re.sub(r'<[^>]+>', ' ', h))
+text = re.sub(r'\s+', ' ', text)
+for m in re.finditer(r'login', text, re.I):
+    print('---'); print(text[max(0,m.start()-150):m.end()+150])
+"
+```
+
+This is how the verbatim quote above was confirmed.
+
+---
+
 ## Reference and pointers
 
 - This document: `farm-guardian/docs/13-Apr-2026-lm-studio-reference.md`
