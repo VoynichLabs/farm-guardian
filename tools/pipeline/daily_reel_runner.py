@@ -186,6 +186,25 @@ DOMINATOR_CAM_TIMELAPSE_LANE = DailyReelLane(
     discord_preview_scale="960:540",
 )
 
+HOUSE_YARD_CAM_TIMELAPSE_LANE = DailyReelLane(
+    lane_id="house-yard-cam-timelapse",
+    log_name="ig-house-yard-cam-timelapse-reel",
+    description="Build a Discord-approved house-yard Reolink time-lapse Reel.",
+    selector_name="select_house_yard_cam_timelapse_gems",
+    state_subdir="house-yard-cam-timelapse",
+    output_filename_prefix="reel-house-yard-cam-timelapse",
+    discord_username="farm-reel-house-yard",
+    discord_title="House-yard time-lapse",
+    # Outdoor camera with humans/dogs/vehicles in frame — gate on Discord
+    # reaction before IG/FB publish, same pattern as GWTC.
+    approval_required=True,
+    ledger_lane="house-yard-cam-timelapse-reel",
+    caption_fallback="A day in the yard.",
+    mention_user_id=MARK_DISCORD_USER_ID,
+    landscape_mode=True,
+    discord_preview_scale="960:540",
+)
+
 
 def setup_logging() -> None:
     logging.basicConfig(

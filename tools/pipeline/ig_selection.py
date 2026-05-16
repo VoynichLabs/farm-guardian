@@ -848,6 +848,10 @@ def select_dominator_cam_timelapse_gems(db_path: Path, cfg: dict) -> list[int]:
     return select_timelapse_gems("dominator-cam", db_path, cfg)
 
 
+def select_house_yard_cam_timelapse_gems(db_path: Path, cfg: dict) -> list[int]:
+    return select_timelapse_gems("house-yard", db_path, cfg)
+
+
 def mark_gems_used_in_backlog_reel(
     db_path: Path,
     gem_ids: list[int],
