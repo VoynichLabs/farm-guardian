@@ -2,7 +2,35 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] - 2026-05-11
+## [Unreleased] - 2026-05-17
+
+### v2.40.15 — ops: LM Studio VLM watchdog LaunchAgent (Claude Opus 4.7 (1M context))
+
+Closes the same failure mode that v2.40.14 dealt with after the fact: when LM Studio loses `qwen/qwen3.5-9b` (app restart, auto-update, manual UI swap, OOM, whatever), the pipeline keeps running but every VLM call returns `model_not_loaded`, the gem/caption/Discord lane goes silent, and `/tmp/pipeline.err.log` accumulates a Python traceback per camera per cycle until somebody notices and clicks Load in the LM Studio UI. v2.40.14 dealt with the symptom (log bloat) by pruning. v2.40.15 deals with the cause by auto-reloading the model.
+
+**How it works:** a tiny shell script polled by a user LaunchAgent every 120 s.
+
+1. `GET /v1/models`. Server unreachable → log + exit (not in scope to start the LM Studio server itself; that's LM Studio's own auto-server-start job).
+2. If `qwen/qwen3.5-9b` is already in the loaded set → log "ok — already loaded" and exit. Healthy-machine ticks are pure `curl` + `grep`.
+3. If some *other* model is loaded → log "co-tenant" and skip. The reference doc's coordination rule explicitly forbids unloading another tenant's working model (G0DM0D3-research is the relevant other tenant historically).
+4. Free-memory gate via `vm_stat`: `free + speculative + inactive` pages must clear `MODEL_GB × 1.4` (~9.2 GB for the 6.55 GB qwen). Below that, log + skip — refuse to load into a constrained machine. This is the same gate the G0DM0D3 sweep scripts use after the 2026-04-13 watchdog-reset incident.
+5. Load via the native API with the documented body: `{"model":"qwen/qwen3.5-9b","context_length":8192,"flash_attention":true,"parallel":1}`. Context length 8192 is non-negotiable — the LM Studio UI loads at the model's default 131k and that makes inference 3–4× slower (per the 2026-05-04 doc note); the pipeline expects 8192.
+6. Verify with `GET /v1/models` and log the final loaded set.
+
+**Why not just turn JIT on?** Auto-loading via the OpenAI-compat chat endpoint is exactly the path that crashed the box on 2026-04-13 (concurrent inference race, stacked-model load, kernel watchdog reset). `docs/13-Apr-2026-lm-studio-reference.md` is unambiguous: JIT stays OFF. The watchdog is the safe equivalent — explicit gates, explicit load body, explicit co-tenant skip, no inference path involvement.
+
+**Why not use LM Studio's built-in "Run the LLM server on login" + "Auto Server Start"?** Researched 2026-05-16 (write-up in the reference doc): the docs claim that combination should restore the last loaded model on app or service launch, but (a) the on-login checkbox is not visible in the 0.4.11 UI on this Mini, and (b) in practice the model has dropped out repeatedly even when LM Studio is running. The watchdog is the empirically-grounded answer.
+
+**Files:**
+
+- `deploy/mac-mini/lmstudio-watchdog.sh` — the watchdog script (installed copy lives at `~/Library/Application Support/farm-guardian/lmstudio-watchdog.sh`, NOT `~/Documents/` — TCC blocks launchd from reading there).
+- `deploy/mac-mini/com.farmguardian.lmstudio-watchdog.plist` — `RunAtLoad`, `StartInterval 120`, `ThrottleInterval 60`, stdout/stderr to `/tmp/lmstudio-watchdog.agent.log`. Installed at `~/Library/LaunchAgents/`.
+- `deploy/mac-mini/README.md` — new section documenting install, off-switch, log paths, and the hard rules the script obeys.
+- `docs/16-May-2026-lmstudio-watchdog-plan.md` — pre-implementation plan (committed previously alongside the headless-mode research).
+
+**Bootstrapped 2026-05-17.** First two ticks (RunAtLoad + manual kickstart) both logged `ok — qwen/qwen3.5-9b already loaded`, agent.log empty, model untouched. The recovery path will be exercised in production the next time LM Studio drops the model — the script will load it within ~2 minutes and the log line will record it.
+
+**Off-switch:** `launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.farmguardian.lmstudio-watchdog.plist && rm ~/Library/LaunchAgents/com.farmguardian.lmstudio-watchdog.plist && rm "$HOME/Library/Application Support/farm-guardian/lmstudio-watchdog.sh"`. The watchdog never modifies anything when healthy, so removing it just means losing the auto-recovery — no state to roll back.
 
 ### v2.40.14 — ops: pipeline log pruner LaunchAgent (Claude Opus 4.7)
 
