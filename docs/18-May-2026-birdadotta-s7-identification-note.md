@@ -9,6 +9,12 @@
 - Distinctive coloring around the beak.
 - Slight rust-colored feathers in the wing area.
 - Slight white tips on the wing.
+- Slightly white feathers on the belly.
+- Distinctive white feather on the wings.
+
+## Distinction from Birdadette
+
+Boss specifically noted that Birdadotta is distinctive from Birdadette because Birdadotta has slightly white belly feathers and a distinctive white wing feather.
 
 ## Interpretation
 
