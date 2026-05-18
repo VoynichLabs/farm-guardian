@@ -516,6 +516,33 @@ def _build_reel_caption(
     return build_caption(journal_body=journal, hashtags=tags)
 
 
+FARM_DIARY_DIR = Path.home() / "Documents" / "GitHub" / "farm-2026" / "content" / "diary"
+
+
+def _load_farm_context(limit: int = 3, char_cap: int = 600) -> str:
+    """Recent diary entries to inject into the caption prompt — named birds,
+    hatch progress, daily wins. Best-effort: returns '' on any failure so the
+    caption pipeline always succeeds.
+    """
+    try:
+        if not FARM_DIARY_DIR.is_dir():
+            return ""
+        files = sorted(
+            FARM_DIARY_DIR.glob("*.md"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )[:limit]
+        if not files:
+            return ""
+        chunks: list[str] = []
+        for f in files:
+            text = f.read_text(encoding="utf-8", errors="ignore").strip()
+            chunks.append(text[:char_cap].strip())
+        return "\n\n---\n\n".join(chunks)
+    except Exception:
+        return ""
+
+
 def _generate_reel_caption(
     db_path: Path,
     gem_ids: list[int],
@@ -577,13 +604,25 @@ def _generate_reel_caption(
         return _build_reel_caption(db_path, gem_ids, fallback)
 
     drafts_block = "\n".join(f"- {d}" for d in drafts)
+    farm_context = _load_farm_context()
+    context_block = (
+        f"Recent farm diary entries — use these for named chickens, hatch "
+        f"progress, breeding-program details, and one concrete win to ground "
+        f"the caption:\n\n{farm_context}\n\n"
+        if farm_context
+        else ""
+    )
     prompt = (
         "You are writing a caption for an Instagram Reel from a small farm. "
+        f"{context_block}"
         "Below are descriptions of individual frames from the Reel:\n\n"
         f"{drafts_block}\n\n"
         "Write a single short caption (1-2 sentences, no hashtags) that captures "
         "the spirit of what is happening. Be warm and specific to what is actually "
-        "in the frames. Do not mention cameras, AI, or technology."
+        "in the frames. When the diary above mentions named chickens, current "
+        "hatches, or a recent farm event that fits, reference it concretely "
+        "rather than writing in generic terms. Do not mention cameras, AI, or "
+        "technology."
     )
 
     try:
