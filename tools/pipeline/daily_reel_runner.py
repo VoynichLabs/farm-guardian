@@ -584,6 +584,21 @@ def _generate_reel_caption(
         # Raw-tier frames (vlm_bypass cameras) have no caption_drafts.
         return _build_reel_caption(db_path, gem_ids, fallback)
 
+    # Prefer Codex (gpt-5.5, the otherwise-idle OpenAI sub) for the caption
+    # body: better prose than the local model, and it keeps LM Studio free for
+    # the per-frame bird judging it does full-time. Falls through to the LM
+    # Studio path below on any failure. Hashtags are appended from the verified
+    # hashtags.yml library either way, so the brand safety net stays engaged.
+    if cfg.get("instagram", {}).get("reels", {}).get("codex_caption", True):
+        try:
+            from tools.pipeline.codex_reel_curator import generate_caption_body
+            codex_body = generate_caption_body(drafts, _load_farm_context(), log=log)
+        except Exception as exc:
+            log.warning("codex caption unavailable (%s); using LM Studio", exc)
+            codex_body = None
+        if codex_body:
+            return _wrap_caption_with_hashtags(db_path, gem_ids, codex_body)
+
     lm_base = cfg.get("lm_studio_base", "http://localhost:1234")
     vlm_model = cfg.get("vlm_model_id", "qwen/qwen3.5-9b")
 
@@ -647,7 +662,12 @@ def _generate_reel_caption(
         log.warning("lm_studio: caption synthesis failed (%s); using fallback", exc)
         return _build_reel_caption(db_path, gem_ids, fallback)
 
-    # Wrap with hashtags using the same bucket logic as _build_reel_caption.
+    return _wrap_caption_with_hashtags(db_path, gem_ids, synthesized)
+
+
+def _wrap_caption_with_hashtags(db_path: Path, gem_ids: list[int], body: str) -> str:
+    """Append verified hashtags (hashtags.yml) to a caption body. Shared by the
+    Codex and LM Studio caption paths so both get the brand safety net."""
     from tools.pipeline.ig_poster import _load_hashtag_library, build_caption, pick_hashtags
 
     best_meta: dict = {}
@@ -670,7 +690,7 @@ def _generate_reel_caption(
         last_n_tags_used=[],
         buckets_override=["reel", "chickens", "chicks", "homestead"],
     )
-    return build_caption(journal_body=synthesized, hashtags=tags)
+    return build_caption(journal_body=body, hashtags=tags)
 
 
 def _select_gems(
