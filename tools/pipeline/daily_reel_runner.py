@@ -73,13 +73,17 @@ class DailyReelLane:
 MIXED_DAILY_REEL_LANE = DailyReelLane(
     lane_id="daily",
     log_name="ig-daily-reel",
-    description="Build + Discord-gate daily IG Reel.",
+    description="Build + auto-post daily IG Reel.",
     selector_name="select_daily_reel_gems",
     state_subdir="",
     output_filename_prefix="reel-daily",
     discord_username="farm-reel",
-    discord_title="Daily reel preview",
-    approval_required=True,
+    discord_title="Daily reel",
+    # Approval gate removed 21-May-2026 per Boss: the daily reel is built from
+    # gems he has ALREADY reacted/vetted, so the second reel-level reaction was
+    # redundant bottleneck. Now auto-publishes + sends a Discord notice. (Outdoor
+    # GWTC/house-yard lanes stay gated — that's a privacy veto, not a bottleneck.)
+    approval_required=False,
     ledger_lane="reel",
     caption_fallback="A day at the farm.",
 )
