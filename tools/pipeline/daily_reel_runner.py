@@ -80,9 +80,9 @@ MIXED_DAILY_REEL_LANE = DailyReelLane(
     discord_username="farm-reel",
     discord_title="Daily reel",
     # Approval gate removed 21-May-2026 per Boss: the daily reel is built from
-    # gems he has ALREADY reacted/vetted, so the second reel-level reaction was
-    # redundant bottleneck. Now auto-publishes + sends a Discord notice. (Outdoor
-    # GWTC/house-yard lanes stay gated — that's a privacy veto, not a bottleneck.)
+    # gems he has ALREADY reacted/vetted, so the second reel-level reaction was a
+    # redundant bottleneck. Now auto-publishes + sends a Discord notice. (As of
+    # the same date ALL reel lanes auto-publish — Boss waived the outdoor gates.)
     approval_required=False,
     ledger_lane="reel",
     caption_fallback="A day at the farm.",
@@ -145,10 +145,9 @@ GWTC_TIMELAPSE_LANE = DailyReelLane(
     output_filename_prefix="reel-gwtc-timelapse",
     discord_username="farm-reel-gwtc",
     discord_title="GWTC coop-roof time-lapse",
-    # GWTC has an outdoor/coop-roof privacy risk: humans can enter the frame.
-    # Require a Discord reaction before IG/FB publish so daylight reels still get
-    # a human veto instead of auto-posting a coop-work still.
-    approval_required=True,
+    # 21-May-2026: privacy gate waived by Boss (his own property/cameras, no
+    # concern). Auto-publishes like the other timelapse lanes.
+    approval_required=False,
     ledger_lane="gwtc-timelapse-reel",
     caption_fallback="A day at the coop.",
     mention_user_id=MARK_DISCORD_USER_ID,
@@ -199,9 +198,8 @@ HOUSE_YARD_CAM_TIMELAPSE_LANE = DailyReelLane(
     output_filename_prefix="reel-house-yard-cam-timelapse",
     discord_username="farm-reel-house-yard",
     discord_title="House-yard time-lapse",
-    # Outdoor camera with humans/dogs/vehicles in frame — gate on Discord
-    # reaction before IG/FB publish, same pattern as GWTC.
-    approval_required=True,
+    # 21-May-2026: privacy gate waived by Boss; auto-publishes like the others.
+    approval_required=False,
     ledger_lane="house-yard-cam-timelapse-reel",
     caption_fallback="A day in the yard.",
     mention_user_id=MARK_DISCORD_USER_ID,
