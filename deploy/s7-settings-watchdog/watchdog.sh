@@ -1,10 +1,15 @@
 #!/bin/bash
-# Author: Claude Sonnet 4.6
-# Date: 02-May-2026
+# Author: Claude Sonnet 4.6 (orig); modified 2026-05-22 by Claude Opus 4.7 (1M context)
+# Date: 02-May-2026 (whitebalance push removed 2026-05-22, v2.40.16 — see below)
 # PURPOSE: S7 IP Webcam watchdog — two jobs in one script:
 #   1. Detect the "black screen" boot race condition (HTTP server starts before
 #      Android camera hardware is ready) and fix it via ADB on GWTC.
-#   2. Re-assert portrait/WB/focus settings after any phone/app restart.
+#   2. Re-assert portrait/orientation/focus settings after any phone/app restart.
+#      (whitebalance=incandescent was dropped 2026-05-22: the S7 left the brooder
+#      heat lamp for the nesting box, so the warm-light compensation now
+#      cool/blue-shifts a neutral scene. The phone runs on default auto WB.)
+#      NOTE: the live LaunchAgent runs an INLINE copy of this logic (inlined to
+#      dodge the TCC block on ~/Documents reads from launchd); keep both in sync.
 #
 # Root cause of black screen: IP Webcam auto-starts on boot and its HTTP server
 # begins accepting connections before the Android camera HAL finishes initialising.
@@ -32,11 +37,10 @@ ADB_BOOT_WAIT=60
 stamp() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
 apply_settings() {
-    /usr/bin/curl -sS -m 5 "$S7/settings/whitebalance?set=incandescent"     > /dev/null 2>&1 && wb=1 || wb=0
     /usr/bin/curl -sS -m 5 "$S7/settings/focusmode?set=continuous-picture"  > /dev/null 2>&1 && fm=1 || fm=0
     /usr/bin/curl -sS -m 5 "$S7/settings/orientation?set=portrait"          > /dev/null 2>&1 && or=1 || or=0
     /usr/bin/curl -sS -m 5 "$S7/settings/photo_rotation?set=90"             > /dev/null 2>&1 && pr=1 || pr=0
-    echo "$(stamp) settings applied: wb=$wb fm=$fm or=$or pr=$pr" >> "$LOG"
+    echo "$(stamp) settings applied: fm=$fm or=$or pr=$pr" >> "$LOG"
 }
 
 # --- Step 1: check if IP Webcam is serving a real frame ---
