@@ -31,7 +31,6 @@
       "http_trigger_focus": false,
       "http_startup_gets": [
         "/settings/focusmode?set=continuous-picture",
-        "/settings/whitebalance?set=incandescent",
         "/settings/orientation?set=portrait",
         "/settings/photo_rotation?set=90"
       ],

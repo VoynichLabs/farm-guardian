@@ -21,12 +21,11 @@ GWTC=192.168.0.68
 ADB="C:\\farm-services\\platform-tools\\adb.exe"
 LOG=/tmp/s7-settings-watchdog.log
 stamp(){ date -u +%Y-%m-%dT%H:%M:%SZ; }
-apply(){ wb=0; fm=0; or=0; pr=0
-  /usr/bin/curl -sS -m 5 "$S7/settings/whitebalance?set=incandescent"    &gt;/dev/null 2&gt;&amp;1 &amp;&amp; wb=1
+apply(){ fm=0; or=0; pr=0
   /usr/bin/curl -sS -m 5 "$S7/settings/focusmode?set=continuous-picture" &gt;/dev/null 2&gt;&amp;1 &amp;&amp; fm=1
   /usr/bin/curl -sS -m 5 "$S7/settings/orientation?set=portrait"         &gt;/dev/null 2&gt;&amp;1 &amp;&amp; or=1
   /usr/bin/curl -sS -m 5 "$S7/settings/photo_rotation?set=90"            &gt;/dev/null 2&gt;&amp;1 &amp;&amp; pr=1
-  echo "$(stamp) settings wb=$wb fm=$fm or=$or pr=$pr" &gt;&gt; "$LOG"; }
+  echo "$(stamp) settings fm=$fm or=$or pr=$pr" &gt;&gt; "$LOG"; }
 bytes=$(/usr/bin/curl -sS -m 15 "$S7/photoaf.jpg" -o /dev/null -w "%{size_download}" 2&gt;/dev/null || echo 0)
 if [ "$bytes" -gt 10000 ]; then
   echo "$(stamp) frame_ok bytes=$bytes" &gt;&gt; "$LOG"

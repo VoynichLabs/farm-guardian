@@ -2,7 +2,40 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] - 2026-05-17
+## [Unreleased] - 2026-05-22
+
+### v2.40.16 — fix: S7 cold-boot black-screen root cause + drop obsolete heat-lamp white balance (Claude Opus 4.7 (1M context))
+
+Two related S7 fixes. The phone is at the nesting box on a standalone USB brick (`192.168.0.249`, no ADB host); repo changes here are config + docs only — the camera fixes were made on the phone.
+
+**Part 1 — S7 cold-boot black-screen, root-caused and fixed on the phone 2026-05-21 (prior dev session; documented here).**
+
+Symptom: every time the S7 lost power, recharged, and powered back on, IP Webcam auto-started and the HTTP server came up but broadcast a black frame (`/photo.jpg` = 0 bytes, `status.json video_status.mode = none`) until a human did Actions → Stop → Start at the phone.
+
+Root cause: the swipe **lock screen**. On cold boot the phone sat at the keyguard; IP Webcam's `BootUpReceiver` launched `.Rolling`, tried to open the camera while the keyguard was showing, Samsung denied camera access, the camera-init task threw (`Rolling$b.doInBackground`), and the app never retried.
+
+Fix (all on the phone, persists across every power-cycle, no host/ADB/Mac needed):
+1. Lock screen disabled — `adb shell locksettings set-disabled true` (+ `settings put secure lockscreen.disabled 1`, `svc power stayon true`, `screen_off_timeout` maxed). Persists across reboot — verified.
+2. IP Webcam → Video preferences → Focus mode: `Macro, manual` (the soft-focus cause) → `Aggressive, for taking photos` (continuous-picture). Set in the app menu so it persists — the HTTP `/settings/focusmode` is runtime-only and does NOT survive reboot.
+3. IP Webcam → Video preferences → Video orientation → Portrait, set in-app for the same persistence reason.
+
+Verified end-to-end: clean reboot, zero intervention → keyguard gone, camera green (1.09 MB frame), focusmode=continuous-picture, orientation=portrait.
+
+Ruled out (do not re-try): battery-optimization/doze whitelist (boot still black — it's a keyguard timing block, not a throttle); HTTP `/settings/` toggles to revive a black camera (the old watchdog self-healed 0 of 81 black events); adb restart paths (`.Rolling` not exported → SecurityException; `monkey ... LAUNCHER` only opens the config screen). The watchdog's SSH-to-GWTC ADB branch has been dead code since the 2026-04-26 standalone-power switch.
+
+**Part 2 — dropped the obsolete `whitebalance=incandescent` push (2026-05-22).**
+
+`whitebalance=incandescent` was added (v2.27.7) to cancel the orange/red glow of the brooder heat lamp. The S7 moved to the nesting box (2026-04-30) and the heat lamp is no longer in use, so the incandescent setting now cools/blue-shifts an already-neutral scene → washed-out, oddly-colored frames. Boss noticed the phone cold-boots with clean auto-WB color, then the first watchdog tick flipped it to portrait *and* applied incandescent in the same curl batch — so the rotation and the color cast arrived together, which read as "going portrait applies a filter."
+
+Removed the `whitebalance` GET from both places that pushed it:
+- `config.json` → `cameras[s7-cam].http_startup_gets` (Guardian startup re-assertion).
+- `deploy/s7-settings-watchdog/com.farmguardian.s7-settings-watchdog.plist` `apply()` (10-min re-assertion) — also dropped the now-meaningless `wb` token from its log line.
+
+The pipeline config (`tools/pipeline/config.json`) never pushed WB — no change there. With nothing overriding it, the phone keeps the auto WB it boots with. The live phone was reset to `auto` immediately rather than waiting for the next power-cycle.
+
+This is NOT the recurring usb-cam heat-lamp WB landmine in `docs/16-Apr-2026-heat-lamp-orange-cast-investigation.md` — that doc is about a UVC sensor clipping *under* a heat lamp. The S7 left the heat lamp; the compensation is now the problem. That doc was annotated with a 2026-05-22 update retiring its S7 incandescent guidance.
+
+**Verified live (2026-05-22):** deployed watchdog plist synced to `~/Library/LaunchAgents/` + reloaded (bootout/bootstrap); a forced run logs `settings fm=1 or=1 pr=1` (no `wb`); phone `status.json` reports `whitebalance=auto` and holds after a watchdog tick; Guardian kickstarted clean and `/api/cameras` responds. `config.json` validates as JSON.
 
 ### v2.40.15 — ops: LM Studio VLM watchdog LaunchAgent (Claude Opus 4.7 (1M context))
 

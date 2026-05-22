@@ -3,6 +3,8 @@
 Author: Claude Opus 4.7 (1M context) — Bubba
 Status: DURABLE REFERENCE. **READ THIS BEFORE "FIXING" THE HEAT-LAMP COLOR CAST ON usb-cam, mba-cam, OR s7-cam.** Boss has been through this loop 4–5 times. Every agent so far has reached for WB, made it worse, and moved on.
 
+> **2026-05-22 UPDATE (v2.40.16):** The S7 `whitebalance=incandescent` push referenced throughout this doc (TL;DR #2, "How to actually fix it" #2, "S7 regression recovery") was **removed**. The S7 moved from the brooder to the nesting box (2026-04-30) and the heat lamp is no longer in use, so the warm-light compensation now cool/blue-shifts an already-neutral scene — washed-out, oddly-colored frames. The S7 runs on plain auto WB. **Everything below about the usb-cam under an actual heat lamp still stands** — this update only retires the S7-specific incandescent setting.
+
 ## The TL;DR nobody reads but should
 
 1. The WB code already exists. Do NOT write a new one.
