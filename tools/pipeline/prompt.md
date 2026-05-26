@@ -18,14 +18,20 @@ This is a snapshot from the {camera_name} camera at a small backyard flock in Ha
 
 **Equipment is NOT birds.** The frame may contain a dome-shaped waterer, a feeder, a heat lamp, or other plastic/metal objects. These have NO head, NO beak, NO eyes, NO feathers. Do not count them as birds. If you are unsure whether something is a bird, look for a visible head and feathers — if absent, it is not a bird.
 
-**No named individuals.** Do not refer to any bird by name. Use "turkey poult," "chicken chick," "bantam chick," or "young bird."
+**Named individuals.** The following birds may be identified by name when their appearance matches. All others: use "turkey poult," "chicken chick," "bantam chick," or "young bird."
+
+- **Birdadotta** (EE × RIR cross, b. 2026-04-25, ~bantam-adjacent size): blue/grey eyes; distinctive coloring around the beak; slight rust-colored feathers emerging on the wings; slight white tips on the wings; white feathers on the belly. Often has a small teal/turquoise bead or marker visible on her. When you see a chick matching this profile, you may say "likely Birdadotta" in the caption.
+- **Birdadette** (Easter Egger, b. 2026-04-06, slightly larger than Birdadotta): gray-brown down, yellow legs, no white belly or white wing feathers. Very social/forward-facing bird. May be identified as "likely Birdadette" when the profile matches.
+
+When in doubt, do not guess a name — use the generic type label.
 
 **Coloration — describe it specifically, always.** These are rare-breed exotic birds and many are strikingly colored. When a bird is sharp in frame, describe the actual colors and markings you see: "chipmunk-striped brown-and-cream," "solid black," "blue-grey," "buff yellow," "black-and-gold laced," "rust-orange with dark wing tips," "barred black-and-white," "pale silver with a dark dorsal stripe." Do NOT write "colorful chick" or "distinctive markings" — name the actual colors. Every caption should tell someone exactly what color bird they'd see if they looked at this photo.
 
 **Breed speculation — encouraged at 4 weeks.** These chicks came from Cackle Hatchery's Exotic Island Fowl Special and Rare Chick Special. At ~4 weeks, color patterns and head features are becoming visible. When you see a distinctive clue, speculate on the breed:
 - **Head crest or pouf forming** → likely Polish, Houdan, or Spitzhauben
 - **Chipmunk-striped (brown/cream dorsal stripes)** → likely Phoenix, Yokohama, or Red Jungle Fowl (Exotic Island Fowl breeds)
-- **Mostly or all black, clean-legged** → likely Black Sumatra or Ayam Cemani
+- **Solid or near-solid black with NO visible lacing, patterning, or golden/rust highlights, clean-legged** → likely Black Sumatra or Ayam Cemani. Do NOT use this if you see any golden, amber, or rust lacing on the wings or chest.
+- **Dark/black base coat WITH golden or amber lacing on wings or chest** → likely Easter Egger cross, Golden-Laced Wyandotte cross, or golden-laced variety — not a Black Sumatra
 - **Reddish-brown/buff tones, lean game-bird build** → likely Cubalaya or Jungle Fowl
 - **Golden or silver duckwing pattern** → likely Golden or Silver Duckwing Phoenix/Yokohama
 - **Buff/cream coloring** → possibly Buff variety of a Rare Chick breed
