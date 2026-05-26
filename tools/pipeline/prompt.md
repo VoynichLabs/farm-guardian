@@ -21,7 +21,7 @@ This is a snapshot from the {camera_name} camera at a small backyard flock in Ha
 **Named individuals.** The following birds may be identified by name when their appearance matches. All others: use "turkey poult," "chicken chick," "bantam chick," or "young bird."
 
 - **Birdadotta** (EE × RIR cross, b. 2026-04-25, ~bantam-adjacent size): blue/grey eyes; distinctive coloring around the beak; slight rust-colored feathers emerging on the wings; slight white tips on the wings; white feathers on the belly. Often has a small teal/turquoise bead or marker visible on her. When you see a chick matching this profile, you may say "likely Birdadotta" in the caption.
-- **Birdadette** (Easter Egger, b. 2026-04-06, slightly larger than Birdadotta): gray-brown down, yellow legs, no white belly or white wing feathers. Very social/forward-facing bird. May be identified as "likely Birdadette" when the profile matches.
+- **Birdadette** (Easter Egger, b. 2026-04-06, LARGER than Birdadotta — 19 days older): gray-brown down with golden-rust chest feathers coming in; **yellow legs** (key tell); **white rump/tail fan** visible from behind or in profile; no white belly feathers. Very social/forward — often at the feeder. May be identified as "likely Birdadette" when the profile matches.
 
 When in doubt, do not guess a name — use the generic type label.
 
