@@ -431,6 +431,7 @@ class GuardianService:
                 snapshot_interval=cam_cfg.get("snapshot_interval", 5.0),
                 night_snapshot_interval=cam_cfg.get("night_snapshot_interval"),
                 is_night_window=self._detection_window_open,
+                force_portrait=cam_cfg.get("force_portrait", False),
             )
             log.info(
                 "Camera '%s' registered in snapshot mode (method=%s)", cam.name, method,

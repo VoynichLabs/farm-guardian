@@ -45,30 +45,46 @@ log = logging.getLogger("guardian.capture")
 _TARGET_WIDTH = 1920
 
 
-def _apply_exif_rotation(jpeg_bytes: bytes) -> bytes:
-    """Physically bake any EXIF Orientation into the JPEG pixels.
+def _apply_exif_rotation(jpeg_bytes: bytes, force_portrait: bool = False) -> bytes:
+    """Physically bake orientation into the JPEG pixels so every downstream
+    consumer (numpy array AND the preserved `jpeg_bytes`) gets upright pixels.
 
-    IP Webcam on the S7 emits sensor-native 1920×1080 pixels and encodes
-    portrait mode via an EXIF Orientation tag (6 = rotate 90° CW for
-    display). `cv2.imdecode` discards EXIF, so Guardian + the VLM pipeline
-    + every gem JPEG that gets committed downstream would see a sideways
-    frame. Rotating once at the capture boundary means every consumer
-    (numpy array AND the preserved `jpeg_bytes`) gets upright pixels.
+    Two correction paths:
 
-    No-op for Orientation=1 or absent EXIF — safe to call on any JPEG.
-    Catches all exceptions and returns the original bytes on failure,
-    since an orientation bug must never kill the capture loop.
+    1. EXIF Orientation. IP Webcam on the S7 emits sensor-native 1920×1080
+       pixels and encodes portrait via an EXIF Orientation tag (6 = rotate
+       90° CW). `cv2.imdecode` discards EXIF, so without baking it in the
+       whole pipeline sees a sideways frame.
+
+    2. `force_portrait` dimension fallback. The S7 reverts its
+       `photo_rotation=90` setting whenever the phone reboots/reconnects, and
+       then `/photo.jpg` starts returning sensor-native LANDSCAPE tagged
+       Orientation=1 — which path (1) correctly leaves alone. The
+       `http_startup_gets` that re-arm portrait only fire at Guardian start,
+       not on every phone reconnect, so this recurred repeatedly. For a
+       portrait-mounted camera, a landscape frame is always wrong: rotate it
+       90° CW (matching the Orientation=6 case) regardless of EXIF. This makes
+       the correction automatic and independent of the phone's flaky tagging.
+
+    No-op when there's nothing to do — safe to call on any JPEG. Catches all
+    exceptions and returns the original bytes on failure, since an orientation
+    bug must never kill the capture loop.
     """
     try:
         from io import BytesIO
         from PIL import Image, ImageOps
         im = Image.open(BytesIO(jpeg_bytes))
         orient = im.getexif().get(274, 1)  # 274 is the EXIF Orientation tag
-        if orient == 1:
-            return jpeg_bytes
-        rotated = ImageOps.exif_transpose(im)
+        needs_exif_rot = orient != 1
+        if needs_exif_rot:
+            im = ImageOps.exif_transpose(im)
+        needs_force_rot = force_portrait and im.width > im.height
+        if needs_force_rot:
+            im = im.rotate(-90, expand=True)  # -90 in PIL == 90° CW
+        if not needs_exif_rot and not needs_force_rot:
+            return jpeg_bytes  # nothing to correct — avoid a needless re-encode
         out = BytesIO()
-        rotated.save(out, format="JPEG", quality=95)
+        im.save(out, format="JPEG", quality=95)
         return out.getvalue()
     except Exception:
         return jpeg_bytes
@@ -704,9 +720,11 @@ class CameraSnapshotPoller:
         is_night_window: Optional[Callable[[], bool]] = None,
         on_frame: Optional[Callable[[FrameResult], None]] = None,
         buffer_size: int = 10,
+        force_portrait: bool = False,
     ):
         self._camera_name = camera_name
         self._source = source
+        self._force_portrait = force_portrait
         self._snapshot_interval = max(_MIN_SNAPSHOT_INTERVAL, snapshot_interval)
         if snapshot_interval < _MIN_SNAPSHOT_INTERVAL:
             log.warning(
@@ -840,7 +858,7 @@ class CameraSnapshotPoller:
                 self._wait_remaining(t_start, interval)
                 continue
 
-            jpeg = _apply_exif_rotation(jpeg)
+            jpeg = _apply_exif_rotation(jpeg, force_portrait=self._force_portrait)
             arr = np.frombuffer(jpeg, np.uint8)
             raw = cv2.imdecode(arr, cv2.IMREAD_COLOR)
             if raw is None:
@@ -910,6 +928,7 @@ class FrameCaptureManager:
         snapshot_interval: Optional[float] = None,
         night_snapshot_interval: Optional[float] = None,
         is_night_window: Optional[Callable[[], bool]] = None,
+        force_portrait: bool = False,
     ) -> None:
         """Register and start capturing from a camera.
 
@@ -937,6 +956,7 @@ class FrameCaptureManager:
                 night_snapshot_interval=night_snapshot_interval,
                 is_night_window=is_night_window,
                 on_frame=self._on_frame,
+                force_portrait=force_portrait,
             )
         else:
             interval = frame_interval if frame_interval is not None else self._frame_interval

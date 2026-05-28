@@ -39,7 +39,8 @@
         "/settings/photo_rotation?set=90"
       ],
       "snapshot_interval": 60.0,
-      "detection_enabled": false
+      "detection_enabled": false,
+      "force_portrait": true
     },
     {
       "name": "usb-cam",

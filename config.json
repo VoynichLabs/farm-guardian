@@ -27,15 +27,16 @@
       "source": "snapshot",
       "snapshot_method": "http_url",
       "http_base_url": "http://192.168.0.249:8080",
-      "http_photo_path": "/photoaf.jpg",
+      "http_photo_path": "/photo.jpg",
       "http_trigger_focus": false,
       "http_startup_gets": [
         "/settings/focusmode?set=continuous-picture",
         "/settings/orientation?set=portrait",
         "/settings/photo_rotation?set=90"
       ],
-      "snapshot_interval": 5.0,
-      "detection_enabled": false
+      "snapshot_interval": 3.0,
+      "detection_enabled": false,
+      "force_portrait": true
     },
     {
       "name": "usb-cam",
@@ -71,7 +72,7 @@
       "http_trigger_focus": false,
       "snapshot_interval": 5.0,
       "detection_enabled": false,
-      "enabled": false
+      "enabled": true
     },
     {
       "name": "dominator-cam",
