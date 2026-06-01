@@ -1,4 +1,4 @@
-# Author: Claude Opus 4.6 (updated), Cascade (Claude Sonnet 4) (original); Claude Sonnet 4.6 (edits 27-April-2026 — allow_stale on frame endpoints, v2.37.13)
+# Author: Claude Opus 4.6 (updated), Cascade (Claude Sonnet 4) (original); Claude Sonnet 4.6 (edits 27-April-2026 — allow_stale on frame endpoints, v2.37.13; 01-Jun-2026 — /api/health liveness probe)
 # Date: 13-April-2026 (v2.18.0 — frame/stream endpoints prefer original camera JPEG when present)
 # PURPOSE: Local web dashboard for Farm Guardian. Serves a FastAPI app on the Mac Mini
 #          that provides real-time monitoring and full control of the guardian service.
@@ -68,6 +68,13 @@ def create_app() -> FastAPI:
     # ──────────────────────────────────────────────
     # Service Status
     # ──────────────────────────────────────────────
+
+    @app.get("/api/health")
+    async def health():
+        """Liveness probe — fast check that the guardian process is up."""
+        if not _service:
+            return JSONResponse({"ok": False, "status": "service not running"}, status_code=503)
+        return {"ok": True, "status": "up"}
 
     @app.get("/api/status")
     async def get_status():
