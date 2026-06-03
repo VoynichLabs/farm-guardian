@@ -31,7 +31,15 @@
 #            - verify the right model is loaded before any call
 #            - never auto-load via the chat endpoint (skip cycle instead)
 #            - single in-flight via module-level threading.Lock
-# SRP/DRY check: Pass — single responsibility is VLM round-trip.
+#
+#          03-June-2026 (Claude Opus 4.8, 1M context): added
+#          ensure_model_loaded() — the controlled startup-only load path the
+#          orchestrator calls once so the model is up at the configured
+#          context (16k) after a reboot/LM Studio restart. Checks what's
+#          loaded first, never stacks, parallel=1 + flash_attention per
+#          docs/13-Apr-2026-lm-studio-reference.md.
+# SRP/DRY check: Pass — single responsibility is VLM round-trip + the
+#                startup ensure-load for the model it talks to.
 
 from __future__ import annotations
 
@@ -66,6 +74,61 @@ def list_loaded_models(lm_base: str, timeout: int = 5) -> list[str]:
     r = requests.get(f"{lm_base}/v1/models", timeout=timeout)
     r.raise_for_status()
     return [m["id"] for m in r.json().get("data", [])]
+
+
+def ensure_model_loaded(
+    lm_base: str,
+    model_id: str,
+    context_length: int,
+    timeout: int = 180,
+) -> str:
+    """Make sure model_id is loaded with at least context_length tokens of
+    context, loading it via LM Studio's native API if needed.
+
+    The per-cycle path is deliberately read-only (it skips when the model
+    isn't loaded — see this module's header and docs/13-Apr-2026-lm-studio-
+    reference.md). This is the ONE controlled exception: called once at daemon
+    startup so a reboot/LM-Studio-restart doesn't leave the model JIT-loaded at
+    a too-small context (which caused "Context size has been exceeded" drops on
+    portrait S7 frames). It checks what's loaded first so it never stacks
+    instances, and loads with parallel=1 (the pipeline is single-in-flight) +
+    flash_attention, exactly as the reference doc prescribes.
+
+    Returns one of: "already-loaded", "loaded", "reloaded-for-context".
+    Raises on API failure — the caller treats that as non-fatal and lets the
+    per-cycle read-only skip handle a still-unloaded model.
+    """
+    info = requests.get(f"{lm_base}/api/v0/models", timeout=10)
+    info.raise_for_status()
+    loaded = next(
+        (m for m in info.json().get("data", [])
+         if m.get("id") == model_id and m.get("state") == "loaded"),
+        None,
+    )
+    outcome = "loaded"
+    if loaded is not None:
+        if (loaded.get("loaded_context_length") or 0) >= context_length:
+            return "already-loaded"
+        # Loaded but at too small a context — unload before reloading so we
+        # don't stack a second instance on top.
+        requests.post(
+            f"{lm_base}/api/v1/models/unload",
+            json={"instance_id": model_id}, timeout=30,
+        ).raise_for_status()
+        time.sleep(6)  # let VRAM actually free (2s was too short per the doc)
+        outcome = "reloaded-for-context"
+
+    requests.post(
+        f"{lm_base}/api/v1/models/load",
+        json={
+            "model": model_id,
+            "context_length": context_length,
+            "parallel": 1,
+            "flash_attention": True,
+        },
+        timeout=timeout,
+    ).raise_for_status()
+    return outcome
 
 
 def prompt_for(camera_name: str, camera_context: str, prompt_template: str) -> str:

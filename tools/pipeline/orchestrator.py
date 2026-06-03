@@ -5,11 +5,14 @@
 #          frame through a four-stage pre-VLM filter (trivial std-dev gate,
 #          exposure gate, per-camera motion gate), enriches passing frames
 #          via the VLM, persists to SQLite + disk. Single in-flight VLM call
-#          (enforced in vlm_enricher via a module-level lock). LM Studio
-#          coordination is read-only: if the wrong model is loaded (or
+#          (enforced in vlm_enricher via a module-level lock). Per-cycle LM
+#          Studio coordination is read-only: if the wrong model is loaded (or
 #          nothing is loaded), the cycle is logged and skipped — we do not
-#          auto-load to avoid contention with G0DM0D3 sweeps, per
-#          docs/13-Apr-2026-lm-studio-reference.md.
+#          auto-load mid-loop, to avoid contention with G0DM0D3 sweeps, per
+#          docs/13-Apr-2026-lm-studio-reference.md. The ONE exception is a
+#          single controlled ensure_model_loaded() at daemon startup (checks
+#          first, never stacks) so a reboot can't leave the model JIT-loaded
+#          at a too-small context.
 #
 #          Motion gate is opt-in per camera via `motion_gate: true` in the
 #          camera's config block. Outdoor/coop cameras (house-yard, gwtc)
@@ -47,7 +50,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     from tools.pipeline.capture import capture_camera, CaptureError
     from tools.pipeline.quality_gate import passes_trivial_gate, passes_exposure_gate, passes_sharpness_gate, MotionGate
-    from tools.pipeline.vlm_enricher import enrich, ModelNotLoaded, EnricherError, ValidationFailed
+    from tools.pipeline.vlm_enricher import enrich, ensure_model_loaded, ModelNotLoaded, EnricherError, ValidationFailed
     from tools.pipeline.store import ensure_schema, store, store_raw
     from tools.pipeline.retention import sweep as retention_sweep, sweep_raw as retention_sweep_raw
     from tools.pipeline.gem_poster import post_gem, should_post, load_dotenv
@@ -68,7 +71,7 @@ if __package__ in (None, ""):
 else:
     from .capture import capture_camera, CaptureError
     from .quality_gate import passes_trivial_gate, passes_exposure_gate, passes_sharpness_gate, MotionGate
-    from .vlm_enricher import enrich, ModelNotLoaded, EnricherError, ValidationFailed
+    from .vlm_enricher import enrich, ensure_model_loaded, ModelNotLoaded, EnricherError, ValidationFailed
     from .store import ensure_schema, store, store_raw
     from .retention import sweep as retention_sweep, sweep_raw as retention_sweep_raw
     from .gem_poster import post_gem, should_post, load_dotenv
@@ -919,6 +922,21 @@ def run_daemon() -> int:
     ensure_schema(db_path)
     _install_signal_handlers()
     _MOTION_GATE = MotionGate(threshold=cfg.get("motion_delta_threshold", 3.0))
+
+    # Ensure the VLM is loaded at the configured context BEFORE the loop, so a
+    # reboot or LM Studio restart can't leave it JIT-loaded at a too-small
+    # context (which 400s portrait frames with "Context size has been
+    # exceeded"). Non-fatal: if LM Studio is down or slow at startup, log and
+    # carry on — the per-cycle read-only skip already handles an unloaded model.
+    want_ctx = cfg.get("vlm_load_context_length", 16384)
+    try:
+        outcome = ensure_model_loaded(cfg["lm_studio_base"], cfg["vlm_model_id"], want_ctx)
+        log.info("VLM ensure-loaded %s at context>=%d: %s",
+                 cfg["vlm_model_id"], want_ctx, outcome)
+    except Exception as e:
+        log.warning("ensure_model_loaded failed (%s: %s) — continuing; "
+                    "per-cycle skip handles an unloaded model",
+                    type(e).__name__, e)
 
     # Launch dedicated threads for vlm_bypass cameras so they don't contend
     # with the main VLM-serialized scheduler. These threads own their own
