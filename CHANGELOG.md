@@ -2,7 +2,24 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] - 2026-05-22
+## [Unreleased] - 2026-06-03
+
+### v2.40.17 — perf: cut per-frame VLM latency (downscaled input + slimmed prompt + 16k context) (Claude Opus 4.8 (1M context))
+
+**Why:** S7 frames were averaging ~29 s per VLM call (target: under 5 s) and were intermittently 400ing with `Context size has been exceeded`, silently dropping those gems.
+
+**Root causes found:**
+1. The pipeline never loads the model and never sets its context — `vlm_load_context_length` was dead config (a code comment in `vlm_enricher.py` says it is "accepted for API compatibility but ignored"). LM Studio JIT-loaded `qwen/qwen3.5-9b` itself at only ~7115 tokens per slot (`parallel=4`, KV split four ways). The Birds preset's system prompt (~4000 tokens) plus a portrait S7 frame's vision tokens overflowed that window.
+2. The Birds preset prompt was ~2511 words / ~4000 tokens of mostly-redundant prose, re-processed on every frame. Because `{camera_name}`/`{camera_context}` were substituted at the **top** of the prompt, each camera produced a different prefix, so LM Studio's prompt cache missed on every camera switch.
+3. The full-resolution frame (1080×1920 for S7) was sent to the model, which only needs enough detail to judge composition/clarity.
+
+**What changed:**
+- **Model reload (operational, on the Mac Mini):** `qwen/qwen3.5-9b` reloaded at `context_length=16384, parallel=1, flash_attention=true` per `docs/13-Apr-2026-lm-studio-reference.md` (Rule 2: cap at 8k–16k; parallel-1 avoids the KV-slot split that contributed to the 2026-04-13 incident). `vlm_load_context_length` bumped 8192 → 16384 in `tools/pipeline/config.json` to match. **Not yet durable across an LM Studio/host restart** — JIT will revert to the cramped default; a startup ensure-load is the planned follow-up. Measured per-frame split after these changes (LM Studio server log): prompt eval ~5.5 s / 1949 input tokens, generation ~8.3 s / ~280 output tokens at ~34 tok/s. Generation throughput is memory-bandwidth bound for a 9B model on the M4 Pro; `flash_attention` did not move it. Further latency cuts require fewer output tokens (shorter captions / trimmed schema) or a smaller model.
+- **Slimmed + cache-friendly prompt** (`~/.lmstudio/config-presets/Birds.preset.json` `systemPrompt`, backup at `.bak.pre-slim-20260603`): 4000 → ~1046 tokens. Every scoring band (0–10), `share_worth` skip/strong gate, the solo-bird rule, and the 10=selfie rule are preserved; cut the named-individual section (Boss confirmed it is unreliable and unwanted), the breed-speculation essay, repeated warnings, and verbose examples. The per-camera line (`{camera_name}`/`{camera_context}`/`{today}`) moved to the **end** so the large shared rubric prefix caches across all four cameras.
+- **Downscaled VLM input** (`orchestrator.py::_downscale_for_vlm`, new `vlm_input_long_edge_px` config, set to **768**): the frame sent to the model is shrunk so its longest side ≤ 768 px; the archived/posted gem stays full-resolution. Decode/encode failures fall back to the original bytes.
+- **Short captions** (preset only — no schema/field changes, no pipeline rewiring): `caption_draft` guidance rewritten to one short expression-based line; `caption_draft` maxLength 450 → 140, `share_reason` 200 → 120. Boss directive: keep a caption, but a slim one based on the bird's pose/expression, not scenery-describing or bird-identifying essays. All 17 schema fields and every downstream consumer (`store`, `gem_poster`, `ig_selection`, `daily_reel_runner`, `images_api`) are unchanged.
+
+**Result:** S7 per-frame VLM time dropped from ~29 s → **~8–11 s** (server-log totals 8.1–10.9 s; ~8 s on prompt-cache hits — moving the per-camera line to the end of the prompt lets the shared rubric prefix cache across cameras). Generation is now ~200 output tokens (~6 s at the hardware-bound ~34 tok/s); prompt eval is ~2 s cached / ~5 s cold. Sub-8 s is not reachable without cutting the structured score fields (which drive gem selection — Boss wants them kept) or a smaller model.
 
 ### v2.40.16 — fix: S7 cold-boot black-screen root cause + drop obsolete heat-lamp white balance (Claude Opus 4.7 (1M context))
 

@@ -1,4 +1,4 @@
-# Author: Claude Opus 4.7 (1M context); Claude Sonnet 4.6 (edits 27-April-2026 — vlm_bypass mode: run_raw_cycle, dedicated raw threads, raw retention sweep, v2.37.13; 28-April-2026 — sharpness gate wired in, v2.37.14; 04-May-2026 — Birds preset as prompt/schema source, v2.40.0); GPT-5.5 Codex (edits 08-May-2026 — static floor-pecking score calibration)
+# Author: Claude Opus 4.7 (1M context); Claude Sonnet 4.6 (edits 27-April-2026 — vlm_bypass mode: run_raw_cycle, dedicated raw threads, raw retention sweep, v2.37.13; 28-April-2026 — sharpness gate wired in, v2.37.14; 04-May-2026 — Birds preset as prompt/schema source, v2.40.0); GPT-5.5 Codex (edits 08-May-2026 — static floor-pecking score calibration); Claude Opus 4.8 (1M context) (edits 03-June-2026 — VLM input downscale via _downscale_for_vlm + vlm_input_long_edge_px config, to cut per-frame latency, v2.40.17)
 # Date: 17-April-2026
 # PURPOSE: Main entry point for the multi-cam image pipeline. Schedules per-
 #          camera capture cycles at their configured cadences, runs each
@@ -107,6 +107,36 @@ def _decode_jpeg(jpeg_bytes: bytes) -> np.ndarray:
     if img is None:
         raise ValueError("jpeg decode failed")
     return img
+
+
+def _downscale_for_vlm(jpeg_bytes: bytes, long_edge_px: int) -> bytes:
+    """Shrink a JPEG so its longest side is at most long_edge_px, for the
+    VLM call ONLY. The full-resolution frame is still what gets archived and
+    posted — the model only needs enough detail to judge composition and
+    whether a bird is cleanly in frame, so feeding it a smaller image cuts
+    vision-token count and encode time sharply (the single biggest lever on
+    per-frame VLM latency). long_edge_px <= 0 disables the resize. Any decode
+    or encode failure falls back to the original bytes so a bad frame never
+    blocks a cycle.
+    """
+    if long_edge_px <= 0:
+        return jpeg_bytes
+    try:
+        img = _decode_jpeg(jpeg_bytes)
+    except ValueError:
+        return jpeg_bytes
+    height, width = img.shape[:2]
+    longest = max(height, width)
+    if longest <= long_edge_px:
+        return jpeg_bytes
+    scale = long_edge_px / longest
+    resized = cv2.resize(
+        img,
+        (max(1, round(width * scale)), max(1, round(height * scale))),
+        interpolation=cv2.INTER_AREA,
+    )
+    ok, encoded = cv2.imencode(".jpg", resized, [cv2.IMWRITE_JPEG_QUALITY, 85])
+    return encoded.tobytes() if ok else jpeg_bytes
 
 
 def _calibrate_static_floor_pecking_score(camera_name: str, metadata: dict) -> bool:
@@ -372,10 +402,16 @@ def run_cycle(camera_name: str, camera_cfg: dict, cfg: dict, schema: dict,
         result.update(status="paused", reason="pipeline paused via flag file")
         return result
 
-    # Enrich via VLM
+    # Enrich via VLM. Send a downscaled copy of the frame — the model only
+    # judges composition/clarity, not pixel-level detail, so a smaller image
+    # is the biggest single cut to per-frame latency. The full-res jpeg_bytes
+    # is still what gets archived/posted below.
+    vlm_image = _downscale_for_vlm(
+        jpeg_bytes, cfg.get("vlm_input_long_edge_px", 1024)
+    )
     try:
         vlm_result = enrich(
-            image_bytes=jpeg_bytes,
+            image_bytes=vlm_image,
             camera_name=camera_name,
             camera_context=camera_cfg.get("context", ""),
             lm_base=cfg["lm_studio_base"],
