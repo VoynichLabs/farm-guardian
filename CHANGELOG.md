@@ -4,6 +4,16 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-06-03
 
+### v2.40.18 — perf: swap VLM to Qwen3-VL-4B-Instruct (~4 s/frame, under target) (Claude Opus 4.8 (1M context))
+
+**Why:** After v2.40.17 the floor was ~8–11 s/frame, bound by generation throughput on the 9B `qwen/qwen3.5-9b` (a general model with vision bolted on, ~34 tok/s). Boss wanted under 5 s and judged the captions/quality weak.
+
+**What:** Switched `vlm_model_id` `qwen/qwen3.5-9b` → **`qwen/qwen3-vl-4b`** (Qwen3-VL-4B-**Instruct**, GGUF Q4_K_M + F16 mmproj, a dedicated vision model released Oct 2025). Config-only change — `ensure_model_loaded`, `enrich`, the slim Birds prompt, the schema, and every downstream consumer are model-agnostic and unchanged. Verified on LM Studio 0.4.15 / llama.cpp runtime 2.19.1 (Qwen3-VL vision support is in current llama.cpp via ggml-org/llama.cpp PR #16780; structured output is server-side GBNF, model-agnostic).
+
+**Measured** (real S7 frame, 768 px input, slim prompt, `response_format=json_schema`): **~4.0 s/frame** (3.9–4.1 s steady), generation **~66 tok/s** (vs ~34 on the 9B), prompt eval ~0.75 s on cache hit, valid JSON, `reasoning_tokens=0` (Instruct = no thinking), and noticeably better captions/judgments. The old `qwen3.5-9b` GGUF stays on disk for a one-line revert.
+
+**Watch:** the new model judges frames somewhat differently (in spot checks, a touch more generous on `share_worth`/`overall_score`). The scoring rubric in the preset is model-agnostic, so if marginal shots start posting, nudge the score thresholds — don't blame the swap.
+
 ### v2.40.17 — perf: cut per-frame VLM latency (downscaled input + slimmed prompt + 16k context) (Claude Opus 4.8 (1M context))
 
 **Why:** S7 frames were averaging ~29 s per VLM call (target: under 5 s) and were intermittently 400ing with `Context size has been exceeded`, silently dropping those gems.
