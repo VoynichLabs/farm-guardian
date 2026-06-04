@@ -96,8 +96,9 @@ production dependency of the Farm Guardian image pipeline.** The pipeline
 LaunchAgent (`com.farmguardian.pipeline`) calls LM Studio every camera
 cycle for every enabled camera — `tools/pipeline/vlm_enricher.py` POSTs
 each captured frame to `/v1/chat/completions` against the current VLM
-(qwen/qwen3-vl-4b — Qwen3-VL-4B-Instruct — as of 2026-06-03; ~4 s/frame.
-The pipeline now loads it itself at 16k context via
+(qwen/qwen3.5-9b as of 2026-06-04 — reverted from a brief qwen3-vl-4b trial
+that judged too loosely and broke the gem gate; see CHANGELOG v2.40.19.
+The pipeline loads it itself at 16k context via
 `vlm_enricher.ensure_model_loaded` at daemon startup, so it survives a
 reboot) to produce `share_worth`,
 `caption_draft`, and the rest of the structured output that drives the

@@ -2,7 +2,25 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] - 2026-06-03
+## [Unreleased] - 2026-06-04
+
+### v2.40.19 — REVERT: restore calibrated prompt + qwen3.5-9b — the prompt slim broke the quality gate (Claude Opus 4.8 (1M context))
+
+**Incident:** after the S7 phone was restarted (it had wedged — unrelated phone issue), the gem lane posted nearly every frame to Discord. Root cause was **the v2.40.17 prompt slim**, not the v2.40.18 model swap (though the swap made it worse). Offline spot-check on fresh S7 frames:
+- qwen3-vl-4b + slim prompt: ~67% rated decent/strong → flood.
+- qwen3.5-9b + slim prompt: ~50% strong (one "strong" on a `soft` image — contradictory) → still loose.
+- qwen3.5-9b + **restored original calibrated prompt: 6/6 skip** on routine nesting-box frames → strict, correct.
+
+The slim prompt kept the score *bands* but dropped the *calibration anchoring* (the "most routine frames are 2–4 / default to skip" guidance, the worked skip examples, the static-floor-pecking calibration). Without that anchoring the model over-rates ordinary frames. The model follows the rules it's given; I cut the rules that mattered.
+
+**Reverted (live, verified — 4/4 skip post-unpause, no spam):**
+- `vlm_model_id` back to `qwen/qwen3.5-9b`.
+- Birds preset `systemPrompt`/schema restored from `Birds.preset.json.bak.pre-slim-20260603` (original ~4016-token calibrated prompt; caption_draft maxLength back to 450).
+- Pipeline was paused via `/tmp/farm-pipeline.pause` during the fix so nothing posted mid-revert.
+
+**Kept (these do NOT affect the gate):** the 16k durable model load (`ensure_model_loaded`) and the 768px VLM input downscale (`vlm_input_long_edge_px`) — verified strict at 768 with the calibrated prompt.
+
+**Consequence / TODO:** captions are verbose essays again and latency is back to ~13 s. The short-caption and faster-model work (v2.40.17/18) must be redone **offline-verified against the gate** before touching production — slim the captions/speed WITHOUT touching the scoring calibration, and confirm the skip-rate holds on real frames first. Do not re-slim the calibration.
 
 ### v2.40.18 — perf: swap VLM to Qwen3-VL-4B-Instruct (~4 s/frame, under target) (Claude Opus 4.8 (1M context))
 
