@@ -2,7 +2,21 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] - 2026-06-04
+## [Unreleased] - 2026-06-07
+
+### v2.40.20 — fix: GWTC IP move (.68→.69) + usb-cam MJPEG capture; GWTC dual-camera contention diagnosed (Claude Opus 4.8 (1M context))
+
+**Trigger:** Boss reported the GWTC coop camera "on but not broadcasting." Two separate problems, one fixed, one diagnosed as a regression that needs a hands-on step.
+
+**Problem 1 — GWTC's DHCP IP moved `192.168.0.68` → `192.168.0.69` (FIXED).** Both Guardian configs hardcode the IP, so from the Mini *both* GWTC-hosted cameras (the `gwtc` RTSP stream **and** `usb-cam`, which is hosted on GWTC) read "Host is down" — this is what looked like "stopped working" on the dashboard/website. `usb-cam` was healthy on GWTC the whole time; the Mini just couldn't reach it.
+- Updated `192.168.0.68` → `192.168.0.69` in **both** `config.json` and `tools/pipeline/config.json` (gitignored per-host files — not in this commit; recorded here for provenance). Reloaded `com.farmguardian.guardian` + `com.farmguardian.pipeline`. **Verified:** Mini → `http://192.168.0.69:8089/health` returns frames; `usb-cam` capture resumed.
+- **Durable follow-up still needed:** a DHCP reservation for GWTC (MAC `F0:35:75:81:2C:45`) on the TP-Link Archer AX55 so the IP stops moving on every reboot. Needs Boss's OK (router is read-only by policy). Until then, every GWTC reboot can re-break both feeds.
+
+**Problem 2 — `gwtc` coop-overhead stream will not publish while `usb-cam` is running on GWTC (REGRESSION, not yet fixed).** ffmpeg cannot open the built-in `Hy-HD-Camera` ("Could not run graph (device already in use)") whenever `usb_cam_host` holds the external USB camera. The May-9 redesign (`docs/09-May-2026-pipeline-redesign-plan.md`) intends both to coexist on GWTC (gwtc = coop overhead 20:45 reel, usb-cam = coop run 21:00 reel), and Boss confirms both streamed together before — so this is a regression that began at today's ~12:29 reboot (per `farmcam-watchdog` log: wedge loop starts there). Ruled out remotely — none fixed it: USB port swap incl. a blue USB 3.0 port; dropping usb-cam to 720p; forcing MJPEG; PnP camera device reset; disabling the Windows Camera Frame Server. GWTC has a single Intel xHCI host controller, but bandwidth was ruled out (MJPEG didn't help). Most likely a USB-controller/driver state or a Windows-update side effect from that boot — needs a **full cold power-off** (not a warm reboot) and, if that fails, usb-cam on a powered hub or a different host. Documented in `docs/GWTC_SETUP.md`.
+
+**Code change (kept — correct regardless of Problem 2):** `tools/usb-cam-host/usb_cam_host.py` now forces MJPEG capture (`USB_CAM_FOURCC`, default `MJPG`) and opens via `CAP_DSHOW` on Windows. Raw YUY2 was ~10x the USB bandwidth; MJPEG worker RSS dropped from ~253 MB to ~71 MB. `CAP_DSHOW` also makes the DirectShow-resolved device index authoritative (cv2's default MSMF backend numbers devices differently than the name-resolution returns — a latent wrong-camera risk). Deployed to GWTC and verified streaming at 1080p MJPEG. **This did NOT resolve the dual-camera contention.**
+
+**Also set on GWTC (left in place, benign):** `EnableFrameServerMode=0` in both `...\Windows Media Foundation\Platform` hives (a common multi-camera-capture recommendation; did not fix Problem 2).
 
 ### v2.40.19 — REVERT: restore calibrated prompt + qwen3.5-9b — the prompt slim broke the quality gate (Claude Opus 4.8 (1M context))
 

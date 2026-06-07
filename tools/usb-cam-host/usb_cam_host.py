@@ -1,4 +1,15 @@
 # Author: Claude Sonnet 4.6
+# Date: 07-June-2026 (Claude Opus 4.8 — forces MJPEG capture + DirectShow backend
+#        on Windows so the USB cam stops pulling raw YUY2. Raw YUY2 alone saturates
+#        a shared USB 2.0 controller, which on the GWTC coop laptop starved the
+#        built-in webcam: ffmpeg could not open Hy-HD-Camera ("Could not run graph")
+#        whenever this service was streaming, and neither a port change nor a 720p
+#        drop helped because raw bandwidth was the limit. MJPEG is ~10x smaller so
+#        both cameras now share one controller. CAP_DSHOW also makes the resolved
+#        DirectShow index authoritative — cv2's default MSMF backend uses a
+#        different index ordering than the dshow name-resolution returns.
+#        Override format via USB_CAM_FOURCC (default MJPG; set empty to disable).
+#        SRP/DRY check: Pass — reused existing _open()/env-var pattern, no new module.)
 # Date: 27-April-2026 (adds Windows DirectShow name-based camera resolution so
 #        USB_CAM_DEVICE_NAME_CONTAINS works cross-platform — previously darwin-only.
 #        Plugging the USB cam into a different port no longer breaks the service:
@@ -82,6 +93,12 @@ DEVICE_NAME_CONTAINS = os.environ.get("USB_CAM_DEVICE_NAME_CONTAINS", "").strip(
 
 REQUESTED_WIDTH = int(os.environ.get("USB_CAM_WIDTH", "1920"))
 REQUESTED_HEIGHT = int(os.environ.get("USB_CAM_HEIGHT", "1080"))
+# Force a compressed capture format. UVC cameras default to raw YUY2, which on
+# USB 2.0 consumes ~10x the bandwidth of MJPEG and can monopolise a shared host
+# controller (e.g. the GWTC coop laptop, where a raw stream blocked the built-in
+# webcam from opening at all). MJPEG lets two cameras coexist on one controller.
+# Set USB_CAM_FOURCC empty to keep the backend default.
+CAPTURE_FOURCC = os.environ.get("USB_CAM_FOURCC", "MJPG").strip()
 JPEG_QUALITY = int(os.environ.get("USB_CAM_JPEG_QUALITY", "95"))
 
 # Target interval between grabs. The camera may run faster; this is the
@@ -471,7 +488,13 @@ def _grabber_loop() -> None:
                     "grabber: resolved %r -> DirectShow index %d (%s)",
                     DEVICE_NAME_CONTAINS, idx, name,
                 )
-                c = cv2.VideoCapture(idx)
+                # Open via DirectShow explicitly: the index above came from
+                # DirectShow enumeration, but cv2's default Windows backend
+                # (MSMF) numbers devices differently, so a bare
+                # VideoCapture(idx) can open the wrong camera. CAP_DSHOW also
+                # reliably honours the MJPEG fourcc we set below (MSMF often
+                # ignores it).
+                c = cv2.VideoCapture(idx, cv2.CAP_DSHOW)
             else:
                 hit = _resolve_device_index_by_name(DEVICE_NAME_CONTAINS)
                 if hit is None:
@@ -493,6 +516,13 @@ def _grabber_loop() -> None:
 
         if not c.isOpened():
             return None
+        # Set the pixel format BEFORE resolution — backends negotiate the
+        # format first, and requesting MJPEG keeps the USB bandwidth low enough
+        # for a second camera to share the controller. See CAPTURE_FOURCC note.
+        if CAPTURE_FOURCC:
+            fourcc = cv2.VideoWriter_fourcc(*CAPTURE_FOURCC)
+            ok = c.set(cv2.CAP_PROP_FOURCC, fourcc)
+            log.info("grabber: CAP_PROP_FOURCC=%s set_ok=%s", CAPTURE_FOURCC, ok)
         c.set(cv2.CAP_PROP_FRAME_WIDTH, REQUESTED_WIDTH)
         c.set(cv2.CAP_PROP_FRAME_HEIGHT, REQUESTED_HEIGHT)
 

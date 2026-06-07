@@ -42,6 +42,16 @@ for i in $(seq 1 254); do (nc -z -w 1 192.168.0.$i 22 2>/dev/null && echo "192.1
 
 ---
 
+## ⚠️ GWTC hosts TWO cameras — and they currently can't both run (2026-06-07)
+
+GWTC is the host for **two** Farm Guardian cameras, not one:
+- **`gwtc`** — the built-in `Hy-HD-Camera`, streamed via ffmpeg → MediaMTX RTSP `:8554` ("coop overhead" time-lapse).
+- **`usb-cam`** — an external USB webcam, served by the `usb-cam-host` FastAPI service on `:8089` (`C:\farm-services\usb-cam-host\`, launched by the `usb-cam-host` scheduled task running `start.bat`; respawned by `usb-cam-watchdog`). This is the "coop run" time-lapse source. The May-9 redesign (`docs/09-May-2026-pipeline-redesign-plan.md`) intends both to run together.
+
+**Open regression (2026-06-07): the two cameras will not run at the same time.** ffmpeg cannot open the built-in (`Could not run graph (device already in use)`) whenever `usb-cam-host` holds the external camera — so the `gwtc` RTSP path has no publisher and the coop-overhead stream is dark, even though `usb-cam` is fine. It began at a ~12:29 reboot. Confirmed NOT fixable remotely (all tried, none worked): USB port swap incl. a blue USB 3.0 port, dropping usb-cam to 720p, forcing MJPEG, PnP camera device reset, disabling the Windows Camera Frame Server. GWTC has a single Intel xHCI controller but raw USB bandwidth was ruled out (MJPEG didn't help). **First thing to try is a full cold power-off** (not a warm reboot) to clear a wedged USB-controller/driver state; if that fails, put usb-cam on a powered hub or move it to another host. See CHANGELOG v2.40.20.
+
+> **IP RESERVATION TODO.** GWTC's DHCP IP moved `.68` → `.69` on 2026-06-07, which silently broke *both* feeds from the Mini (both configs hardcode the IP). Set a DHCP reservation for MAC `F0:35:75:81:2C:45` on the Archer AX55 so this stops recurring. Until then, after any GWTC reboot, re-check the IP (sweep `:8554`/`:8089`) and update `config.json` + `tools/pipeline/config.json` on the Mini if it changed.
+
 ## SSH Access (from Mac Mini)
 
 ```bash
