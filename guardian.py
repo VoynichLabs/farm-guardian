@@ -1,5 +1,6 @@
-# Author: Claude Opus 4.6 (updated), OpenAI Codex GPT-5.4 Mini (prior)
-# Date: 13-April-2026 (v2.24.0 — http_url snapshot method dispatch for S7 battery path)
+# Author: Claude Opus 4.8 (1M context) — Bubba coding sub-agent (motion-alert wiring),
+#         Claude Opus 4.6 (updated), OpenAI Codex GPT-5.4 Mini (prior)
+# Date: 12-June-2026 (v2.41.0 — fire send_motion_alert on hardware-motion transition, gated)
 # PURPOSE: Main service entry point for Farm Guardian v2. Orchestrates camera discovery,
 #          frame capture, YOLO animal detection, animal visit tracking (for alert dedup),
 #          automated deterrence (spotlight/siren/audio), PTZ patrol with pause-on-predator,
@@ -11,7 +12,16 @@
 #          night window (default 20:00–09:00 America/New_York). v2.17.0: removed the GLM
 #          vision species refinement entirely — YOLO's class label is what flows through to
 #          the alert. Boss directive: "just show me the picture, no classification."
+#          v2.41.0: the motion watcher now also fires AlertManager.send_motion_alert() on a
+#          camera's hardware-motion False->True transition, right after the existing snapshot
+#          burst request. Gated by a new top-level "motion_alert" config block (enabled=false
+#          by default), an optional night_only window (reuses _detection_window_open), and a
+#          per-camera opt-in (detection_enabled true, or motion_alert true on the camera).
+#          Default-off so merging changes nothing until the flag is flipped. Pure-upside: it
+#          only ADDS alerts and can never cause a missed predator.
 # SRP/DRY check: Pass — reviewed the detection flow when removing the vision refinement.
+#          The motion-alert wiring reuses _get_camera_config and _detection_window_open (DRY)
+#          and adds no new time math; all alert delivery stays in AlertManager.
 
 import os
 # MUST be set before any cv2 import anywhere in the process — sets a 5-second
@@ -499,6 +509,19 @@ class GuardianService:
         log.info("Motion watcher started for cameras: %s", ", ".join(watched.keys()))
         poll_interval = self._config.get("motion_poll_interval_s", 2.0)
 
+        # Motion-alert config (v2.41.0). Read once here, matching how poll_interval is
+        # read loop-locally. Default-off: when disabled nothing changes vs. prior behavior.
+        # This block is pure-upside — it only ADDS a Discord alert on a hardware-motion
+        # transition and never gates or suppresses the predator-detection path.
+        motion_alert_cfg = self._config.get("motion_alert", {})
+        motion_alert_enabled = motion_alert_cfg.get("enabled", False)
+        motion_alert_night_only = motion_alert_cfg.get("night_only", True)
+        if motion_alert_enabled:
+            log.info(
+                "Motion-alert Discord posts ENABLED (night_only=%s)",
+                motion_alert_night_only,
+            )
+
         while not shutdown_event.is_set():
             for name, state in watched.items():
                 current = self._camera_ctrl.get_motion_state(name)
@@ -512,6 +535,26 @@ class GuardianService:
                             duration_s=state["duration_s"],
                             interval_s=state["interval_s"],
                         )
+
+                    # v2.41.0: also post a Discord motion alert, GATED by the
+                    # motion_alert config flag. night_only reuses the existing
+                    # detection window. Per-camera opt-in: detection_enabled cameras
+                    # are in by default, or a camera can set motion_alert: true.
+                    # AlertManager enforces its own per-camera cooldown.
+                    if motion_alert_enabled and (
+                        not motion_alert_night_only or self._detection_window_open()
+                    ):
+                        cam_cfg = self._get_camera_config(name) or {}
+                        if cam_cfg.get("detection_enabled", True) or cam_cfg.get(
+                            "motion_alert", False
+                        ):
+                            try:
+                                self._alert_manager.send_motion_alert(name)
+                            except Exception as exc:
+                                # Never let an alert failure break the watch loop.
+                                log.error(
+                                    "send_motion_alert failed for '%s': %s", name, exc
+                                )
                 state["last_state"] = current
             shutdown_event.wait(poll_interval)
 

@@ -119,6 +119,11 @@
     "include_snapshot": true,
     "mention_on_alert": false
   },
+  "motion_alert": {
+    "_comment": "v2.41.0 — post a distinct amber 'Motion' Discord embed when a camera's OWN hardware motion sensor fires (independent of YOLO). Pure-upside: only ADDS alerts, never suppresses a predator detection. DEFAULT OFF — merging changes nothing until 'enabled' is set true. 'night_only' (default true) limits posts to the existing detection night window (detection.night_window_*). Per-camera opt-in: cameras with detection_enabled true are included automatically; a non-detection camera can opt in by adding 'motion_alert': true to its camera block. Cooldown REUSES detection.alert_cooldown_seconds, tracked on a separate per-camera timer so motion and predator alerts never throttle each other. Uses the same alerts.discord_webhook_url and snapshot path as predator alerts.",
+    "enabled": false,
+    "night_only": true
+  },
   "storage": {
     "events_dir": "events",
     "exports_dir": "data/exports",

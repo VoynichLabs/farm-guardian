@@ -1,5 +1,6 @@
-# Author: Claude Opus 4.6 (updated), Cascade (Claude Sonnet 4) (original)
-# Date: 09-April-2026
+# Author: Claude Opus 4.8 (1M context) — Bubba coding sub-agent (motion-alert add),
+#         Claude Opus 4.6 (updated), Cascade (Claude Sonnet 4) (original)
+# Date: 12-June-2026 (v2.41.0 — send_motion_alert for camera-hardware motion)
 # PURPOSE: Discord alert manager for Farm Guardian. Posts webhook messages to the
 #          #farm-2026 Discord channel when predator-class animals are detected. Each alert
 #          includes an embedded snapshot image, detection class, confidence score, timestamp,
@@ -9,7 +10,14 @@
 #          frames (1080p, often blurry due to autofocus lag). Bounding box coordinates are
 #          scaled from detection resolution to snapshot resolution. Falls back to RTSP frame
 #          if the HTTP snapshot is unavailable.
-# SRP/DRY check: Pass — single responsibility is alert delivery via Discord webhook.
+#          v2.41.0: added send_motion_alert() — posts a "Motion" embed when a camera's own
+#          hardware motion sensor fires (no YOLO involved). It reuses the same webhook +
+#          snapshot path as send_alert but has its OWN per-camera cooldown dict and a distinct
+#          embed color, so motion alerts and predator alerts never throttle each other. This is
+#          pure-upside: it only ADDS alerts and can never suppress a predator detection. Gating
+#          (enable flag / night-only / per-camera opt-in) lives in guardian.py, not here.
+# SRP/DRY check: Pass — single responsibility is alert delivery via Discord webhook. The new
+#          motion path reuses _capture_http_snapshot / _encode_snapshot / _post_webhook (DRY).
 
 import io
 import logging
@@ -29,6 +37,10 @@ log = logging.getLogger("guardian.alerts")
 
 # Discord embed color for predator alerts (red-orange)
 _ALERT_COLOR = 0xFF4500
+
+# Discord embed color for camera-hardware motion alerts (amber/gold) — visually
+# distinct from the red-orange predator alerts so the two are obvious at a glance.
+_MOTION_ALERT_COLOR = 0xFFC107
 
 # Maximum retries for buffered alerts before dropping them
 _MAX_RETRIES = 3
@@ -58,6 +70,13 @@ class AlertManager:
         # Track last alert time per class to enforce cooldown
         # Key: class_name -> last alert unix timestamp
         self._last_alert_time: dict[str, float] = defaultdict(float)
+
+        # Separate cooldown for camera-hardware motion alerts (send_motion_alert).
+        # Key: camera_name -> last motion-alert unix timestamp. Kept distinct from
+        # _last_alert_time so motion and predator alerts never throttle one another;
+        # both reuse the same _cooldown_seconds value (detection.alert_cooldown_seconds).
+        self._last_motion_alert_time: dict[str, float] = defaultdict(float)
+
         self._lock = threading.Lock()
 
         # Buffer for failed alerts that need retry
@@ -152,6 +171,82 @@ class AlertManager:
 
         # Process retry buffer while we're here
         self._process_retries()
+
+        return sent
+
+    def _motion_cooldown_passed(self, camera_name: str) -> bool:
+        """Check if a motion alert for this camera is allowed (cooldown not active)."""
+        with self._lock:
+            last = self._last_motion_alert_time.get(camera_name, 0)
+            elapsed = time.time() - last
+            return elapsed >= self._cooldown_seconds
+
+    def send_motion_alert(
+        self,
+        camera_name: str,
+        frame: Optional[np.ndarray] = None,
+    ) -> bool:
+        """
+        Send a Discord alert when a camera's own hardware motion sensor fires.
+
+        This is independent of YOLO detection — it is triggered by the camera's
+        built-in motion event (see guardian.py::_motion_watch_loop). It exists to
+        surface activity that detection might miss (e.g. detection disabled, or an
+        object too small/fast for YOLO). It is pure-upside: it only ADDS alerts and
+        can never suppress a predator detection.
+
+        Respects an OWN per-camera cooldown (self._last_motion_alert_time) using the
+        same alert_cooldown_seconds value as predator alerts, but tracked separately
+        so the two alert kinds never throttle each other. Returns True only if an
+        alert was actually sent.
+
+        Gating (enabled flag, night-only, per-camera opt-in) is the caller's job —
+        this method only enforces cooldown and posts.
+        """
+        # Cooldown check BEFORE posting — mirrors send_alert. The timestamp is stamped
+        # only on a successful send, so a failed post does not start a bogus cooldown.
+        if not self._motion_cooldown_passed(camera_name):
+            return False
+
+        now = datetime.now()
+        now_ts = time.time()
+
+        embed = {
+            "title": f"⚠️ Motion — {camera_name}",
+            "description": (
+                f"**Camera:** {camera_name}\n"
+                f"**Time:** {now.strftime('%I:%M:%S %p')}\n\n"
+                "Camera motion sensor triggered."
+            ),
+            "color": _MOTION_ALERT_COLOR,
+            "timestamp": now.isoformat(),
+            "footer": {"text": f"Farm Guardian | {camera_name} | motion"},
+        }
+
+        # Snapshot: prefer the sharp HTTP snapshot (same path send_alert uses), fall
+        # back to the supplied frame. Pass an empty detections list — both helpers
+        # iterate it to draw boxes, and there are no boxes for a motion-only event.
+        snapshot_bytes: Optional[bytes] = None
+        if self._include_snapshot:
+            if self._camera_ctrl is not None:
+                snapshot_bytes = self._capture_http_snapshot(camera_name, frame, [])
+            if snapshot_bytes is None and frame is not None:
+                snapshot_bytes = self._encode_snapshot(frame, [])
+
+        if snapshot_bytes:
+            embed["image"] = {"url": "attachment://snapshot.jpg"}
+
+        sent = self._post_webhook(embed, snapshot_bytes)
+
+        if sent:
+            with self._lock:
+                self._last_motion_alert_time[camera_name] = now_ts
+            log.info("Motion alert sent for '%s'", camera_name)
+        else:
+            # Unlike predator alerts, motion alerts are not retry-buffered: a missed
+            # motion alert simply re-fires on the camera's next False→True transition,
+            # so buffering would only risk double-posting stale motion.
+            log.warning("Motion alert failed for '%s' — not buffered", camera_name)
 
         return sent
 

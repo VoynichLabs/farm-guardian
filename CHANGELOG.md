@@ -2,7 +2,21 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] - 2026-06-07
+## [Unreleased] - 2026-06-12
+
+### v2.41.0 — feat: Discord alert on camera-hardware motion (Stage 0, default-OFF) (Claude Opus 4.8 (1M context) — Bubba coding sub-agent)
+
+**What:** A new, default-disabled path that posts a distinct amber "⚠️ Motion — &lt;camera&gt;" Discord embed when a camera's OWN hardware motion sensor fires — independent of YOLO. This surfaces activity the detector might miss (detection disabled on that camera, or an object too small/fast/dark for YOLO at night).
+
+**Why:** Stage 0 of the night-detect effort. It is **pure-upside**: it only ADDS alerts and can never suppress or gate a predator detection. The YOLO detection/alert/deterrent path is completely untouched. (The VLM critic / suppression piece is explicitly NOT in this change — on hold pending validation.)
+
+**How:**
+- `alerts.py` — added `AlertManager.send_motion_alert(camera_name, frame=None) -> bool`. It reuses the existing webhook (`_post_webhook`) and snapshot path (`_capture_http_snapshot` preferred, falling back to `_encode_snapshot(frame)`), but keeps its **own** per-camera cooldown dict (`_last_motion_alert_time`, keyed by `camera_name`) using the same `detection.alert_cooldown_seconds` value — so motion and predator alerts never throttle each other. Cooldown is checked **before** the post and the timestamp is stamped **only on a successful send** (a failed post starts no bogus cooldown). New embed color `0xFFC107` (amber) vs. predator `0xFF4500`. Motion alerts are not retry-buffered — a miss simply re-fires on the camera's next motion transition. Returns True only if actually sent.
+- `guardian.py` — in `_motion_watch_loop`, right after the existing `poller.request_burst(...)` on the False→True transition, it now calls `self._alert_manager.send_motion_alert(name)`, **gated** by the new `motion_alert` config block: `enabled` (read loop-locally like `poll_interval`), `night_only` (reuses `_detection_window_open()` — no new time math), and a per-camera opt-in (`detection_enabled` cameras are in by default, or a camera sets `motion_alert: true`). Wrapped in try/except so an alert failure can never break the watch loop.
+- `config.example.json` — added a top-level `motion_alert` block: `"enabled": false` (default), `"night_only": true`, with a `_comment` documenting that it reuses `detection.alert_cooldown_seconds` and the existing `alerts.discord_webhook_url`/snapshot path. `config.json` (gitignored live config) was **not** touched.
+- Added `test_motion_alert.py` — verifies the cooldown gate (first call sends, immediate second call for the same camera is suppressed, a different camera still sends) by mocking `_post_webhook`; no real Discord post and no live camera needed.
+
+**SemVer:** MINOR bump (`v2.40.20` → `v2.41.0`) — additive, backward-compatible, new feature that is off by default.
 
 ### v2.40.20 — fix: GWTC IP move (.68→.69) + usb-cam MJPEG capture; GWTC dual-camera contention diagnosed (Claude Opus 4.8 (1M context))
 
