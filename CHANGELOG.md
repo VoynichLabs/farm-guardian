@@ -4,6 +4,18 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-06-12
 
+### v2.41.2 — ops: Dominator feeds now name-bound + auto-start on login (Boss-requested robustness) (Claude Opus 4.8 (1M context) — Bubba)
+
+**What:** Hardened the two Dominator feeds from v2.41.1 so they (a) can never come back swapped and (b) survive a reboot. Boss explicitly chose "auto-start + lock labels."
+
+**Why:** v2.41.1 left two soft spots: the feeds were bound by OpenCV **index** (MSMF order isn't guaranteed stable across reboots → `dominator-cam`/`usb-cam` could come back swapped), and the scheduled tasks had **no boot/login trigger** (a reboot/logoff left both dark — recreating the Boss's original complaint).
+
+**How:**
+- **ffmpeg name-binding (replug/reboot-proof).** Placed a self-contained `ffmpeg.exe` at `C:\ffmpeg\bin\` (a `_find_ffmpeg()` fixed-candidate path) so `usb_cam_host.py` resolves each camera by DirectShow FriendlyName and opens via `CAP_DSHOW`. The two `start-*.bat` now set `USB_CAM_DEVICE_NAME_CONTAINS=BisonCam` / `USB CAMERA` instead of a raw index. Logs prove it: `resolved 'BisonCam' -> DirectShow index 0 (BisonCam, NB Pro)` and `resolved 'USB CAMERA' -> DirectShow index 1 (USB CAMERA)` (which also confirmed the v2.41.1 index guess was correct). The 104 MB ffmpeg blob was downloaded on the Mac Mini (gyan.dev throttles; GitHub/BtbN CDN did 211 MB in 6 s) and `scp`'d over the LAN — sidestepping the Dominator's slow WiFi + a schannel cert-revocation error (`CRYPT_E_NO_REVOCATION_CHECK`).
+- **Auto-start on login.** Both scheduled tasks (`dominator-cam-bisoncam`, `dominator-cam-usbcam`) recreated via `Register-ScheduledTask` with an **AtLogOn trigger**, `LogonType Interactive` (DirectShow needs a desktop session), `ExecutionTimeLimit 0` (unlimited), and `RestartCount 3` (auto-restart on failure). Verified: both `state=Running`, `trigger=MSFT_TaskLogonTrigger`. They now come back automatically after a reboot/login. (This intentionally supersedes the old "no autostart on Larry's daily-driver" posture — the USB cam is permanently here now; Boss approved.)
+- **Verified end-to-end** from the Mac Mini across the LAN (both `:8089`/`:8090` HTTP 200, `camera_open:true`, 0 failures) and on the public tunnel `guardian.markbarney.net` (both `online/capturing/is_live=true`).
+- Updated `deploy/dominator-cam/` (`setup-cams.ps1` is now the canonical name-bound + AtLogOn provisioner; bats updated; README refreshed). ffmpeg.exe itself is NOT committed (204 MB binary — fetch per `deploy/dominator-cam/README.md`).
+
 ### v2.41.1 — ops: dominator-cam + usb-cam both live on the MSI Dominator (dual host instances, SSH-durable) (Claude Opus 4.8 (1M context) — Bubba)
 
 **What:** Brought BOTH the `dominator-cam` (built-in BisonCam) and the `usb-cam` (the portable USB CAMERA, which Boss physically moved onto the MSI Dominator) online and broadcasting at the same time. Repointed the stale `usb-cam` config from a dead address to its new Dominator host. No Python/code change — config + Windows host deploy only.
