@@ -4,6 +4,20 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-06-12
 
+### v2.41.1 — ops: dominator-cam + usb-cam both live on the MSI Dominator (dual host instances, SSH-durable) (Claude Opus 4.8 (1M context) — Bubba)
+
+**What:** Brought BOTH the `dominator-cam` (built-in BisonCam) and the `usb-cam` (the portable USB CAMERA, which Boss physically moved onto the MSI Dominator) online and broadcasting at the same time. Repointed the stale `usb-cam` config from a dead address to its new Dominator host. No Python/code change — config + Windows host deploy only.
+
+**Why:** Boss reported neither the Dominator nor the USB camera was broadcasting. Root cause was two-fold: (1) the Dominator's camera host had been started earlier the same day but **foreground-tied to its launching SSH session, so it died on disconnect**; and (2) the `usb-cam` roster entry still pointed at `http://192.168.0.69:8089` (its old GWTC home — GWTC is offline and the camera had moved). The Dominator's Windows Firewall (ON, all profiles) also had no inbound rule for the new port.
+
+**How:**
+- **Two `usb_cam_host.py` instances on the Dominator**, one per physical camera, each pinned by `USB_CAM_DEVICE_INDEX`: `dominator-cam` = BisonCam (device 0) on `:8089`; `usb-cam` = USB CAMERA (device 1) on `:8090`. (Index 0=built-in / 1=USB matches the established GWTC pattern; the `:8090` frame confirms the run view.)
+- **Durable launch via interactive scheduled tasks** (`dominator-cam-bisoncam`, `dominator-cam-usbcam`) created with `schtasks /IT` — they run in the logged-on desktop session (DirectShow needs it) but are Task-Scheduler-owned, so the feeds **survive SSH disconnect**. Verified by curling both `/photo.jpg` from the Mac Mini AFTER dropping SSH (both HTTP 200, 1920×1080, `camera_open:true`, 0 failures). No boot/logon trigger on purpose — the Dominator is Larry's daily-driver + WSL gateway host, so the camera stays opportunistic (does NOT survive a reboot; re-run `schtasks /run`).
+- **Firewall:** added inbound allow rules `dominator-cam 8090` and a `dominator-cam python` app rule (`8089` already existed).
+- **Config repoint (both files, per the two-config rule):** `config.json` `usb-cam.http_base_url` and `tools/pipeline/config.json` `usb-cam.ip_webcam_base` → `http://192.168.0.194:8090`. Both LaunchAgents reloaded (`com.farmguardian.guardian` + `com.farmguardian.pipeline`); `/api/cameras` confirms `dominator-cam` and `usb-cam` both `online/capturing/is_live = true`. (Live `config.json` files are gitignored/per-host — not committed.)
+- **Reproducible deploy artifacts** added at `deploy/dominator-cam/` (`start-bisoncam.bat`, `start-usbcam.bat`, `setup-cams.ps1`, `README.md`).
+- **Known follow-up:** binding is by OpenCV index (MSMF), not name. The host supports replug-proof `USB_CAM_DEVICE_NAME_CONTAINS` binding but it needs `ffmpeg.exe` at `C:\ffmpeg\bin\` for DirectShow enumeration; the 104 MB ffmpeg download was too slow over the Dominator's WiFi on 2026-06-12 and was deferred. If the two feeds ever look swapped, swap the `USB_CAM_DEVICE_INDEX` values in the two bats.
+
 ### v2.41.0 — feat: Discord alert on camera-hardware motion (Stage 0, default-OFF) (Claude Opus 4.8 (1M context) — Bubba coding sub-agent)
 
 **What:** A new, default-disabled path that posts a distinct amber "⚠️ Motion — &lt;camera&gt;" Discord embed when a camera's OWN hardware motion sensor fires — independent of YOLO. This surfaces activity the detector might miss (detection disabled on that camera, or an object too small/fast/dark for YOLO at night).
