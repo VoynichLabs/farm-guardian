@@ -1,4 +1,4 @@
-# Author: Claude Opus 4.7 (1M context); Claude Sonnet 4.6 (edits 27-April-2026 — vlm_bypass mode: run_raw_cycle, dedicated raw threads, raw retention sweep, v2.37.13; 28-April-2026 — sharpness gate wired in, v2.37.14; 04-May-2026 — Birds preset as prompt/schema source, v2.40.0); GPT-5.5 Codex (edits 08-May-2026 — static floor-pecking score calibration); Claude Opus 4.8 (1M context) (edits 03-June-2026 — VLM input downscale via _downscale_for_vlm + vlm_input_long_edge_px config, to cut per-frame latency, v2.40.17)
+# Author: Claude Opus 4.7 (1M context); Claude Sonnet 4.6 (edits 27-April-2026 — vlm_bypass mode: run_raw_cycle, dedicated raw threads, raw retention sweep, v2.37.13; 28-April-2026 — sharpness gate wired in, v2.37.14; 04-May-2026 — Birds preset as prompt/schema source, v2.40.0); GPT-5.5 Codex (edits 08-May-2026 — static floor-pecking score calibration); Claude Opus 4.8 (1M context) (edits 03-June-2026 — VLM input downscale via _downscale_for_vlm + vlm_input_long_edge_px config, to cut per-frame latency, v2.40.17); Claude Opus 4.8 (Bubba sub-agent) (edits 14-June-2026 — golden-window raw capture: per-iteration thick/sparse cadence for usb-cam/dominator-cam via offpeak_cycle_seconds + timelapse_golden_windows)
 # Date: 17-April-2026
 # PURPOSE: Main entry point for the multi-cam image pipeline. Schedules per-
 #          camera capture cycles at their configured cadences, runs each
@@ -53,6 +53,7 @@ if __package__ in (None, ""):
     from tools.pipeline.vlm_enricher import enrich, ensure_model_loaded, ModelNotLoaded, EnricherError, ValidationFailed
     from tools.pipeline.store import ensure_schema, store, store_raw
     from tools.pipeline.retention import sweep as retention_sweep, sweep_raw as retention_sweep_raw
+    from tools.pipeline.golden_windows import camera_uses_golden_windows, camera_golden_cfg, is_dt_in_golden_windows
     from tools.pipeline.gem_poster import post_gem, should_post, load_dotenv
     from tools.pipeline.ig_poster import (
         build_caption,
@@ -74,6 +75,7 @@ else:
     from .vlm_enricher import enrich, ensure_model_loaded, ModelNotLoaded, EnricherError, ValidationFailed
     from .store import ensure_schema, store, store_raw
     from .retention import sweep as retention_sweep, sweep_raw as retention_sweep_raw
+    from .golden_windows import camera_uses_golden_windows, camera_golden_cfg, is_dt_in_golden_windows
     from .gem_poster import post_gem, should_post, load_dotenv
     from .ig_poster import (
         build_caption,
@@ -888,16 +890,57 @@ def _run_raw_camera_thread(camera_name: str, ccfg: dict, cfg: dict,
                            db_path: Path, archive_root: Path) -> None:
     """Dedicated loop for a vlm_bypass camera. Runs on its own thread so
     capture cadence isn't gated by the main VLM-serialized tick loop, and
-    runs a rolling raw-tier pruner inline so we don't grow unboundedly."""
-    cadence = int(ccfg.get("cycle_seconds", 45))
+    runs a rolling raw-tier pruner inline so we don't grow unboundedly.
+
+    Golden-window capture (usb-cam / dominator-cam): when this camera opts in
+    via instagram.scheduled.timelapse_golden_windows AND has an
+    offpeak_cycle_seconds set, the cadence is recomputed every iteration —
+    THICK (cycle_seconds) inside the two daily activity windows, SPARSE
+    (offpeak_cycle_seconds) outside them. The off-peak frames are a slow
+    heartbeat (camera provably alive, incidental midday bird not 100% lost),
+    not a full stop. Mirrors the house-yard night_snapshot_interval precedent:
+    per-camera interval values, shared time-of-day predicate. Cameras without
+    offpeak_cycle_seconds keep the original fixed cadence (unchanged behavior).
+    """
+    thick_cadence = float(ccfg.get("cycle_seconds", 45))
+    offpeak_raw = ccfg.get("offpeak_cycle_seconds")
+    gw_root = ((cfg.get("instagram") or {}).get("scheduled") or {}).get(
+        "timelapse_golden_windows"
+    ) or {}
+    golden_active = (
+        offpeak_raw is not None
+        and camera_uses_golden_windows(camera_name, gw_root)
+    )
+    gwc = camera_golden_cfg(camera_name, gw_root) if golden_active else {}
+    offpeak_cadence = float(offpeak_raw) if offpeak_raw is not None else thick_cadence
+    if golden_active:
+        log.info(
+            "%s: golden-window capture ON — thick %.0fs in-window / sparse %.0fs "
+            "off-peak (windows=%s)",
+            camera_name, thick_cadence, offpeak_cadence, gwc.get("windows"),
+        )
+
+    def _current_cadence() -> float:
+        if not golden_active:
+            return thick_cadence
+        try:
+            in_window = is_dt_in_golden_windows(datetime.now(timezone.utc), gwc)
+        except Exception:
+            # Never let a window-calc error stop capture — fall back to thick.
+            log.exception("%s: golden-window check failed; using thick cadence",
+                          camera_name)
+            return thick_cadence
+        return thick_cadence if in_window else offpeak_cadence
+
     # Per-camera override takes precedence; global default is 24h.
     retention_hours = int(ccfg.get("raw_retention_hours", cfg.get("raw_retention_hours", 24)))
     last_prune = 0.0
     prune_every = 300.0  # sweep once every 5 minutes
     # Initial stagger so thread doesn't wake in lockstep with main loop.
-    _STOP.wait(timeout=min(5.0, cadence))
+    _STOP.wait(timeout=min(5.0, thick_cadence))
     while not _STOP.is_set():
         t0 = time.monotonic()
+        cadence = _current_cadence()
         try:
             r = run_raw_cycle(camera_name, ccfg, cfg, db_path, archive_root)
             log.info("%s: %s (raw thread)", camera_name, json.dumps(r, default=str))

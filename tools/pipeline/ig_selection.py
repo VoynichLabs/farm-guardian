@@ -1,5 +1,5 @@
-# Author: Claude Sonnet 4.6
-# Date: 07-May-2026; 09-May-2026 — _score_raw_frame + select_timelapse_gems for vlm_bypass lanes; 10-May-2026 — daylight filter for coop-roof time-lapse lanes; 11-May-2026 — S7 backlog duplicate guard
+# Author: Claude Sonnet 4.6; Claude Opus 4.8 (Bubba sub-agent) 14-June-2026 — golden-window two-window filter + seconds-granular bucketing for usb-cam/dominator-cam time-lapse lanes
+# Date: 07-May-2026; 09-May-2026 — _score_raw_frame + select_timelapse_gems for vlm_bypass lanes; 10-May-2026 — daylight filter for coop-roof time-lapse lanes; 11-May-2026 — S7 backlog duplicate guard; 14-June-2026 — golden activity windows (sunrise->09:00, 19:30->20:30), denser in-window sampling
 # PURPOSE: Select Instagram-post-eligible gems from image_archive on
 #          wall-clock windows (day, 2-hour, week). Pure SELECT +
 #          scoring + diversity filtering; no posting, no I/O beyond
@@ -67,6 +67,17 @@ from pathlib import Path
 from typing import Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+# Golden-window helpers (dynamic-sunrise two-window logic) shared with the
+# capture orchestrator. See tools/pipeline/golden_windows.py. The minute-granular
+# window primitive lives there so selection (this module) and capture
+# (orchestrator) agree on what "in a golden window" means — single source of truth.
+from tools.pipeline.golden_windows import (
+    camera_golden_cfg,
+    camera_uses_golden_windows,
+    is_dt_in_golden_windows,
+    minute_in_window,
+)
+
 log = logging.getLogger("pipeline.ig_selection")
 
 
@@ -98,6 +109,25 @@ def _bucket_key(ts_iso: str, bucket_minutes: int) -> str:
     minute_of_day = dt.hour * 60 + dt.minute
     bucket_idx = minute_of_day // bucket_minutes
     return f"{dt.date().isoformat()}-{bucket_idx:04d}"
+
+
+def _bucket_key_seconds(ts_iso: str, bucket_seconds: int) -> str:
+    """Quantize an ISO timestamp down to the nearest N-SECOND boundary.
+
+    Seconds-granular sibling of _bucket_key, used by the golden-window
+    time-lapse path where 5-minute buckets are far too coarse — denser
+    in-window sampling needs ~20-30s buckets. Same UTC-ISO tolerance.
+    """
+    clean = ts_iso.replace("Z", "+00:00")
+    try:
+        dt = datetime.fromisoformat(clean)
+    except ValueError:
+        dt = datetime.fromisoformat(clean.split(".")[0] + "+00:00")
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    second_of_day = dt.hour * 3600 + dt.minute * 60 + dt.second
+    bucket_idx = second_of_day // bucket_seconds
+    return f"{dt.date().isoformat()}-{bucket_idx:06d}"
 
 
 def _score_raw_frame(row: dict) -> tuple:
@@ -136,16 +166,18 @@ def _is_local_hour_in_window(
     """Return true when ts falls inside the configured local hour window.
 
     The end hour is exclusive: start=6,end=20 accepts 06:00:00 through
-    19:59:59 local. Windows that wrap midnight are supported for future
-    callers, though the current GWTC use is daylight-only.
+    19:59:59 local. Windows that wrap midnight are supported. start==end
+    means "whole day" (legacy semantics for the GWTC daylight lane).
+
+    Now delegates the actual membership test to the minute-granular
+    golden_windows.minute_in_window so the hour-window and the new
+    minute-window (sunrise / 19:30) paths share ONE primitive (DRY).
     """
     local_dt = _parse_archive_ts(ts_iso).astimezone(ZoneInfo(timezone_name))
-    hour = local_dt.hour
     if start_hour == end_hour:
         return True
-    if start_hour < end_hour:
-        return start_hour <= hour < end_hour
-    return hour >= start_hour or hour < end_hour
+    minute_of_day = local_dt.hour * 60 + local_dt.minute
+    return minute_in_window(minute_of_day, start_hour * 60, end_hour * 60)
 
 
 def _timelapse_daylight_only_enabled(camera_id: str, cfg: dict) -> bool:
@@ -736,6 +768,16 @@ def select_timelapse_gems(
       timelapse_reel_daylight_end_hour     (int, default 20, exclusive local hour)
       timelapse_reel_timezone              (str, default "America/New_York")
 
+    Golden-window lanes (usb-cam, dominator-cam) — cfg["timelapse_golden_windows"]:
+      When the camera is listed in timelapse_golden_windows.cameras AND that
+      block is enabled, the single daylight window is REPLACED by the two
+      configured golden activity windows (morning sunrise->09:00, evening
+      19:30->20:30 by default), with dynamic sunrise per the farm lat/long.
+      Bucketing switches to sample_bucket_seconds (denser, default 30s) and
+      max_frames/min_frames may be overridden per camera. Everything outside
+      the windows is dropped — that is the whole point. s7/mba/gwtc/house-yard
+      are untouched (not in the cameras list) and keep the daylight behavior.
+
     Returns [] if fewer than timelapse_reel_min_frames candidates qualify.
     """
     window_h = int(cfg.get("timelapse_reel_window_hours", 24))
@@ -746,6 +788,21 @@ def select_timelapse_gems(
     daylight_start = int(cfg.get("timelapse_reel_daylight_start_hour", 6))
     daylight_end = int(cfg.get("timelapse_reel_daylight_end_hour", 20))
     daylight_tz = str(cfg.get("timelapse_reel_timezone", "America/New_York"))
+
+    # Golden-window override (usb-cam / dominator-cam). When active it takes
+    # precedence over the single daylight window and switches to denser
+    # seconds-granular bucketing. Defaults below preserve legacy behavior for
+    # any camera not opted in via timelapse_golden_windows.cameras.
+    gw_root = cfg.get("timelapse_golden_windows") or {}
+    use_golden = camera_uses_golden_windows(camera_id, gw_root)
+    gwc: dict = {}
+    bucket_seconds = 30
+    if use_golden:
+        gwc = camera_golden_cfg(camera_id, gw_root)
+        bucket_seconds = max(1, int(gwc.get("sample_bucket_seconds", 30)))
+        max_frames = int(gwc.get("max_frames", max_frames))
+        min_frames = int(gwc.get("min_frames", min_frames))
+
     now = _ensure_timezone(now)
     cutoff_iso = (now - timedelta(hours=window_h)).isoformat()
 
@@ -771,7 +828,30 @@ def select_timelapse_gems(
         )
         return []
 
-    if daylight_only:
+    if use_golden:
+        # Golden windows REPLACE the daylight window: keep only frames whose
+        # local time falls inside a configured activity window (dynamic sunrise).
+        raw_count = len(rows)
+        try:
+            rows = [
+                row for row in rows
+                if is_dt_in_golden_windows(_parse_archive_ts(row["ts"]), gwc)
+            ]
+        except (ValueError, ZoneInfoNotFoundError) as exc:
+            log.warning(
+                "select_timelapse: invalid golden-window config for %s: %s; "
+                "using unfiltered rows", camera_id, exc,
+            )
+        else:
+            log.info(
+                "select_timelapse: golden-window filter kept %d/%d raw frames "
+                "for %s (windows=%s tz=%s)",
+                len(rows), raw_count, camera_id,
+                gwc.get("windows"), gwc.get("timezone", "America/New_York"),
+            )
+            if not rows:
+                return []
+    elif daylight_only:
         raw_count = len(rows)
         try:
             rows = [
@@ -802,7 +882,11 @@ def select_timelapse_gems(
     groups: dict[str, list[dict]] = {}
     for row in rows:
         item = dict(row)
-        groups.setdefault(_bucket_key(item["ts"], bucket_min), []).append(item)
+        if use_golden:
+            bkey = _bucket_key_seconds(item["ts"], bucket_seconds)
+        else:
+            bkey = _bucket_key(item["ts"], bucket_min)
+        groups.setdefault(bkey, []).append(item)
 
     representatives = [max(group, key=_score_raw_frame) for group in groups.values()]
     # Cap at max_frames by taking every Nth representative to preserve
@@ -824,10 +908,11 @@ def select_timelapse_gems(
     # representatives may be reordered by score; re-sort here.
     representatives.sort(key=lambda r: r["ts"])
     ids = [r["id"] for r in representatives]
+    bucket_desc = f"{bucket_seconds}s golden" if use_golden else f"{bucket_min}-min"
     log.info(
         "select_timelapse: picked %d/%d bucketed frames for %s "
-        "(last %dh, %d-min buckets)",
-        len(ids), len(rows), camera_id, window_h, bucket_min,
+        "(last %dh, %s buckets)",
+        len(ids), len(rows), camera_id, window_h, bucket_desc,
     )
     return ids
 
