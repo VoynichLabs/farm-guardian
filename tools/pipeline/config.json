@@ -4,7 +4,8 @@
   "birds_preset_path": "~/.lmstudio/config-presets/Birds.preset.json",
   "lm_studio_base": "http://localhost:1234",
   "vlm_model_id": "qwen/qwen3.5-9b",
-  "vlm_load_context_length": 8192,
+  "vlm_load_context_length": 16384,
+  "vlm_input_long_edge_px": 768,
   "vlm_max_tokens": 600,
   "vlm_temperature": 0.2,
   "vlm_timeout_seconds": 300,
@@ -67,7 +68,22 @@
       ],
       "timelapse_reel_daylight_start_hour": 6,
       "timelapse_reel_daylight_end_hour": 20,
-      "timelapse_reel_timezone": "America/New_York"
+      "timelapse_reel_timezone": "America/New_York",
+      "timelapse_golden_windows": {
+        "enabled": true,
+        "cameras": ["usb-cam", "dominator-cam"],
+        "timezone": "America/New_York",
+        "latitude": 41.7558,
+        "longitude": -71.9789,
+        "windows": [
+          {"start": "sunrise", "end": "09:00"},
+          {"start": "19:30", "end": "20:30"}
+        ],
+        "sample_bucket_seconds": 30,
+        "max_frames": 90,
+        "min_frames": 6,
+        "per_camera": {}
+      }
     }
   },
   "cameras": {
@@ -83,9 +99,10 @@
     },
     "usb-cam": {
       "cycle_seconds": 2,
+      "offpeak_cycle_seconds": 180,
       "raw_retention_hours": 48,
       "capture_method": "ip_webcam",
-      "ip_webcam_base": "http://192.168.0.68:8089",
+      "ip_webcam_base": "http://192.168.0.194:8090",
       "photo_path": "/photo.jpg",
       "trigger_focus": false,
       "context": "Cheap generic USB webcam (UVC, 1920x1080, lower image quality than the S7) mounted inside the CHICKEN COOP RUN, watching the older bird flock in natural daylight. Subjects: the four winter-survivor adult chickens (fully grown, mixed breeds) and the previous brooder cohort that has graduated to the coop (older chicks, well-feathered, starting to look adult-shaped). NO turkey poults, NO young bantam chicks in this view \u2014 those are in the nesting box. Camera angle is fixed and may be partially obstructed by birds very close to the lens. Score conservatively \u2014 this is a budget sensor and a 7 here is a genuinely good shot for this camera.",
@@ -101,7 +118,7 @@
       "photo_path": "/photo.jpg",
       "trigger_focus": true,
       "focus_wait": 2.0,
-      "context": "Samsung Galaxy S7 running IP Webcam app, plugged into a USB wall brick for power (untethered from MBA 26-Apr-2026, v2.37.8). 26-Apr-2026 v2.37.10: switched FROM /photoaf.jpg TO /photo.jpg + explicit /focus + 2s wait. /photoaf.jpg's built-in AF was running concurrently with our /focus call and the two were interfering \u2014 frames came back rated 'soft' even with continuous-picture mode active. One AF cycle (explicit /focus, sleep 2s, fetch /photo.jpg) is more reliable than two. Continuous-picture AF + incandescent WB set at Guardian startup (v2.27.7). Sony IMX260 sensor, 1920x1080, f/1.7. Best-quality source in the fleet \u2014 aimed at the NESTING BOX (2026-04-30 onward). Cadence dropped to 3s and priority=1 so when the VLM slot opens, s7 wins ties. 2026-04-30: moved from brooder to the NESTING BOX.",
+      "context": "Samsung Galaxy S7 running IP Webcam app, plugged into a USB wall brick for power (untethered from MBA 26-Apr-2026, v2.37.8). 26-Apr-2026 v2.37.10: switched FROM /photoaf.jpg TO /photo.jpg + explicit /focus + 2s wait. /photoaf.jpg's built-in AF was running concurrently with our /focus call and the two were interfering \u2014 frames came back rated 'soft' even with continuous-picture mode active. One AF cycle (explicit /focus, sleep 2s, fetch /photo.jpg) is more reliable than two. Continuous-picture AF + incandescent WB set at Guardian startup (v2.27.7). Sony IMX260 sensor, 1920x1080, f/1.7. Best-quality source in the fleet \u2014 aimed at the main flock area showing the GROWING flock (phone moved 2026-06-06). Cadence dropped to 3s and priority=1 so when the VLM slot opens, s7 wins ties. 2026-06-06: PHONE MOVED off the nesting box. View is now the GROWING cohort: juvenile/adolescent birds that graduated out of the nesting box and brooder — feathering out and growing, but NOT fully grown adults yet. Bigger and more feathered than the tiny nesting-box chicks, but still young and growing. Mixed exotic breeds (some are bantam breeds). NO turkey poults and NO tiny nesting-box chicks. Judge by the size and plumage you actually see — do not assume either tiny chicks or full-grown adults; angle may show backs and tops of heads as well as faces.",
       "burst_size": 1,
       "require_face": true,
       "enabled": true,
@@ -126,13 +143,14 @@
       "ip_webcam_base": "http://192.168.0.50:8089",
       "photo_path": "/photo.jpg",
       "trigger_focus": false,
-      "context": "MacBook Air 2013 FaceTime HD camera (1280x720), served at 192.168.0.50:8089 via usb-cam-host (com.farmguardian.usb-cam-host LaunchAgent on the MBA). Optional brooder monitor \u2014 loading/unloading that LaunchAgent is the on/off switch; no config change needed. Currently watching the brooder with chicks. device_index=0 on MBA = FaceTime HD (USB cam is on GWTC, so FaceTime is the only camera on this box).",
+      "context": "MacBook Air 2013 FaceTime HD camera (1280x720), served at 192.168.0.50:8089 via usb-cam-host (com.farmguardian.usb-cam-host LaunchAgent on the MBA). Brooder monitor for the baby chicks. ON/OFF SWITCH = this \"enabled\" flag (the orchestrator only spawns a raw-capture thread when enabled=true); the MBA LaunchAgent only serves the snapshot endpoint. Frame capture pulls /photo.jpg on the cycle_seconds cadence like usb-cam/dominator-cam. device_index=0 on MBA = FaceTime HD (USB cam is on GWTC, so FaceTime is the only camera on this box).",
       "burst_size": 1,
       "vlm_bypass": true,
-      "enabled": false
+      "enabled": true
     },
     "dominator-cam": {
       "cycle_seconds": 10.0,
+      "offpeak_cycle_seconds": 180,
       "raw_retention_hours": 48,
       "capture_method": "ip_webcam",
       "ip_webcam_base": "http://192.168.0.194:8089",
