@@ -1,5 +1,5 @@
-# Author: Claude Sonnet 4.6
-# Date: 09-May-2026 (updated 09-May-2026 — landscape mode + LM Studio caption synthesis + 4 timelapse lanes; 10-May-2026 — GWTC approval gate)
+# Author: Claude Sonnet 4.6; Claude Opus 4.7 (22-June-2026 — duo2 timelapse lane)
+# Date: 09-May-2026 (updated 09-May-2026 — landscape mode + LM Studio caption synthesis + 4 timelapse lanes; 10-May-2026 — GWTC approval gate; 22-June-2026 — DUO2_TIMELAPSE_LANE)
 # PURPOSE: Shared runner for scheduled Instagram Reel lanes. The
 #          existing mixed-camera daily Reel uses the approval-gated
 #          flow: build MP4, upload a Discord preview, wait for a human
@@ -202,6 +202,29 @@ HOUSE_YARD_CAM_TIMELAPSE_LANE = DailyReelLane(
     approval_required=False,
     ledger_lane="house-yard-cam-timelapse-reel",
     caption_fallback="A day in the yard.",
+    mention_user_id=MARK_DISCORD_USER_ID,
+    landscape_mode=True,
+    discord_preview_scale="960:540",
+)
+
+# 22-June-2026 (Claude Opus 4.7): duo2 (Reolink Duo 2 WiFi) time-lapse lane, the
+# stationary 180-degree panoramic complement to the house-yard E1 PTZ. Mirrors the
+# other reolink_snapshot vlm_bypass timelapse lanes (raw-tier sharpness selection,
+# auto-publish, daily run). landscape_mode=True since the Duo 2 captures a wide
+# stitched panoramic (~2.67:1) — reel_stitcher letterboxes it inside the 16:9
+# (1920x1080) reel frame undistorted (verified v2.43.0).
+DUO2_TIMELAPSE_LANE = DailyReelLane(
+    lane_id="duo2-timelapse",
+    log_name="ig-duo2-timelapse-reel",
+    description="Auto-post daily duo2 Reolink panoramic time-lapse Reel.",
+    selector_name="select_duo2_timelapse_gems",
+    state_subdir="duo2-timelapse",
+    output_filename_prefix="reel-duo2-timelapse",
+    discord_username="farm-reel-duo2",
+    discord_title="Duo2 panoramic time-lapse",
+    approval_required=False,
+    ledger_lane="duo2-timelapse-reel",
+    caption_fallback="A day across the farm.",
     mention_user_id=MARK_DISCORD_USER_ID,
     landscape_mode=True,
     discord_preview_scale="960:540",

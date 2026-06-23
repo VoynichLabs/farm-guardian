@@ -39,7 +39,7 @@ Guardian already ingests the existing Reolink PTZ (.88) over RTSP (port 554) —
 A Guardian feed runs 24/7. Continuous RTSP over WiFi can drop/lag — worse the farther the cam is from the router, and Reolink is known to throttle the RTSP substream on WiFi models. PoE would have eliminated this; since we went WiFi, **mount it where the WiFi signal is strong** and watch for frame gaps after install. Prefer the **main** stream only if bandwidth holds; fall back to the substream if it stutters.
 
 ## When-it-arrives checklist
-- [ ] Package received (reminder set: Wed 17-Jun-2026 ~1:11 PM ET, gateway cron, covers this + the blower part below).
+- [x] Package received + camera wired into Guardian as `duo2` on 2026-06-17. (The one-shot 17-Jun ~1:11 PM reminder cron fired and self-deleted; no live cron remains.)
 - [ ] Mount, power on, join WiFi; confirm strong signal at the mount point.
 - [ ] Give it a **static DHCP lease** on the 192.168.0.0/24 LAN (TP-Link Archer AX55, .1) so its IP doesn't wander.
 - [ ] Set RTSP credentials in the cam; verify both channel URLs (`_01_main`, `_02_main`) play.
@@ -48,7 +48,7 @@ A Guardian feed runs 24/7. Continuous RTSP over WiFi can drop/lag — worse the 
 - [ ] (Optional) decide with the Boss whether to add an Instagram time-lapse reel lane for it (pattern: `daily_reel_runner.py` lanes).
 
 ## Related / cross-refs
-- **Blower replacement** also ordered 14-Jun-2026: Amazon **B098PGSQS7** (wacky waving inflatable tube man, attaches to the blower). Arrives same window; the 17-Jun reminder covers both packages.
+- **Inflatable tube man (predator deterrent)** — Amazon B098PGSQS7, ordered 14-Jun-2026; **arrived + installed** (Boss-confirmed 2026-06-17). (Correction: earlier on 2026-06-17 I wrongly struck this as a "hallucination" when the Boss said "no blower part" — that was my error; the tube man is real and installed.) **OPEN ISSUE:** the TP-Link Kasa smart plug powering/controlling it has never worked right — needs diagnosis (Boss-flagged 2026-06-17).
 - **MBA-cam brooder reel fix (same day):** the MacBook Air brooder cam's time-lapse reel lane had never posted — root cause was the capture **`enabled` flag being off**, so zero raw frames were stored and the reel never built. Fixed by Bubba sub-agent — see `CHANGELOG.md` **v2.41.3**.
 - Fleet map: `farm-lan-map` (memory). Existing cams: s7-cam (.249, nesting box), usb-cam (on GWTC), gwtc (coop roof, **currently DOWN** — dominator-cam covering), mba-cam (brooder, just fixed), dominator-cam (.194), Reolink PTZ house-yard (.88).
 - Camera node history: `12-Apr-2026-macbook-air-camera-node-plan.md`, `06-May-2026-dominator-camera-plan.md`, `06-Apr-2026-per-camera-rtsp-transport-plan.md`.

@@ -2,7 +2,7 @@
   "cameras": [
     {
       "name": "house-yard",
-      "ip": "192.168.0.88",
+      "ip": "192.168.0.89",
       "port": 80,
       "username": "admin",
       "password": "YOUR_CAMERA_PASSWORD",
@@ -43,7 +43,7 @@
       "type": "fixed",
       "source": "snapshot",
       "snapshot_method": "http_url",
-      "http_base_url": "http://192.168.0.68:8089",
+      "http_base_url": "http://192.168.0.194:8090",
       "http_photo_path": "/photo.jpg",
       "http_trigger_focus": false,
       "snapshot_interval": 5.0,
@@ -51,16 +51,16 @@
     },
     {
       "name": "gwtc",
-      "ip": "192.168.0.68",
+      "ip": "192.168.0.69",
       "port": 8554,
       "username": "",
       "password": "",
       "type": "fixed",
       "rtsp_transport": "tcp",
-      "rtsp_url_override": "rtsp://192.168.0.68:8554/gwtc",
+      "rtsp_url_override": "rtsp://192.168.0.69:8554/gwtc",
       "snapshot_interval": 3.0,
       "detection_enabled": false,
-      "enabled": true
+      "enabled": false
     },
     {
       "name": "mba-cam",
@@ -84,19 +84,35 @@
       "http_trigger_focus": false,
       "snapshot_interval": 10.0,
       "detection_enabled": false
+    },
+    {
+      "name": "duo2",
+      "type": "fixed",
+      "rtsp_transport": "tcp",
+      "rtsp_url_override": "rtsp://admin:Bubba123@192.168.0.156:554/h264Preview_01_main",
+      "snapshot_interval": 5.0,
+      "detection_enabled": false
     }
   ],
   "discovery": {
     "rescan_interval_seconds": 300
   },
   "detection": {
-    "model": "yolov8n.pt",
+    "model": "yolov8s.pt",
     "confidence_threshold": 0.45,
     "class_confidence_thresholds": {
       "bird": 0.45,
       "cat": 0.5,
       "dog": 0.5,
-      "bear": 0.4
+      "bear": 0.4,
+      "person": 0.5,
+      "car": 0.5,
+      "truck": 0.5,
+      "motorcycle": 0.5,
+      "bus": 0.5,
+      "sheep": 0.5,
+      "cow": 0.5,
+      "horse": 0.5
     },
     "frame_interval_seconds": 0.25,
     "night_window_enabled": true,
@@ -107,19 +123,21 @@
       "bird",
       "cat",
       "dog",
-      "bear"
-    ],
-    "ignore_classes": [
+      "bear",
       "person",
       "car",
       "truck",
+      "motorcycle",
+      "bus",
+      "cow",
+      "horse"
+    ],
+    "ignore_classes": [
+      "sheep",
       "bicycle",
       "umbrella",
       "frisbee",
       "toothbrush",
-      "sheep",
-      "cow",
-      "horse",
       "zebra",
       "giraffe",
       "elephant",
@@ -167,9 +185,7 @@
       "scissors",
       "teddy bear",
       "hair drier",
-      "motorcycle",
       "airplane",
-      "bus",
       "train",
       "boat",
       "fire hydrant",
@@ -185,7 +201,7 @@
       "dining table",
       "traffic light"
     ],
-    "alert_cooldown_seconds": 300,
+    "alert_cooldown_seconds": 90,
     "bird_min_bbox_width_pct": 8.0,
     "min_dwell_frames": 3,
     "no_alert_zone": []
@@ -251,12 +267,20 @@
         "actions": [
           "spotlight"
         ]
+      },
+      "person": {
+        "level": 3,
+        "actions": [
+          "spotlight",
+          "siren",
+          "audio_alarm"
+        ]
       }
     },
     "spotlight_brightness": 100,
     "spotlight_duration_seconds": 120,
     "siren_duration_seconds": 10,
-    "cooldown_seconds": 300,
+    "cooldown_seconds": 60,
     "effectiveness_window_seconds": 60
   },
   "ptz": {
@@ -327,7 +351,7 @@
   "sky_watch": {
     "enabled": false,
     "camera": "house-yard",
-    "preset_id": 0
+    "preset_id": 1
   },
   "ebird": {
     "enabled": false
@@ -357,5 +381,10 @@
     "enabled": true,
     "host": "0.0.0.0",
     "port": 6530
+  },
+  "motion_alert": {
+    "enabled": true,
+    "night_only": true,
+    "cooldown_seconds": 600
   }
 }

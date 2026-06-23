@@ -1,4 +1,4 @@
-# Author: Claude Sonnet 4.6; Claude Opus 4.8 (Bubba sub-agent) 14-June-2026 — golden-window two-window filter + seconds-granular bucketing for usb-cam/dominator-cam time-lapse lanes
+# Author: Claude Sonnet 4.6; Claude Opus 4.8 (Bubba sub-agent) 14-June-2026 — golden-window two-window filter + seconds-granular bucketing for usb-cam/dominator-cam time-lapse lanes; Claude Opus 4.7 (Bubba sub-agent) 22-June-2026 — select_duo2_timelapse_gems wrapper
 # Date: 07-May-2026; 09-May-2026 — _score_raw_frame + select_timelapse_gems for vlm_bypass lanes; 10-May-2026 — daylight filter for coop-roof time-lapse lanes; 11-May-2026 — S7 backlog duplicate guard; 14-June-2026 — golden activity windows (sunrise->09:00, 19:30->20:30), denser in-window sampling
 # PURPOSE: Select Instagram-post-eligible gems from image_archive on
 #          wall-clock windows (day, 2-hour, week). Pure SELECT +
@@ -935,6 +935,10 @@ def select_dominator_cam_timelapse_gems(db_path: Path, cfg: dict) -> list[int]:
 
 def select_house_yard_cam_timelapse_gems(db_path: Path, cfg: dict) -> list[int]:
     return select_timelapse_gems("house-yard", db_path, cfg)
+
+
+def select_duo2_timelapse_gems(db_path: Path, cfg: dict) -> list[int]:
+    return select_timelapse_gems("duo2", db_path, cfg)
 
 
 def mark_gems_used_in_backlog_reel(

@@ -71,13 +71,22 @@
       "timelapse_reel_timezone": "America/New_York",
       "timelapse_golden_windows": {
         "enabled": true,
-        "cameras": ["usb-cam", "dominator-cam"],
+        "cameras": [
+          "usb-cam",
+          "dominator-cam"
+        ],
         "timezone": "America/New_York",
         "latitude": 41.7558,
         "longitude": -71.9789,
         "windows": [
-          {"start": "sunrise", "end": "09:00"},
-          {"start": "19:30", "end": "20:30"}
+          {
+            "start": "sunrise",
+            "end": "09:00"
+          },
+          {
+            "start": "19:30",
+            "end": "20:30"
+          }
         ],
         "sample_bucket_seconds": 30,
         "max_frames": 90,
@@ -90,8 +99,8 @@
     "house-yard": {
       "cycle_seconds": 45,
       "capture_method": "reolink_snapshot",
-      "reolink_base": "http://192.168.0.88",
-      "context": "Reolink E1 Outdoor Pro 4K PTZ camera (192.168.0.88); currently aimed at the yard, sky, and coop approach",
+      "reolink_base": "http://192.168.0.89",
+      "context": "Reolink E1 Outdoor Pro 4K PTZ camera (192.168.0.89); currently aimed at the yard, sky, and coop approach",
       "burst_size": 1,
       "motion_gate": false,
       "vlm_bypass": true,
@@ -118,7 +127,7 @@
       "photo_path": "/photo.jpg",
       "trigger_focus": true,
       "focus_wait": 2.0,
-      "context": "Samsung Galaxy S7 running IP Webcam app, plugged into a USB wall brick for power (untethered from MBA 26-Apr-2026, v2.37.8). 26-Apr-2026 v2.37.10: switched FROM /photoaf.jpg TO /photo.jpg + explicit /focus + 2s wait. /photoaf.jpg's built-in AF was running concurrently with our /focus call and the two were interfering \u2014 frames came back rated 'soft' even with continuous-picture mode active. One AF cycle (explicit /focus, sleep 2s, fetch /photo.jpg) is more reliable than two. Continuous-picture AF + incandescent WB set at Guardian startup (v2.27.7). Sony IMX260 sensor, 1920x1080, f/1.7. Best-quality source in the fleet \u2014 aimed at the main flock area showing the GROWING flock (phone moved 2026-06-06). Cadence dropped to 3s and priority=1 so when the VLM slot opens, s7 wins ties. 2026-06-06: PHONE MOVED off the nesting box. View is now the GROWING cohort: juvenile/adolescent birds that graduated out of the nesting box and brooder — feathering out and growing, but NOT fully grown adults yet. Bigger and more feathered than the tiny nesting-box chicks, but still young and growing. Mixed exotic breeds (some are bantam breeds). NO turkey poults and NO tiny nesting-box chicks. Judge by the size and plumage you actually see — do not assume either tiny chicks or full-grown adults; angle may show backs and tops of heads as well as faces.",
+      "context": "Samsung Galaxy S7 running IP Webcam app, plugged into a USB wall brick for power (untethered from MBA 26-Apr-2026, v2.37.8). 26-Apr-2026 v2.37.10: switched FROM /photoaf.jpg TO /photo.jpg + explicit /focus + 2s wait. /photoaf.jpg's built-in AF was running concurrently with our /focus call and the two were interfering \u2014 frames came back rated 'soft' even with continuous-picture mode active. One AF cycle (explicit /focus, sleep 2s, fetch /photo.jpg) is more reliable than two. Continuous-picture AF + incandescent WB set at Guardian startup (v2.27.7). Sony IMX260 sensor, 1920x1080, f/1.7. Best-quality source in the fleet \u2014 aimed at the main flock area showing the GROWING flock (phone moved 2026-06-06). Cadence dropped to 3s and priority=1 so when the VLM slot opens, s7 wins ties. 2026-06-06: PHONE MOVED off the nesting box. View is now the GROWING cohort: juvenile/adolescent birds that graduated out of the nesting box and brooder \u2014 feathering out and growing, but NOT fully grown adults yet. Bigger and more feathered than the tiny nesting-box chicks, but still young and growing. Mixed exotic breeds (some are bantam breeds). NO turkey poults and NO tiny nesting-box chicks. Judge by the size and plumage you actually see \u2014 do not assume either tiny chicks or full-grown adults; angle may show backs and tops of heads as well as faces.",
       "burst_size": 1,
       "require_face": true,
       "enabled": true,
@@ -134,7 +143,7 @@
       "burst_interval_seconds": 0.4,
       "motion_gate": true,
       "vlm_bypass": true,
-      "enabled": true
+      "enabled": false
     },
     "mba-cam": {
       "cycle_seconds": 10,
@@ -143,7 +152,7 @@
       "ip_webcam_base": "http://192.168.0.50:8089",
       "photo_path": "/photo.jpg",
       "trigger_focus": false,
-      "context": "MacBook Air 2013 FaceTime HD camera (1280x720), served at 192.168.0.50:8089 via usb-cam-host (com.farmguardian.usb-cam-host LaunchAgent on the MBA). Brooder monitor for the baby chicks. ON/OFF SWITCH = this \"enabled\" flag (the orchestrator only spawns a raw-capture thread when enabled=true); the MBA LaunchAgent only serves the snapshot endpoint. Frame capture pulls /photo.jpg on the cycle_seconds cadence like usb-cam/dominator-cam. device_index=0 on MBA = FaceTime HD (USB cam is on GWTC, so FaceTime is the only camera on this box).",
+      "context": "MacBook Air 2013 FaceTime HD camera (1280x720), served at 192.168.0.50:8089 via usb-cam-host (com.farmguardian.usb-cam-host LaunchAgent on the MBA). MOVED 2026-06-21 from the brooder to the TURKEY PEN: an outdoor wire-fenced enclosure in natural daylight. The MBA sits on a ledge inside the pen, looking across it and out toward the yard/garden beyond the fence. Subjects: the turkeys kept in this pen (often out of frame depending on where they roam), plus the yard visible through the fence. This is NOT the brooder and there are NO baby chicks here. Score conservatively for this low-resolution camera. ON/OFF SWITCH = this \"enabled\" flag (the orchestrator only spawns a raw-capture thread when enabled=true); the MBA LaunchAgent only serves the snapshot endpoint. Frame capture pulls /photo.jpg on the cycle_seconds cadence like usb-cam/dominator-cam. device_index=0 on MBA = FaceTime HD; the external USB CAMERA is now also plugged into this MBA (served separately once macOS enumerates its video).",
       "burst_size": 1,
       "vlm_bypass": true,
       "enabled": true
@@ -158,6 +167,15 @@
       "trigger_focus": false,
       "context": "MSI Dominator GT72 6QD (Windows 10, 192.168.0.194) built-in BisonCam NB Pro webcam. Opportunistic \u2014 only live when Boss double-clicks the desktop shortcut. Aim varies.",
       "burst_size": 1,
+      "vlm_bypass": true,
+      "enabled": true
+    },
+    "duo2": {
+      "cycle_seconds": 10.0,
+      "capture_method": "reolink_snapshot",
+      "context": "Reolink Duo 2 WiFi (dual-lens 180 pano, fixed), lens 01, IP .14. Stationary complement to the E1 PTZ. Zone TBD - confirm mount/aim with Boss.",
+      "burst_size": 1,
+      "motion_gate": false,
       "vlm_bypass": true,
       "enabled": true
     }

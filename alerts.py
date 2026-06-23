@@ -1,6 +1,8 @@
-# Author: Claude Opus 4.8 (1M context) — Bubba coding sub-agent (motion-alert add),
+# Author: Claude Opus 4.7 — Bubba coding sub-agent (motion-alert separate debounce),
+#         Claude Opus 4.8 (1M context) — Bubba coding sub-agent (motion-alert add),
 #         Claude Opus 4.6 (updated), Cascade (Claude Sonnet 4) (original)
-# Date: 12-June-2026 (v2.41.0 — send_motion_alert for camera-hardware motion)
+# Date: 22-June-2026 (v2.43.0 — separate motion_alert.cooldown_seconds debounce);
+#       12-June-2026 (v2.41.0 — send_motion_alert for camera-hardware motion)
 # PURPOSE: Discord alert manager for Farm Guardian. Posts webhook messages to the
 #          #farm-2026 Discord channel when predator-class animals are detected. Each alert
 #          includes an embedded snapshot image, detection class, confidence score, timestamp,
@@ -66,6 +68,16 @@ class AlertManager:
 
         # Cooldown: seconds between alerts for the same animal class
         self._cooldown_seconds = detection_cfg.get("alert_cooldown_seconds", 300)
+
+        # Separate, typically-larger debounce for camera-hardware MOTION alerts
+        # (send_motion_alert). These are pure-motion ("sensor triggered") posts with
+        # NO YOLO gate, so they are the spammiest layer; throttling them hard here
+        # cannot suppress predator alerts, which use _cooldown_seconds above.
+        # Falls back to _cooldown_seconds when motion_alert.cooldown_seconds is unset.
+        motion_alert_cfg = config.get("motion_alert", {})
+        self._motion_cooldown_seconds = motion_alert_cfg.get(
+            "cooldown_seconds", self._cooldown_seconds
+        )
 
         # Track last alert time per class to enforce cooldown
         # Key: class_name -> last alert unix timestamp
@@ -175,11 +187,16 @@ class AlertManager:
         return sent
 
     def _motion_cooldown_passed(self, camera_name: str) -> bool:
-        """Check if a motion alert for this camera is allowed (cooldown not active)."""
+        """Check if a motion alert for this camera is allowed (cooldown not active).
+
+        Uses the dedicated _motion_cooldown_seconds debounce (motion_alert.cooldown_seconds)
+        so pure-motion alerts can be throttled far harder than predator alerts without
+        affecting them.
+        """
         with self._lock:
             last = self._last_motion_alert_time.get(camera_name, 0)
             elapsed = time.time() - last
-            return elapsed >= self._cooldown_seconds
+            return elapsed >= self._motion_cooldown_seconds
 
     def send_motion_alert(
         self,
@@ -196,9 +213,9 @@ class AlertManager:
         can never suppress a predator detection.
 
         Respects an OWN per-camera cooldown (self._last_motion_alert_time) using the
-        same alert_cooldown_seconds value as predator alerts, but tracked separately
-        so the two alert kinds never throttle each other. Returns True only if an
-        alert was actually sent.
+        dedicated motion_alert.cooldown_seconds debounce (self._motion_cooldown_seconds),
+        tracked separately so the two alert kinds never throttle each other. Returns
+        True only if an alert was actually sent.
 
         Gating (enabled flag, night-only, per-camera opt-in) is the caller's job —
         this method only enforces cooldown and posts.
