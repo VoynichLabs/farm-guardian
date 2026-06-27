@@ -1,4 +1,4 @@
-# Author: Claude Opus 4.7 (1M context); Claude Sonnet 4.6 (edits 27-April-2026 — vlm_bypass mode: run_raw_cycle, dedicated raw threads, raw retention sweep, v2.37.13; 28-April-2026 — sharpness gate wired in, v2.37.14; 04-May-2026 — Birds preset as prompt/schema source, v2.40.0); GPT-5.5 Codex (edits 08-May-2026 — static floor-pecking score calibration); Claude Opus 4.8 (1M context) (edits 03-June-2026 — VLM input downscale via _downscale_for_vlm + vlm_input_long_edge_px config, to cut per-frame latency, v2.40.17); Claude Opus 4.8 (Bubba sub-agent) (edits 14-June-2026 — golden-window raw capture: per-iteration thick/sparse cadence for usb-cam/dominator-cam via offpeak_cycle_seconds + timelapse_golden_windows)
+# Author: Claude Opus 4.7 (1M context); Claude Sonnet 4.6 (edits 27-April-2026 — vlm_bypass mode: run_raw_cycle, dedicated raw threads, raw retention sweep, v2.37.13; 28-April-2026 — sharpness gate wired in, v2.37.14; 04-May-2026 — Birds preset as prompt/schema source, v2.40.0); GPT-5.5 Codex (edits 08-May-2026 — static floor-pecking score calibration); Claude Opus 4.8 (1M context) (edits 03-June-2026 — VLM input downscale via _downscale_for_vlm + vlm_input_long_edge_px config, to cut per-frame latency, v2.40.17); Claude Opus 4.8 (Bubba sub-agent) (edits 14-June-2026 — golden-window raw capture: per-iteration thick/sparse cadence for usb-cam/dominator-cam via offpeak_cycle_seconds + timelapse_golden_windows); Claude Sonnet 4.6 (edits 27-June-2026 — run_raw_cycle quality gates + laplacian storage, v2.44.1)
 # Date: 17-April-2026
 # PURPOSE: Main entry point for the multi-cam image pipeline. Schedules per-
 #          camera capture cycles at their configured cadences, runs each
@@ -257,14 +257,15 @@ def _calibrate_static_floor_pecking_score(camera_name: str, metadata: dict) -> b
 
 def run_raw_cycle(camera_name: str, camera_cfg: dict, cfg: dict,
                   db_path: Path, archive_root: Path) -> dict:
-    """Capture → save-to-disk cycle for cameras marked vlm_bypass=true.
+    """Capture → gate → save-to-disk cycle for cameras marked vlm_bypass=true.
 
-    Bypasses the VLM queue entirely: no quality gate, no exposure gate,
-    no motion gate, no VLM inference, no Discord/IG posting. Raw JPEG
-    lands on disk and the image_archive row carries tier='raw' with
-    vlm_* columns NULL. Intended for house-yard, where ~95% of frames
-    would be rated 'skip' anyway and VLM contention was starving the
-    effective cadence to 60-85s against a 45s target.
+    Applies the same trivial + exposure gate chain used by run_cycle so
+    blank, washed-out, or corrupted frames are rejected before hitting disk.
+    gate_metrics (std_dev, laplacian_var, exposure_p50) are stored in the DB
+    row so select_timelapse_gems can rank frames by sharpness rather than
+    picking randomly from each time bucket.
+
+    No motion gate, no VLM inference, no Discord/IG posting.
     """
     result = {"camera": camera_name,
               "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -290,9 +291,55 @@ def run_raw_cycle(camera_name: str, camera_cfg: dict, cfg: dict,
                               reason=f"{type(e).__name__}: {e}")
                 return result
             time.sleep(1.0)
+
+    # Compute quality metrics and apply cheap gates. Mirrors run_cycle's
+    # trivial + exposure chain. Catches: blank frames (std < std_dev_floor),
+    # corrupted/washed-out frames (std < exposure_std_floor or p50 out of
+    # range), and per-camera blurry frames (laplacian_floor > 0 in config).
+    gate_metrics: dict = {}
+    try:
+        img = cv2.imdecode(np.frombuffer(jpeg_bytes, np.uint8), cv2.IMREAD_COLOR)
+        if img is not None:
+            ok, gate_metrics = passes_trivial_gate(
+                img, std_dev_floor=cfg.get("std_dev_floor", 5.0)
+            )
+            if not ok:
+                result.update(status="gated", stage="trivial_gate", metrics=gate_metrics)
+                return result
+            exp_ok, exp_reason = passes_exposure_gate(
+                gate_metrics,
+                p50_floor=cfg.get("exposure_p50_floor", 25.0),
+                p50_ceiling=cfg.get("exposure_p50_ceiling", 230.0),
+                std_floor=cfg.get("exposure_std_floor", 15.0),
+            )
+            if not exp_ok:
+                log.info("%s: raw frame rejected (%s) metrics=%s",
+                         camera_name, exp_reason, gate_metrics)
+                result.update(status="gated", stage="exposure",
+                              reason=exp_reason, metrics=gate_metrics)
+                return result
+            lap_floor = float(camera_cfg.get("laplacian_floor", 0.0))
+            if lap_floor > 0.0:
+                sharp_ok, sharp_reason = passes_sharpness_gate(
+                    gate_metrics, laplacian_floor=lap_floor
+                )
+                if not sharp_ok:
+                    log.info("%s: raw frame rejected (%s) metrics=%s",
+                             camera_name, sharp_reason, gate_metrics)
+                    result.update(status="gated", stage="sharpness",
+                                  reason=sharp_reason, metrics=gate_metrics)
+                    return result
+    except Exception as exc:
+        # Metric computation is best-effort; a decode failure here should not
+        # stop the frame from being stored (the file is still valid on disk).
+        log.warning("%s: raw metric computation failed: %s — storing without metrics",
+                    camera_name, exc)
+        gate_metrics = {}
+
     try:
         sr = store_raw(db_path=db_path, archive_root=archive_root,
-                       camera_id=camera_name, jpeg_bytes=jpeg_bytes)
+                       camera_id=camera_name, jpeg_bytes=jpeg_bytes,
+                       gate_metrics=gate_metrics)
     except Exception as e:
         log.exception("%s: raw store failed", camera_name)
         result.update(status="error", stage="store",

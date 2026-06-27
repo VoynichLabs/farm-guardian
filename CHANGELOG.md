@@ -2,7 +2,42 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased] - 2026-06-27
+
+### v2.44.1 — fix: raw-capture quality gates + laplacian storage + duo2 daylight filter (Claude Sonnet 4.6) — 27-Jun-2026
+
+**What:** Three fixes to the vlm_bypass (raw) capture path:
+
+1. **Laplacian now stored for every raw frame.** `run_raw_cycle` was calling `store_raw()` with no `gate_metrics`, leaving `laplacian_var = NULL` in every vlm_bypass camera row. `select_timelapse_gems` uses laplacian to pick the sharpest frame per time-bucket — with all NULLs it was picking randomly. Fixed by decoding the captured JPEG and running `passes_trivial_gate` to compute std_dev / laplacian / exposure_p50 before calling `store_raw`.
+
+2. **Corrupted frames now rejected at capture time.** The Reolink Duo 2 periodically emits grey-noise frames (`p50≈129, std≈6, lap<200`) — about 16% of all captures. These have `std < exposure_std_floor (15.0)`, so applying `passes_exposure_gate` to the raw path drops them before they hit disk. Same logic applied for all vlm_bypass cameras: the full trivial + exposure gate chain now runs, identical to the VLM path but without VLM, motion gate, or posting.
+
+3. **duo2 added to `timelapse_reel_daylight_only_cameras`.** The duo2's nighttime B&W IR frames are sharp and clear (lap ~1200–2950) but would produce a jarring color→B&W transition mid-reel. Added "duo2" to the daylight-only list in `tools/pipeline/config.json` so only daytime frames (local 06:00–20:00) are selected.
+
+**Why:** Discovered during a post-v2.43.0 review of the duo2 timelapse lane. The bucket-random selection was the root cause of any garbage frames appearing in reels. The grey corruption is a camera-side stitch artifact, not an RTSP decode error.
+
+**Files changed:** `tools/pipeline/orchestrator.py`, `tools/pipeline/config.json`.
+
+**Verified:** `python -m py_compile tools/pipeline/orchestrator.py` clean.
+
+---
+
 ## [Unreleased] - 2026-06-12
+
+### v2.44.0 — feat: stage motion-triggered siren deterrent, DORMANT/off by default (Claude Opus 4.7, Bubba sub-agent) — 22-Jun-2026
+
+**What:** Wired (but did NOT activate) a motion-triggered siren deterrent: on a camera's hardware-motion False→True transition, Guardian can now fire that camera's onboard siren. It ships **DORMANT** — gated by a new top-level `motion_siren` config block whose `enabled` defaults **false** — so this version changes ZERO live behavior. Also added a standalone live hardware-test tool, `scripts/test-siren.py`. Nothing in this change fires a siren; activation + the hardware test await the Boss's explicit go-ahead.
+
+**Why:** Boss wants a real deterrent on motion at night, but staged safely. The existing `DeterrentEngine` siren path (`deterrent.py`) is keyed on fine predator species ("coyote"/"bobcat") the COCO YOLO model never emits ("dog"/"cat"/"bear") — so it has fired ZERO times ever (dead path, left untouched). The camera-onboard **motion** path (`_motion_watch_loop`), by contrast, already fires reliably and is independent of YOLO, making it the correct trigger for a motion-based siren. Reused the working `CameraController.siren_timed()` (reolink-aio `set_siren`, non-blocking auto-off) rather than adding a raw `AudioAlarmPlay` call (DRY).
+
+**How:**
+- **Config (`config.json`):** new `motion_siren` block — `{ "enabled": false, "duration_seconds": 10, "window_start": "20:00", "window_end": "06:00", "cooldown_seconds": 120, "cameras": ["house-yard", "duo2"] }`. `enabled` is **false** by default (dormant).
+- **`guardian.py` (`_motion_watch_loop`):** on the motion transition, after the existing burst + motion-alert steps, a new gated block fires `self._camera_ctrl.siren_timed(name, duration_seconds)` ONLY when: `motion_siren.enabled` is true AND now is inside `[window_start, window_end)` (window may cross midnight) AND the camera is in `motion_siren.cameras` AND a **dedicated per-camera siren cooldown** (`siren_last_fire` dict, separate from the alert cooldown) has elapsed. Each (would-)fire / skip-reason is logged. Added a small `_time_window_open()` helper that reuses the existing `_window_allows_minutes` / `_clock_to_minutes` math (one window engine — DRY). The `motion_siren` config-read + a `"Motion-siren loaded: enabled=…"` log line run unconditionally on startup (before the no-cameras early-return), so the dormant load is always verifiable in `guardian.log`.
+- **`scripts/test-siren.py` (new):** `python scripts/test-siren.py <camera_id> [duration_seconds]` — connects ONLY the requested camera (no second fleet-wide pool), fires `siren_timed` once via the production path, waits for auto-off, prints SUCCESS/FAILURE. Loads `config.json` + the `CAMERA_PASSWORD` secret the same way `guardian.load_config` does. **CREATED but NOT RUN** (makes real noise — Boss authorizes the live test).
+- **Verified (dormant load only — no siren fired):** `python -m py_compile` clean on `guardian.py` + `scripts/test-siren.py`; `config.json` parses. Guardian restarted via `launchctl kickstart -k gui/$(id -u)/com.farmguardian.guardian`; confirmed exactly one `guardian.py` PID, all 6 cameras `online:true` via `curl localhost:6530/api/cameras`, and the `"Motion-siren loaded: enabled=False …"` log line present. With `enabled:false` there is no behavior change vs. v2.43.0.
+- **Backups:** `config.json.bak.pre-motion-siren.<ts>`, `guardian.py.backup.<ts>`.
+- **⚠️ duo2 gap (flagged for Boss):** the task brief assumed a motion-siren works for BOTH Reolinks, but primary-source reading shows otherwise. Only `house-yard` (`type:ptz`) gets a connected Reolink `Host` and is polled by the motion watcher (which requires `source==snapshot AND snapshot_method==reolink`). `duo2` is `type:fixed` → no `Host`, not polled, and `/api/cameras` reports `supports_motion:false` for it. So when the Boss flips `enabled:true`, **only house-yard will actually fire**; duo2 is currently inert and needs a connected Reolink Host before it can sound. duo2 is kept in `motion_siren.cameras` to match the spec, with a code comment noting it is inert pending a Host.
+- **Pending Boss go-ahead (two steps, in order):** (a) run the live siren hardware test (`scripts/test-siren.py house-yard 10`) to confirm the hardware sounds; (b) flip `motion_siren.enabled: true`. Until then this feature is OFF.
 
 ### v2.43.0 — feat: tighten both Reolinks' onboard motion sensitivity + separate motion-alert debounce + duo2 time-lapse reel lane (Claude Opus 4.7, Bubba sub-agent) — 22-Jun-2026
 

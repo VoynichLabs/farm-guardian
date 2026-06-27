@@ -64,7 +64,8 @@
       "timelapse_reel_min_frames": 6,
       "timelapse_reel_daylight_only_cameras": [
         "gwtc",
-        "usb-cam"
+        "usb-cam",
+        "duo2"
       ],
       "timelapse_reel_daylight_start_hour": 6,
       "timelapse_reel_daylight_end_hour": 20,
@@ -123,7 +124,7 @@
       "cycle_seconds": 7,
       "priority": 1,
       "capture_method": "ip_webcam",
-      "ip_webcam_base": "http://192.168.0.249:8080",
+      "ip_webcam_base": "http://192.168.0.250:8080",
       "photo_path": "/photo.jpg",
       "trigger_focus": true,
       "focus_wait": 2.0,
@@ -131,7 +132,7 @@
       "burst_size": 1,
       "require_face": true,
       "enabled": true,
-      "motion_gate": true,
+      "motion_gate": false,
       "laplacian_floor": 60.0
     },
     "gwtc": {
