@@ -19,14 +19,14 @@
     },
     {
       "name": "s7-cam",
-      "ip": "192.168.0.249",
+      "ip": "192.168.0.250",
       "port": 8080,
       "username": "",
       "password": "",
       "type": "fixed",
       "source": "snapshot",
       "snapshot_method": "http_url",
-      "http_base_url": "http://192.168.0.249:8080",
+      "http_base_url": "http://192.168.0.250:8080",
       "http_photo_path": "/photo.jpg",
       "http_trigger_focus": false,
       "http_startup_gets": [
@@ -43,7 +43,7 @@
       "type": "fixed",
       "source": "snapshot",
       "snapshot_method": "http_url",
-      "http_base_url": "http://192.168.0.194:8090",
+      "http_base_url": "http://Marks-MacBook-Air.local:8089",
       "http_photo_path": "/photo.jpg",
       "http_trigger_focus": false,
       "snapshot_interval": 5.0,
@@ -67,12 +67,12 @@
       "type": "fixed",
       "source": "snapshot",
       "snapshot_method": "http_url",
-      "http_base_url": "http://192.168.0.50:8089",
+      "http_base_url": "http://Marks-MacBook-Air.local:8089",
       "http_photo_path": "/photo.jpg",
       "http_trigger_focus": false,
       "snapshot_interval": 5.0,
       "detection_enabled": false,
-      "enabled": true
+      "enabled": false
     },
     {
       "name": "dominator-cam",
@@ -386,5 +386,13 @@
     "enabled": true,
     "night_only": true,
     "cooldown_seconds": 600
+  },
+  "motion_siren": {
+    "enabled": false,
+    "duration_seconds": 10,
+    "window_start": "20:00",
+    "window_end": "06:00",
+    "cooldown_seconds": 120,
+    "cameras": ["house-yard", "duo2"]
   }
 }
