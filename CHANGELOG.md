@@ -2,7 +2,15 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] - 2026-06-27
+## [Unreleased] - 2026-07-01
+
+### v2.44.2 — feat: duo2 joins predator detection + night window shifted to 21:00–07:00 (Claude Opus 4.8) — 01-Jul-2026
+
+**What:** The Reolink Duo 2 (`duo2`, 192.168.0.156) is now a predator-detection camera, and the global detection window moved from 20:00–09:00 to **21:00–07:00** America/New_York.
+
+**Why:** Boss wanted the new Duo 2 covered by the same YOLO predator-detection system as the main `house-yard` Reolink, but only during overnight hours. Detection timing is a single global window shared by all detection-enabled cameras (`guardian.py::_on_frame` → `_detection_window_open`), so "same as house-yard" = flip duo2's flag and adjust the shared window; no per-camera hour gating needed.
+
+**How:** Two config.json edits — `cameras[duo2].detection_enabled` false→true, and `detection.night_window_start/end` 20:00/09:00 → 21:00/07:00. No code change. Guardian reloaded via `launchctl kickstart`. Verified: duo2 now captures at the 0.2s detection cadence (was 5s passive), window logs `21:00-07:00`. Note this also shifts `house-yard`'s window by the same amount (it was already night-only). config.json is gitignored/per-host — this entry is the record of the behavior change.
 
 ### v2.44.1 — fix: raw-capture quality gates + laplacian storage + duo2 daylight filter (Claude Sonnet 4.6) — 27-Jun-2026
 
