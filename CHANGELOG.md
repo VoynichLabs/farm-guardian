@@ -4,6 +4,16 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-07-01
 
+### v2.44.3 — perf: pipeline VLM switched to qwen/qwen3-vl-4b for speed (Claude Opus 4.8) — 01-Jul-2026
+
+**What:** The pipeline VLM is now `qwen/qwen3-vl-4b` (was `qwen/qwen3.5-9b`). Reasoning stays OFF (`reasoning_effort: "none"` in `vlm_enricher.py`, unchanged — Boss directive: thinking/reasoning must ALWAYS be off, it's what makes inference slow).
+
+**Why:** Boss wants each S7 bird frame judged in <7s (S7 pull cadence). Real production timing pulled from `image_archive.vlm_inference_ms`: qwen3.5-9b avg 19.6s, qwen3.6-27b ~85s (tested, dense 27B — far too slow), vs **qwen3-vl-4b avg 4.1s / max 6s** — the only local VLM under the 7s budget. Quality is a non-goal here ("it's bird pictures, just make it fast").
+
+**How:** TWO hardcoded-default sites had to change together or they fight (the watchdog reloads its own default whenever LM Studio empties): (1) `tools/pipeline/config.json::vlm_model_id` → `qwen/qwen3-vl-4b` (ctx stays 16384); (2) `~/Library/Application Support/farm-guardian/lmstudio-watchdog.sh` → `MODEL=qwen/qwen3-vl-4b`, `CONTEXT=16384`, `MODEL_GB=3.33`. Loaded via the safe-swap pattern (unload → mem gate → load flash_attention/parallel=1). Verified live: enricher warm ~4.9s, first S7 archive row on the new model confirmed. Both files gitignored/per-host — this entry is the record.
+
+**Caveat (known):** qwen3-vl-4b judges the share-worth gate generously (flagged nearly everything "strong" when trialed 2026-06-04, per v2.40.18/19) — it can over-feed the Discord gem lane. Emergency spam-stop is `touch /tmp/farm-pipeline.pause`. Accepted for now in exchange for speed; revisit gate tuning if Discord noise returns.
+
 ### v2.44.2 — feat: duo2 joins predator detection + night window shifted to 21:00–07:00 (Claude Opus 4.8) — 01-Jul-2026
 
 **What:** The Reolink Duo 2 (`duo2`, 192.168.0.156) is now a predator-detection camera, and the global detection window moved from 20:00–09:00 to **21:00–07:00** America/New_York.
