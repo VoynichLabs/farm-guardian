@@ -4,6 +4,16 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-07-01
 
+### v2.44.4 — fix: duo2 corrupted frames — switched to H.264 sub-stream (Claude Opus 4.8) — 01-Jul-2026
+
+**What:** `duo2` (Reolink Duo 2 WiFi, .156) now pulls the **sub-stream** (`h264Preview_01_sub`, H.264 1536×576) instead of the main stream (`h264Preview_01_main` — despite the name, it's **HEVC 4608×1728**).
+
+**Why:** Guardian's stderr was ~3694 decode errors per 4000 lines on duo2 — "Could not find ref", "Non-matching NAL types", garbage `cu_qp_delta` values. Root cause: a marginal WiFi link (ping jitter 9→229ms, stddev 51ms; ICMP shows 0% loss but the heavy video stream drops packets) feeding a giant 8MP HEVC stream. HEVC's inter-frame prediction turns any lost packet into a corrupted GOP until the next keyframe. Same failure class that moved house-yard off RTSP (v2.16–2.18). Matters more now that duo2 has detection enabled (v2.44.2) — corrupt frame → garbage YOLO.
+
+**How:** One-line `rtsp_url_override` change (main→sub). Verified: after restart, fresh 35s window logged **1** h264 decode line, **0** hevc — down from a continuous flood. H.264 + ~1/9 the pixels = far fewer packets to lose and a codec that tolerates loss better.
+
+**Why not snapshot polling (the house-yard fix):** it's the better long-term answer BUT (a) needs a code change (Guardian only auth-connects the Reolink controller for `type=="ptz"` cams) and (b) forces duo2 through the ONVIF discovery probe, which runs over the *same* flaky WiFi and can mark the camera offline on a 15s timeout — trading corruption for dropouts. The sub-stream is the zero-risk bridge. **Once duo2 is on Ethernet** (note: the WiFi model likely has no RJ45 — going wired may need the PoE variant), the link is clean and snapshot polling or even the full HEVC main stream become trouble-free.
+
 ### v2.44.3 — perf: pipeline VLM switched to qwen/qwen3-vl-4b for speed (Claude Opus 4.8) — 01-Jul-2026
 
 **What:** The pipeline VLM is now `qwen/qwen3-vl-4b` (was `qwen/qwen3.5-9b`). Reasoning stays OFF (`reasoning_effort: "none"` in `vlm_enricher.py`, unchanged — Boss directive: thinking/reasoning must ALWAYS be off, it's what makes inference slow).
