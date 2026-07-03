@@ -4,6 +4,16 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-07-03
 
+### v2.44.7 — usb-cam-host: auto-select the external USB camera (stop serving the built-in) (Claude Opus 4.8) — 03-Jul-2026
+
+**What:** New `USB_CAM_PREFER_EXTERNAL` env (default **on**) in `tools/usb-cam-host/usb_cam_host.py`. The grabber now auto-selects the first video device that is NOT a built-in/virtual camera (FaceTime, Continuity iPhone, screen capture) instead of a hardcoded index. `/health` now reports `resolved_device_index` / `resolved_device_name` so you can see which camera is actually being served.
+
+**Why:** On the MBA, `usb-cam` (`:8089`) was serving the **built-in FaceTime HD**, not a USB webcam. Root cause: the service was pinned to `USB_CAM_DEVICE_INDEX=0`, and on a laptop index 0 is always the built-in. Boss wants the host portable — "not locked to a single device; it might be on the MBA, the Dominator, or a future machine" — so it should find the real USB cam wherever it runs.
+
+**How:** Added `_resolve_external_device_index()` (darwin, skips `_BUILTIN_CAMERA_MARKERS`). `_open()` precedence is now: `USB_CAM_DEVICE_NAME_CONTAINS` (explicit, e.g. the Dominator's name-bound cams — unchanged) > `PREFER_EXTERNAL` auto-detect > `USB_CAM_DEVICE_INDEX`. When only built-ins are present it serves **nothing** (returns None → reconnect loop) rather than the built-in — serving the built-in as "usb-cam" is the bug being fixed. Windows/Dominator unaffected (they use NAME_CONTAINS, which takes precedence). Validated: module imports, resolver runs, returns None when no external cam.
+
+**NOT yet deployed to the MBA** — the physical USB webcam is not currently enumerating there (only FaceTime + screen-capture show via `ffmpeg avfoundation` / `system_profiler`; empty USB device tree). Deploy `usb_cam_host.py` to `/Users/markb/.local/farm-services/usb-cam-host/` and restart the service once the cam is visible; then verify `/health` `resolved_device_name` is the USB webcam, not FaceTime. The existing MBA plist needs no change (PREFER_EXTERNAL default makes the old index-0 pin a no-op).
+
 ### v2.44.6 — duo2 on wired ethernet: new IP .15 + back to full-res HEVC main stream (Claude Opus 4.8) — 03-Jul-2026
 
 **What:** Duo 2 moved to wired ethernet. IP changed `.156`→`.15` (new DHCP lease on the wired interface), and it's back on the full-resolution main stream (`h264Preview_01_main` = HEVC 4608×1728), reverting the 01-Jul sub-stream workaround (v2.44.4).

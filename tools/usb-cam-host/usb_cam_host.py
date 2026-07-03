@@ -1,4 +1,15 @@
 # Author: Claude Sonnet 4.6
+# Date: 03-July-2026 (Claude Opus 4.8 — adds USB_CAM_PREFER_EXTERNAL, default on:
+#        auto-selects the first NON-built-in video device so the host binds to the
+#        real USB webcam wherever it runs (MBA / Dominator / future host) instead
+#        of being pinned to index 0, which on a laptop is always the built-in
+#        FaceTime — the cause of the MBA "usb-cam is really FaceTime" mislabel.
+#        When only built-ins are present it serves nothing rather than the built-in.
+#        Precedence in _open(): USB_CAM_DEVICE_NAME_CONTAINS > PREFER_EXTERNAL auto
+#        > USB_CAM_DEVICE_INDEX. /health now reports resolved_device_index/name so
+#        an operator can see which camera is actually being served.
+#        SRP/DRY check: Pass — reused _list_avfoundation_video_devices() + the
+#        existing _open()/env-var pattern; no new module.)
 # Date: 07-June-2026 (Claude Opus 4.8 — forces MJPEG capture + DirectShow backend
 #        on Windows so the USB cam stops pulling raw YUY2. Raw YUY2 alone saturates
 #        a shared USB 2.0 controller, which on the GWTC coop laptop starved the
@@ -90,6 +101,23 @@ DEVICE_INDEX = int(os.environ.get("USB_CAM_DEVICE_INDEX", "0"))
 # Darwin-only resolution path; on Linux/Windows we log a warning and fall
 # back to DEVICE_INDEX so the var is safe to leave in cross-platform configs.
 DEVICE_NAME_CONTAINS = os.environ.get("USB_CAM_DEVICE_NAME_CONTAINS", "").strip()
+
+# Auto-select the attached EXTERNAL USB camera rather than a hardcoded index.
+# On a laptop, index 0 is always the built-in (FaceTime on Mac), so pinning
+# USB_CAM_DEVICE_INDEX=0 serves the built-in webcam mislabeled as "usb-cam".
+# When this is on (default) and USB_CAM_DEVICE_NAME_CONTAINS is NOT set, the
+# grabber enumerates video devices and opens the first one that is not a
+# built-in / virtual camera (see _BUILTIN_CAMERA_MARKERS) — so the same
+# service binds to whatever real USB webcam is plugged in, on the MacBook Air,
+# the Dominator, or any future host, with no per-machine index tuning. If only
+# built-ins are present it serves NOTHING (returns None → reconnect loop),
+# because serving the built-in as "usb-cam" is the exact bug this fixes. Set
+# to false to restore the old raw USB_CAM_DEVICE_INDEX behavior. Darwin-only
+# auto-detect; on Windows the Dominator uses USB_CAM_DEVICE_NAME_CONTAINS,
+# which takes precedence over this flag anyway.
+PREFER_EXTERNAL = os.environ.get(
+    "USB_CAM_PREFER_EXTERNAL", "true"
+).lower() in ("1", "true", "yes", "on")
 
 REQUESTED_WIDTH = int(os.environ.get("USB_CAM_WIDTH", "1920"))
 REQUESTED_HEIGHT = int(os.environ.get("USB_CAM_HEIGHT", "1080"))
@@ -369,6 +397,38 @@ def _resolve_device_index_by_name(needle: str) -> Optional[tuple[int, str]]:
     return None
 
 
+# Substrings (case-insensitive) that mark a camera as built-in or virtual, so
+# the prefer-external auto-selector skips them and lands on the real USB
+# webcam. "capture screen" is already filtered in _list_avfoundation_video_
+# devices; kept here as belt-and-suspenders. iPhone/Continuity/Desk View are
+# opportunistic wireless cameras, not the wired USB cam this host is for.
+_BUILTIN_CAMERA_MARKERS = (
+    "facetime",        # MacBook / iMac built-in
+    "built-in",        # generic Apple built-in label
+    "capture screen",  # screen grab
+    "iphone",          # Continuity Camera
+    "continuity",
+    "desk view",       # Continuity Desk View virtual camera
+)
+
+
+def _resolve_external_device_index() -> Optional[tuple[int, str]]:
+    """Auto-select the first AVFoundation video device that is NOT a built-in
+    or virtual camera. Lets the host bind to whatever real USB webcam is
+    attached without hardcoding an index, so the same service works on the
+    MacBook Air, the Dominator, or any future machine. Returns (index, name)
+    on hit, or None when only built-in/virtual cameras are present — the
+    caller treats None as "no USB cam attached" and does NOT fall back to the
+    built-in (that fallback is the mislabel bug). Darwin-only."""
+    if sys.platform != "darwin":
+        return None
+    for idx, name in _list_avfoundation_video_devices():
+        if any(marker in name.lower() for marker in _BUILTIN_CAMERA_MARKERS):
+            continue
+        return idx, name
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Windows DirectShow device-name resolution (ffmpeg-based, same as macOS)
 # ---------------------------------------------------------------------------
@@ -455,6 +515,20 @@ _grabber_opened_at: Optional[float] = None  # when cap last successfully opened
 _grabber_total_grabs = 0
 _grabber_total_failures = 0
 
+# The (index, name) the grabber actually bound to on its last _open(). Surfaced
+# in /health so an operator can see WHICH camera is being served — e.g. spot a
+# built-in FaceTime being served when a real USB webcam was expected. name is
+# None when the device wasn't resolved by name (raw-index path).
+_resolved_device_lock = threading.Lock()
+_resolved_device: Optional[tuple[Optional[int], Optional[str]]] = None
+
+
+def _set_resolved_device(index: Optional[int], name: Optional[str]) -> None:
+    """Record which camera the grabber last bound to (for /health visibility)."""
+    global _resolved_device
+    with _resolved_device_lock:
+        _resolved_device = (index, name)
+
 
 def _grabber_loop() -> None:
     """Runs in a daemon thread. Keeps the camera open, reads frames at
@@ -509,9 +583,33 @@ def _grabber_loop() -> None:
                 idx, name = hit
                 log.info("grabber: resolved %r -> AVFoundation index %d (%s)",
                          DEVICE_NAME_CONTAINS, idx, name)
+                _set_resolved_device(idx, name)
                 c = cv2.VideoCapture(idx)
+        elif PREFER_EXTERNAL and sys.platform == "darwin":
+            # Auto-pick the attached external USB camera (skip the built-in).
+            # This is what keeps the service from being pinned to index 0 =
+            # FaceTime on a laptop. If no external camera is present we return
+            # None rather than opening the built-in — serving the built-in as
+            # "usb-cam" is precisely the bug this avoids.
+            hit = _resolve_external_device_index()
+            if hit is None:
+                log.info(
+                    "grabber: PREFER_EXTERNAL on but no external USB camera "
+                    "found (only built-in/virtual cameras enumerated) — not "
+                    "serving the built-in; retrying. Plug in the USB cam or "
+                    "set USB_CAM_PREFER_EXTERNAL=false to use "
+                    "USB_CAM_DEVICE_INDEX=%d.", DEVICE_INDEX,
+                )
+                _set_resolved_device(None, None)
+                return None
+            idx, name = hit
+            log.info("grabber: auto-selected external camera -> "
+                     "AVFoundation index %d (%s)", idx, name)
+            _set_resolved_device(idx, name)
+            c = cv2.VideoCapture(idx)
         else:
             # No backend flag — let OpenCV pick AVFoundation / dshow / V4L2.
+            _set_resolved_device(DEVICE_INDEX, None)
             c = cv2.VideoCapture(DEVICE_INDEX)
 
         if not c.isOpened():
@@ -773,6 +871,10 @@ async def health():
         latest = _latest
     grabber_alive = _grabber_thread is not None and _grabber_thread.is_alive()
     opened_at = _grabber_opened_at
+    with _resolved_device_lock:
+        resolved = _resolved_device
+    resolved_index = resolved[0] if resolved else None
+    resolved_name = resolved[1] if resolved else None
 
     if latest is None:
         return JSONResponse(
@@ -781,6 +883,9 @@ async def health():
                 "ok": False,
                 "device_index": DEVICE_INDEX,
                 "device_name_contains": DEVICE_NAME_CONTAINS or None,
+                "prefer_external": PREFER_EXTERNAL,
+                "resolved_device_index": resolved_index,
+                "resolved_device_name": resolved_name,
                 "grabber_alive": grabber_alive,
                 "camera_open": opened_at is not None,
                 "error": "no frame grabbed yet",
@@ -796,6 +901,9 @@ async def health():
         content={
             "ok": not stale,
             "device_index": DEVICE_INDEX,
+            "prefer_external": PREFER_EXTERNAL,
+            "resolved_device_index": resolved_index,
+            "resolved_device_name": resolved_name,
             "resolution": [latest.width, latest.height],
             "requested_resolution": [REQUESTED_WIDTH, REQUESTED_HEIGHT],
             "grabber_alive": grabber_alive,
