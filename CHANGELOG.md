@@ -2,7 +2,25 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] - 2026-07-01
+## [Unreleased] - 2026-07-03
+
+### v2.44.6 — duo2 on wired ethernet: new IP .15 + back to full-res HEVC main stream (Claude Opus 4.8) — 03-Jul-2026
+
+**What:** Duo 2 moved to wired ethernet. IP changed `.156`→`.15` (new DHCP lease on the wired interface), and it's back on the full-resolution main stream (`h264Preview_01_main` = HEVC 4608×1728), reverting the 01-Jul sub-stream workaround (v2.44.4).
+
+**Why:** The sub-stream was only a workaround for lossy WiFi. Wired link measures 0% loss, 3.6–10.6ms, stddev 1.9ms (WiFi was 9→229ms, stddev 51ms). Verified the full HEVC main stream now logs 2 decode lines in 40s (vs ~3694/4000 on WiFi) — the packet loss that mangled HEVC reference frames is gone, so we get full 8MP resolution back for detection.
+
+**How:** One line in `config.json` (`rtsp_url_override` → .15 + main). The pipeline needed no IP change — it pulls duo2 via Guardian's REST API (`/api/v1/cameras/duo2/snapshot`), so it follows Guardian's config; only tidied a stale `.14` context comment in `tools/pipeline/config.json`. Note the "Reolink Duo 2 WiFi" model DOES have an ethernet port (earlier doubt resolved).
+
+**TODO:** DHCP-reserve duo2 at .15 (and house-yard .89) on the Archer AX55 so they stop drifting — needs Boss at the router (read-only by default).
+
+### v2.44.5 — fix: Discord gem gate — tier+score restored, captions trimmed (Claude Fable 5) — 02-Jul-2026
+
+**What:** `gem_poster.should_post` now requires `tier == "strong"` AND `overall_score >= 7` (new `_MIN_OVERALL_SCORE` constant; missing score fails closed). New `gem_poster.trim_caption()` trims Discord captions to ≤300 chars at a sentence boundary (word-boundary + ellipsis fallback); orchestrator wraps `caption_draft` with it on the Discord lane only — the ⭐ N/10 suffix and score-10 Boss ping append after the trim, and the IG lane keeps full captions.
+
+**Why:** This is the "revisit gate tuning if Discord noise returns" from v2.44.3 — it returned: 43 posts/day (30-Jun) became 196 (01-Jul), peaking 48/hour on 02-Jul. `should_post` had not read `tier` since v2.28.5 and nothing anywhere compared `overall_score`, so the generous 4b model pushed 26 sub-7 posts (scores 4–6) into #farm-2026 between 26-Jun and 02-Jul; the ⭐ N/10 in captions was decorative. Captions ran to the 450-char schema cap by design ("2–4 sentences… make it vivid") — fine for IG, too long for Discord per Boss.
+
+**How:** Gate inserted right after the `share_worth == "skip"` check (belt-and-braces: the 4b emits inconsistent score/tier pairs, so both are checked). Boss explicitly declined a Discord cooldown and a motion-gate re-enable (02-Jul-2026) — quality gating only; strong 7+ volume from the generous model is accepted. Tests: `test_gem_poster_gate.py` gains 12 cases (tier/score gate + trim) — all pass; the 5 pre-existing failures (stale usb-cam/mba-cam accept-cases from the 09-May camera disable) are unchanged and tracked separately. Replay check: the new gate would have blocked exactly the 26 sub-7 posts since 26-Jun. Expected reject reasons in /tmp/pipeline.err.log: `skip_tier=`, `skip_score=`.
 
 ### v2.44.4 — fix: duo2 corrupted frames — switched to H.264 sub-stream (Claude Opus 4.8) — 01-Jul-2026
 
