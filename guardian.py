@@ -1,6 +1,8 @@
-# Author: Claude Opus 4.8 (1M context) — Bubba coding sub-agent (motion-alert wiring),
+# Author: Claude Opus 4.7 — Bubba coding sub-agent (dormant motion-siren deterrent),
+#         Claude Opus 4.8 (1M context) — Bubba coding sub-agent (motion-alert wiring),
 #         Claude Opus 4.6 (updated), OpenAI Codex GPT-5.4 Mini (prior)
-# Date: 12-June-2026 (v2.41.0 — fire send_motion_alert on hardware-motion transition, gated)
+# Date: 22-June-2026 (v2.44.0 — stage motion-triggered siren deterrent, DORMANT/off by default);
+#       12-June-2026 (v2.41.0 — fire send_motion_alert on hardware-motion transition, gated)
 # PURPOSE: Main service entry point for Farm Guardian v2. Orchestrates camera discovery,
 #          frame capture, YOLO animal detection, animal visit tracking (for alert dedup),
 #          automated deterrence (spotlight/siren/audio), PTZ patrol with pause-on-predator,
@@ -19,9 +21,22 @@
 #          per-camera opt-in (detection_enabled true, or motion_alert true on the camera).
 #          Default-off so merging changes nothing until the flag is flipped. Pure-upside: it
 #          only ADDS alerts and can never cause a missed predator.
+#          v2.44.0: the motion watcher can now ALSO fire a camera's onboard siren on the same
+#          hardware-motion transition, as a deterrent. Ships DORMANT — gated by a new top-level
+#          "motion_siren" config block whose `enabled` defaults FALSE, so this run changes NO
+#          live behavior. When the Boss flips it on, a siren fires via the EXISTING
+#          CameraController.siren_timed() (reolink set_siren, non-blocking auto-off — reused,
+#          not duplicated) only when: enabled, inside [window_start, window_end) (may cross
+#          midnight, reuses _window_allows_minutes), the camera is in motion_siren.cameras, and
+#          a dedicated per-camera siren cooldown (separate from the alert cooldown) has elapsed.
+#          NOTE: only cameras the motion watcher actually polls AND that have a connected Reolink
+#          Host can fire — today that is house-yard (type:ptz). duo2 is type:fixed (no Host, not
+#          polled, supports_motion:false) so it is currently inert until wired with a Host.
 # SRP/DRY check: Pass — reviewed the detection flow when removing the vision refinement.
 #          The motion-alert wiring reuses _get_camera_config and _detection_window_open (DRY)
-#          and adds no new time math; all alert delivery stays in AlertManager.
+#          and adds no new time math; all alert delivery stays in AlertManager. The motion-siren
+#          wiring reuses CameraController.siren_timed and the existing _window_allows_minutes /
+#          _clock_to_minutes window math — no new siren plumbing, no second time-window engine.
 
 import os
 # MUST be set before any cv2 import anywhere in the process — sets a 5-second
@@ -194,7 +209,7 @@ class GuardianService:
             # but it's harmless to do for everyone in this loop.
             for cam in online_cameras:
                 cam_cfg = self._get_camera_config(cam.name)
-                if cam_cfg and cam_cfg.get("type") == "ptz":
+                if self._needs_reolink_controller(cam_cfg):
                     self._camera_ctrl.connect_camera(
                         camera_id=cam.name,
                         ip=cam_cfg.get("ip", ""),
@@ -502,6 +517,32 @@ class GuardianService:
                     "interval_s": cam_cfg.get("motion_burst_interval_s", 1.0),
                 }
 
+        # Motion-siren config (v2.44.0). Read once, like motion_alert below. Ships DORMANT:
+        # `enabled` defaults FALSE, so with the shipped config NOTHING fires a siren — there is
+        # zero live-behavior change until the Boss flips motion_siren.enabled true and runs the
+        # hardware test. Logged unconditionally (before the no-cameras early-return) so the
+        # dormant load is always verifiable in guardian.log.
+        motion_siren_cfg = self._config.get("motion_siren", {})
+        motion_siren_enabled = motion_siren_cfg.get("enabled", False)
+        motion_siren_duration = motion_siren_cfg.get("duration_seconds", 10)
+        motion_siren_window_start = motion_siren_cfg.get("window_start", "20:00")
+        motion_siren_window_end = motion_siren_cfg.get("window_end", "06:00")
+        motion_siren_cooldown = motion_siren_cfg.get("cooldown_seconds", 120)
+        motion_siren_cameras = set(motion_siren_cfg.get("cameras", []))
+        motion_siren_tz = self._config.get("detection", {}).get(
+            "night_window_timezone", "America/New_York"
+        )
+        # Dedicated per-camera siren cooldown, SEPARATE from the alert cooldown(s). Maps
+        # camera_name -> last siren-fire unix ts. Local to this loop (single-threaded),
+        # mirroring how `watched` is loop-local.
+        siren_last_fire: dict[str, float] = {}
+        log.info(
+            "Motion-siren loaded: enabled=%s cameras=%s window=%s-%s cooldown=%ds duration=%ds",
+            motion_siren_enabled, sorted(motion_siren_cameras),
+            motion_siren_window_start, motion_siren_window_end,
+            motion_siren_cooldown, motion_siren_duration,
+        )
+
         if not watched:
             log.info("Motion watcher has no cameras to poll — exiting")
             return
@@ -555,6 +596,59 @@ class GuardianService:
                                 log.error(
                                     "send_motion_alert failed for '%s': %s", name, exc
                                 )
+
+                    # v2.44.0: motion-triggered siren deterrent. DORMANT unless
+                    # motion_siren.enabled is true (default FALSE → this whole block is a
+                    # no-op and fires nothing). When enabled, fire the camera's onboard siren
+                    # via the EXISTING CameraController.siren_timed (reolink set_siren, non-
+                    # blocking auto-off — reused, not duplicated), but ONLY: inside the
+                    # configured window (may cross midnight), ONLY for cameras opted into
+                    # motion_siren.cameras, and ONLY after the dedicated per-camera siren
+                    # cooldown has elapsed (separate from the alert cooldown above). This is a
+                    # deterrent ACTION, so it lives here in the orchestrator, not AlertManager.
+                    if motion_siren_enabled and name in motion_siren_cameras:
+                        if self._time_window_open(
+                            motion_siren_window_start,
+                            motion_siren_window_end,
+                            motion_siren_tz,
+                        ):
+                            elapsed = time.time() - siren_last_fire.get(name, 0.0)
+                            if elapsed >= motion_siren_cooldown:
+                                log.info(
+                                    "Motion-siren: FIRING siren on '%s' for %ds "
+                                    "(motion transition; window+cooldown OK)",
+                                    name, motion_siren_duration,
+                                )
+                                try:
+                                    fired = self._camera_ctrl.siren_timed(
+                                        name, motion_siren_duration
+                                    )
+                                    if fired:
+                                        siren_last_fire[name] = time.time()
+                                    else:
+                                        log.warning(
+                                            "Motion-siren: siren_timed returned False for "
+                                            "'%s' (no connected Reolink Host for this "
+                                            "camera?) — not firing", name,
+                                        )
+                                except Exception as exc:
+                                    # Never let a siren failure break the watch loop.
+                                    log.error(
+                                        "Motion-siren: siren_timed raised for '%s': %s",
+                                        name, exc,
+                                    )
+                            else:
+                                log.info(
+                                    "Motion-siren: '%s' motion but cooldown active "
+                                    "(%.0fs of %ds elapsed) — not firing",
+                                    name, elapsed, motion_siren_cooldown,
+                                )
+                        else:
+                            log.debug(
+                                "Motion-siren: '%s' motion but outside window %s-%s — "
+                                "not firing", name,
+                                motion_siren_window_start, motion_siren_window_end,
+                            )
                 state["last_state"] = current
             shutdown_event.wait(poll_interval)
 
@@ -654,6 +748,23 @@ class GuardianService:
         return None
 
     @staticmethod
+    def _needs_reolink_controller(cam_cfg: Optional[dict]) -> bool:
+        """True if this camera needs an authenticated CameraController host
+        connection. That's every PTZ camera (spotlight/siren/PTZ/snapshot) AND
+        every fixed camera served by the Reolink cmd=Snap snapshot path
+        (source=snapshot, snapshot_method=reolink) — the latter added so a
+        fixed Reolink like duo2 can use snapshot polling (complete JPEGs, no
+        fragile HEVC decode) instead of RTSP. Without this the controller has
+        no host for the camera and ReolinkSnapshotSource.fetch() returns None.
+        Kept in one place so the initial-setup and rescan loops can't drift."""
+        if not cam_cfg:
+            return False
+        if cam_cfg.get("type") == "ptz":
+            return True
+        return (cam_cfg.get("source") == "snapshot"
+                and cam_cfg.get("snapshot_method", "reolink") == "reolink")
+
+    @staticmethod
     def _clock_to_minutes(clock: str) -> int:
         """Convert HH:MM clock strings to minutes since midnight."""
         hour, minute = (int(part) for part in clock.split(":"))
@@ -699,6 +810,32 @@ class GuardianService:
             end_clock=detection_cfg.get("night_window_end", "09:00"),
         )
 
+    def _time_window_open(
+        self, start_clock: str, end_clock: str, timezone_name: str = "America/New_York"
+    ) -> bool:
+        """Return True when the current local time is inside [start, end).
+
+        General-purpose window check (the window may cross midnight). Reuses the same
+        _window_allows_minutes / _clock_to_minutes math that the detection night window
+        uses, so there is exactly one window engine in this file (DRY). Used by the
+        motion-siren gate, which has its own window distinct from the detection window.
+        """
+        try:
+            now = datetime.now(ZoneInfo(timezone_name))
+        except Exception:
+            log.warning(
+                "Invalid motion-siren timezone '%s' — falling back to system local time",
+                timezone_name,
+            )
+            now = datetime.now()
+
+        current_minutes = now.hour * 60 + now.minute
+        return self._window_allows_minutes(
+            current_minutes=current_minutes,
+            start_clock=start_clock,
+            end_clock=end_clock,
+        )
+
     def _rescan_loop(self) -> None:
         """Periodically re-scan for cameras that may have reconnected."""
         rescan_interval = self._config.get("discovery", {}).get(
@@ -723,7 +860,7 @@ class GuardianService:
 
                         # Connect PTZ hardware FIRST — snapshot mode needs the
                         # authenticated controller before its first take_snapshot.
-                        if cam_cfg and cam_cfg.get("type") == "ptz":
+                        if self._needs_reolink_controller(cam_cfg):
                             self._camera_ctrl.connect_camera(
                                 camera_id=cam.name,
                                 ip=cam_cfg.get("ip", ""),

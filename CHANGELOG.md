@@ -4,6 +4,14 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-07-03
 
+### v2.44.8 — duo2 → snapshot polling: kills residual HEVC decode corruption even on wired (Claude Opus 4.8) — 03-Jul-2026
+
+**What:** duo2 now uses the Reolink `cmd=Snap` snapshot path (`source: snapshot`, `snapshot_method: reolink`) instead of RTSP, like house-yard. Small code change in `guardian.py`: new `_needs_reolink_controller()` helper so a *fixed* Reolink-snapshot camera (not just PTZ) gets an authenticated CameraController connection — used at both the initial-setup and rescan connect sites (DRY, can't drift).
+
+**Why:** After moving duo2 to wired ethernet (v2.44.6) the link is flawless (0% loss, stddev 0.88ms) but corruption persisted — ~6 decode errors/25s, garbage frames, and Guardian's `/api/v1/cameras/duo2/snapshot` returning HTTP 500. Root cause is NOT the network: the 8MP HEVC main stream (4608×1728, B-frames) is decode-fragile in the ffmpeg/OpenCV path even over a perfect link. Proof: a direct `cmd=Snap` grab returned a pristine 7.4MB full-res JPEG while the concurrent RTSP frames were garbage. Snapshot polling sidesteps HEVC decode entirely — each frame is a complete, self-contained JPEG.
+
+**How:** Config keeps `rtsp_url_override` present so discovery marks duo2 online via the override path and **skips the ONVIF probe** (register_camera_capture dispatches on `source==snapshot` first, so the override URL is never actually used for capture). This is the fix I deferred on 01-Jul because ONVIF-over-flaky-wifi could mark it offline — wired ethernet removes that risk. Verified after restart: **0 decode errors in 22s** (was a continuous flood), snapshot endpoint now **HTTP 200, full-res 4608×1728 JPEG**, visually clean. Full 8MP resolution retained.
+
 ### v2.44.7 — usb-cam-host: auto-select the external USB camera (stop serving the built-in) (Claude Opus 4.8) — 03-Jul-2026
 
 **What:** New `USB_CAM_PREFER_EXTERNAL` env (default **on**) in `tools/usb-cam-host/usb_cam_host.py`. The grabber now auto-selects the first video device that is NOT a built-in/virtual camera (FaceTime, Continuity iPhone, screen capture) instead of a hardcoded index. `/health` now reports `resolved_device_index` / `resolved_device_name` so you can see which camera is actually being served.
