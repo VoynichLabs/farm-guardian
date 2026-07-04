@@ -2,7 +2,15 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] - 2026-07-03
+## [Unreleased] - 2026-07-04
+
+### v2.44.10 — predator alerts stop firing on vehicles (Claude Opus 4.8 1M) — 04-Jul-2026
+
+**What:** Removed `car`, `truck`, `motorcycle`, and `bus` from `detection.predator_classes` in `config.json` and moved them into `ignore_classes`. Predator set is now `bird, cat, dog, bear, person, cow, horse`.
+
+**Why:** Boss was getting spammed with predator alerts on parked cars and people in the driveway ("firing on stupid stuff like house and car" — the "house" in the log lines was the `house-yard` *camera name*, not a detected object). Root cause: the 2026-06-13 person-detect experiment (see `config.json.bak.pre-person-detect`) dumped `person` **and every vehicle class** into `predator_classes`. Vehicles are never predators, so they were pure noise. Person and farm animals (cow/horse) stay in per Boss: person is intentional intruder-security and is already effectively night-only because all detection is gated behind `_detection_window_open()` (guardian.py:670); cow/horse are harmless (no cattle on the property) and Boss asked to leave farm animals in.
+
+**How:** Config-only change (no code touched — `detect.py` already skips `ignore_classes` first, line 150). Backup at `config.json.bak.pre-vehicle-strip.*`. Requires `launchctl kickstart -k gui/$(id -u)/com.farmguardian.guardian` to load. Per-class confidence thresholds for the vehicle classes were left in place (harmless; ignored classes never reach the threshold check).
 
 ### v2.44.9 — usb-cam-host deployed to MBA + ffmpeg `~/.local/bin` fallback (Claude Opus 4.8) — 03-Jul-2026
 

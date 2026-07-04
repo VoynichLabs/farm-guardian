@@ -88,10 +88,16 @@
     {
       "name": "duo2",
       "type": "fixed",
+      "ip": "192.168.0.15",
+      "port": 80,
+      "username": "admin",
+      "password": "Bubba123",
+      "source": "snapshot",
+      "snapshot_method": "reolink",
       "rtsp_transport": "tcp",
-      "rtsp_url_override": "rtsp://admin:Bubba123@192.168.0.156:554/h264Preview_01_main",
+      "rtsp_url_override": "rtsp://admin:Bubba123@192.168.0.15:554/h264Preview_01_main",
       "snapshot_interval": 5.0,
-      "detection_enabled": false
+      "detection_enabled": true
     }
   ],
   "discovery": {
@@ -116,8 +122,8 @@
     },
     "frame_interval_seconds": 0.25,
     "night_window_enabled": true,
-    "night_window_start": "20:00",
-    "night_window_end": "09:00",
+    "night_window_start": "21:00",
+    "night_window_end": "07:00",
     "night_window_timezone": "America/New_York",
     "predator_classes": [
       "bird",
@@ -125,14 +131,14 @@
       "dog",
       "bear",
       "person",
-      "car",
-      "truck",
-      "motorcycle",
-      "bus",
       "cow",
       "horse"
     ],
     "ignore_classes": [
+      "car",
+      "truck",
+      "motorcycle",
+      "bus",
       "sheep",
       "bicycle",
       "umbrella",
