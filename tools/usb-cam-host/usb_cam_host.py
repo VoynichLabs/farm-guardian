@@ -290,6 +290,7 @@ def _find_ffmpeg() -> Optional[str]:
     if found:
         return found
     candidates = [
+        os.path.expanduser("~/.local/bin/ffmpeg"),  # farm convention (deploy dir)
         "/opt/homebrew/bin/ffmpeg",  # macOS Apple Silicon Homebrew
         "/usr/local/bin/ffmpeg",     # macOS Intel Homebrew
         "/usr/bin/ffmpeg",           # Linux standard

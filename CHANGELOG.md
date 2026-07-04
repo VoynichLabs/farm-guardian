@@ -4,6 +4,14 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-07-03
 
+### v2.44.9 — usb-cam-host deployed to MBA + ffmpeg `~/.local/bin` fallback (Claude Opus 4.8) — 03-Jul-2026
+
+**What:** Deployed the v2.44.7 `USB_CAM_PREFER_EXTERNAL` host to the MBA and added `~/.local/bin/ffmpeg` to `_find_ffmpeg()`'s candidate paths.
+
+**Why:** The MBA's USB-A ports were under-delivering power — the webcam's LED lit but its USB PHY never came up, so the OS enumerated nothing (survived multiple reboots + reseats). A **powered USB hub** fixed it (feeds the cam its own VBUS); "USB CAMERA" now enumerates. But the freshly-deployed prefer-external host then served nothing because it shells out to `ffmpeg` to enumerate devices, and on the MBA ffmpeg lives at `~/.local/bin/ffmpeg` (farm deploy convention) — not in the LaunchAgent's minimal PATH nor in `_find_ffmpeg()`'s Homebrew/system fallbacks. The old index-0 code never hit this because it opened the device directly.
+
+**How:** Added `os.path.expanduser("~/.local/bin/ffmpeg")` as the first `_find_ffmpeg()` candidate. Redeployed + restarted `com.farmguardian.usb-cam-host`. Verified: `/health` reports `resolved_device_name: "USB CAMERA"`, `camera_open: true`, serving 1920×1080 — bound to the real webcam by identity, not index (so enumeration-order shuffles no longer land on FaceTime). NOTE: current frames are black because the cam is unlit/capped/aimed-dark at deploy time (night) — physical, not a host issue. Guardian's `usb-cam` (mDNS `Marks-MacBook-Air.local:8089`) needs no change; it already points here.
+
 ### v2.44.8 — duo2 → snapshot polling: kills residual HEVC decode corruption even on wired (Claude Opus 4.8) — 03-Jul-2026
 
 **What:** duo2 now uses the Reolink `cmd=Snap` snapshot path (`source: snapshot`, `snapshot_method: reolink`) instead of RTSP, like house-yard. Small code change in `guardian.py`: new `_needs_reolink_controller()` helper so a *fixed* Reolink-snapshot camera (not just PTZ) gets an authenticated CameraController connection — used at both the initial-setup and rescan connect sites (DRY, can't drift).
