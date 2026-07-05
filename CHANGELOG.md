@@ -4,6 +4,14 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-07-04
 
+### v2.44.11 — duo2 recovered after ethernet→WiFi flip: IP .14→.155 + HTTP re-enabled (Claude Opus 4.8 1M) — 04-Jul-2026
+
+**What:** Updated duo2's `ip` and `rtsp_url_override` in `config.json` from `192.168.0.14` to `192.168.0.155`, re-enabled the camera's HTTP port (`SetNetPort httpEnable=1`), and refreshed the stale `.15` note in `tools/pipeline/config.json`'s duo2 context.
+
+**Why:** Boss moved the Duo 2 to wired ethernet briefly, then back to WiFi. The WiFi NIC is a different MAC than the ethernet NIC, so the router handed it a new DHCP lease (`.155`), stranding the configured `.14`. On top of that, the camera had come back with **HTTP disabled** (`httpEnable=0`, HTTPS-only — `:80` 302-redirects to `https://`), so even at the right IP Guardian's reolink_aio client (which talks HTTP via `Host(ip,user,pw,port=80)` with no `use_https`) could not fetch. Two failures stacked: wrong IP *and* HTTP off.
+
+**How:** Fixed camera-side rather than teaching Guardian HTTPS (keeps duo2 consistent with house-yard, which runs HTTP) — re-enabled httpEnable=1 via the Reolink API (we control the camera directly, per the "we ARE the Reolink app" rule). Then corrected the IP in `config.json` (the only file that needs it — the pipeline's `reolink_snapshot` method pulls duo2 through Guardian's own `/api/v1/cameras/duo2/snapshot`, so it inherits the IP; the pipeline config carries no duo2 IP of its own). Verified: HTTP `cmd=Snap` → 200/4.4 MB JPEG, Guardian API snapshot → 200/4.3 MB, `cameras_online` 5/5. Backup: `config.json.bak.pre-duo2-ip.*`. **TODO (durable fix, needs Boss OK — router changes are gated):** DHCP-reserve duo2's WiFi MAC `78:93:C3:8E:36:0D` → a fixed IP on the Archer AX55 so it stops drifting on every power/link change (same unfinished reservation TODO as the .89/.156 cams).
+
 ### v2.44.10 — predator alerts stop firing on vehicles (Claude Opus 4.8 1M) — 04-Jul-2026
 
 **What:** Removed `car`, `truck`, `motorcycle`, and `bus` from `detection.predator_classes` in `config.json` and moved them into `ignore_classes`. Predator set is now `bird, cat, dog, bear, person, cow, horse`.

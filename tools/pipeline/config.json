@@ -174,7 +174,7 @@
     "duo2": {
       "cycle_seconds": 10.0,
       "capture_method": "reolink_snapshot",
-      "context": "Reolink Duo 2 WiFi (dual-lens 180 pano, fixed), lens 01, IP .15 (wired ethernet). Stationary complement to the E1 PTZ. Zone TBD - confirm mount/aim with Boss.",
+      "context": "Reolink Duo 2 WiFi (dual-lens 180 pano, fixed), lens 01, IP .155 (WiFi, DHCP — drifted from .14/.15 after 4-Jul-2026 ethernet→WiFi flip). Stationary complement to the E1 PTZ. Zone TBD - confirm mount/aim with Boss.",
       "burst_size": 1,
       "motion_gate": false,
       "vlm_bypass": true,

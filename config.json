@@ -2,7 +2,7 @@
   "cameras": [
     {
       "name": "house-yard",
-      "ip": "192.168.0.89",
+      "ip": "192.168.0.88",
       "port": 80,
       "username": "admin",
       "password": "YOUR_CAMERA_PASSWORD",
@@ -19,14 +19,14 @@
     },
     {
       "name": "s7-cam",
-      "ip": "192.168.0.250",
+      "ip": "192.168.0.249",
       "port": 8080,
       "username": "",
       "password": "",
       "type": "fixed",
       "source": "snapshot",
       "snapshot_method": "http_url",
-      "http_base_url": "http://192.168.0.250:8080",
+      "http_base_url": "http://192.168.0.249:8080",
       "http_photo_path": "/photo.jpg",
       "http_trigger_focus": false,
       "http_startup_gets": [
@@ -88,14 +88,14 @@
     {
       "name": "duo2",
       "type": "fixed",
-      "ip": "192.168.0.15",
+      "ip": "192.168.0.155",
       "port": 80,
       "username": "admin",
       "password": "Bubba123",
       "source": "snapshot",
       "snapshot_method": "reolink",
       "rtsp_transport": "tcp",
-      "rtsp_url_override": "rtsp://admin:Bubba123@192.168.0.15:554/h264Preview_01_main",
+      "rtsp_url_override": "rtsp://admin:Bubba123@192.168.0.155:554/h264Preview_01_main",
       "snapshot_interval": 5.0,
       "detection_enabled": true
     }
@@ -399,6 +399,9 @@
     "window_start": "20:00",
     "window_end": "06:00",
     "cooldown_seconds": 120,
-    "cameras": ["house-yard", "duo2"]
+    "cameras": [
+      "house-yard",
+      "duo2"
+    ]
   }
 }
