@@ -2,6 +2,7 @@
   "cameras": [
     {
       "name": "house-yard",
+      "device_name": "FarmGuardian1",
       "ip": "192.168.0.88",
       "port": 80,
       "username": "admin",
@@ -87,6 +88,7 @@
     },
     {
       "name": "duo2",
+      "device_name": "Duo2",
       "type": "fixed",
       "ip": "192.168.0.155",
       "port": 80,

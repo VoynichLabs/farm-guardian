@@ -1,5 +1,5 @@
-# Author: Claude Opus 4.7
-# Date: 11-May-2026 (v2.40.13 — honor top-level cam `enabled` flag, default true)
+# Author: Claude Opus 4.8 (1M context)
+# Date: 04-July-2026 (v2.44.12 — name-based Reolink re-discovery so IP drift self-heals)
 # PURPOSE: Camera discovery for Farm Guardian. Connects to cameras defined in config.json,
 #          validates ONVIF connectivity, retrieves RTSP stream URIs, and subscribes to
 #          motion alarm events. Supports three source types: ONVIF (auto-discovered),
@@ -14,15 +14,36 @@
 #          flag instead of deleting the entry. Default is `true` to preserve the
 #          historical implicit-enabled schema; the pipeline already honors this
 #          flag at orchestrator.py.
+#          v2.44.12: NAME-BASED RE-DISCOVERY. A Reolink camera can be tagged with its
+#          own self-assigned device name via config `device_name` (e.g. "Duo2",
+#          "FarmGuardian1"). At the start of every scan, resolve_reolink_ip() confirms
+#          the configured IP still hosts that named camera (one Login+GetDevInfo). If
+#          the IP has drifted (power blink, WiFi↔ethernet hop, router release), it
+#          sweeps the local /24 for a Reolink answering to that name and rewrites
+#          cam_cfg["ip"] IN PLACE — the same dict guardian.py reads for connect_camera,
+#          so the fix propagates to the snapshot/control path with no restart. This is
+#          the durable answer to "Guardian loses cameras when IPs change": match by
+#          name, not by IP or MAC (MAC is useless here because the Duo 2's WiFi radio
+#          and ethernet port have DIFFERENT MACs — the exact hop we need to survive).
 # SRP/DRY check: Pass — single responsibility is camera discovery and stream URL resolution.
 
+import concurrent.futures
+import ipaddress
 import logging
+import socket
 import time
 import threading
 from dataclasses import dataclass, field
 from typing import Optional
 
+import requests
+import urllib3
 from onvif import ONVIFCamera
+
+# Reolink cameras can run in HTTPS-only mode (http :80 302-redirects to https with a
+# self-signed cert). The name probe tries https as a fallback, so silence the noisy
+# per-request InsecureRequestWarning rather than verifying a cert we can't trust anyway.
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 log = logging.getLogger("guardian.discovery")
 
@@ -91,6 +112,11 @@ class CameraDiscovery:
                     self._cameras.pop(name, None)
                 log.info("Camera '%s' disabled in config — skipping discovery", name)
                 continue
+
+            # v2.44.12 — before any IP-dependent probe below, make sure a name-tagged
+            # Reolink camera's configured IP still points at it. Self-heals drift.
+            self.resolve_reolink_ip(cam_cfg)
+
             try:
                 # USB cameras attached directly to this machine (AVFoundation).
                 # No network discovery needed — just validate the device index.
@@ -234,6 +260,138 @@ class CameraDiscovery:
         online = sum(1 for c in self._cameras.values() if c.online)
         log.info("Scan complete — %d/%d cameras online", online, len(self._cameras))
         return self.cameras
+
+    # ------------------------------------------------------------------
+    # Name-based re-discovery (v2.44.12) — survive IP drift by matching on
+    # the camera's own device name instead of a hardcoded IP or a MAC.
+    # ------------------------------------------------------------------
+
+    def resolve_reolink_ip(self, cam_cfg: dict) -> None:
+        """Ensure a name-tagged Reolink camera's config `ip` still points at it.
+
+        No-op unless `cam_cfg` carries a `device_name`. Fast path: one Login +
+        GetDevInfo against the configured IP — if the name matches, return. If the
+        camera isn't there (drifted / unreachable), sweep the local /24 for a
+        Reolink answering to `device_name` and rewrite `cam_cfg["ip"]` (and any
+        `rtsp_url_override` that embeds the old IP) IN PLACE. Because guardian.py
+        holds the same dict, the corrected IP flows straight into connect_camera
+        and the snapshot poller on this same scan cycle.
+        """
+        device_name = cam_cfg.get("device_name")
+        if not device_name:
+            return
+
+        username = cam_cfg.get("username", "admin")
+        password = cam_cfg.get("password", "")
+        current_ip = cam_cfg.get("ip", "")
+
+        # Fast path: configured IP still hosts the expected camera.
+        if current_ip and self._reolink_device_name(current_ip, username, password) == device_name:
+            return
+
+        log.warning(
+            "Camera '%s' (device '%s') not at configured IP %s — sweeping LAN by name",
+            cam_cfg.get("name"), device_name, current_ip or "(unset)",
+        )
+
+        found_ip = self._find_reolink_by_name(device_name, username, password, skip_ip=current_ip)
+        if not found_ip:
+            log.error(
+                "Camera '%s' (device '%s') not found on LAN by name — leaving IP as %s "
+                "(camera is probably powered off)",
+                cam_cfg.get("name"), device_name, current_ip or "(unset)",
+            )
+            return
+
+        old_ip = current_ip
+        cam_cfg["ip"] = found_ip
+        override = cam_cfg.get("rtsp_url_override")
+        if override and old_ip and old_ip in override:
+            cam_cfg["rtsp_url_override"] = override.replace(old_ip, found_ip)
+        log.info(
+            "Camera '%s' (device '%s') relocated %s -> %s via name discovery",
+            cam_cfg.get("name"), device_name, old_ip or "(unset)", found_ip,
+        )
+
+    def _find_reolink_by_name(
+        self, device_name: str, username: str, password: str, skip_ip: str = "",
+    ) -> Optional[str]:
+        """Sweep this host's /24 for a Reolink whose device name == `device_name`.
+
+        Two phases so we only log into actual cameras: (1) a fast parallel TCP
+        connect on the Reolink RTSP port (554) to find candidate hosts, then
+        (2) a sequential Login+GetDevInfo on each candidate until the name matches.
+        Returns the matching IP, or None if no such camera is on the network.
+        """
+        candidates = [ip for ip in self._local_subnet_hosts() if ip != skip_ip]
+        if not candidates:
+            return None
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=32) as ex:
+            reachable = [
+                ip for ip, is_open in zip(candidates, ex.map(self._rtsp_port_open, candidates))
+                if is_open
+            ]
+
+        for ip in reachable:
+            if self._reolink_device_name(ip, username, password) == device_name:
+                return ip
+        return None
+
+    @staticmethod
+    def _rtsp_port_open(ip: str, port: int = 554, timeout: float = 0.6) -> bool:
+        """TCP-connect probe (never ICMP — ping is blocked wired↔wireless here)."""
+        try:
+            with socket.create_connection((ip, port), timeout=timeout):
+                return True
+        except OSError:
+            return False
+
+    @staticmethod
+    def _local_subnet_hosts() -> list[str]:
+        """Return every host address on this machine's primary /24."""
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("8.8.8.8", 80))  # no packets sent; just picks the outbound iface
+            local_ip = s.getsockname()[0]
+        except OSError:
+            return []
+        finally:
+            s.close()
+        net = ipaddress.ip_network(f"{local_ip}/24", strict=False)
+        return [str(h) for h in net.hosts()]
+
+    @staticmethod
+    def _reolink_device_name(
+        ip: str, username: str, password: str, timeout: float = 4.0,
+    ) -> Optional[str]:
+        """Return the Reolink camera's self-assigned device name at `ip`, or None.
+
+        One Login (to get a token) + one GetDevInfo. Tries HTTP first, then HTTPS,
+        because a Reolink can come back from a reset in HTTPS-only mode. Any failure
+        (wrong creds, not a Reolink, unreachable, non-camera on :554) returns None.
+        """
+        for scheme in ("http", "https"):
+            base = f"{scheme}://{ip}/cgi-bin/api.cgi"
+            try:
+                login = requests.post(
+                    base, params={"cmd": "Login"},
+                    json=[{"cmd": "Login", "param": {"User": {"userName": username, "password": password}}}],
+                    timeout=timeout, verify=False,
+                ).json()
+                if login[0].get("code") != 0:
+                    continue  # bad creds on http won't improve on https, but a redirect might
+                token = login[0]["value"]["Token"]["name"]
+                info = requests.post(
+                    base, params={"cmd": "GetDevInfo", "token": token},
+                    json=[{"cmd": "GetDevInfo", "param": {}}],
+                    timeout=timeout, verify=False,
+                ).json()
+                if info[0].get("code") == 0:
+                    return info[0]["value"]["DevInfo"].get("name")
+            except (requests.RequestException, ValueError, KeyError, IndexError):
+                continue
+        return None
 
     def _probe_camera(self, cam_cfg: dict) -> CameraInfo:
         """Connect to a single camera via ONVIF, retrieve stream URI and capabilities."""

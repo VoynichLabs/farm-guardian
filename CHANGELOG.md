@@ -4,6 +4,14 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-07-04
 
+### v2.44.12 — name-based Reolink re-discovery: IP drift self-heals (Claude Opus 4.8 1M) — 04-Jul-2026
+
+**What:** Guardian now re-finds Reolink cameras by their **device name** instead of relying on a hardcoded IP. Tag a camera with `device_name` in `config.json` (added `"Duo2"` to duo2, `"FarmGuardian1"` to house-yard) and `discovery.py`'s new `resolve_reolink_ip()` runs at the top of every scan: one Login+GetDevInfo confirms the configured IP still hosts that named camera; if it drifted, it sweeps the local /24 for a Reolink answering to that name and rewrites `cam_cfg["ip"]` (and any `rtsp_url_override`) in place.
+
+**Why:** Every power blink, WiFi hop, or router re-lease moved a camera's IP and silently broke its feed until someone hand-edited config. The Duo 2 is the worst case — its WiFi radio and ethernet port have *different MACs*, so even a MAC-based lookup breaks on the exact wired↔WiFi switch we need to survive. Matching on the camera's own name is the one identifier stable across IP changes, radio changes, and MAC changes. DHCP reservations (added manually in Tether) pin the current IPs, but a router factory-reset wipes those; name discovery survives that too. Belt and suspenders.
+
+**How:** `cam_cfg` is the live dict `guardian.py` reads for `connect_camera`, so an in-place IP rewrite propagates to the snapshot/control path on the same scan cycle — no restart, no second config file. Fast path is ~0.2s (one probe to the known-good IP); the LAN sweep only fires on actual drift (~5s: parallel TCP :554 scan → sequential Login+GetDevInfo on candidates). HTTP with HTTPS fallback (Reolinks can come back HTTPS-only). TCP probes only (ICMP is blocked wired↔wireless here). Graceful no-op for non-Reolink cams (no `device_name`) and for a genuinely-offline camera (logs, leaves IP untouched — never guesses). **Verified live:** injected a bogus `.199` for duo2 into the running service → log showed `sweeping LAN by name` → `relocated 192.168.0.199 -> 192.168.0.155` → duo2 delivered frames, all automatic. Normal boot with correct IPs shows no sweeps (fast-path no-op), 5/5 cameras online.
+
 ### v2.44.11 — duo2 recovered after ethernet→WiFi flip: IP .14→.155 + HTTP re-enabled (Claude Opus 4.8 1M) — 04-Jul-2026
 
 **What:** Updated duo2's `ip` and `rtsp_url_override` in `config.json` from `192.168.0.14` to `192.168.0.155`, re-enabled the camera's HTTP port (`SetNetPort httpEnable=1`), and refreshed the stale `.15` note in `tools/pipeline/config.json`'s duo2 context.
