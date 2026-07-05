@@ -2,7 +2,15 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] - 2026-07-04
+## [Unreleased] - 2026-07-05
+
+### v2.44.14 — pipeline S7 sideways-image fix: force_portrait fallback mirrored into reel/IG capture (Claude Opus 4.8) — 05-Jul-2026
+
+**What:** The reel/IG pipeline's own `tools/pipeline/capture.py::_apply_exif_rotation` now takes a `force_portrait: bool = False` param and gains the same dimension-based fallback the live Guardian `capture.py` has had: after EXIF handling, if `force_portrait and im.width > im.height`, rotate 90° CW (`im.rotate(-90, expand=True)`). `capture_ip_webcam` threads the flag through, and the `capture_camera` dispatch reads `camera_cfg.get("force_portrait", False)` — exactly as `guardian.py` does. Added `"force_portrait": true` to the pipeline's `tools/pipeline/config.json` s7-cam so the fix is actually armed for the S7.
+
+**Why:** There were two copies of `_apply_exif_rotation`. The live Guardian copy already had the force_portrait fallback (added because the S7 reverts its `photo_rotation=90` setting on every reboot/reconnect and then serves sensor-native LANDSCAPE frames tagged Orientation=1). The pipeline's older copy only trusted EXIF: on an Orientation=1 landscape frame it returned the bytes untouched, so the reel/IG pipeline shipped sideways images whenever the S7 had reverted. The live detection path was correct; the pipeline path was not.
+
+**How:** Faithful **mirror**, not a cross-package import — the repo root module is a top-level `capture` and the pipeline package already owns a `capture` module, so importing across that boundary means sys.path games and a name collision. The two functions now have identical logic (EXIF branch → force_portrait dimension branch → no-op-if-nothing-to-do short-circuit → try/except fail-safe returning original bytes). The flag is read from config, not hardcoded to the S7, so any portrait-mounted IP Webcam camera can opt in. **Verified:** synthetic landscape JPEGs — Orientation=1 comes out portrait only with `force_portrait=True` (untouched with `False`), Orientation=6 comes out portrait either way, an already-portrait frame is returned byte-identical (no re-encode); and the full `capture_camera("s7-cam", ...)` dispatch against the pipeline config confirms portrait out. Files: `tools/pipeline/capture.py`, `tools/pipeline/config.json`.
 
 ### v2.44.13 — motion alerts require AI object (kills rain false positives) (Claude Opus 4.8 1M) — 04-Jul-2026
 

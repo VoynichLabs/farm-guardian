@@ -1,4 +1,4 @@
-# Author: Claude Opus 4.7 (edits 21-April-2026 — bake EXIF Orientation into ip_webcam returns so rotated S7 frames aren't sideways downstream); Claude Sonnet 4.6 (edits 27-April-2026 — allow_stale threaded through Guardian API capture, v2.37.13)
+# Author: Claude Opus 4.7 (edits 21-April-2026 — bake EXIF Orientation into ip_webcam returns so rotated S7 frames aren't sideways downstream); Claude Sonnet 4.6 (edits 27-April-2026 — allow_stale threaded through Guardian API capture, v2.37.13); Claude Opus 4.8 (edits 05-July-2026 — mirror live guardian capture.py: add force_portrait dimension fallback to _apply_exif_rotation and thread it through the ip_webcam path so S7 landscape/Orientation=1 frames are rotated to portrait, fixing sideways reel/IG images)
 # Date: 13-April-2026
 # PURPOSE: Per-camera high-quality frame capture for the multi-cam image
 #          pipeline. Each camera has a different focus/capture reality; this
@@ -234,7 +234,7 @@ def capture_rtsp_burst(rtsp_url: str, burst_size: int = 5, burst_interval_second
 
 def capture_ip_webcam(base_url: str, photo_path: str = "/photo.jpg",
                       trigger_focus: bool = True, focus_wait: float = 1.5,
-                      timeout: int = 15) -> bytes:
+                      timeout: int = 15, force_portrait: bool = False) -> bytes:
     # If trigger_focus is opted in, fire /focus before the fetch. Originally
     # this was gated to /photo.jpg only on the theory that /photoaf.jpg's
     # server-side AF was sufficient; in practice (S7 brooder, 26-Apr-2026)
@@ -251,22 +251,50 @@ def capture_ip_webcam(base_url: str, photo_path: str = "/photo.jpg",
     r.raise_for_status()
     if not r.content or r.content[:2] != b"\xff\xd8":
         raise CaptureError(f"IP Webcam returned non-JPEG: {base_url}{photo_path}")
-    return _apply_exif_rotation(r.content)
+    return _apply_exif_rotation(r.content, force_portrait=force_portrait)
 
 
-def _apply_exif_rotation(jpeg_bytes: bytes) -> bytes:
-    # IP Webcam emits sensor-native 1920×1080 with EXIF Orientation=6 when
-    # photo_rotation=90 is set on the phone (portrait mount). cv2.imdecode
-    # ignores EXIF — without this, every pipeline consumer sees a sideways
-    # frame. No-op for Orientation=1 / missing EXIF. Fail-safe to original.
+def _apply_exif_rotation(jpeg_bytes: bytes, force_portrait: bool = False) -> bytes:
+    """Physically bake orientation into the JPEG pixels so every downstream
+    consumer (cv2-decoded numpy array AND the preserved JPEG bytes) gets
+    upright pixels. This is a faithful mirror of the live Guardian
+    `capture.py::_apply_exif_rotation` — the two copies must behave
+    identically. (Mirror rather than import: the root module is a top-level
+    `capture` and this package already owns a `capture` module, so importing
+    across that boundary means sys.path games and a name collision.)
+
+    Two correction paths:
+
+    1. EXIF Orientation. IP Webcam on the S7 emits sensor-native 1920×1080
+       pixels and encodes portrait via an EXIF Orientation tag (6 = rotate
+       90° CW). cv2.imdecode discards EXIF, so without baking it in the whole
+       pipeline sees a sideways frame.
+
+    2. `force_portrait` dimension fallback. The S7 reverts its
+       `photo_rotation=90` setting whenever the phone reboots/reconnects, and
+       then `/photo.jpg` starts returning sensor-native LANDSCAPE tagged
+       Orientation=1 — which path (1) correctly leaves alone. For a
+       portrait-mounted camera a landscape frame is always wrong: rotate it
+       90° CW (matching the Orientation=6 case) regardless of EXIF.
+
+    No-op when there's nothing to do — avoids a needless re-encode. Catches all
+    exceptions and returns the original bytes on failure, since an orientation
+    bug must never kill the capture path.
+    """
     try:
         from PIL import Image, ImageOps
         im = Image.open(io.BytesIO(jpeg_bytes))
-        if im.getexif().get(274, 1) == 1:
-            return jpeg_bytes
-        rotated = ImageOps.exif_transpose(im)
+        orient = im.getexif().get(274, 1)  # 274 is the EXIF Orientation tag
+        needs_exif_rot = orient != 1
+        if needs_exif_rot:
+            im = ImageOps.exif_transpose(im)
+        needs_force_rot = force_portrait and im.width > im.height
+        if needs_force_rot:
+            im = im.rotate(-90, expand=True)  # -90 in PIL == 90° CW
+        if not needs_exif_rot and not needs_force_rot:
+            return jpeg_bytes  # nothing to correct — avoid a needless re-encode
         out = io.BytesIO()
-        rotated.save(out, format="JPEG", quality=95)
+        im.save(out, format="JPEG", quality=95)
         return out.getvalue()
     except Exception:
         return jpeg_bytes
@@ -307,6 +335,7 @@ def capture_camera(camera_name: str, camera_cfg: dict, global_cfg: dict) -> byte
             photo_path=camera_cfg.get("photo_path", "/photo.jpg"),
             trigger_focus=camera_cfg.get("trigger_focus", True),
             focus_wait=camera_cfg.get("focus_wait", 1.5),
+            force_portrait=camera_cfg.get("force_portrait", False),
         )
     raise CaptureError(f"unknown capture_method: {method} for {camera_name}")
 
