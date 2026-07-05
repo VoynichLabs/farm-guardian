@@ -611,6 +611,23 @@ class CameraController:
             log.debug("Motion-state poll failed for '%s': %s", camera_id, exc)
             return None
 
+    def get_ai_state(self, camera_id: str) -> Optional[dict]:
+        """Query the camera's AI object detection state. Returns a dict like
+        {"people": bool, "dog_cat": bool, "vehicle": bool} — True where the camera
+        currently sees that object class — or None on error. Used to suppress raw
+        motion alerts (rain, blowing leaves, headlights on a wall) that aren't an
+        actual animal/person/vehicle. reolink_aio refreshes and returns the state.
+        """
+        host = self._get_host(camera_id)
+        if not host:
+            return None
+        ch = self._get_channel(camera_id)
+        try:
+            return self._run_async(host.get_ai_state(ch))
+        except Exception as exc:
+            log.debug("AI-state poll failed for '%s': %s", camera_id, exc)
+            return None
+
     # ------------------------------------------------------------------
     # Cleanup
     # ------------------------------------------------------------------

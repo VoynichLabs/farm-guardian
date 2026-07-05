@@ -393,7 +393,8 @@
   "motion_alert": {
     "enabled": true,
     "night_only": true,
-    "cooldown_seconds": 600
+    "cooldown_seconds": 600,
+    "require_ai": true
   },
   "motion_siren": {
     "enabled": false,

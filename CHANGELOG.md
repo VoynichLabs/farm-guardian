@@ -4,6 +4,14 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-07-04
 
+### v2.44.13 — motion alerts require AI object (kills rain false positives) (Claude Opus 4.8 1M) — 04-Jul-2026
+
+**What:** Motion Discord alerts now only fire when the camera's onboard AI actually detects a person/animal/vehicle, not on raw pixel-motion. New `motion_alert.require_ai` flag (default `true`). Added `CameraController.get_ai_state()` and an AI gate in the motion watcher.
+
+**Why:** Rain was spamming motion alerts on house-yard. Lowering the Reolink motion sensitivity (10→5→2) didn't fix it — a wall of falling water is genuine pixel-motion, so the motion detector fires no matter how low you set it. The E1 already runs AI object detection (people/dog_cat/vehicle enabled), and rain is none of those. So gate the alert on AI state: motion fires the snapshot burst as before, but the Discord alert only goes out if the camera's AI attributes the motion to a real target.
+
+**How:** In the motion watcher's false→true transition, if `require_ai` is on, call `get_ai_state(name)` (reolink_aio `get_ai_state`) and skip the alert when every AI class is False. Cameras without AI return `None` → fall back to motion-based alerting so nothing regresses. The snapshot burst still fires on raw motion (harmless extra frames). Verified `get_ai_state` returns `{people, dog_cat, vehicle, face}` bools from house-yard live. Sensitivity was also floored to 2 along the way (camera-side, keeps the burst from over-triggering). To revert to motion-only alerts: set `motion_alert.require_ai=false`.
+
 ### v2.44.12 — name-based Reolink re-discovery: IP drift self-heals (Claude Opus 4.8 1M) — 04-Jul-2026
 
 **What:** Guardian now re-finds Reolink cameras by their **device name** instead of relying on a hardcoded IP. Tag a camera with `device_name` in `config.json` (added `"Duo2"` to duo2, `"FarmGuardian1"` to house-yard) and `discovery.py`'s new `resolve_reolink_ip()` runs at the top of every scan: one Login+GetDevInfo confirms the configured IP still hosts that named camera; if it drifted, it sweeps the local /24 for a Reolink answering to that name and rewrites `cam_cfg["ip"]` (and any `rtsp_url_override`) in place.

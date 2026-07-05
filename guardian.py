@@ -557,6 +557,9 @@ class GuardianService:
         motion_alert_cfg = self._config.get("motion_alert", {})
         motion_alert_enabled = motion_alert_cfg.get("enabled", False)
         motion_alert_night_only = motion_alert_cfg.get("night_only", True)
+        # v2.44.13: suppress motion alerts that the camera's AI can't attribute to a
+        # real person/animal/vehicle (kills rain/leaves/headlight false positives).
+        motion_alert_require_ai = motion_alert_cfg.get("require_ai", True)
         if motion_alert_enabled:
             log.info(
                 "Motion-alert Discord posts ENABLED (night_only=%s)",
@@ -589,6 +592,15 @@ class GuardianService:
                         if cam_cfg.get("detection_enabled", True) or cam_cfg.get(
                             "motion_alert", False
                         ):
+                            # Rain/leaves/headlights trip raw pixel-motion but aren't a
+                            # real target. If require_ai is on (default), only alert when
+                            # the camera's own AI actually sees a person/animal/vehicle.
+                            # Cameras without AI return None → we fall back to motion so
+                            # the alert still works there.
+                            if motion_alert_require_ai:
+                                ai = self._camera_ctrl.get_ai_state(name)
+                                if ai is not None and not any(ai.values()):
+                                    continue  # motion but no AI object — skip (likely weather)
                             try:
                                 self._alert_manager.send_motion_alert(name)
                             except Exception as exc:
