@@ -4,6 +4,14 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-07-06
 
+### v2.44.16 — public /gems endpoint now Boss-curated (min_reactions gate) (Claude Fable 5) — 06-Jul-2026
+
+**What:** `/api/v1/images/gems` (list + count) now filters to frames with `discord_reactions >= 1` and widens tiers to `strong+decent`. `database.py::query_images/count_images` gain an optional `min_reactions` param; `images_api.py::list_gems` passes `min_reactions=1`. Row shape unchanged — farm-2026's `types.ts` contract is unaffected.
+
+**Why:** Boss: the site gallery "is posting everything from the VLM... full of junk." The DB has 10,333 strong-tier frames but only ~1,600 ever got a Boss reaction in Discord (the actual human quality gate, synced by `discord-reaction-sync` every 30 min). The public "best of" surface should show what a human approved, not what the VLM nominated. Tier widened to include the ~350 reacted decent-tier frames because a human reaction outranks the VLM tier call.
+
+**How:** Plain SQL `discord_reactions >= ?` added to the shared where-builder — the /recent and /review/queue paths pass nothing and are unchanged. The IG pipeline reads the DB directly (`select_all_unposted_story_gems`), not this endpoint — no posting impact. `/gems/{id}` (single fetch) intentionally keeps serving unreacted ids so old permalinks don't 404. Deployed via `launchctl kickstart -k gui/$(id -u)/com.farmguardian.guardian`.
+
 ### v2.44.15 — chore: repo hygiene sweep — backup sprawl, gitignore, orphaned v2.44.5 commit, stale tests (Claude Fable 5) — 06-Jul-2026
 
 **What:** (1) Committed the orphaned v2.44.5 working-tree changes (`gem_poster.py` tier+score gate, `trim_caption`, tests) — the CHANGELOG entry existed since 02-Jul but the code was never committed while v2.44.6–14 landed around it. (2) Fixed 5 stale `test_gem_poster_gate.py` accept cases that used `usb-cam`, which has been in `_GEM_POST_DISABLED_CAMERAS` since 09-May and could never pass; they now use synthetic `test-cam` to exercise the non-s7 branch — suite is 0 failures again. (3) Swept 34 hand-rolled `*.bak*`/`*.backup*` file copies out of the repo root and `tools/pipeline/` into `backups/repo-bak-sweep-20260706/`, and gitignored the patterns plus `backups/`, `guardian.db`, `*.pt`, `.openclaw/`, and the OpenClaw workspace files (`SOUL.md`, `IDENTITY.md`, `HEARTBEAT.md`, `TOOLS.md`, `USER.md`). (4) Corrected CLAUDE.md's claim that the two config.json files are gitignored — they are tracked and committed, per `.gitignore`'s own comment. (5) Committed previously untracked project files: `scripts/test-siren.py` (v2.44.0 manual siren hardware test), the 17-May sky-cam plan doc, and the 02-Jul gem-gate plan doc (moved from `docs/plans/` to `docs/` per convention).

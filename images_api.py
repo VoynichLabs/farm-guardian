@@ -269,27 +269,36 @@ def build_images_router(db: GuardianDB, config: dict) -> APIRouter:
         since_iso = _resolve_since(since, 90)
         until_iso = _resolve_until(until)
 
+        # Curation gate (06-Jul-2026, Boss-directed): /gems is the public
+        # "best of" surface, and the VLM alone was letting ~10k strong-tier
+        # frames through ("full of junk"). The real quality gate is the
+        # Boss's Discord reaction (synced every 30 min into
+        # discord_reactions), so gems = any reacted frame in the shareable
+        # tiers. Tier widened to strong+decent because a human reaction
+        # outranks the VLM's tier call. Row shape unchanged.
         rows = db.query_images(
-            tiers=["strong"],
+            tiers=["strong", "decent"],
             cameras=camera or None,
             scenes=scene or None,
             activities=activity or None,
             individuals=individual or None,
             since_iso=since_iso,
             until_iso=until_iso,
+            min_reactions=1,
             order=order,
             cursor_ts=cts,
             cursor_id=cid,
             limit=limit,
         )
         total, estimated = db.count_images(
-            tiers=["strong"],
+            tiers=["strong", "decent"],
             cameras=camera or None,
             scenes=scene or None,
             activities=activity or None,
             individuals=individual or None,
             since_iso=since_iso,
             until_iso=until_iso,
+            min_reactions=1,
         )
         base = _base_url(request)
         shaped = [_shape_public_row(r, include_tier=False, request_base=base) for r in rows]

@@ -993,6 +993,7 @@ class GuardianDB:
         only_concerns: bool = False,               # /review/queue with switch
         only_unreviewed: bool = False,             # /review/queue with switch
         require_image_path: bool = True,           # public endpoints exclude NULL paths
+        min_reactions: Optional[int] = None,       # curation gate: Boss's Discord reactions
         order: str = "newest",                     # 'newest' | 'oldest' | 'random'
         cursor_ts: Optional[str] = None,
         cursor_id: Optional[int] = None,
@@ -1033,6 +1034,12 @@ class GuardianDB:
             wheres.append("has_concerns = 1")
         if only_unreviewed:
             wheres.append("id NOT IN (SELECT target_image_id FROM image_archive_edits)")
+        if min_reactions is not None:
+            # Public gems curation (06-Jul-2026): only frames the Boss reacted
+            # to in Discord. discord_reactions defaults to 0, so this simply
+            # drops never-reacted rows without touching NULL semantics.
+            wheres.append("discord_reactions >= ?")
+            params.append(min_reactions)
 
         # Cursor pagination — (ts, id) lexicographic compare.
         if cursor_ts is not None and cursor_id is not None and order in ("newest", "oldest"):
@@ -1067,6 +1074,7 @@ class GuardianDB:
         only_concerns: bool = False,
         only_unreviewed: bool = False,
         require_image_path: bool = True,
+        min_reactions: Optional[int] = None,
         cap: int = 10000,
     ) -> tuple[int, bool]:
         """Cheap count bounded at `cap`. Returns (count, estimated).
@@ -1105,6 +1113,9 @@ class GuardianDB:
             wheres.append("has_concerns = 1")
         if only_unreviewed:
             wheres.append("id NOT IN (SELECT target_image_id FROM image_archive_edits)")
+        if min_reactions is not None:
+            wheres.append("discord_reactions >= ?")
+            params.append(min_reactions)
         where_sql = ("WHERE " + " AND ".join(wheres)) if wheres else ""
         sql = f"SELECT COUNT(*) FROM (SELECT 1 FROM image_archive {where_sql} LIMIT ?) t"
         params.append(cap)
