@@ -1,4 +1,4 @@
-# Author: Claude Opus 4.7 (1M context); Claude Sonnet 4.6 (edits 27-April-2026 — vlm_bypass mode: run_raw_cycle, dedicated raw threads, raw retention sweep, v2.37.13; 28-April-2026 — sharpness gate wired in, v2.37.14; 04-May-2026 — Birds preset as prompt/schema source, v2.40.0); GPT-5.5 Codex (edits 08-May-2026 — static floor-pecking score calibration); Claude Opus 4.8 (1M context) (edits 03-June-2026 — VLM input downscale via _downscale_for_vlm + vlm_input_long_edge_px config, to cut per-frame latency, v2.40.17); Claude Opus 4.8 (Bubba sub-agent) (edits 14-June-2026 — golden-window raw capture: per-iteration thick/sparse cadence for usb-cam/dominator-cam via offpeak_cycle_seconds + timelapse_golden_windows); Claude Sonnet 4.6 (edits 27-June-2026 — run_raw_cycle quality gates + laplacian storage, v2.44.1)
+# Author: Claude Opus 4.7 (1M context); Claude Sonnet 4.6 (edits 27-April-2026 — vlm_bypass mode: run_raw_cycle, dedicated raw threads, raw retention sweep, v2.37.13; 28-April-2026 — sharpness gate wired in, v2.37.14; 04-May-2026 — Birds preset as prompt/schema source, v2.40.0); GPT-5.5 Codex (edits 08-May-2026 — static floor-pecking score calibration); Claude Opus 4.8 (1M context) (edits 03-June-2026 — VLM input downscale via _downscale_for_vlm + vlm_input_long_edge_px config, to cut per-frame latency, v2.40.17); Claude Opus 4.8 (Bubba sub-agent) (edits 14-June-2026 — golden-window raw capture: per-iteration thick/sparse cadence for usb-cam/dominator-cam via offpeak_cycle_seconds + timelapse_golden_windows); Claude Sonnet 4.6 (edits 27-June-2026 — run_raw_cycle quality gates + laplacian storage, v2.44.1); Claude Fable 5 (edits 02-July-2026 — Discord caption trim via gem_poster.trim_caption, v2.44.5)
 # Date: 17-April-2026
 # PURPOSE: Main entry point for the multi-cam image pipeline. Schedules per-
 #          camera capture cycles at their configured cadences, runs each
@@ -54,7 +54,7 @@ if __package__ in (None, ""):
     from tools.pipeline.store import ensure_schema, store, store_raw
     from tools.pipeline.retention import sweep as retention_sweep, sweep_raw as retention_sweep_raw
     from tools.pipeline.golden_windows import camera_uses_golden_windows, camera_golden_cfg, is_dt_in_golden_windows
-    from tools.pipeline.gem_poster import post_gem, should_post, load_dotenv
+    from tools.pipeline.gem_poster import post_gem, should_post, load_dotenv, trim_caption
     from tools.pipeline.ig_poster import (
         build_caption,
         pick_hashtags,
@@ -76,7 +76,7 @@ else:
     from .store import ensure_schema, store, store_raw
     from .retention import sweep as retention_sweep, sweep_raw as retention_sweep_raw
     from .golden_windows import camera_uses_golden_windows, camera_golden_cfg, is_dt_in_golden_windows
-    from .gem_poster import post_gem, should_post, load_dotenv
+    from .gem_poster import post_gem, should_post, load_dotenv, trim_caption
     from .ig_poster import (
         build_caption,
         pick_hashtags,
@@ -543,7 +543,9 @@ def run_cycle(camera_name: str, camera_cfg: dict, cfg: dict, schema: dict,
         if should_post(vlm_result["metadata"], store_result["tier"], camera_id=camera_name):
             import os as _os
             webhook = _os.environ.get("DISCORD_WEBHOOK_URL", "")
-            _caption = vlm_result["metadata"].get("caption_draft", "") or ""
+            # v2.44.5: Discord-lane caption trim (~300 chars, sentence-aware).
+            # IG lane below uses the untrimmed caption_draft by design.
+            _caption = trim_caption(vlm_result["metadata"].get("caption_draft", "") or "")
             _score = vlm_result["metadata"].get("overall_score")
             if _score is not None:
                 _caption = f"{_caption}\n⭐ {_score}/10"

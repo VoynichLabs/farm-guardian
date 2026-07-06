@@ -1,4 +1,4 @@
-# Author: Claude Opus 4.7 (1M context)
+# Author: Claude Opus 4.7 (1M context); Claude Fable 5 (02-Jul-2026 — v2.44.5 tier/score gate + trim_caption cases)
 # Date: 23-April-2026
 # PURPOSE: Self-contained assertion suite for gem_poster.should_post. Runs
 #          the v2.37.2 gate against synthetic VLM metadata dicts covering
@@ -21,7 +21,7 @@ from pathlib import Path
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from tools.pipeline.gem_poster import should_post  # noqa: E402
+from tools.pipeline.gem_poster import should_post, trim_caption  # noqa: E402
 
 
 def _meta(**overrides) -> dict:
@@ -37,6 +37,7 @@ def _meta(**overrides) -> dict:
         "image_quality": "sharp",
         "bird_face_visible": True,
         "share_worth": "strong",
+        "overall_score": 8,
         "share_reason": "",
         "caption_draft": "A black-and-yellow chick looking directly at the camera.",
         "concerns": [],
@@ -71,6 +72,33 @@ def run_synthetic_cases() -> int:
                          should_post(_meta(bird_count=0), "strong", "mba-cam"), False)
     fails += not _expect("blurred rejects",
                          should_post(_meta(image_quality="blurred"), "strong", "mba-cam"), False)
+
+    # v2.44.5 tier + score gate (02-Jul-2026, per Boss — the 4b model emits
+    # inconsistent score/tier pairs and 26 sub-7 posts flooded #farm-2026).
+    fails += not _expect("s7 tier=decent rejects (v2.44.5 tier gate restored)",
+                         should_post(_meta(share_worth="decent"), "decent", "s7-cam"), False)
+    fails += not _expect("s7 strong but score=6 rejects (v2.44.5 score floor)",
+                         should_post(_meta(overall_score=6), "strong", "s7-cam"), False)
+    fails += not _expect("s7 strong but score=4 rejects (inconsistent 4b pair)",
+                         should_post(_meta(overall_score=4), "strong", "s7-cam"), False)
+    fails += not _expect("s7 strong score MISSING rejects (fail closed)",
+                         should_post({k: v for k, v in _meta().items() if k != "overall_score"},
+                                     "strong", "s7-cam"), False)
+    fails += not _expect("s7 strong score=7 sharp+face accepts (floor is inclusive)",
+                         should_post(_meta(overall_score=7), "strong", "s7-cam"), True)
+
+    # v2.44.5 trim_caption (Discord lane only).
+    _short = "A chick posing."
+    fails += not _expect("trim: short caption unchanged",
+                         trim_caption(_short) == _short, True)
+    _two = ("A golden chick stands in the foreground pecking at feed. "
+            "Behind her, four siblings crowd the waterer in soft morning light.")
+    fails += not _expect("trim: 300-char boundary cuts at sentence end",
+                         trim_caption(_two, limit=60) == "A golden chick stands in the foreground pecking at feed.", True)
+    _nodots = "chick " * 60  # 360 chars, no sentence boundary
+    _trimmed = trim_caption(_nodots.strip(), limit=300)
+    fails += not _expect("trim: no sentence boundary → word cut + ellipsis, <=300",
+                         len(_trimmed) <= 300 and _trimmed.endswith("…"), True)
 
     # v2.37.2 activity gate (non-s7).
     fails += not _expect("mba-cam huddling rejects",

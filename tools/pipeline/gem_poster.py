@@ -1,4 +1,4 @@
-# Author: Claude Opus 4.7 (1M context); Claude Sonnet 4.6 (09-May-2026 — gwtc/usb-cam/dominator-cam disabled)
+# Author: Claude Opus 4.7 (1M context); Claude Sonnet 4.6 (09-May-2026 — gwtc/usb-cam/dominator-cam disabled); Claude Fable 5 (02-Jul-2026 — tier+score gate restored, trim_caption added, v2.44.5)
 # Date: 23-April-2026
 # PURPOSE: Post strong-tier frames to the #farm-2026 Discord channel as they
 #          land. Called from orchestrator.run_cycle whenever store returns
@@ -40,6 +40,16 @@ _USERNAME_BY_CAMERA = {
 # never runs for them, but this frozenset is the belt-and-suspenders
 # block. The two levers (vlm_bypass + this set) must stay in sync.
 _GEM_POST_DISABLED_CAMERAS = frozenset({"mba-cam", "gwtc", "usb-cam", "dominator-cam"})
+
+# Minimum overall_score for a Discord gem post (v2.44.5, 02-Jul-2026, per
+# Boss). The prompt rubric binds score to share_worth ("0-4 skip; 5-6
+# decent; 7-10 strong") but small VLMs emit inconsistent pairs — the
+# 01-Jul qwen3-vl-4b swap produced score-4 frames tagged "decent", and
+# should_post had not read `tier` since v2.28.5, so 26 sub-7 posts landed
+# between 26-Jun and 02-Jul. Both checks run: tier must be "strong" AND
+# overall_score must clear this floor. Boss explicitly declined a posting
+# cooldown (02-Jul-2026) — quality gating only, no rate limit.
+_MIN_OVERALL_SCORE = 7
 
 # Non-s7 cameras rejected at these activity/composition tags even when the
 # VLM self-approves them as strong. Huddle/sleep/empty frames are the
@@ -118,7 +128,8 @@ def should_post(vlm_metadata: dict, tier: str, camera_id: Optional[str] = None) 
       v2.28.7           drop face requirement                'VLM cannot reliably tell a face'
       v2.36.3           + share_worth != 'skip'              'butts still slipping'
       v2.36.4           per-camera sharpness tolerance       's7 strict; others allow soft+face'
-      v2.37.2  (this)   non-s7 activity/composition/caption  'huddle blobs + generic captions'
+      v2.37.2           non-s7 activity/composition/caption  'huddle blobs + generic captions'
+      v2.44.5  (this)   tier gate RESTORED + overall_score>=7 'sub-7 posts flooding after 4b swap'
 
     v2.37.2 additions (non-s7 only; s7-cam logic unchanged — it's already
     strict and Boss trusts its output):
@@ -136,6 +147,8 @@ def should_post(vlm_metadata: dict, tier: str, camera_id: Optional[str] = None) 
 
     Universal rules (all cameras):
       - share_worth == 'skip'  → reject
+      - tier != 'strong'       → reject  (v2.44.5; tier is store's share_worth)
+      - overall_score < 7 or missing → reject  (v2.44.5; fail closed)
       - bird_count < 1         → reject
       - image_quality 'blurred'→ reject
 
@@ -159,6 +172,17 @@ def should_post(vlm_metadata: dict, tier: str, camera_id: Optional[str] = None) 
 
     if sw == "skip":
         return _reject(camera_id, "skip_share_worth")
+
+    # v2.44.5: tier + score gate restored (dropped in v2.28.5 when the old
+    # 9b model was so stingy nothing posted; the 4b model has the opposite
+    # problem). tier is store's share_worth verbatim; overall_score is the
+    # ⭐ N/10 Boss sees in-channel — it is now load-bearing, not decorative.
+    if tier != "strong":
+        return _reject(camera_id, f"skip_tier={tier}")
+    score = vlm_metadata.get("overall_score")
+    if not isinstance(score, int) or isinstance(score, bool) or score < _MIN_OVERALL_SCORE:
+        return _reject(camera_id, f"skip_score={score}")
+
     if not isinstance(bc, int) or bc < 1:
         return _reject(camera_id, "skip_no_birds")
 
@@ -204,6 +228,32 @@ def should_post(vlm_metadata: dict, tier: str, camera_id: Optional[str] = None) 
             return True
         return _reject(camera_id, "soft_no_face_no_crowd")
     return _reject(camera_id, f"image_quality={iq}")
+
+
+def trim_caption(caption: str, limit: int = 300) -> str:
+    """Trim a Discord gem caption to <= limit chars (v2.44.5, 02-Jul-2026,
+    per Boss: "sometimes the captions are too long").
+
+    The VLM prompt asks for "2-4 sentences, up to ~450 chars" and the schema
+    caps caption_draft at 450 — that stays, because the IG lane wants the
+    full vivid caption. This trim applies on the DISCORD lane only
+    (orchestrator wraps caption_draft before appending the ⭐ score line).
+
+    Strategy: prefer the last complete sentence within the limit; fall back
+    to the last word boundary plus an ellipsis. Never returns > limit chars.
+    """
+    if len(caption) <= limit:
+        return caption
+    cut = caption[:limit]
+    # Last full sentence inside the window ("... .", "... !", "... ?").
+    best = max(cut.rfind(". "), cut.rfind("! "), cut.rfind("? "))
+    if best >= 0:
+        return cut[: best + 1]
+    # No sentence boundary — cut at a word boundary and mark the trim.
+    ws = cut[: limit - 1].rfind(" ")
+    if ws > 0:
+        return cut[:ws].rstrip() + "…"
+    return cut[: limit - 1].rstrip() + "…"
 
 
 def load_dotenv(path: Path) -> None:
