@@ -2,7 +2,15 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] - 2026-07-05
+## [Unreleased] - 2026-07-06
+
+### v2.44.15 — chore: repo hygiene sweep — backup sprawl, gitignore, orphaned v2.44.5 commit, stale tests (Claude Fable 5) — 06-Jul-2026
+
+**What:** (1) Committed the orphaned v2.44.5 working-tree changes (`gem_poster.py` tier+score gate, `trim_caption`, tests) — the CHANGELOG entry existed since 02-Jul but the code was never committed while v2.44.6–14 landed around it. (2) Fixed 5 stale `test_gem_poster_gate.py` accept cases that used `usb-cam`, which has been in `_GEM_POST_DISABLED_CAMERAS` since 09-May and could never pass; they now use synthetic `test-cam` to exercise the non-s7 branch — suite is 0 failures again. (3) Swept 34 hand-rolled `*.bak*`/`*.backup*` file copies out of the repo root and `tools/pipeline/` into `backups/repo-bak-sweep-20260706/`, and gitignored the patterns plus `backups/`, `guardian.db`, `*.pt`, `.openclaw/`, and the OpenClaw workspace files (`SOUL.md`, `IDENTITY.md`, `HEARTBEAT.md`, `TOOLS.md`, `USER.md`). (4) Corrected CLAUDE.md's claim that the two config.json files are gitignored — they are tracked and committed, per `.gitignore`'s own comment. (5) Committed previously untracked project files: `scripts/test-siren.py` (v2.44.0 manual siren hardware test), the 17-May sky-cam plan doc, and the 02-Jul gem-gate plan doc (moved from `docs/plans/` to `docs/` per convention).
+
+**Why:** `git status` had grown to 50+ lines of noise, real work was sitting uncommitted, and the docs contradicted the repo about where config truth lives. Backup-file copies before risky edits are what git commits are for — the habit going forward is commit-first, not copy-first.
+
+**How:** No behavior change to any running service — code changes are the already-live v2.44.5 gate (deployed 02-Jul via LaunchAgent restart) plus test-only edits. Note: root `config.json` is tracked and contains the LAN-only Reolink camera password; flagged to Boss for a future decision (move to `.env` or accept as-is for a LAN-only cred).
 
 ### v2.44.14 — pipeline S7 sideways-image fix: force_portrait fallback mirrored into reel/IG capture (Claude Opus 4.8) — 05-Jul-2026
 

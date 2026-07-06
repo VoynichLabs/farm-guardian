@@ -13,6 +13,15 @@ bubba-workspace/secrets/
 events/
 models/
 *.log
+guardian.db
+
+# Hand-rolled backup copies — use git commits instead of file copies.
+# Existing sprawl was swept into backups/repo-bak-sweep-20260706/ (06-Jul-2026).
+*.bak
+*.bak.*
+*.backup
+*.backup.*
+backups/
 
 # OS
 .DS_Store
@@ -23,12 +32,19 @@ Thumbs.db
 .idea/
 .windsurf/
 
-# ML models
-yolov8n.pt
+# ML models (yolov8n.pt, yolov8s.pt, ...)
+*.pt
 
 # Runtime database
 data/
 
+# OpenClaw agent workspace files — not Farm Guardian project code
+.openclaw/
+HEARTBEAT.md
+IDENTITY.md
+SOUL.md
+TOOLS.md
+USER.md
+
 # Claude Code
 .claude/
-tools/pipeline/config.json.backup.*
