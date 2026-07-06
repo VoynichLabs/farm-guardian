@@ -1,4 +1,4 @@
-# Author: Claude Opus 4.7 (1M context); Claude Fable 5 (02-Jul-2026 — v2.44.5 tier/score gate + trim_caption cases)
+# Author: Claude Opus 4.7 (1M context); Claude Fable 5 (02-Jul-2026 — v2.44.5 tier/score gate + trim_caption cases; 06-Jul-2026 — stale accept cases moved to synthetic "test-cam", usb-cam is gem-disabled)
 # Date: 23-April-2026
 # PURPOSE: Self-contained assertion suite for gem_poster.should_post. Runs
 #          the v2.37.2 gate against synthetic VLM metadata dicts covering
@@ -119,14 +119,18 @@ def run_synthetic_cases() -> int:
     # Subject-with-crowd rescue (Boss's 23-Apr-2026 counter-example):
     # a chick poses close to the lens with others in the background.
     # No bird_count cap; activity gate alone does the filtering.
-    fails += not _expect("mba-cam portrait bc=8 alert accepts (close-up + crowd behind)",
+    # NOTE (06-Jul-2026): every real non-s7 camera now sits in
+    # _GEM_POST_DISABLED_CAMERAS, so accept-expectation cases use the
+    # synthetic id "test-cam" to exercise the non-s7 logic branch. If a
+    # real camera is re-enabled, these cases cover its behavior.
+    fails += not _expect("non-s7 portrait bc=8 alert accepts (close-up + crowd behind)",
                          should_post(_meta(composition="portrait", bird_count=8, activity="alert",
                                            caption_draft="A speckled chick stares straight into the lens with six siblings foraging behind her."),
-                                     "strong", "usb-cam"), True)
-    fails += not _expect("mba-cam group bc=10 foraging accepts (not huddling)",
+                                     "strong", "test-cam"), True)
+    fails += not _expect("non-s7 group bc=10 foraging accepts (not huddling)",
                          should_post(_meta(composition="group", bird_count=10, activity="foraging",
                                            caption_draft="Ten chicks spread across the wood shavings, one mid-stride toward the waterer."),
-                                     "strong", "usb-cam"), True)
+                                     "strong", "test-cam"), True)
     fails += not _expect("mba-cam group bc=10 HUDDLING rejects (the old bad pattern)",
                          should_post(_meta(composition="group", bird_count=10, activity="huddling"),
                                      "strong", "mba-cam"), False)
@@ -152,10 +156,10 @@ def run_synthetic_cases() -> int:
                                      "strong", "mba-cam"), False)
     fails += not _expect("specific single-chick caption passes (not overly aggressive)",
                          should_post(_meta(caption_draft="A small chick with orange markings pecking at the feeder."),
-                                     "strong", "usb-cam"), True)
+                                     "strong", "test-cam"), True)
     fails += not _expect("specific caption passes",
                          should_post(_meta(caption_draft="Birdadette, solid-black with an orange face, mid-stretch."),
-                                     "strong", "usb-cam"), True)
+                                     "strong", "test-cam"), True)
 
     # s7-cam unchanged.
     fails += not _expect("s7 sharp+face accepts",
@@ -166,8 +170,8 @@ def run_synthetic_cases() -> int:
                          should_post(_meta(image_quality="soft"), "strong", "s7-cam"), False)
 
     # Non-s7 sharpness fallback.
-    fails += not _expect("mba-cam soft+face accepts",
-                         should_post(_meta(image_quality="soft"), "strong", "usb-cam"), True)
+    fails += not _expect("non-s7 soft+face accepts",
+                         should_post(_meta(image_quality="soft"), "strong", "test-cam"), True)
     fails += not _expect("mba-cam soft no face no crowd rejects",
                          should_post(_meta(image_quality="soft", bird_face_visible=False, bird_count=1),
                                      "strong", "mba-cam"), False)
