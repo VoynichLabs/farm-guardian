@@ -12,8 +12,27 @@
 >
 > Once authorized, `s7-settings-watchdog` can auto-fix the black-screen boot race by ADB force-stopping and relaunching IP Webcam (v2.38.6, 2026-05-02).
 
-**Last updated:** 02-May-2026 (S7 moved to nesting box / GWTC USB; ADB installed on GWTC; watchdog updated with black-screen detection)
+**Last updated:** 07-Jul-2026 (added the GMS / app-disabling hard rule below after an accidental camera outage)
 **Cross-refs:** `CHANGELOG.md` (v2.27.7 camera tuning, v2.27.8 battery monitor [BROKEN under new arch], v2.27.9 freeze incident, v2.35.2 EXIF orientation fix) · `docs/16-Apr-2026-s7-ipwebcam-frozen-incident.md` · `tools/s7-battery-monitor/monitor.py` (LaunchAgent disabled 2026-04-26)
+
+## ⛔ DO NOT DISABLE Google Play Services (`com.google.android.gms`) — it kills the camera (verified 07-Jul-2026)
+
+**IP Webcam depends on Google Play Services. The moment you `pm disable-user com.google.android.gms`, IP Webcam's HTTP server dies and the s7-cam goes dark.** Re-enabling GMS does NOT bring it back on its own — the server process is already torn down and nothing re-triggers it. The only recovery is a full `adb reboot`, after which the app's `com.pas.webcam/.BootUpReceiver` auto-starts the server again (GMS must be enabled at that point). This cost a live camera outage on 07-Jul-2026 and is the single most important "do not touch" on this phone.
+
+**Broader rule — this phone is a single-purpose bird camera, but you may NOT strip it like one blindly.** It is tempting to `pm disable-user` everything that looks like consumer bloat. Two whole classes of package will break the camera or the OS if you disable them:
+
+- **Google Play Services (`com.google.android.gms`)** — camera dies (see above). Leave it enabled even though it's a real background battery user. It is load-bearing here.
+- **Samsung telephony/IMS stack — especially `com.sec.imsservice` (also `com.sec.epdg`, `com.sec.vsimservice`)** — disabling `imsservice` puts the OS into a permanent "IMS service has stopped" crash-loop dialog that you cannot dismiss. Re-enable the three together to clear it.
+
+**What IS safe to disable (verified harmless to the camera, 07-Jul-2026):** pure user apps only — Facebook (`com.facebook.katana` + its stubs `com.facebook.services` / `com.facebook.system` / `com.facebook.appmanager`), Instagram (`com.instagram.android`), WhatsApp (`com.whatsapp`), the third-party "Messenger" SMS app (`com.messenger.sms.messages`), and Microsoft Office (`com.microsoft.office.word` / `.excel` / `.powerpoint` / `com.microsoft.skydrive`). These have zero camera dependency.
+
+**Do NOT disable, on Boss's explicit instruction (07-Jul-2026):** location services (`com.sec.location.nsflp2`, `com.samsung.android.samsungpositioning`), Bluetooth (`com.android.bluetooth`), NFC (`com.android.nfc`) — Boss suspects turning the radios off previously destabilized IP Webcam, so leave them alone regardless of battery cost.
+
+**Also leave alone:** `com.termux` / `com.termux.api` (tooling) and `com.fireflystudios.strongholdkingdoms` / `...dev` (Boss's own game — Firefly Studios — not bloat).
+
+**Method note:** use `pm disable-user --user 0 <pkg>` (reversible with `pm enable <pkg>`), never `pm uninstall`. After any disable batch, verify the camera survived with `curl -s -m 8 http://192.168.0.249:8080/status.json` and a real-frame check (`curl -o /dev/null -w '%{size_download}' http://192.168.0.249:8080/photoaf.jpg` should be >10 KB, not 0). Disable risky packages **one at a time** and re-check between each so you can pinpoint the culprit — batching is how the 07-Jul outage went undiagnosed for several minutes.
+
+**The "Android File Transfer / Samsung Smart Switch needs to be installed" macOS popup is a red herring.** It only means macOS can't browse the phone's MTP storage. It does not affect charging, the camera, or ADB. Install nothing. To silence it, set the phone's USB mode to "Charging only."
 
 ## Orientation — PORTRAIT (fixed, deliberate, 2026-04-21)
 
