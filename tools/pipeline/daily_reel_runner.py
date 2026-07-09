@@ -29,7 +29,7 @@ import time
 import urllib.parse
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -544,25 +544,85 @@ def _build_reel_caption(
 FARM_DIARY_DIR = Path.home() / "Documents" / "GitHub" / "farm-2026" / "content" / "diary"
 
 
+# Diary entries older than this are treated as stale and never injected into
+# captions. A frozen diary folder (no new entries for weeks) must not surface a
+# month-old event — e.g. the healed "buff buttrot" skin irritation — as if it
+# were current farm news.
+FARM_CONTEXT_MAX_AGE_DAYS = 21
+
+# A dated health-incident entry that reads as resolved must not resurface even
+# when it still falls inside the freshness window.
+_RESOLVED_MARKERS = (
+    "cleared up", "cleared per", "has cleared", "resolved", "healed",
+    "all clear", "no longer", "fully recovered",
+)
+
+_DIARY_MONTHS = {
+    "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+    "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
+}
+
+
+def _diary_date(path: Path) -> Optional[date]:
+    """Parse the entry date from a diary filename. Handles both
+    ``2026-06-10-...md`` (ISO) and ``28-may-2026-...md`` (day-month-year).
+    Returns None when no date can be parsed from the name.
+    """
+    import re
+
+    name = path.name.lower()
+    m = re.match(r"^(\d{4})-(\d{2})-(\d{2})", name)
+    if m:
+        try:
+            return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        except ValueError:
+            return None
+    m = re.match(r"^(\d{1,2})-([a-z]{3,})-(\d{4})", name)
+    if m:
+        mon = _DIARY_MONTHS.get(m.group(2)[:3])
+        if mon:
+            try:
+                return date(int(m.group(3)), mon, int(m.group(1)))
+            except ValueError:
+                return None
+    return None
+
+
 def _load_farm_context(limit: int = 3, char_cap: int = 600) -> str:
     """Recent diary entries to inject into the caption prompt — named birds,
     hatch progress, daily wins. Best-effort: returns '' on any failure so the
     caption pipeline always succeeds.
+
+    Freshness is judged by the DATE in the filename — not file mtime, which
+    lies when a file is re-committed or touched. Entries older than
+    FARM_CONTEXT_MAX_AGE_DAYS, or that read as a resolved health incident, are
+    dropped so a stale event never gets captioned as current news.
     """
     try:
         if not FARM_DIARY_DIR.is_dir():
             return ""
-        files = sorted(
-            FARM_DIARY_DIR.glob("*.md"),
-            key=lambda p: p.stat().st_mtime,
-            reverse=True,
-        )[:limit]
-        if not files:
-            return ""
+        today = datetime.now(timezone.utc).date()
+        dated: list[tuple[date, Path]] = []
+        for p in FARM_DIARY_DIR.glob("*.md"):
+            d = _diary_date(p)
+            if d is None:
+                # Unknown filename date → fall back to mtime so it still sorts,
+                # but a properly-dated recent entry will almost always beat it.
+                d = datetime.fromtimestamp(
+                    p.stat().st_mtime, timezone.utc
+                ).date()
+            if (today - d).days > FARM_CONTEXT_MAX_AGE_DAYS:
+                continue
+            dated.append((d, p))
+        dated.sort(key=lambda t: t[0], reverse=True)
         chunks: list[str] = []
-        for f in files:
+        for _d, f in dated:
             text = f.read_text(encoding="utf-8", errors="ignore").strip()
+            if any(mark in text.lower() for mark in _RESOLVED_MARKERS):
+                continue
             chunks.append(text[:char_cap].strip())
+            if len(chunks) >= limit:
+                break
         return "\n\n---\n\n".join(chunks)
     except Exception:
         return ""

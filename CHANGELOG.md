@@ -2,7 +2,15 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] - 2026-07-06
+## [Unreleased] - 2026-07-09
+
+### v2.44.17 — reel caption diary context is now date-gated (kills stale "buff buttrot" captions) (Claude Opus 4.8) — 09-Jul-2026
+
+**What:** `daily_reel_runner.py::_load_farm_context` now selects diary entries by the DATE parsed from the filename instead of file mtime, drops anything older than `FARM_CONTEXT_MAX_AGE_DAYS` (21), and skips entries that read as a resolved health incident (`_RESOLVED_MARKERS`). Added `_diary_date()` (parses both `2026-06-10-...` ISO and `28-may-2026-...` day-month-year filenames).
+
+**Why:** The IG reel pipeline kept captioning "buff buttrot." Root cause: `content/diary/` in farm-2026 got no new `.md` since 2026-06-10, and the old loader sorted by mtime and took the top 3 — so the healed `2026-06-10-buff-ranger-buttrot.md` (cleared per Boss 2026-06-18) sat atop the window and the caption LLM was told to "reference a recent farm event concretely." A month-old, resolved skin irritation read as current farm news. Verified 07-09 by reading source + `ls -lt`.
+
+**How:** mtime → filename-date is the core fix (mtime lies when a file is re-committed/touched). Age cutoff makes a frozen diary folder yield empty context (honest generic caption) rather than resurrecting old events; the resolved-marker skip is belt-and-suspenders for in-window health incidents. Best-effort contract preserved — any failure still returns `''`. Single chokepoint: both the Codex and LM-Studio caption paths call `_load_farm_context`, so both are fixed. Verified: `_load_farm_context()` now returns len 0, `buttrot` absent. No daemon restart needed — the reel launchd jobs start fresh Python per run.
 
 ### v2.44.16 — public /gems endpoint now Boss-curated (min_reactions gate) (Claude Fable 5) — 06-Jul-2026
 
