@@ -1,4 +1,4 @@
-# Author: Claude Opus 4.7 (1M context); Claude Sonnet 4.6 (09-May-2026 — gwtc/usb-cam/dominator-cam disabled); Claude Fable 5 (02-Jul-2026 — tier+score gate restored, trim_caption added, v2.44.5)
+# Author: Claude Opus 4.7 (1M context); Claude Sonnet 4.6 (09-May-2026 — gwtc/usb-cam/dominator-cam disabled); Claude Fable 5 (02-Jul-2026 — tier+score gate restored, trim_caption added, v2.44.5); Claude Opus 4.8 (Bubba) (12-Jul-2026 — score floor 7→80 for the 0-100 component scale, v2.45.0)
 # Date: 23-April-2026
 # PURPOSE: Post strong-tier frames to the #farm-2026 Discord channel as they
 #          land. Called from orchestrator.run_cycle whenever store returns
@@ -41,15 +41,15 @@ _USERNAME_BY_CAMERA = {
 # block. The two levers (vlm_bypass + this set) must stay in sync.
 _GEM_POST_DISABLED_CAMERAS = frozenset({"mba-cam", "gwtc", "usb-cam", "dominator-cam"})
 
-# Minimum overall_score for a Discord gem post (v2.44.5, 02-Jul-2026, per
-# Boss). The prompt rubric binds score to share_worth ("0-4 skip; 5-6
-# decent; 7-10 strong") but small VLMs emit inconsistent pairs — the
-# 01-Jul qwen3-vl-4b swap produced score-4 frames tagged "decent", and
-# should_post had not read `tier` since v2.28.5, so 26 sub-7 posts landed
-# between 26-Jun and 02-Jul. Both checks run: tier must be "strong" AND
-# overall_score must clear this floor. Boss explicitly declined a posting
-# cooldown (02-Jul-2026) — quality gating only, no rate limit.
-_MIN_OVERALL_SCORE = 7
+# Minimum overall_score for a Discord gem post. v2.45.0 (12-Jul-2026, per
+# Boss): the score moved to a 0-100 scale computed in orchestrator from four
+# weighted components (frame dominance 0-30, expression 0-30, detail 0-25,
+# technical 0-15). Boss only wants to see 80+ gems, so the floor is 80.
+# History: v2.44.5 (02-Jul) set this to 7 on the old 0-10 scale after the
+# qwen3-vl-4b swap flooded #farm-2026 with sub-7 posts. Both checks still
+# run: tier must be "strong" AND overall_score must clear this floor. Boss
+# declined a posting cooldown (02-Jul) — quality gating only, no rate limit.
+_MIN_OVERALL_SCORE = 80
 
 # Non-s7 cameras rejected at these activity/composition tags even when the
 # VLM self-approves them as strong. Huddle/sleep/empty frames are the
@@ -129,7 +129,8 @@ def should_post(vlm_metadata: dict, tier: str, camera_id: Optional[str] = None) 
       v2.36.3           + share_worth != 'skip'              'butts still slipping'
       v2.36.4           per-camera sharpness tolerance       's7 strict; others allow soft+face'
       v2.37.2           non-s7 activity/composition/caption  'huddle blobs + generic captions'
-      v2.44.5  (this)   tier gate RESTORED + overall_score>=7 'sub-7 posts flooding after 4b swap'
+      v2.44.5           tier gate RESTORED + overall_score>=7 'sub-7 posts flooding after 4b swap'
+      v2.45.0  (this)   0-100 component score + overall_score>=80 'Boss wants only 80+ gems'
 
     v2.37.2 additions (non-s7 only; s7-cam logic unchanged — it's already
     strict and Boss trusts its output):
@@ -148,7 +149,7 @@ def should_post(vlm_metadata: dict, tier: str, camera_id: Optional[str] = None) 
     Universal rules (all cameras):
       - share_worth == 'skip'  → reject
       - tier != 'strong'       → reject  (v2.44.5; tier is store's share_worth)
-      - overall_score < 7 or missing → reject  (v2.44.5; fail closed)
+      - overall_score < 80 or missing → reject  (v2.45.0; fail closed)
       - bird_count < 1         → reject
       - image_quality 'blurred'→ reject
 
@@ -176,7 +177,8 @@ def should_post(vlm_metadata: dict, tier: str, camera_id: Optional[str] = None) 
     # v2.44.5: tier + score gate restored (dropped in v2.28.5 when the old
     # 9b model was so stingy nothing posted; the 4b model has the opposite
     # problem). tier is store's share_worth verbatim; overall_score is the
-    # ⭐ N/10 Boss sees in-channel — it is now load-bearing, not decorative.
+    # ⭐ N/100 Boss sees in-channel — it is now load-bearing, not decorative.
+    # v2.45.0: floor raised 7 -> 80 with the move to the 0-100 component score.
     if tier != "strong":
         return _reject(camera_id, f"skip_tier={tier}")
     score = vlm_metadata.get("overall_score")

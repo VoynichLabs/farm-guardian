@@ -1,4 +1,4 @@
-# Author: Claude Opus 4.7 (1M context); Claude Sonnet 4.6 (edits 27-April-2026 — vlm_bypass mode: run_raw_cycle, dedicated raw threads, raw retention sweep, v2.37.13; 28-April-2026 — sharpness gate wired in, v2.37.14; 04-May-2026 — Birds preset as prompt/schema source, v2.40.0); GPT-5.5 Codex (edits 08-May-2026 — static floor-pecking score calibration); Claude Opus 4.8 (1M context) (edits 03-June-2026 — VLM input downscale via _downscale_for_vlm + vlm_input_long_edge_px config, to cut per-frame latency, v2.40.17); Claude Opus 4.8 (Bubba sub-agent) (edits 14-June-2026 — golden-window raw capture: per-iteration thick/sparse cadence for usb-cam/dominator-cam via offpeak_cycle_seconds + timelapse_golden_windows); Claude Sonnet 4.6 (edits 27-June-2026 — run_raw_cycle quality gates + laplacian storage, v2.44.1); Claude Fable 5 (edits 02-July-2026 — Discord caption trim via gem_poster.trim_caption, v2.44.5)
+# Author: Claude Opus 4.7 (1M context); Claude Sonnet 4.6 (edits 27-April-2026 — vlm_bypass mode: run_raw_cycle, dedicated raw threads, raw retention sweep, v2.37.13; 28-April-2026 — sharpness gate wired in, v2.37.14; 04-May-2026 — Birds preset as prompt/schema source, v2.40.0); GPT-5.5 Codex (edits 08-May-2026 — static floor-pecking score calibration); Claude Opus 4.8 (1M context) (edits 03-June-2026 — VLM input downscale via _downscale_for_vlm + vlm_input_long_edge_px config, to cut per-frame latency, v2.40.17); Claude Opus 4.8 (Bubba sub-agent) (edits 14-June-2026 — golden-window raw capture: per-iteration thick/sparse cadence for usb-cam/dominator-cam via offpeak_cycle_seconds + timelapse_golden_windows); Claude Sonnet 4.6 (edits 27-June-2026 — run_raw_cycle quality gates + laplacian storage, v2.44.1); Claude Fable 5 (edits 02-July-2026 — Discord caption trim via gem_poster.trim_caption, v2.44.5); Claude Opus 4.8 (Bubba) (edits 12-July-2026 — _compute_overall_score 0-100 weighted-component scoring, floor-pecking cap + caption rescaled, v2.45.0)
 # Date: 17-April-2026
 # PURPOSE: Main entry point for the multi-cam image pipeline. Schedules per-
 #          camera capture cycles at their configured cadences, runs each
@@ -144,6 +144,45 @@ def _downscale_for_vlm(jpeg_bytes: bytes, long_edge_px: int) -> bytes:
     return encoded.tobytes() if ok else jpeg_bytes
 
 
+def _compute_overall_score(metadata: dict) -> None:
+    """Compute the 0-100 farm-gem score from four weighted components
+    (v2.45.0, 12-Jul-2026, per Boss — replaces the old holistic 0-10 score;
+    Boss wanted finer granularity at the top and a hard 80+ gate).
+
+    Four axes, weighted to sum to 100:
+      - frame dominance   (0-30) — how much of the frame the biggest bird fills
+      - expression        (0-30) — how absurd/expressive the bird is (VLM)
+      - notable detail     (0-25) — claws/wings/feet/features in focus (VLM)
+      - technical quality (0-15) — focus + light
+
+    Only two axes are asked of the VLM (`expression_score`, `detail_score`) —
+    small concrete ranges a 4b model can rate. The other two are DERIVED in
+    code from fields the VLM already emits, so they can never contradict the
+    rest of the metadata (DRY): dominance from `largest_subject_pct`, technical
+    from `image_quality` + `lighting`. Code owns the weighting; the VLM's own
+    `overall_score` guess is discarded — a small VLM cannot calibrate a single
+    0-100 number, but summing four small axes lands on far more distinct
+    totals, which is the granularity Boss asked for. Mutates metadata in place.
+    """
+    def _clamp(v, lo, hi):
+        return max(lo, min(hi, v)) if isinstance(v, int) and not isinstance(v, bool) else lo
+
+    largest = metadata.get("largest_subject_pct")
+    dominance = _clamp(round(largest * 30 / 100) if isinstance(largest, int) else 0, 0, 30)
+    expression = _clamp(metadata.get("expression_score"), 0, 30)
+    detail = _clamp(metadata.get("detail_score"), 0, 25)
+
+    technical = {"sharp": 15, "soft": 8, "blurred": 0}.get(metadata.get("image_quality"), 0)
+    if metadata.get("lighting") in {"blown-out", "dim", "backlit"}:
+        technical = max(0, technical - 4)
+
+    metadata["overall_score"] = dominance + expression + detail + technical
+    log.debug(
+        "score: dominance=%d expression=%d detail=%d technical=%d -> overall=%d",
+        dominance, expression, detail, technical, metadata["overall_score"],
+    )
+
+
 def _calibrate_static_floor_pecking_score(camera_name: str, metadata: dict) -> bool:
     """Demote routine brooder/coop floor pecking below the gem bar.
 
@@ -236,16 +275,19 @@ def _calibrate_static_floor_pecking_score(camera_name: str, metadata: dict) -> b
     if not (floor_snapshot or small_or_sparse):
         return False
 
+    # v2.45.0: caps rescaled from the old 0-10 scale to 0-100 (3->30, 4->40).
+    # This runs AFTER _compute_overall_score, so overall_score is the computed
+    # 0-100 total; capping it keeps floor-pecking frames well under the 80 gate.
     old_score = metadata.get("overall_score")
-    score_cap = 3
+    score_cap = 30
     if image_quality == "sharp" and face_visible and not scattered_multi_bird_floor:
-        score_cap = 4
+        score_cap = 40
     if isinstance(old_score, int):
         metadata["overall_score"] = min(old_score, score_cap)
     else:
         metadata["overall_score"] = score_cap
 
-    if metadata["overall_score"] <= 4 and metadata.get("share_worth") != "skip":
+    if metadata["overall_score"] <= 40 and metadata.get("share_worth") != "skip":
         metadata["share_worth"] = "skip"
 
     metadata["share_reason"] = (
@@ -496,6 +538,9 @@ def run_cycle(camera_name: str, camera_cfg: dict, cfg: dict, schema: dict,
                       reason=f"transient: {type(e).__name__}: {e}")
         return result
 
+    # Compute the 0-100 weighted score from components BEFORE any capping.
+    _compute_overall_score(vlm_result["metadata"])
+
     if _calibrate_static_floor_pecking_score(camera_name, vlm_result["metadata"]):
         log.info(
             "%s: calibrated static floor-pecking frame score=%s share_worth=%s",
@@ -548,9 +593,10 @@ def run_cycle(camera_name: str, camera_cfg: dict, cfg: dict, schema: dict,
             _caption = trim_caption(vlm_result["metadata"].get("caption_draft", "") or "")
             _score = vlm_result["metadata"].get("overall_score")
             if _score is not None:
-                _caption = f"{_caption}\n⭐ {_score}/10"
-            if _score == 10:
-                _caption = f"<@293569238386606080> BIRD SELFIE 🔟\n{_caption}"
+                _caption = f"{_caption}\n⭐ {_score}/100"
+            # 99%-er: a frame-filling, ridiculous, claw-out bird (Boss's bar).
+            if isinstance(_score, int) and _score >= 95:
+                _caption = f"<@293569238386606080> BIRD SELFIE 💯\n{_caption}"
             post_gem(
                 image_bytes=jpeg_bytes,
                 caption=_caption,

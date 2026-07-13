@@ -1,4 +1,4 @@
-# Author: Claude Opus 4.7 (1M context); Claude Fable 5 (02-Jul-2026 — v2.44.5 tier/score gate + trim_caption cases; 06-Jul-2026 — stale accept cases moved to synthetic "test-cam", usb-cam is gem-disabled)
+# Author: Claude Opus 4.7 (1M context); Claude Fable 5 (02-Jul-2026 — v2.44.5 tier/score gate + trim_caption cases; 06-Jul-2026 — stale accept cases moved to synthetic "test-cam", usb-cam is gem-disabled); Claude Opus 4.8 (Bubba) (12-Jul-2026 — score fixtures rescaled to the 0-100 / 80-floor gate, v2.45.0)
 # Date: 23-April-2026
 # PURPOSE: Self-contained assertion suite for gem_poster.should_post. Runs
 #          the v2.37.2 gate against synthetic VLM metadata dicts covering
@@ -37,7 +37,7 @@ def _meta(**overrides) -> dict:
         "image_quality": "sharp",
         "bird_face_visible": True,
         "share_worth": "strong",
-        "overall_score": 8,
+        "overall_score": 85,
         "share_reason": "",
         "caption_draft": "A black-and-yellow chick looking directly at the camera.",
         "concerns": [],
@@ -73,19 +73,20 @@ def run_synthetic_cases() -> int:
     fails += not _expect("blurred rejects",
                          should_post(_meta(image_quality="blurred"), "strong", "mba-cam"), False)
 
-    # v2.44.5 tier + score gate (02-Jul-2026, per Boss — the 4b model emits
-    # inconsistent score/tier pairs and 26 sub-7 posts flooded #farm-2026).
-    fails += not _expect("s7 tier=decent rejects (v2.44.5 tier gate restored)",
+    # v2.45.0 tier + score gate on the 0-100 scale (12-Jul-2026, per Boss —
+    # only 80+ gems should land in #farm-2026). tier must be strong AND the
+    # computed overall_score must clear 80.
+    fails += not _expect("s7 tier=decent rejects (tier gate)",
                          should_post(_meta(share_worth="decent"), "decent", "s7-cam"), False)
-    fails += not _expect("s7 strong but score=6 rejects (v2.44.5 score floor)",
-                         should_post(_meta(overall_score=6), "strong", "s7-cam"), False)
-    fails += not _expect("s7 strong but score=4 rejects (inconsistent 4b pair)",
-                         should_post(_meta(overall_score=4), "strong", "s7-cam"), False)
+    fails += not _expect("s7 strong but score=60 rejects (below 80 floor)",
+                         should_post(_meta(overall_score=60), "strong", "s7-cam"), False)
+    fails += not _expect("s7 strong but score=79 rejects (just under floor)",
+                         should_post(_meta(overall_score=79), "strong", "s7-cam"), False)
     fails += not _expect("s7 strong score MISSING rejects (fail closed)",
                          should_post({k: v for k, v in _meta().items() if k != "overall_score"},
                                      "strong", "s7-cam"), False)
-    fails += not _expect("s7 strong score=7 sharp+face accepts (floor is inclusive)",
-                         should_post(_meta(overall_score=7), "strong", "s7-cam"), True)
+    fails += not _expect("s7 strong score=80 sharp+face accepts (floor is inclusive)",
+                         should_post(_meta(overall_score=80), "strong", "s7-cam"), True)
 
     # v2.44.5 trim_caption (Discord lane only).
     _short = "A chick posing."

@@ -1,4 +1,4 @@
-# Author: GPT-5.5 Codex
+# Author: GPT-5.5 Codex; Claude Opus 4.8 (Bubba) (12-Jul-2026 — cap assertions + inputs rescaled to 0-100, v2.45.0)
 # Date: 08-May-2026
 # PURPOSE: Focused synthetic tests for orchestrator post-VLM calibration that
 #          demotes routine brooder/coop floor-pecking frames before storage or
@@ -43,7 +43,7 @@ def _base_metadata(**overrides) -> dict:
         "subject_coverage_pct": 38,
         "largest_subject_pct": 18,
         "share_worth": "strong",
-        "overall_score": 6,
+        "overall_score": 55,
         "share_reason": "Several chicks are scattered around the coop floor.",
         "caption_draft": BAD_WATER_BOWL_CAPTION,
         "concerns": [],
@@ -65,7 +65,7 @@ def run_synthetic_cases() -> int:
     bad = _base_metadata()
     changed = _calibrate_static_floor_pecking_score("gwtc", bad)
     fails += _expect("boss-flagged water-bowl scatter is calibrated", changed)
-    fails += _expect("boss-flagged score capped to 3", bad["overall_score"] == 3)
+    fails += _expect("boss-flagged score capped to 30", bad["overall_score"] == 30)
     fails += _expect("boss-flagged frame demoted to skip", bad["share_worth"] == "skip")
 
     portrait = _base_metadata(
@@ -75,7 +75,7 @@ def run_synthetic_cases() -> int:
         composition="portrait",
         subject_coverage_pct=70,
         largest_subject_pct=48,
-        overall_score=8,
+        overall_score=85,
         share_worth="strong",
         share_reason="One chick has a sharp face and direct eye contact.",
         caption_draft=(

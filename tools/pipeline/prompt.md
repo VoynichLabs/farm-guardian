@@ -1,33 +1,29 @@
 This is a snapshot from the {camera_name} camera at a small backyard flock in Hampton CT. Camera context: {camera_context}.
 
-**Read the camera context first.** The `Camera context:` line above tells you exactly what this camera is pointed at and what subjects to expect. Trust it completely — do not invent subjects that aren't consistent with it. If the context says "coop" or "overhead" or "older birds," you are NOT looking at turkey poults or young bantam chicks. If the context says "nesting box," you ARE.
+**Read the camera context first.** The `Camera context:` line above tells you exactly what this camera is pointed at and what subjects to expect. Trust it completely — do not invent subjects that aren't consistent with it. Let the context tell you whether you're looking at a nesting box, the coop, the run, or the open yard.
 
-**Nesting box cameras (mba-cam when watching the nesting box)** — the young flock as of {today}:
-- **2 bronze broad-breasted turkey poults**, ~7 days old: rounder/puffier bodies, thick heavy legs with large feet, a snood (fleshy nub above the beak), bare pinkish facial skin, upright blocky stance. Larger than the chicken chicks.
-- **1 standard chicken chick**, ~28 days old. More feathered-out than the bantams, mid-sized.
-- **Several exotic bantam chickens**, ~28 days old. The SMALLEST birds. Varied and striking plumage.
+**The flock is mixed-age and mixed-breed.** Depending on the camera you may see anything from grown adult birds down to younger juveniles. Do not assume an age — read the bird in front of you.
+- **Chickens** are the majority of the flock: a variety of rare, exotic, and standard breeds in strikingly varied plumage, at every stage from feathered juvenile to full adult. **Bantams** are the smallest chickens; standard breeds are mid-to-large. Small size alone does not mean "young" — a small bird may simply be a bantam adult.
+- **Turkeys** may appear on some cameras: rounder, blockier bodies, thick heavy legs and large feet, a snood (fleshy nub above the beak), and bare pinkish facial skin. Heavier-built than chickens of the same age.
 
-**Turkey vs. chicken (nesting box cameras only):**
-- **Round, wide, blocky body + thick legs + snood + bare pink face** → turkey poult.
-- **Fluffy, fine-boned, feathered face** → chicken chick.
+**Turkey vs. chicken:**
+- **Round, wide, blocky body + thick legs + snood + bare pink/red facial skin** → turkey.
+- **Finer-boned, feathered face, comb/wattles rather than a snood** → chicken.
 
-**Coop / flock cameras (usb-cam, gwtc, s7-cam)** — you are seeing older birds:
-- **Adult chickens** (fully grown, mixed breeds) and **older feathered chicks** that have graduated from the brooder. More adult-shaped, fully feathered. No turkey poults here.
-- The angle may be overhead — expect to see backs, tops of heads, and bird rumps rather than faces. That is normal for these cameras.
-- Score conservatively for the budget sensors (usb-cam, gwtc) at awkward angles — a 6 is a good shot for those. The s7-cam is the best sensor in the fleet, so score it on its own merits — it can produce genuine gems.
+**Camera angle.** Overhead coop/run views often show backs, tops of heads, and bird rumps rather than faces — that is normal, not a defect in the bird. Score conservatively for the budget sensors (usb-cam, gwtc) at awkward angles — a mid-band score is a good shot for those, and they rarely clear the 80+ gem bar. The s7-cam is the best sensor in the fleet, so score it on its own merits — it can produce genuine gems.
 
 **Equipment is NOT birds.** The frame may contain a dome-shaped waterer, a feeder, a heat lamp, or other plastic/metal objects. These have NO head, NO beak, NO eyes, NO feathers. Do not count them as birds. If you are unsure whether something is a bird, look for a visible head and feathers — if absent, it is not a bird.
 
-**Named individuals.** The following birds may be identified by name when their appearance matches. All others: use "turkey poult," "chicken chick," "bantam chick," or "young bird."
+**Named individuals.** A couple of birds may be identified by name when their appearance clearly matches. Everyone else: use a generic label ("turkey," "bantam," "hen," or "young bird").
 
-- **Birdadotta** (EE × RIR cross, b. 2026-04-25, ~bantam-adjacent size): blue/grey eyes; distinctive coloring around the beak; slight rust-colored feathers emerging on the wings; slight white tips on the wings; white feathers on the belly. Often has a small teal/turquoise bead or marker visible on her. When you see a chick matching this profile, you may say "likely Birdadotta" in the caption.
-- **Birdadette** (Easter Egger, b. 2026-04-06, LARGER than Birdadotta — 19 days older): gray-brown down with golden-rust chest feathers coming in; yellow legs (shared with Birdadotta, not a distinguishing tell on its own); **no white belly feathers and no white wing feather** (Birdadotta has both). Size is the most reliable field tell — Birdadette is noticeably bigger. Very social/forward — often at the feeder. May be identified as "likely Birdadette" when the profile matches.
+- **Birdadotta** (EE × RIR cross, b. 2026-04-25, smaller bantam-adjacent build): blue/grey eyes; distinctive coloring around the beak; rust-colored feathering on the wings with slight white wing-tips; white feathers on the belly. Often has a small teal/turquoise bead or marker on her. Matching this profile, you may say "likely Birdadotta" in the caption.
+- **Birdadette** (Easter Egger, b. 2026-04-06, noticeably LARGER than Birdadotta): gray-brown body with golden-rust chest feathering; yellow legs (shared with Birdadotta, not a tell on its own); **no white belly feathers and no white wing-tip** (Birdadotta has both). Size is the most reliable tell — Birdadette is the bigger of the two. Very social/forward — often at the feeder. Matching this profile, you may say "likely Birdadette."
 
 When in doubt, do not guess a name — use the generic type label.
 
 **Coloration — describe it specifically, always.** These are rare-breed exotic birds and many are strikingly colored. When a bird is sharp in frame, describe the actual colors and markings you see: "chipmunk-striped brown-and-cream," "solid black," "blue-grey," "buff yellow," "black-and-gold laced," "rust-orange with dark wing tips," "barred black-and-white," "pale silver with a dark dorsal stripe." Do NOT write "colorful chick" or "distinctive markings" — name the actual colors. Every caption should tell someone exactly what color bird they'd see if they looked at this photo.
 
-**Breed speculation — encouraged at 4 weeks.** These chicks came from Cackle Hatchery's Exotic Island Fowl Special and Rare Chick Special. At ~4 weeks, color patterns and head features are becoming visible. When you see a distinctive clue, speculate on the breed:
+**Breed speculation — encouraged.** These birds came from Cackle Hatchery's Exotic Island Fowl Special and Rare Chick Special, so the flock is a mix of rare and exotic breeds. As birds mature, color patterns, crests, and head features become clearer. When you see a distinctive clue, speculate on the breed:
 - **Head crest or pouf forming** → likely Polish, Houdan, or Spitzhauben
 - **Chipmunk-striped (brown/cream dorsal stripes)** → likely Phoenix, Yokohama, or Red Jungle Fowl (Exotic Island Fowl breeds)
 - **Solid or near-solid black with NO visible lacing, patterning, or golden/rust highlights, clean-legged** → likely Black Sumatra or Ayam Cemani. Do NOT use this if you see any golden, amber, or rust lacing on the wings or chest.
@@ -43,7 +39,7 @@ When speculating, say "possibly a [breed]" or "likely a [breed]." You won't alwa
 Guidance on specific fields:
 - `scene`: pick the best match for what you actually see in the image. Use the camera_context to help, but trust your eyes — if it looks like a brooder, call it brooder; nesting-box if you see a nest area; yard if open outdoor space; coop for the run/coop interior; other if nothing fits.
 - `bird_count`: count ONLY objects with a visible head, beak, or feathers. Waterers, feeders, and equipment are zero. If you can't confidently identify a head and body, don't count it.
-- `individuals_visible`: use `"chick"` for any young bird (turkey poults and chicken chicks both qualify). Use `"adult"` only for a fully mature bird. Use `"unknown-bird"` for edge cases.
+- `individuals_visible`: use `"adult"` for a fully mature bird and `"chick"` for any clearly young bird (young turkeys and young chickens both qualify). Use `"unknown-bird"` when you can't tell the age or type. A mixed-age frame can contain both `"adult"` and `"chick"`.
 - `any_special_chick`: true if any individual bird has a visually notable feature — striking coloration, markedly different size, unusual posture, or anything that makes them stand out. Given the rare-breed bantam mix, err toward true. False only for a uniformly indistinct group.
 - `apparent_age_days`: best estimate for the most prominent birds visible. -1 only if no birds are present.
 - `activity`: what the majority of visible birds are doing. "none-visible" if no birds in frame.
@@ -56,7 +52,9 @@ Guidance on specific fields:
 - `subject_coverage_pct`: percent of the total frame area covered by birds. Exclude bedding, walls, feeders, waterers, heat lamp.
 - `largest_subject_pct`: percent of the frame covered by the single largest bird only.
 - `share_worth`: this is the **farm-gem gate**, not just a visibility flag. Sharpness + a visible face is necessary, but not sufficient for `strong`. A blurry bird, a bird's rear end, a bird hidden by wire mesh, or a flat floor-pecking snapshot is worthless regardless of how many birds are present.
-  - **"strong"** — the frame must be genuinely usable/interesting as a farm gem. Use `strong` only when at least one of these is true and none of the skip triggers apply:
+  - **HARD PREREQUISITE for `strong` — the close-and-looking rule.** A frame is `strong` ONLY IF at least one bird is BOTH (a) **relatively close to the camera** — a foreground bird occupying a meaningful chunk of the frame, not a small/distant background bird — AND (b) **looking toward the lens** with at least one eye visible (direct or three-quarter, not a pure side profile where the bird is clearly looking elsewhere). BOTH conditions must hold for the SAME bird. If the closest, most prominent bird is facing away (back, rump, or tail to camera) and the only birds looking toward the lens are small or far off in the background, the frame is NOT `strong` — cap it at `decent` or `skip` no matter how sharp it is. This is the single most important gate; apply it before anything below.
+    - **Do not let other factors compensate.** This is a precondition, not a weighted factor. If neither condition holds — no close bird, OR no bird looking at the lens — then sharpness, exposure, lighting, composition, plumage rarity, and bird count DO NOT MATTER and cannot pull the frame back up. A tack-sharp, beautifully lit, rare-breed wide shot where every bird is distant or turned away is still a `skip`. Check this gate FIRST, before you weigh anything else: hold `share_worth` at `decent` or `skip` when it fails, and score `expression_score` and `detail_score` honestly low (a distant or turned-away bird has little readable expression or detail) so the frame lands well under the gem bar.
+  - **"strong"** — the frame must be genuinely usable/interesting as a farm gem. Use `strong` only when the hard prerequisite above is met AND at least one of these is true and none of the skip triggers apply:
     1. A clean, sharp subject looking DIRECTLY at the camera with a visible eye. This is the best shot the farm gets — prioritize it every time.
     2. A sharp face in profile or three-quarter view where the eye/beak are clearly visible, feather detail is crisp, and the subject is not hidden by wire, clutter, or other birds.
     3. A standout behavior/story moment: sparring, wing-flap, stretch, dust-bath, drinking/eating with the face and body cleanly visible, or a clear interaction between birds. **Generic pecking at the floor is NOT standout behavior.**
@@ -71,38 +69,39 @@ Guidance on specific fields:
     7. Partial/obscured birds, cropped-off bodies, distant small birds, mostly backsides, or birds blocked by other birds/equipment.
     8. Generic static eating/foraging/pecking on the brooder or coop floor with no clean subject, no eye contact, no interesting posture, and no story/action.
     9. Multiple scattered chicks/birds around water bowls, feeders, fence lines, shadows, or background clutter where one bird is merely standing while others peck/forage nearby. That is a coop-floor inventory snapshot, not a gem.
+    10. The closest, most prominent bird in the frame is facing away (back, rump, or tail to camera) — even if other birds farther back are visible or facing the lens. A big sharp foreground rump with only small distant faces behind it is a skip. The lead bird has to be looking at you.
   - **"decent"**: clear, in-focus frame with visible birds that doesn't hit a strong trigger and isn't killed by a skip trigger. Archive-worthy but not remarkable.
   - When in doubt between `decent` and `skip`, lean `skip`. When in doubt between `strong` and `decent`, lean `decent`.
 - `share_reason`: one specific sentence about THIS frame — not a restatement of the rules. E.g., "Bronze turkey poult looking directly into the lens, left eye sharp" or "All three birds in motion, no sharp faces visible, minor blur throughout."
-- `overall_score`: integer 0–10. This is the **farm-gem rating shown in Discord**, so score the whole photo: subject clarity, composition, story/behavior, and whether it is actually worth sharing. Do NOT score merely on bird visibility. Most routine camera frames should land in the 2–5 range. 6+ is intentionally uncommon.
-  - **What raises the score:** clean sharp subject; visible eye/face; vivid color/plumage detail; birds filling a meaningful portion of the frame; strong composition/light; direct eye contact; standout behavior or a clear little story.
-  - **What lowers the score:** blur, soft focus, motion smear; wire mesh/fencing/cage bars over the birds; cluttered floor/background; partial or cropped birds; birds facing away; backsides/rear ends; distant small birds; generic pecking/eating/foraging with no clear subject; compression artifacts.
-  - **Static brooder/coop-floor calibration:** floor-level or overhead snapshots of birds pecking/eating/foraging in the brooder or coop default to **2–4** unless there is a clean standout subject/action/composition. Merely visible chickens are not a 6.
-  - **Solo portrait rule: a single bird posing alone is not penalized for being alone.** One sharp bird filling a meaningful portion of the frame and facing the camera scores the same as a group shot of equivalent quality. A solo close-up portrait with a clear eye and readable plumage can reach 8–9. Solitude is not a deficit.
-  - **The bird selfie is a 10.** A bird filling the majority of the frame, staring directly into the lens, razor-sharp — that is a 10. Not a 7. Not an 8. If a bird posed for its portrait — close-up, direct eye contact, sharp — score it a 10.
-  - **Activity matters only when it creates a story.** Sparring, wing-flap, stretch, dust-bathing, drinking, or eating can raise the score if the subject is sharp and cleanly framed. Routine floor pecking does not raise the score.
-  - **0–2**: No birds, empty frame, totally unusable, heavy blur/artifacts, or only tiny/obscured birds.
-  - **3–4**: Birds present but mostly backs, partial bodies, wire-obstructed, distant, flat floor snapshots, or generic pecking with little interest visible. This is the expected range for routine brooder/coop-floor pecking scenes.
-  - **5**: One or more birds visible with some face/detail, ordinary sharpness, acceptable but not a gem.
-  - **6**: A genuinely usable/interesting farm-gem shot: clear subject, good sharpness, readable face/plumage, and decent composition or a small story. **Not** just visible chickens.
-  - **7**: Standout animal behavior, clean subject, strong composition/light, direct eye contact, or vivid subject detail. Better than a normal usable frame.
-  - **8**: Bird(s) filling the frame, faces prominent, vivid plumage detail readable, strong composition/story — solo portrait or group equally eligible.
-  - **9**: Exceptional sharpness AND composition — striking plumage detail, face prominent, multiple birds sharp or one large bird with striking color and pattern. The kind of frame that stops someone mid-scroll.
-  - **10**: The farm's best shot. Either: (a) a bird selfie — one bird close-up, filling the majority of the frame, looking DIRECTLY into the lens, razor-sharp; OR (b) a group portrait where 3 or more birds are all sharp, faces toward the camera, vivid plumage detail readable on each. Reserve 10 for genuinely outstanding shots that hit one of these two bars.
-  - This score must be consistent with `share_worth`: 0–4 → skip; 5–6 → decent; 7–10 → strong.
-  - **Calibration examples:**
-    - Bad prior 6/10 case — Brooder Floor: flat floor snapshot, several birds pecking/eating, partial bodies and backs, no clean face, no standout action/story → `share_worth="skip"`, `overall_score=3`.
-    - Bad prior 6/10 case — Coop: chickens behind/through wire mesh, distant or partially obscured, generic pecking, cluttered run/floor dominates → `share_worth="skip"`, `overall_score=3`.
-    - Bad prior 6/10 case — Water bowl / feeder scatter: a white chick stands alert near a water bowl, a speckled chick pecks at the ground, a blue-grey bird passes a feeder, and other birds forage in shadows under the fence line → `share_worth="skip"`, `overall_score=3`.
-    - Ordinary visible chickens pecking on a clean floor, sharp but no eye contact/story → `share_worth="skip"` or `"decent"`, `overall_score=4`.
-    - Clear profile portrait of one sharp bird with readable eye/plumage and clean background → `share_worth="strong"`, `overall_score=7`.
-    - Bird selfie close-up, direct eye contact, razor-sharp, subject fills most of frame → `share_worth="strong"`, `overall_score=10`.
+- `expression_score`: integer 0–30. **One of two components you score directly.** How visually striking, absurd, or expressive the bird's face and posture are. A bird doing something ridiculous scores high; a bird just standing there scores near 0.
+  - **25–30**: a genuinely ridiculous or arresting moment — beak wide open mid-call, caught mid-blink, head cocked at a comical angle, mid-flap chaos, sparring, a big stretch, or a bird staring dead into the lens with a wild bright eye.
+  - **15–24**: clear character — alert and craning, curious head-tilt, an obvious behavior with the face engaged.
+  - **6–14**: mild — a calm bird with a visible but ordinary expression.
+  - **0–5**: neutral or none — a bird just standing, drowsing, facing away, or no readable face.
+- `detail_score`: integer 0–25. **The other component you score directly.** How much distinctive bird detail is actually visible AND in focus. Reward what you can really see: a sharp claw or foot, spread wing feathers, individual feather texture, a bright eye, comb/wattle/snood, vivid plumage pattern. Do NOT reward detail that is merely implied, distant, or soft.
+  - **20–25**: several crisp features at once — e.g. a raised claw, feather-by-feather wing detail, and a sharp eye all readable.
+  - **12–19**: one or two clear standout features in good focus.
+  - **5–11**: some detail but soft, small, or partly obscured.
+  - **0–4**: nothing distinctive readable — distant, blurred, or backside-only.
+- `overall_score`: integer 0–100, the **farm-gem rating shown in Discord**. The pipeline RECOMPUTES this from four weighted components, so focus on scoring `expression_score` and `detail_score` accurately — still give your best 0–100 estimate here, but it will be recalculated. The four weighted axes (sum to 100): **frame dominance (0–30)** from `largest_subject_pct`, **expression (0–30)** = your `expression_score`, **notable detail (0–25)** = your `detail_score`, **technical quality (0–15)** from `image_quality`+`lighting`. A frame only reaches Discord at **80+**.
+  - **What lands 80+:** a bird filling a large part of the frame (high dominance) that is ALSO doing something expressive/absurd AND showing crisp distinctive detail (a claw, a wing, a wild eye) in sharp focus. All four axes strong at once. This is intentionally hard.
+  - **What stays under 80:** distant birds, neutral standing poses, soft focus, backsides, cluttered floor scenes, or any frame missing one of the four axes. A clean but ordinary profile portrait is a mid-band shot (~55–70), not a gem.
+  - **Solo is not penalized.** One sharp bird filling the frame and facing the lens scores the same as a group of equal quality. Solitude is not a deficit.
+  - **The 99%-er (95–100).** A bird filling the majority of the frame, making a ridiculous expression, with a monster claw or spread wing visible, razor-sharp. Reserve the very top of the scale for exactly this — it is the best shot the farm gets.
+  - Keep this consistent with `share_worth`: only frames you tag `strong` should reach 80+; `decent` frames land mid-band; `skip` frames at the bottom.
+  - **Calibration examples (score the components; the overall follows):**
+    - Brooder Floor: flat floor snapshot, several birds pecking, partial bodies and backs, no clean face → `share_worth="skip"`, `expression_score=3`, `detail_score=4`.
+    - Coop through wire mesh, distant/obscured, generic pecking, cluttered run → `share_worth="skip"`, `expression_score=2`, `detail_score=3`.
+    - Water bowl / feeder scatter: one bird alert while others forage in shadows → `share_worth="skip"`, `expression_score=4`, `detail_score=5`.
+    - Close-and-looking failure — a large sharp buff bird fills the foreground but is rump-to-camera → fails the hard prerequisite → `share_worth="skip"`, `expression_score=2`, `detail_score=4`.
+    - Clear profile portrait, one sharp bird, readable eye/plumage, clean background, but calm/neutral → `share_worth="strong"`, `expression_score=14`, `detail_score=16` (a nice archive shot, mid-band, not a gem).
+    - Bird selfie close-up: direct eye contact, wild expression, a claw or spread wing visible, razor-sharp, fills most of the frame → `share_worth="strong"`, `expression_score=30`, `detail_score=24` (the 99%-er).
 - `caption_draft`: 2–4 sentences, up to ~450 chars. **Describe the whole scene — all the birds, not just one.** This goes on social media. Make it vivid.
   - **Describe only the birds.** Do NOT mention the heat lamp, wood shavings, bedding, the nesting box walls, or the wooden structure. Those are background. The birds are the subject.
   - **Paint the full picture.** Who's where? One bird alone on the perch while others huddle below? Say so. A lone sentry above a pile of sleepers is a story — tell it.
   - **Colors for every visible bird.** "a white fluffy chick," "three dark mottled birds in black and grey," "a rust-and-brown bantam," "a barred black-and-white chick." Never "a colorful group."
   - **Expression and posture.** "looking directly at the camera," "eyes closed, heads tucked," "standing tall and alert," "pressed together, fast asleep."
-  - **Species when distinguishable.** Turkey poults vs. bantam chicks vs. the larger standard chick.
+  - **Species/type when distinguishable.** Turkeys vs. small bantams vs. larger standard chickens; note adult vs. young bird when it's clear.
   - **Every caption must describe what is physically different in THIS frame.** You are seeing a new image each time — look at it fresh. What bird is closest? Which one is sharpest? Who has their face toward the camera right now? What are the specific colors you see? Do not reuse the same sentence structure or the same birds as a previous caption. If the birds are in the same pile, find a different individual to lead with, or describe the pile from a different angle.
   - Good examples: "A white chick stands alert in the center while three dark mottled birds — black-and-grey speckled — doze pressed together on the perch above, heads tucked in tight. A second white bird picks its way along the beam behind them." / "A chipmunk-striped bantam, possibly a Phoenix, locks eyes with the camera while two rust-orange birds sleep against it, faces buried."
   - Bad examples: "A white chick stands beneath the heat lamp on wood shavings." / "Birds sleeping in the nesting box." — mentions the lamp/shavings, describes only one bird.
