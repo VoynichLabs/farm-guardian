@@ -1,4 +1,4 @@
-# Author: Claude Opus 4.7 (1M context); Claude Sonnet 4.6 (edits 27-April-2026 — vlm_bypass mode: run_raw_cycle, dedicated raw threads, raw retention sweep, v2.37.13; 28-April-2026 — sharpness gate wired in, v2.37.14; 04-May-2026 — Birds preset as prompt/schema source, v2.40.0); GPT-5.5 Codex (edits 08-May-2026 — static floor-pecking score calibration); Claude Opus 4.8 (1M context) (edits 03-June-2026 — VLM input downscale via _downscale_for_vlm + vlm_input_long_edge_px config, to cut per-frame latency, v2.40.17); Claude Opus 4.8 (Bubba sub-agent) (edits 14-June-2026 — golden-window raw capture: per-iteration thick/sparse cadence for usb-cam/dominator-cam via offpeak_cycle_seconds + timelapse_golden_windows); Claude Sonnet 4.6 (edits 27-June-2026 — run_raw_cycle quality gates + laplacian storage, v2.44.1); Claude Fable 5 (edits 02-July-2026 — Discord caption trim via gem_poster.trim_caption, v2.44.5); Claude Opus 4.8 (Bubba) (edits 12-July-2026 — _compute_overall_score 0-100 weighted-component scoring, floor-pecking cap + caption rescaled, v2.45.0)
+# Author: Claude Opus 4.7 (1M context); Claude Sonnet 4.6 (edits 27-April-2026 — vlm_bypass mode: run_raw_cycle, dedicated raw threads, raw retention sweep, v2.37.13; 28-April-2026 — sharpness gate wired in, v2.37.14; 04-May-2026 — Birds preset as prompt/schema source, v2.40.0); GPT-5.5 Codex (edits 08-May-2026 — static floor-pecking score calibration); Claude Opus 4.8 (1M context) (edits 03-June-2026 — VLM input downscale via _downscale_for_vlm + vlm_input_long_edge_px config, to cut per-frame latency, v2.40.17); Claude Opus 4.8 (Bubba sub-agent) (edits 14-June-2026 — golden-window raw capture: per-iteration thick/sparse cadence for usb-cam/dominator-cam via offpeak_cycle_seconds + timelapse_golden_windows); Claude Sonnet 4.6 (edits 27-June-2026 — run_raw_cycle quality gates + laplacian storage, v2.44.1); Claude Fable 5 (edits 02-July-2026 — Discord caption trim via gem_poster.trim_caption, v2.44.5); Claude Opus 4.8 (Bubba) (edits 12-July-2026 — _compute_overall_score 0-100 weighted-component scoring, floor-pecking cap + caption rescaled, v2.45.0; 13-July-2026 — dominance recalibrated (full at ~50% coverage) so real gems clear the 80 gate + BIRD SELFIE ping 95->90, v2.45.1)
 # Date: 17-April-2026
 # PURPOSE: Main entry point for the multi-cam image pipeline. Schedules per-
 #          camera capture cycles at their configured cadences, runs each
@@ -163,12 +163,26 @@ def _compute_overall_score(metadata: dict) -> None:
     `overall_score` guess is discarded — a small VLM cannot calibrate a single
     0-100 number, but summing four small axes lands on far more distinct
     totals, which is the granularity Boss asked for. Mutates metadata in place.
+
+    v2.45.1 (13-Jul-2026, Bubba) — dominance recalibrated: full marks at ~50%
+    coverage, not 100%. v2.45.0 shipped with `largest * 30/100`, which was
+    verified only against SYNTHETIC hand-set scores, never live VLM output.
+    Against real frames it was fatal: s7-cam (the only real gem source) is a
+    wide-angle phone cam, so even a bird posing right at the lens fills only
+    ~30-40% of the frame → dominance ~9-12/30. That capped every genuine gem
+    around 65-72 — below the 80 gate — so #farm-2026 went silent for a full day
+    (0 posts). The median historical gem was mathematically unable to reach 80.
+    A bird filling half a wide frame IS the dominant subject, so 50% now earns
+    the full 30; the best real gem in the dead window (expr 25, detail 22,
+    sharp, largest 35) rises 72 -> 83 and posts. Routine frames stay well under
+    80 because they also need high expression AND detail, which the multi-axis
+    design and the floor-pecking caps (30/40) still enforce.
     """
     def _clamp(v, lo, hi):
         return max(lo, min(hi, v)) if isinstance(v, int) and not isinstance(v, bool) else lo
 
     largest = metadata.get("largest_subject_pct")
-    dominance = _clamp(round(largest * 30 / 100) if isinstance(largest, int) else 0, 0, 30)
+    dominance = _clamp(round(largest * 30 / 50) if isinstance(largest, int) else 0, 0, 30)
     expression = _clamp(metadata.get("expression_score"), 0, 30)
     detail = _clamp(metadata.get("detail_score"), 0, 25)
 
@@ -595,7 +609,11 @@ def run_cycle(camera_name: str, camera_cfg: dict, cfg: dict, schema: dict,
             if _score is not None:
                 _caption = f"{_caption}\n⭐ {_score}/100"
             # 99%-er: a frame-filling, ridiculous, claw-out bird (Boss's bar).
-            if isinstance(_score, int) and _score >= 95:
+            # v2.45.1: >=90 (was >=95). The real component ceiling is ~92
+            # (dominance 30 + expr ~25 + detail ~22 + technical 15 — the 4b VLM
+            # never emits the full expr 30 / detail 25), so >=95 could never
+            # fire; >=90 restores the @-mention on genuine bird selfies.
+            if isinstance(_score, int) and _score >= 90:
                 _caption = f"<@293569238386606080> BIRD SELFIE 💯\n{_caption}"
             post_gem(
                 image_bytes=jpeg_bytes,
