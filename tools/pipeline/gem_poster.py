@@ -1,4 +1,4 @@
-# Author: Claude Opus 4.7 (1M context); Claude Sonnet 4.6 (09-May-2026 — gwtc/usb-cam/dominator-cam disabled); Claude Fable 5 (02-Jul-2026 — tier+score gate restored, trim_caption added, v2.44.5); Claude Opus 4.8 (Bubba) (12-Jul-2026 — score floor 7→80 for the 0-100 component scale, v2.45.0)
+# Author: Claude Opus 4.7 (1M context); Claude Sonnet 4.6 (09-May-2026 — gwtc/usb-cam/dominator-cam disabled); Claude Fable 5 (02-Jul-2026 — tier+score gate restored, trim_caption added, v2.44.5); Claude Opus 4.8 (Bubba) (12-Jul-2026 — score floor 7→80 for the 0-100 component scale, v2.45.0; 13-Jul-2026 — floor 80→70, v2.45.2)
 # Date: 23-April-2026
 # PURPOSE: Post strong-tier frames to the #farm-2026 Discord channel as they
 #          land. Called from orchestrator.run_cycle whenever store returns
@@ -44,12 +44,15 @@ _GEM_POST_DISABLED_CAMERAS = frozenset({"mba-cam", "gwtc", "usb-cam", "dominator
 # Minimum overall_score for a Discord gem post. v2.45.0 (12-Jul-2026, per
 # Boss): the score moved to a 0-100 scale computed in orchestrator from four
 # weighted components (frame dominance 0-30, expression 0-30, detail 0-25,
-# technical 0-15). Boss only wants to see 80+ gems, so the floor is 80.
+# technical 0-15). v2.45.2 (13-Jul-2026, per Boss): floor lowered 80 -> 70 to
+# let solid strong-tier gems (~70-79 on the recalibrated scale) through, not
+# only the near-perfect ones. tier=="strong" is still the primary filter and
+# the floor-pecking caps (30/40) still hold routine frames well under 70.
 # History: v2.44.5 (02-Jul) set this to 7 on the old 0-10 scale after the
 # qwen3-vl-4b swap flooded #farm-2026 with sub-7 posts. Both checks still
 # run: tier must be "strong" AND overall_score must clear this floor. Boss
 # declined a posting cooldown (02-Jul) — quality gating only, no rate limit.
-_MIN_OVERALL_SCORE = 80
+_MIN_OVERALL_SCORE = 70
 
 # Non-s7 cameras rejected at these activity/composition tags even when the
 # VLM self-approves them as strong. Huddle/sleep/empty frames are the

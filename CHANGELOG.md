@@ -4,6 +4,14 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-07-09
 
+### v2.45.2 — gem post gate lowered 80 → 70 (Claude Opus 4.8, Bubba) — 13-Jul-2026
+
+**What:** `gem_poster._MIN_OVERALL_SCORE` 80 → 70. Nothing else changed — the 0–100 component score (v2.45.0) and the dominance recalibration (v2.45.1) are untouched.
+
+**Why:** Boss, after v2.45.1 restored posting: lower the bar to 70. 80 admits only near-perfect frame-filling shots; 70 lets solid strong-tier gems (roughly 70–79 on the recalibrated scale — a clear, characterful bird that isn't quite a frame-filling 99%-er) through too.
+
+**How:** one constant in `gem_poster.py` (comment updated), `test_gem_poster_gate` fixtures moved off the 80 boundary (score=69 rejects / score=70 accepts; both still assert tier=="strong" is required), headers bumped. `tier=="strong"` remains the primary filter and the floor-pecking caps (30/40) still hold routine frames well under 70, so this widens the gem lane without re-admitting floor-peck/skip junk. Both pipeline tests pass. **Requires a pipeline daemon restart** (`launchctl kickstart -k gui/$(id -u)/com.farmguardian.pipeline`).
+
 ### v2.45.1 — gem-score dominance recalibrated so real gems actually reach the 80 gate; #farm-2026 posting restored (Claude Opus 4.8, Bubba) — 13-Jul-2026
 
 **What:** One-line recalibration in `orchestrator._compute_overall_score()`: the frame-dominance component now awards its full 30 points at ~50% frame coverage (`largest_subject_pct * 30 / 50`, clamped) instead of at 100% (`* 30 / 100`). The "BIRD SELFIE" `<@Mark>` ping threshold dropped from ≥95 to ≥90. No preset/prompt change, no schema change, no gate change (still 80). Code-only — deploys on a pipeline daemon restart.

@@ -73,20 +73,20 @@ def run_synthetic_cases() -> int:
     fails += not _expect("blurred rejects",
                          should_post(_meta(image_quality="blurred"), "strong", "mba-cam"), False)
 
-    # v2.45.0 tier + score gate on the 0-100 scale (12-Jul-2026, per Boss —
-    # only 80+ gems should land in #farm-2026). tier must be strong AND the
-    # computed overall_score must clear 80.
+    # v2.45.0 tier + score gate on the 0-100 scale (12-Jul-2026, per Boss).
+    # v2.45.2 (13-Jul-2026, per Boss): floor lowered 80 -> 70. tier must be
+    # strong AND the computed overall_score must clear 70.
     fails += not _expect("s7 tier=decent rejects (tier gate)",
                          should_post(_meta(share_worth="decent"), "decent", "s7-cam"), False)
-    fails += not _expect("s7 strong but score=60 rejects (below 80 floor)",
+    fails += not _expect("s7 strong but score=60 rejects (below 70 floor)",
                          should_post(_meta(overall_score=60), "strong", "s7-cam"), False)
-    fails += not _expect("s7 strong but score=79 rejects (just under floor)",
-                         should_post(_meta(overall_score=79), "strong", "s7-cam"), False)
+    fails += not _expect("s7 strong but score=69 rejects (just under floor)",
+                         should_post(_meta(overall_score=69), "strong", "s7-cam"), False)
     fails += not _expect("s7 strong score MISSING rejects (fail closed)",
                          should_post({k: v for k, v in _meta().items() if k != "overall_score"},
                                      "strong", "s7-cam"), False)
-    fails += not _expect("s7 strong score=80 sharp+face accepts (floor is inclusive)",
-                         should_post(_meta(overall_score=80), "strong", "s7-cam"), True)
+    fails += not _expect("s7 strong score=70 sharp+face accepts (floor is inclusive)",
+                         should_post(_meta(overall_score=70), "strong", "s7-cam"), True)
 
     # v2.44.5 trim_caption (Discord lane only).
     _short = "A chick posing."
