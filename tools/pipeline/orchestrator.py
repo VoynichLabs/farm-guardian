@@ -922,9 +922,20 @@ def _load_configs():
     cfg = json.loads((here / "config.json").read_text())
 
     # If birds_preset_path is configured, use the LM Studio Birds preset as the
-    # single source of truth for both the prompt template and the response schema.
-    # This keeps the pipeline and the LM Studio UI preset in sync — editing the
-    # preset file in ~/.lmstudio/config-presets/ updates both at once.
+    # single source of truth for both the prompt template and the response schema —
+    # NOT tools/pipeline/prompt.md or schema.json. Those two files are only the
+    # fallback read when the preset is missing.
+    # 16-Jul-2026 lesson: prompt.md/schema.json were edited for the Birdcatraz
+    # move and the pipeline was restarted, but the live preset (last touched
+    # 12-Jul) silently kept serving the STALE prompt for hours — editing the
+    # tracked files does NOT update the preset; someone has to push the sync
+    # the other direction. When you edit prompt.md/schema.json going forward,
+    # also copy the changes into ~/.lmstudio/config-presets/Birds.preset.json's
+    # `llm.prediction.systemPrompt` / `llm.prediction.structured.jsonSchema`
+    # fields (see git history around 16-Jul-2026 for the one-off sync script),
+    # then restart the daemon. Consider retiring the preset file and setting
+    # birds_preset_path="" so prompt.md/schema.json become the sole source of
+    # truth — this dual-file trap will bite again otherwise.
     preset_path_raw = cfg.get("birds_preset_path")
     if preset_path_raw:
         preset_path = Path(preset_path_raw).expanduser()
