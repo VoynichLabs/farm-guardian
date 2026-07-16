@@ -133,10 +133,26 @@ def ensure_model_loaded(
 
 def prompt_for(camera_name: str, camera_context: str, prompt_template: str) -> str:
     from datetime import date
+
+    from tools.pipeline.roster import format_named_individuals_block
+
+    # v2.47.0: the "Named individuals" section used to hardcode two birds
+    # directly in prompt.md — one of them (Birdadette) got renamed Birddor
+    # in July and the prompt drifted stale until someone noticed. The
+    # section is now generated live from farm-2026's flock roster on every
+    # call (roster.py caches for 5 minutes, so this is cheap).
+    try:
+        named_block = format_named_individuals_block()
+    except Exception:
+        named_block = ""
+    if not named_block:
+        named_block = "(No bird currently has a confirmed enough visual profile to name.)"
+
     return (prompt_template
             .replace("{camera_name}", camera_name)
             .replace("{camera_context}", camera_context)
-            .replace("{today}", date.today().isoformat()))
+            .replace("{today}", date.today().isoformat())
+            .replace("{named_individuals_block}", named_block))
 
 
 _SYSTEM_PROMPT = (

@@ -4,6 +4,16 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-07-16
 
+### v2.47.1 — Roster bridge (E1): VLM named-bird guidance now generated live from farm-2026's flock roster (Claude Fable 5) — 16-Jul-2026
+
+**What:** New `tools/pipeline/roster.py` reads `farm-2026/content/flock-profiles.json` (5-min cache), the same pattern `daily_reel_runner.py` already uses for the diary folder. `prompt.md`'s "Named individuals" section — previously two birds hand-written directly into the prompt, one of them under a name (Birdadette) retired in July — is now a `{named_individuals_block}` placeholder filled at request time by `vlm_enricher.prompt_for()`. Filtered to birds with a non-empty, unhedged `color_description` (skips entries Boss's own notes flag as "disputed"/"unconfirmed"/"verify visually" — several of the June-hatch siblings are still contested IDs). Also fixed a live bug this surfaced: Birdadotta's own `color_description` in flock-profiles.json still named-dropped "Birdadette" as her discriminator.
+
+**Why:** The hardcoded version drifted stale for two months before anyone noticed (the July rename); a live roster read can't drift. Named individuals scale past 2 birds without another hand-edit.
+
+**Also fixed:** discovered while doing this — `birds_preset_path` in config.json makes `~/.lmstudio/config-presets/Birds.preset.json` the actual live prompt/schema source, not the tracked `prompt.md`/`schema.json`; the preset was 4 days stale and the v2.46.0 Birdcatraz prompt fix hadn't actually reached the VLM despite the daemon restart. Synced and loud-commented in `orchestrator.py` so this doesn't recur (separate commit, same day).
+
+**How:** Structured named-bird classification stays OFF (v2.38.2 lesson stands) — this is caption-only soft guidance, same risk profile as what it replaces.
+
 ### v2.47.0 — IG quality: carousel un-starved, hardcoded reel captions retired, posted-caption ledger + dedup (Claude Fable 5) — 16-Jul-2026
 
 **What:** Four changes from plan Part D (`farm-2026/docs/16-Jul-2026-birdcatraz-era-refresh-plan.md`). (D1) Reels no longer stamp `ig_permalink` on their source frames — new `reel_permalink`/`reel_posted_at` columns hold reel usage, so the carousel selector (which requires `ig_permalink IS NULL`) keeps its candidate pool; the carousel LaunchAgent moved 18:00 → 12:30 to stop colliding with the mixed reel (both live plist and `deploy/ig-scheduled/` mirror updated + reloaded). (D3) vlm_bypass timelapse lanes no longer post their hardcoded fallback literal ("A day in the coop run.") — `generate_caption_body` accepts empty drafts with a `scene_hint` and writes from scene + season + diary context; the literal remains only as last-resort when Codex is down. (D4) New `ig_posted_captions` table records every caption that actually publishes (photo/carousel/reel), with hashtags parsed to `tags_csv` — captions were previously only recoverable from ephemeral /tmp logs. (D5) Caption synthesis (Codex + LM Studio paths) now receives the last posted captions as a do-not-repeat list, and every `pick_hashtags` call site feeds `last_n_tags_used` from the ledger (was hardcoded `[]` everywhere, making rotation inert). Also: reel hashtag buckets drop `chicks` (grown flock), Codex `BRAND_RULES` updated from "adorable baby birds" to the grown rare-breed flock in Birdcatraz.

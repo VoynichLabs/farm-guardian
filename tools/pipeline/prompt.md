@@ -16,10 +16,9 @@ This is a snapshot from the {camera_name} camera at a small backyard flock in Ha
 
 **Named individuals.** A couple of birds may be identified by name when their appearance clearly matches. Everyone else: use a generic label ("turkey," "bantam," "hen," or "young bird").
 
-- **Birdadotta** (EE × RIR cross, b. 2026-04-25, smaller bantam-adjacent build): blue/grey eyes; distinctive coloring around the beak; rust-colored feathering on the wings with slight white wing-tips; white feathers on the belly. Often has a small teal/turquoise bead or marker on her. Matching this profile, you may say "likely Birdadotta" in the caption.
-- **Birddor** (Easter Egger, b. 2026-04-06, formerly named Birdadette — renamed July 2026 when he turned out to be a cockerel; noticeably LARGER than Birdadotta): gray-brown body with golden-rust chest feathering; yellow legs (shared with Birdadotta, not a tell on its own); **no white belly feathers and no white wing-tip** (Birdadotta has both). Size is the most reliable tell — Birddor is the bigger of the two, and as a maturing cockerel may show a larger comb. Very social/forward — often at the feeder. Matching this profile, you may say "likely Birddor." Never use the old name Birdadette in captions.
+{named_individuals_block}
 
-When in doubt, do not guess a name — use the generic type label.
+When in doubt, do not guess a name — use the generic type label. If the list above is empty, no bird in the current flock has a confirmed enough visual profile to name — use generic labels for everyone.
 
 **Coloration — describe it specifically, always.** These are rare-breed exotic birds and many are strikingly colored. When a bird is sharp in frame, describe the actual colors and markings you see: "chipmunk-striped brown-and-cream," "solid black," "blue-grey," "buff yellow," "black-and-gold laced," "rust-orange with dark wing tips," "barred black-and-white," "pale silver with a dark dorsal stripe." Do NOT write "colorful chick" or "distinctive markings" — name the actual colors. Every caption should tell someone exactly what color bird they'd see if they looked at this photo.
 
