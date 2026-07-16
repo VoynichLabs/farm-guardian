@@ -4,6 +4,14 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-07-16
 
+### v2.47.2 — Bird-name reply tagging + retention pinning (E3/E4) (Claude Fable 5) — 16-Jul-2026
+
+**What:** `scripts/discord-reaction-sync.py` gains a third job alongside its existing reaction-sync and human-drop-ingestion passes: any Discord reply to a Guardian gem post gets its text matched against the live roster (`roster.match_name`, case-insensitive exact). A match appends the name (lowercased) to that gem's `individuals_visible_csv` — the same column and CSV-contains convention the pre-v2.38.2 structured classification used for "birdadette," which the public gallery's `individual=` filter already queries — and sets `retained_until = NULL` so the frame survives retention sweeps indefinitely (E4; `retention.py` needed no changes, `sweep()` already skips NULL rows). Every tag is audited in `image_archive_edits` (new `identify_bird` action, reusing the table's existing promote/demote/flag design). An unmatched reply gets a ❓ reaction back instead of a silent drop. Both paths are idempotent (checked via existing CSV membership / the reply's own `reactions[].me` flag) and the whole job is wrapped so a bug in it can't cost the reaction-sync work already done in the same run.
+
+**Why:** Boss can recognize birds; this lets that knowledge accrue into the archive without a UI. No new LaunchAgent — rides the existing 30-min `com.farmguardian.discord-reaction-sync` cadence.
+
+**How:** Replying with a name is optional enrichment on top of normal reactions, never required. Structured VLM bird classification stays OFF (unrelated to this — this is 100% human-sourced).
+
 ### v2.47.1 — Roster bridge (E1): VLM named-bird guidance now generated live from farm-2026's flock roster (Claude Fable 5) — 16-Jul-2026
 
 **What:** New `tools/pipeline/roster.py` reads `farm-2026/content/flock-profiles.json` (5-min cache), the same pattern `daily_reel_runner.py` already uses for the diary folder. `prompt.md`'s "Named individuals" section — previously two birds hand-written directly into the prompt, one of them under a name (Birdadette) retired in July — is now a `{named_individuals_block}` placeholder filled at request time by `vlm_enricher.prompt_for()`. Filtered to birds with a non-empty, unhedged `color_description` (skips entries Boss's own notes flag as "disputed"/"unconfirmed"/"verify visually" — several of the June-hatch siblings are still contested IDs). Also fixed a live bug this surfaced: Birdadotta's own `color_description` in flock-profiles.json still named-dropped "Birdadette" as her discriminator.

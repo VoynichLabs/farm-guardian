@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# Author: GPT-5.5; Claude Sonnet 4.6 (04-May-2026 — per-message commit to fix DB lock contention, v2.40.3)
-# Date: 03-May-2026 (last touched 04-May-2026)
+# Author: GPT-5.5; Claude Sonnet 4.6 (04-May-2026 — per-message commit to fix DB lock contention, v2.40.3); Claude Fable 5 (16-Jul-2026 — bird-name reply tagging + retention pinning, v2.47.2)
+# Date: 03-May-2026 (last touched 16-Jul-2026)
 # PURPOSE: Two jobs, run in one pass over #farm-2026:
 #
 #          1. GUARDIAN GEMS — for every reacted message whose author is
@@ -30,10 +30,37 @@
 #          tools/discord_harvester.py so we don't fork two Discord
 #          clients.
 #
-# SRP/DRY check: Pass — single responsibility is "Discord reactions ->
-#                image_archive". Guardian-gem updates and human-drop
-#                inserts are two sides of the same coin (both use the
-#                same reactor-counting + match/insert policy).
+#          3. BIRD-NAME TAGGING (v2.47.2, 16-Jul-2026, plan Part E3) — a
+#             third job in the same pass: for every message that is a
+#             Discord REPLY to a Guardian gem post, take the reply's text,
+#             match it against the live flock roster (tools/pipeline/
+#             roster.py, case-insensitive exact match), and if it matches:
+#               - append the matched name (lowercased) to the target gem's
+#                 individuals_visible_csv — the SAME column + CSV-contains
+#                 convention the old (pre-v2.38.2) structured VLM
+#                 classification used for "birdadette" and that the public
+#                 gallery's `individual=` filter already queries
+#                 (database.py._individuals_clause). No schema change.
+#               - pin the gem's retention (retained_until = NULL) so a
+#                 named frame survives the sweep forever (E4 — retention.py
+#                 itself needed no change: sweep() already skips
+#                 retained_until IS NULL rows).
+#               - audit the tag in image_archive_edits (action=
+#                 'identify_bird'), reusing the table's existing
+#                 promote/demote/flag audit-trail design for a new action.
+#             A reply that does NOT match any roster name gets a ❓
+#             reaction back (best-effort) instead of a silent drop, per
+#             Boss's 16-Jul decision. Idempotent both ways: a name already
+#             in the CSV is skipped; an already-❓'d reply (checked via the
+#             fetched message's own `reactions[].me` flag) is skipped.
+#             This is optional enrichment on top of Boss's normal Discord
+#             reactions — replying with a name is never required.
+#
+# SRP/DRY check: Pass — single responsibility is "Discord activity ->
+#                image_archive". Guardian-gem reaction updates, human-drop
+#                inserts, and bird-name reply tagging are three sides of
+#                the same coin (all three read the same fetched message
+#                list and write to image_archive).
 
 """
 discord-reaction-sync.py — pull human reaction counts from
@@ -203,6 +230,143 @@ def _update_gem_reactions(
             gem_id,
         ),
     )
+
+
+# ---------------------------------------------------------------------------
+# Bird-name reply tagging (v2.47.2, plan Part E3)
+# ---------------------------------------------------------------------------
+
+_UNKNOWN_NAME_EMOJI = "❓"
+
+
+def _find_gem_by_message_id(conn: sqlite3.Connection, discord_message_id: str) -> Optional[dict]:
+    """Look up the image_archive row a Guardian gem message posted for,
+    by the discord_message_id stamped in _update_gem_reactions. Returns
+    the row (as a dict) with individuals_visible_csv, or None if this
+    message id isn't a known gem post (e.g. it's some other message)."""
+    conn.row_factory = sqlite3.Row
+    row = conn.execute(
+        "SELECT id, individuals_visible_csv FROM image_archive WHERE discord_message_id = ?",
+        (discord_message_id,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def _already_reacted(msg: dict, emoji: str) -> bool:
+    """True if the bot has already placed `emoji` on this message —
+    read straight from the reactions Discord already sent us (the `me`
+    flag), no extra API call."""
+    for reaction in msg.get("reactions") or []:
+        if (reaction.get("emoji") or {}).get("name") == emoji and reaction.get("me"):
+            return True
+    return False
+
+
+def _add_reaction(msg_id: str, emoji: str, token: str, dh) -> bool:
+    """PUT a reaction from the bot account onto a message. Best-effort —
+    returns False (never raises) on any failure so a Discord hiccup
+    never breaks the sync run."""
+    import requests
+    url = (
+        f"{dh.DISCORD_API}/channels/{dh.CHANNEL_ID}/messages/{msg_id}/"
+        f"reactions/{urllib.parse.quote(emoji)}/@me"
+    )
+    try:
+        resp = requests.put(url, headers=dh.discord_headers(token), timeout=10)
+        return resp.status_code in (200, 204)
+    except Exception:
+        return False
+
+
+def _sync_bird_name_tags(
+    conn: sqlite3.Connection,
+    messages: list[dict],
+    token: str,
+    dh,
+) -> dict:
+    """Third pass over the same fetched message list: replies to gem
+    posts that name a roster bird get written onto the gem row.
+
+    Iterates ALL fetched messages (not just reacted ones — a reply is
+    its own signal, independent of the reaction path above) looking for
+    `referenced_message` (Discord inlines the resolved parent message on
+    a reply, when it hasn't been deleted).
+    """
+    from tools.pipeline.roster import match_name
+
+    tagged = 0
+    unmatched = 0
+    skipped_not_a_reply = 0
+
+    for msg in messages:
+        parent = msg.get("referenced_message")
+        if not parent or not parent.get("id"):
+            skipped_not_a_reply += 1
+            continue
+
+        author = msg.get("author") or {}
+        if author.get("bot"):
+            continue
+        author_id = str(author.get("id", ""))
+        if author_id in dh.BOT_USER_IDS:
+            continue
+
+        gem = _find_gem_by_message_id(conn, parent["id"])
+        if gem is None:
+            continue  # reply to something other than a tracked gem post
+
+        reply_text = (msg.get("content") or "").strip()
+        if not reply_text:
+            continue
+
+        matched = match_name(reply_text)
+        if matched is None:
+            if _already_reacted(msg, _UNKNOWN_NAME_EMOJI):
+                continue
+            _add_reaction(msg["id"], _UNKNOWN_NAME_EMOJI, token, dh)
+            unmatched += 1
+            continue
+
+        existing_csv = gem.get("individuals_visible_csv") or ""
+        existing_names = [n for n in existing_csv.split(",") if n]
+        tag = matched.lower()
+        if tag in existing_names:
+            continue  # already tagged — idempotent no-op
+
+        pre_state = {"individuals_visible_csv": existing_csv, "retained_until": None}
+        new_csv = ",".join(existing_names + [tag])
+        gem_id = gem["id"]
+
+        # Pin retention (E4): retained_until = NULL means retention.sweep()'s
+        # `retained_until IS NOT NULL AND retained_until <= today` filter
+        # never matches this row — a named frame is kept indefinitely.
+        conn.execute(
+            "UPDATE image_archive SET individuals_visible_csv = ?, retained_until = NULL WHERE id = ?",
+            (new_csv, gem_id),
+        )
+        import json as _json
+        conn.execute(
+            """
+            INSERT INTO image_archive_edits
+                (target_image_id, action, actor, note, request_id, pre_state, post_state)
+            VALUES (?, 'identify_bird', ?, ?, ?, ?, ?)
+            """,
+            (
+                gem_id,
+                f"discord:{author.get('username', author_id)}",
+                reply_text[:200],
+                msg["id"],
+                _json.dumps(pre_state),
+                _json.dumps({"individuals_visible_csv": new_csv, "retained_until": None}),
+            ),
+        )
+        conn.commit()
+        tagged += 1
+        logging.getLogger("discord-reaction-sync").info(
+            "bird-name tag: gem_id=%s name=%s (reply msg=%s)", gem_id, matched, msg["id"],
+        )
+
+    return {"tagged": tagged, "unmatched": unmatched, "not_replies": skipped_not_a_reply}
 
 
 # ---------------------------------------------------------------------------
@@ -469,13 +633,18 @@ def main(argv: list[str] | None = None) -> int:
         if has_image:
             drop_msgs.append(m)
 
+    # Bird-name reply tagging (v2.47.2) reads the FULL message list, not
+    # just reacted ones — a reply is its own signal independent of
+    # reactions on either the reply or the parent gem post.
+    reply_msgs = [m for m in messages if (m.get("referenced_message") or {}).get("id")]
+
     log.info(
         "messages with reactions: %d (guardian gems) + %d (human drops); "
-        "skipped disabled archive drops=%d",
-        len(guardian_msgs), len(drop_msgs), blocked_drop_msgs,
+        "replies (bird-name candidates): %d; skipped disabled archive drops=%d",
+        len(guardian_msgs), len(drop_msgs), len(reply_msgs), blocked_drop_msgs,
     )
 
-    if not guardian_msgs and not drop_msgs:
+    if not guardian_msgs and not drop_msgs and not reply_msgs:
         log.info("nothing to sync")
         return 0
 
@@ -554,14 +723,26 @@ def main(argv: list[str] | None = None) -> int:
                         gem_id, human_count, msg["id"], author, idx,
                     )
 
+        # ---- 3. Bird-name reply tagging (v2.47.2, plan Part E3) ----
+        # Isolated in its own try/except: it's the newest of the three jobs
+        # and a bug here must not cost the reaction-sync work already done
+        # above in this same run.
+        try:
+            tag_stats = _sync_bird_name_tags(conn, reply_msgs, token, dh)
+        except Exception as e:
+            log.warning("bird-name tagging failed (reactions/drops above still synced): %s", e)
+            tag_stats = {"tagged": 0, "unmatched": 0, "not_replies": len(reply_msgs)}
+
     finally:
         conn.close()
 
     log.info(
         "sync complete: guardian_updated=%d guardian_unmatched=%d "
-        "drops_inserted=%d drops_updated=%d drops_skipped=%d",
+        "drops_inserted=%d drops_updated=%d drops_skipped=%d "
+        "bird_tags=%d bird_tag_unmatched=%d",
         updated_gems, unmatched_gems,
         drops_inserted, drops_updated, drops_skipped,
+        tag_stats["tagged"], tag_stats["unmatched"],
     )
     return 0
 
