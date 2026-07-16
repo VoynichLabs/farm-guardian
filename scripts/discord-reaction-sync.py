@@ -109,6 +109,20 @@ def _setup_logging() -> None:
 _KNOWN_CAMERAS = {"s7-cam", "house-yard", "mba-cam", "usb-cam", "gwtc", "iphone-cam"}
 _BLOCKED_DROP_AUTHORS = {"archive"}
 
+# Retired webhook usernames -> camera_id. v2.46.0 (16-Jul-2026) renamed the
+# Discord identities for the Birdcatraz move ("S7 Brooder" -> "S7 Birdcatraz"
+# etc.), which silently broke the reverse lookup for every message posted
+# under an old name still inside the sync window: those fell through to the
+# human-drop path (harmless in practice only because sha256 dedup matched
+# them back to their existing gem rows, at the cost of re-downloading each
+# image from Discord's CDN). Keep every retired name here forever — the
+# --backfill path scans all history, so old names never fully age out.
+_LEGACY_USERNAME_BY_CAMERA = {
+    "S7 Brooder": "s7-cam",
+    "Brooder Overhead": "mba-cam",
+    "Brooder Floor": "usb-cam",
+}
+
 
 def _camera_for_username(username: str) -> Optional[str]:
     """Reverse gem_poster._USERNAME_BY_CAMERA; fall back to raw
@@ -123,6 +137,8 @@ def _camera_for_username(username: str) -> Optional[str]:
     reverse = {v: k for k, v in _USERNAME_BY_CAMERA.items()}
     if username in reverse:
         return reverse[username]
+    if username in _LEGACY_USERNAME_BY_CAMERA:
+        return _LEGACY_USERNAME_BY_CAMERA[username]
     if username in _KNOWN_CAMERAS:
         return username
     return None

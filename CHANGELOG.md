@@ -4,6 +4,17 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-07-16
 
+### v2.48.1 — Activation + adversarial-review fixes (Claude Fable 5 / Claude Opus 4.8) — 16-Jul-2026
+
+**What (ops):** All three new LaunchAgents activated after dry-run verification: `ig-insights-fetch` (23:30 nightly — kickstarted once under launchd, wrote the first real insights row: tonight's reel at 32 plays/9 reach, 406 followers), `ig-weekly-digest` (Sun 20:00), `ig-camera-of-the-day-reel` (20:15 daily). The five superseded per-camera timelapse plists (mba/usb/dominator/duo2/gwtc) booted out and renamed `.plist.disabled` in `~/Library/LaunchAgents/` (deploy/ copies untouched, matching the ig-weekly-reel convention). Evening schedule now matches the decided budget: 12:30 carousel · 18:00 mixed reel · 20:15 rotating timelapse · 21:00 s7 reel.
+
+**What (fixes, from an adversarial review of today's commits):**
+- `ig_insights.py`: all sqlite connects now `timeout=30` (was default 5s — regression against the v2.40.2 DB-lock convention; the 23:30 fetch contends with the always-writing daemon).
+- `ig_insights.py` `_latest_insight_for_media`: now prefers the newest row with actual engagement data, so an all-NULL row from a failed re-fetch night can't zero a post's engagement in the weekly digest.
+- `discord-reaction-sync.py`: legacy-alias map ("S7 Brooder"/"Brooder Overhead"/"Brooder Floor" → cameras) — the v2.46.0 Discord label rename broke the reverse lookup for historical messages, detouring them through the human-drop path (sha256 dedup prevented data pollution; verified zero synthetic rows).
+
+**Known, deferred (from the same review, both minor):** (1) a bird-name reply to a *never-reacted* gem post silently no-ops (`discord_message_id` only gets stamped by the reaction pass) — fallback matching via the parent message's author+timestamp is the fix when it matters; (2) `roster.match_name` is whole-string exact, so "Birddor!" gets a ❓ — strip edge punctuation when it annoys. (3) Tonight's 20:15 rotation slot is usb-cam, which is disconnected — it no-ops cleanly; ~1 in 4 slots are quiet until the camera returns.
+
 ### v2.48.0 — Reel curation/pacing/rotation (D8/D10/D11), Instagram insights loop (B1/B2), local flock growth timelapse (E2) (Claude Fable 5) — 16-Jul-2026
 
 **What:** Closes out the rest of Part D and all of Parts B/E from `farm-2026/docs/16-Jul-2026-birdcatraz-era-refresh-plan.md`.

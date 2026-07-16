@@ -90,7 +90,7 @@ CREATE INDEX IF NOT EXISTS idx_media_insights_fetched_at ON ig_media_insights(fe
 def ensure_insights_schema(db_path: Path) -> None:
     """Idempotent CREATE TABLE IF NOT EXISTS — safe to call from every
     entry point below (fetch, digest, CLI) on every invocation."""
-    with sqlite3.connect(str(db_path)) as c:
+    with sqlite3.connect(str(db_path), timeout=30) as c:
         c.executescript(_INSIGHTS_SCHEMA_SQL)
         c.commit()
 
@@ -226,7 +226,7 @@ def _insert_insight_row(
 ) -> None:
     """Always INSERT a fresh row — this is a time series (engagement
     grows after posting), never an upsert."""
-    with sqlite3.connect(str(db_path)) as c:
+    with sqlite3.connect(str(db_path), timeout=30) as c:
         c.execute(
             """
             INSERT INTO ig_media_insights
@@ -266,7 +266,7 @@ def run_nightly_fetch(db_path: Path, lookback_days: int = 14) -> dict:
     creds = _load_credentials()  # raises IGPosterError if misconfigured — loud on purpose
 
     cutoff = (datetime.now(timezone.utc) - timedelta(days=lookback_days)).isoformat()
-    with sqlite3.connect(str(db_path)) as c:
+    with sqlite3.connect(str(db_path), timeout=30) as c:
         rows = c.execute(
             """
             SELECT DISTINCT media_id, surface, permalink
@@ -311,7 +311,7 @@ def _select_probe_media(db_path: Path) -> Optional[tuple]:
     ig_posted_captions, or None if the ledger has no media_id rows yet
     (e.g. freshly migrated DB, or no lane has posted since it landed)."""
     try:
-        with sqlite3.connect(str(db_path)) as c:
+        with sqlite3.connect(str(db_path), timeout=30) as c:
             row = c.execute(
                 """
                 SELECT media_id, surface, permalink
@@ -370,7 +370,7 @@ def _posts_in_last_days(db_path: Path, days: int = 7) -> list[dict]:
     last `days` days, by posted_at — this is the "posts this week"
     universe for the digest's surface counts and best/worst ranking."""
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-    with sqlite3.connect(str(db_path)) as c:
+    with sqlite3.connect(str(db_path), timeout=30) as c:
         c.row_factory = sqlite3.Row
         rows = c.execute(
             """
@@ -386,16 +386,21 @@ def _posts_in_last_days(db_path: Path, days: int = 7) -> list[dict]:
 
 
 def _latest_insight_for_media(db_path: Path, media_id: str) -> Optional[dict]:
-    """Latest (highest id) ig_media_insights row for one media_id,
-    regardless of when it was fetched — a post from 6 days ago may only
-    have been checked once, and that one check is still the best
-    engagement estimate we have for it."""
-    with sqlite3.connect(str(db_path)) as c:
+    """Latest ig_media_insights row for one media_id that actually carries
+    engagement data. run_nightly_fetch inserts an all-NULL-metrics row when
+    both Graph API fetches fail (still useful: audit trail + follower_count
+    sample) — if the digest took the newest row blindly, one failed
+    re-fetch night would zero a post's engagement and could flip the
+    best/worst ranking. Prefer the newest row with at least one non-NULL
+    engagement metric; return None if no row has data yet (the digest then
+    treats the post as not-yet-measured rather than zero-engagement)."""
+    with sqlite3.connect(str(db_path), timeout=30) as c:
         c.row_factory = sqlite3.Row
         row = c.execute(
             """
             SELECT * FROM ig_media_insights
              WHERE media_id = ?
+               AND (likes IS NOT NULL OR comments IS NOT NULL OR saved IS NOT NULL)
              ORDER BY id DESC LIMIT 1
             """,
             (media_id,),
@@ -408,7 +413,7 @@ def _follower_delta_last_days(db_path: Path, days: int = 7) -> Optional[int]:
     window — None if fewer than two samples exist yet (can't compute a
     delta from a single snapshot)."""
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-    with sqlite3.connect(str(db_path)) as c:
+    with sqlite3.connect(str(db_path), timeout=30) as c:
         rows = c.execute(
             """
             SELECT follower_count FROM ig_media_insights
