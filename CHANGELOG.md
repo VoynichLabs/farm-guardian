@@ -2,7 +2,15 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] - 2026-07-09
+## [Unreleased] - 2026-07-16
+
+### v2.46.0 — S7 moved to Birdcatraz: pipeline relocation + brooder-era retirement (Claude Fable 5) — 16-Jul-2026
+
+**What:** The flock now lives in Birdcatraz (outdoor enclosure: coop + turkey pen); s7-cam moved there, aimed at the big water bowl. Pipeline updated to match: s7/usb/mba VLM contexts rewritten (`config.json`); `prompt.md` water-bowl skip rule rescoped to distant scatter only, with a new positive water-bowl-portrait calibration example; `schema.json` scene enum gains `birdcatraz`; Discord gem usernames relabeled (`S7 Brooder`→`S7 Birdcatraz`, mba→`Turkey Pen`, usb→`Coop Run`); IG photo commits scene-mapped to `public/photos/birdcatraz/` (was hardcoded `brooder/`); hashtag scene buckets route grown-bird scenes to `chickens`/`coop`/`homestead` (no more #chicks on current content); mba-cam reel lane relabeled turkey pen; prompt's named-individual section renames **Birdadette → Birddor** (cockerel, July 2026).
+
+**Why:** The VLM was still told s7 shows the indoor growing flock, and the prompt explicitly taught it that birds at a water bowl are a skip — directly suppressing the relocated camera's primary subject. Labels, subdirs, and hashtags were all still brooder-era.
+
+**How:** See `docs/16-Jul-2026-s7-birdcatraz-move.md` for the full relocation record and what was deliberately left unchanged. NOTE: `com.farmguardian.pipeline` needs a restart to pick up the config/prompt/schema changes — not performed as part of this change. Broader plan: `farm-2026/docs/16-Jul-2026-birdcatraz-era-refresh-plan.md`.
 
 ### v2.45.2 — gem post gate lowered 80 → 70 (Claude Opus 4.8, Bubba) — 13-Jul-2026
 

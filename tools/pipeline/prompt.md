@@ -17,7 +17,7 @@ This is a snapshot from the {camera_name} camera at a small backyard flock in Ha
 **Named individuals.** A couple of birds may be identified by name when their appearance clearly matches. Everyone else: use a generic label ("turkey," "bantam," "hen," or "young bird").
 
 - **Birdadotta** (EE × RIR cross, b. 2026-04-25, smaller bantam-adjacent build): blue/grey eyes; distinctive coloring around the beak; rust-colored feathering on the wings with slight white wing-tips; white feathers on the belly. Often has a small teal/turquoise bead or marker on her. Matching this profile, you may say "likely Birdadotta" in the caption.
-- **Birdadette** (Easter Egger, b. 2026-04-06, noticeably LARGER than Birdadotta): gray-brown body with golden-rust chest feathering; yellow legs (shared with Birdadotta, not a tell on its own); **no white belly feathers and no white wing-tip** (Birdadotta has both). Size is the most reliable tell — Birdadette is the bigger of the two. Very social/forward — often at the feeder. Matching this profile, you may say "likely Birdadette."
+- **Birddor** (Easter Egger, b. 2026-04-06, formerly named Birdadette — renamed July 2026 when he turned out to be a cockerel; noticeably LARGER than Birdadotta): gray-brown body with golden-rust chest feathering; yellow legs (shared with Birdadotta, not a tell on its own); **no white belly feathers and no white wing-tip** (Birdadotta has both). Size is the most reliable tell — Birddor is the bigger of the two, and as a maturing cockerel may show a larger comb. Very social/forward — often at the feeder. Matching this profile, you may say "likely Birddor." Never use the old name Birdadette in captions.
 
 When in doubt, do not guess a name — use the generic type label.
 
@@ -37,7 +37,7 @@ When speculating, say "possibly a [breed]" or "likely a [breed]." You won't alwa
 **Expression and demeanor.** When a bird's face is visible and in focus, describe what it looks like: alert and upright, curious with head tilted, drowsy with half-closed eyes, startled with neck stretched, calm and relaxed. A bird staring directly into the lens with bright open eyes is the best shot the farm gets — say so specifically.
 
 Guidance on specific fields:
-- `scene`: pick the best match for what you actually see in the image. Use the camera_context to help, but trust your eyes — if it looks like a brooder, call it brooder; nesting-box if you see a nest area; yard if open outdoor space; coop for the run/coop interior; other if nothing fits.
+- `scene`: pick the best match for what you actually see in the image. Use the camera_context to help, but trust your eyes — `birdcatraz` for the outdoor enclosed poultry area (the fenced compound where the flock lives, including the water-bowl area and the ground around the coop and turkey pen); `coop` for the coop/run interior itself; `nesting-box` if you see a nest area; `yard` for open outdoor space OUTSIDE the enclosure; `brooder` only for an indoor heat-lamp brooder view (historical — no camera currently shows one); `other` if nothing fits.
 - `bird_count`: count ONLY objects with a visible head, beak, or feathers. Waterers, feeders, and equipment are zero. If you can't confidently identify a head and body, don't count it.
 - `individuals_visible`: use `"adult"` for a fully mature bird and `"chick"` for any clearly young bird (young turkeys and young chickens both qualify). Use `"unknown-bird"` when you can't tell the age or type. A mixed-age frame can contain both `"adult"` and `"chick"`.
 - `any_special_chick`: true if any individual bird has a visually notable feature — striking coloration, markedly different size, unusual posture, or anything that makes them stand out. Given the rare-breed bantam mix, err toward true. False only for a uniformly indistinct group.
@@ -68,7 +68,7 @@ Guidance on specific fields:
     6. Cluttered brooder/coop floor: feeders, waterers, bedding, walls, shadows, or random floor texture dominate more than the birds.
     7. Partial/obscured birds, cropped-off bodies, distant small birds, mostly backsides, or birds blocked by other birds/equipment.
     8. Generic static eating/foraging/pecking on the brooder or coop floor with no clean subject, no eye contact, no interesting posture, and no story/action.
-    9. Multiple scattered chicks/birds around water bowls, feeders, fence lines, shadows, or background clutter where one bird is merely standing while others peck/forage nearby. That is a coop-floor inventory snapshot, not a gem.
+    9. Multiple scattered birds around feeders, fence lines, shadows, or background clutter where one bird is merely standing while others peck/forage nearby — a wide inventory snapshot with no clear lead subject. **This is about DISTANT SCATTER, not the water bowl itself:** the s7 camera is deliberately aimed at the big water bowl, and a close, sharp bird drinking or facing the lens AT the bowl passes the close-and-looking rule and can absolutely be `strong`. Only demote when the birds are small, far, and unfocused with no lead subject.
     10. The closest, most prominent bird in the frame is facing away (back, rump, or tail to camera) — even if other birds farther back are visible or facing the lens. A big sharp foreground rump with only small distant faces behind it is a skip. The lead bird has to be looking at you.
   - **"decent"**: clear, in-focus frame with visible birds that doesn't hit a strong trigger and isn't killed by a skip trigger. Archive-worthy but not remarkable.
   - When in doubt between `decent` and `skip`, lean `skip`. When in doubt between `strong` and `decent`, lean `decent`.
@@ -92,7 +92,8 @@ Guidance on specific fields:
   - **Calibration examples (score the components; the overall follows):**
     - Brooder Floor: flat floor snapshot, several birds pecking, partial bodies and backs, no clean face → `share_worth="skip"`, `expression_score=3`, `detail_score=4`.
     - Coop through wire mesh, distant/obscured, generic pecking, cluttered run → `share_worth="skip"`, `expression_score=2`, `detail_score=3`.
-    - Water bowl / feeder scatter: one bird alert while others forage in shadows → `share_worth="skip"`, `expression_score=4`, `detail_score=5`.
+    - Distant feeder/bowl scatter: several small, far-off birds, one merely standing while others forage in shadows, no close lead subject → `share_worth="skip"`, `expression_score=4`, `detail_score=5`.
+    - Water-bowl portrait: one bird close to the lens at the big water bowl, head dipped to drink or looking up at the camera with a sharp eye and water droplets visible → `share_worth="strong"`, `expression_score=20`, `detail_score=18` (the s7's signature shot — do not confuse it with distant scatter).
     - Close-and-looking failure — a large sharp buff bird fills the foreground but is rump-to-camera → fails the hard prerequisite → `share_worth="skip"`, `expression_score=2`, `detail_score=4`.
     - Clear profile portrait, one sharp bird, readable eye/plumage, clean background, but calm/neutral → `share_worth="strong"`, `expression_score=14`, `detail_score=16` (a nice archive shot, mid-band, not a gem).
     - Bird selfie close-up: direct eye contact, wild expression, a claw or spread wing visible, razor-sharp, fills most of the frame → `share_worth="strong"`, `expression_score=30`, `detail_score=24` (the 99%-er).

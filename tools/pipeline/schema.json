@@ -4,7 +4,7 @@
   "schema": {
     "type": "object",
     "properties": {
-      "scene":              { "type": "string", "enum": ["brooder","yard","coop","nesting-box","sky","other"] },
+      "scene":              { "type": "string", "enum": ["brooder","yard","coop","nesting-box","birdcatraz","sky","other"] },
       "bird_count":         { "type": "integer", "minimum": 0 },
       "individuals_visible":{ "type": "array",   "items": { "type": "string", "enum": ["adult","chick","unknown-bird"] } },
       "any_special_chick":  { "type": "boolean" },

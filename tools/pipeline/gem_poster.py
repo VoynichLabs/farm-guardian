@@ -1,4 +1,4 @@
-# Author: Claude Opus 4.7 (1M context); Claude Sonnet 4.6 (09-May-2026 — gwtc/usb-cam/dominator-cam disabled); Claude Fable 5 (02-Jul-2026 — tier+score gate restored, trim_caption added, v2.44.5); Claude Opus 4.8 (Bubba) (12-Jul-2026 — score floor 7→80 for the 0-100 component scale, v2.45.0; 13-Jul-2026 — floor 80→70, v2.45.2)
+# Author: Claude Opus 4.7 (1M context); Claude Sonnet 4.6 (09-May-2026 — gwtc/usb-cam/dominator-cam disabled); Claude Fable 5 (02-Jul-2026 — tier+score gate restored, trim_caption added, v2.44.5); Claude Opus 4.8 (Bubba) (12-Jul-2026 — score floor 7→80 for the 0-100 component scale, v2.45.0; 13-Jul-2026 — floor 80→70, v2.45.2); Claude Fable 5 (16-Jul-2026 — brooder-era Discord usernames retired for the Birdcatraz move, v2.46.0)
 # Date: 23-April-2026
 # PURPOSE: Post strong-tier frames to the #farm-2026 Discord channel as they
 #          land. Called from orchestrator.run_cycle whenever store returns
@@ -22,11 +22,15 @@ log = logging.getLogger("pipeline.gem_poster")
 
 # Username shown on each Discord post, keyed by camera name. Matches the
 # convention from docs/skills-farm-2026-discord-post.md.
+# 16-Jul-2026: brooder-era names retired — s7-cam now lives in Birdcatraz
+# (the outdoor enclosure) aimed at the big water bowl; mba-cam is in the
+# turkey pen; usb-cam is in the coop run. All three pens are inside
+# Birdcatraz. See docs/16-Jul-2026-s7-birdcatraz-move.md.
 _USERNAME_BY_CAMERA = {
-    "s7-cam": "S7 Brooder",
+    "s7-cam": "S7 Birdcatraz",
     "house-yard": "Yard",
-    "mba-cam": "Brooder Overhead",
-    "usb-cam": "Brooder Floor",
+    "mba-cam": "Turkey Pen",
+    "usb-cam": "Coop Run",
     "gwtc": "Coop",
     "iphone": "Boss's iPhone",
 }

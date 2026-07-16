@@ -1,5 +1,5 @@
-# Author: Claude Opus 4.7 (1M context)
-# Date: 20-April-2026 (Phase 4 core + Phase 6 predicate/hashtags 20-Apr-2026; Phase 2 stories 20-Apr-2026; FB crosspost hooks 20-Apr-2026)
+# Author: Claude Opus 4.7 (1M context); Claude Fable 5 (16-Jul-2026 — scene-mapped photo subdir + Birdcatraz scene/hashtag buckets, v2.46.0)
+# Date: 20-April-2026 (Phase 4 core + Phase 6 predicate/hashtags 20-Apr-2026; Phase 2 stories 20-Apr-2026; FB crosspost hooks 20-Apr-2026; Birdcatraz scene routing 16-Jul-2026)
 # PURPOSE: Post curated gems to Instagram @pawel_and_pawleen via Meta
 #          Graph API. Parallels gem_poster.py (which posts to Discord)
 #          but with a multi-step container+publish flow required by
@@ -483,12 +483,47 @@ def query_last_ig_post_ts(db_path: Path, camera_id: Optional[str] = None) -> Opt
 # new scene types. See docs/19-Apr-2026-instagram-posting-plan.md
 # §_scene_to_buckets for the policy and what's manual-override-only.
 _SCENE_BUCKET_MAP = {
+    # 16-Jul-2026 (v2.46.0): the flock is grown and lives in Birdcatraz,
+    # the outdoor enclosure (contains the coop + turkey pen). #chicks-style
+    # tags are only correct for genuinely historical brooder frames, so the
+    # brooder mapping keeps them but every current scene routes to adult
+    # chicken/coop/homestead buckets.
     "brooder": ["chicks", "chickens", "homestead"],
-    # Coop / yard / orchard buckets are manual-override only today
-    # because the VLM doesn't emit those scene labels yet. The CLI's
+    "birdcatraz": ["chickens", "coop", "homestead"],
+    "coop": ["chickens", "coop", "homestead"],
+    "nesting-box": ["chickens", "coop", "homestead"],
+    "yard": ["chickens", "yard_diary", "homestead"],
+    # Orchard bucket remains manual-override only. The CLI's
     # --override-tags (Phase 6.5) is the escape hatch for posts whose
     # content doesn't map cleanly from vlm_metadata.
 }
+
+
+# Scene → farm-2026 public/photos/ subdir for IG image hosting.
+# 16-Jul-2026 (v2.46.0): replaces the hardcoded "brooder" destination —
+# the s7 moved to Birdcatraz (outdoor enclosure, aimed at the big water
+# bowl). Existing files under public/photos/brooder/ are pinned by past
+# IG media URLs and must never move; only NEW posts route here.
+_SCENE_SUBDIR_MAP = {
+    "brooder": "brooder",
+    "birdcatraz": "birdcatraz",
+    "coop": "birdcatraz",
+    "nesting-box": "birdcatraz",
+    "yard": "yard",
+}
+_DEFAULT_PHOTO_SUBDIR = "birdcatraz"
+
+
+def _subdir_for_gem(gem: dict) -> str:
+    """Pick the farm-2026 public/photos/ subdir for a gem from its VLM
+    scene label. Defaults to birdcatraz — that's where the flock (and
+    the gem-producing s7 camera) lives now. Never raises: a missing or
+    malformed vlm_json falls through to the default."""
+    try:
+        scene = json.loads(gem.get("vlm_json") or "{}").get("scene", "")
+    except (TypeError, ValueError):
+        scene = ""
+    return _SCENE_SUBDIR_MAP.get(scene, _DEFAULT_PHOTO_SUBDIR)
 
 
 def _scene_to_buckets(vlm_metadata: dict) -> list[str]:
@@ -1350,8 +1385,9 @@ def post_gem_to_ig(
     Flow:
       1. Look up the gem row in image_archive.
       2. Resolve the local JPEG path.
-      3. Commit the JPEG into farm-2026/public/photos/brooder/ and
-         derive the GitHub raw URL.
+      3. Commit the JPEG into farm-2026/public/photos/<scene subdir>/
+         (see _SCENE_SUBDIR_MAP; default birdcatraz/) and derive the
+         GitHub raw URL.
       4. Load credentials.
       5. POST /media → container id.
       6. Poll container until FINISHED.
@@ -1402,7 +1438,7 @@ def post_gem_to_ig(
         local_path = _local_path_for_gem(gem, db_path)
 
         # 3. Commit to farm-2026 (or predict URL only, for dry_run)
-        subdir = "brooder"  # only scene we auto-map to today; Phase 6 expands
+        subdir = _subdir_for_gem(gem)  # scene-mapped since v2.46.0 (was hardcoded "brooder")
         stamped_name = f"{datetime.now(timezone.utc).strftime('%Y-%m-%d')}-gem{gem_id}.jpg"
 
         if dry_run:

@@ -1,4 +1,4 @@
-# Author: Claude Sonnet 4.6; Claude Opus 4.7 (22-June-2026 — duo2 timelapse lane)
+# Author: Claude Sonnet 4.6; Claude Opus 4.7 (22-June-2026 — duo2 timelapse lane); Claude Fable 5 (16-Jul-2026 — mba-cam lane relabeled brooder→turkey pen, v2.46.0)
 # Date: 09-May-2026 (updated 09-May-2026 — landscape mode + LM Studio caption synthesis + 4 timelapse lanes; 10-May-2026 — GWTC approval gate; 22-June-2026 — DUO2_TIMELAPSE_LANE)
 # PURPOSE: Shared runner for scheduled Instagram Reel lanes. The
 #          existing mixed-camera daily Reel uses the approval-gated
@@ -122,15 +122,15 @@ S7_BACKLOG_REEL_LANE = DailyReelLane(
 MBA_CAM_TIMELAPSE_LANE = DailyReelLane(
     lane_id="mba-cam-timelapse",
     log_name="ig-mba-cam-timelapse-reel",
-    description="Auto-post daily MBA-cam brooder time-lapse Reel.",
+    description="Auto-post daily MBA-cam turkey-pen time-lapse Reel.",
     selector_name="select_mba_cam_timelapse_gems",
     state_subdir="mba-cam-timelapse",
     output_filename_prefix="reel-mba-cam-timelapse",
     discord_username="farm-reel-mba-cam",
-    discord_title="MBA-cam brooder time-lapse",
+    discord_title="MBA-cam turkey-pen time-lapse",
     approval_required=False,
     ledger_lane="mba-cam-timelapse-reel",
-    caption_fallback="A day in the brooder.",
+    caption_fallback="A day in the turkey pen.",
     mention_user_id=MARK_DISCORD_USER_ID,
     landscape_mode=True,
     discord_preview_scale="960:540",
