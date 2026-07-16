@@ -1,4 +1,4 @@
-# Author: Claude Opus 4.7 (1M context); Claude Sonnet 4.6 (edits 27-April-2026 — vlm_bypass mode: run_raw_cycle, dedicated raw threads, raw retention sweep, v2.37.13; 28-April-2026 — sharpness gate wired in, v2.37.14; 04-May-2026 — Birds preset as prompt/schema source, v2.40.0); GPT-5.5 Codex (edits 08-May-2026 — static floor-pecking score calibration); Claude Opus 4.8 (1M context) (edits 03-June-2026 — VLM input downscale via _downscale_for_vlm + vlm_input_long_edge_px config, to cut per-frame latency, v2.40.17); Claude Opus 4.8 (Bubba sub-agent) (edits 14-June-2026 — golden-window raw capture: per-iteration thick/sparse cadence for usb-cam/dominator-cam via offpeak_cycle_seconds + timelapse_golden_windows); Claude Sonnet 4.6 (edits 27-June-2026 — run_raw_cycle quality gates + laplacian storage, v2.44.1); Claude Fable 5 (edits 02-July-2026 — Discord caption trim via gem_poster.trim_caption, v2.44.5); Claude Opus 4.8 (Bubba) (edits 12-July-2026 — _compute_overall_score 0-100 weighted-component scoring, floor-pecking cap + caption rescaled, v2.45.0; 13-July-2026 — dominance recalibrated (full at ~50% coverage) so real gems clear the 80 gate + BIRD SELFIE ping 95->90, v2.45.1)
+# Author: Claude Opus 4.7 (1M context); Claude Sonnet 4.6 (edits 27-April-2026 — vlm_bypass mode: run_raw_cycle, dedicated raw threads, raw retention sweep, v2.37.13; 28-April-2026 — sharpness gate wired in, v2.37.14; 04-May-2026 — Birds preset as prompt/schema source, v2.40.0); GPT-5.5 Codex (edits 08-May-2026 — static floor-pecking score calibration); Claude Opus 4.8 (1M context) (edits 03-June-2026 — VLM input downscale via _downscale_for_vlm + vlm_input_long_edge_px config, to cut per-frame latency, v2.40.17); Claude Opus 4.8 (Bubba sub-agent) (edits 14-June-2026 — golden-window raw capture: per-iteration thick/sparse cadence for usb-cam/dominator-cam via offpeak_cycle_seconds + timelapse_golden_windows); Claude Sonnet 4.6 (edits 27-June-2026 — run_raw_cycle quality gates + laplacian storage, v2.44.1); Claude Fable 5 (edits 02-July-2026 — Discord caption trim via gem_poster.trim_caption, v2.44.5); Claude Opus 4.8 (Bubba) (edits 12-July-2026 — _compute_overall_score 0-100 weighted-component scoring, floor-pecking cap + caption rescaled, v2.45.0; 13-July-2026 — dominance recalibrated (full at ~50% coverage) so real gems clear the 80 gate + BIRD SELFIE ping 95->90, v2.45.1); Claude Fable 5 (edits 16-July-2026 — IG-hook hashtag rotation fed from posted-caption ledger, v2.47.0)
 # Date: 17-April-2026
 # PURPOSE: Main entry point for the multi-cam image pipeline. Schedules per-
 #          camera capture cycles at their configured cadences, runs each
@@ -758,11 +758,13 @@ def _maybe_post_to_ig(
         return
 
     try:
+        from tools.pipeline.ig_poster import recent_tags_used
         library = _load_hashtag_library(Path(__file__).parent / "hashtags.yml")
         tags = pick_hashtags(
             vlm_metadata=vlm_metadata,
             library=library,
-            last_n_tags_used=[],
+            # v2.47.0: rotation fed from the posted-caption ledger (was []).
+            last_n_tags_used=recent_tags_used(db_path),
         )
         caption = build_caption(journal_body=journal, hashtags=tags)
     except Exception as e:

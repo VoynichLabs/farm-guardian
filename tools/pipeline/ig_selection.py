@@ -216,7 +216,11 @@ def select_daily_carousel_gems(
       - bird_count >= 1
       - has_concerns false
       - image_path populated (not a skip-tier row)
-      - ig_permalink NULL (not already posted as feed/reel)
+      - ig_permalink NULL (not already posted as a feed photo/carousel;
+        v2.47.0: reels no longer stamp ig_permalink — they write the
+        dedicated reel_permalink column — so appearing in a reel no
+        longer removes a gem from this pool. That stamping is what
+        starved this lane to zero candidates daily, 09→14-Jul-2026.)
       - ts is today's UTC date (or `today_utc_date` override)
 
     Diversity filter: group by (camera_id, 15-min bucket); pick the

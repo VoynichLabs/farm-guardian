@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Author: GPT-5.5 Codex (original); Claude Fable 5 (16-Jul-2026 — grown-flock BRAND_RULES, scene_hint captions for draft-less timelapse lanes, avoid-list dedup, v2.47.0)
 """Codex-backed curation + caption for the s7-daily reel (PILOT, standalone).
 
 Why this exists
@@ -75,8 +76,11 @@ OUTPUT_SCHEMA = {
 
 BRAND_RULES = (
     "BRAND RULES (hard):\n"
-    "- The brand is adorable baby birds / cozy farm life. Warm, genuine, "
-    "specific to what's actually in the frames. NOT cold tech-marketing.\n"
+    "- The brand is a striking rare-breed flock / cozy farm life: grown and "
+    "nearly-grown exotic chickens and turkeys living in Birdcatraz, the "
+    "farm's outdoor enclosure. Warm, genuine, specific to what's actually "
+    "in the frames. NOT cold tech-marketing. These are not baby chicks "
+    "anymore — do not call them chicks or babies.\n"
     "- NEVER frame the camera as a security / predator-detection system. No "
     "\"watching for hawks\" type lines. A predator on camera means a dead bird, "
     "not content.\n"
@@ -92,10 +96,10 @@ def _fallback_caption(meta: list[dict]) -> str:
     ages = [m["apparent_age_days"] for m in meta
             if isinstance(m.get("apparent_age_days"), int) and m["apparent_age_days"] >= 0]
     if ages:
-        return (f"A day in the coop with the {min(ages)}-day-olds. 🐥 "
-                "#babychicks #farmlife #chickensofinstagram #homestead")
-    return ("A day in the coop. 🐥 "
-            "#babychicks #farmlife #chickensofinstagram #homestead")
+        return (f"A day in Birdcatraz with the flock, {min(ages)} days old and counting. 🐔 "
+                "#chickensofinstagram #farmlife #homestead")
+    return ("A day in Birdcatraz with the flock. 🐔 "
+            "#chickensofinstagram #farmlife #homestead")
 
 
 def _fetch_metadata(db_path: Path, gem_ids: list[int]) -> list[dict]:
@@ -186,6 +190,8 @@ def generate_caption_body(
     drafts: list[str],
     farm_context: str = "",
     *,
+    scene_hint: str = "",
+    avoid: list[str] | None = None,
     timeout: int = 120,
     log: logging.Logger | None = None,
 ) -> str | None:
@@ -199,22 +205,43 @@ def generate_caption_body(
     onto the otherwise-idle OpenAI Codex subscription.
     """
     _log = log or globals()["log"]
-    if not drafts:
+    # v2.47.0: empty drafts are allowed when scene_hint is set — the
+    # vlm_bypass timelapse lanes have no per-frame drafts, and their old
+    # behavior (a hardcoded literal caption daily) is exactly what this
+    # replaces. With neither drafts nor a hint there's nothing to write from.
+    if not drafts and not scene_hint:
         return None
-    drafts_block = "\n".join(f"- {d}" for d in drafts[:20])
     context_block = (
         "Recent farm diary (use for named birds, current hatches, or one "
         f"concrete win — reference concretely when it fits):\n{farm_context}\n\n"
         if farm_context else ""
     )
+    avoid_items = [a for a in (avoid or []) if a][:6]
+    avoid_block = (
+        "Captions already posted recently — do NOT repeat their subjects, "
+        "facts, or phrasing; find a different angle:\n"
+        + "\n".join(f"- {a[:160]}" for a in avoid_items) + "\n\n"
+        if avoid_items else ""
+    )
+    if drafts:
+        material_block = (
+            "Frame descriptions (chronological):\n"
+            + "\n".join(f"- {d}" for d in drafts[:20]) + "\n\n"
+        )
+    else:
+        material_block = (
+            "There are no per-frame descriptions for this reel. It is a "
+            f"fixed-camera day time-lapse; scene: {scene_hint.rstrip('.')}. "
+            "Write from the scene, the season, and the diary context — "
+            "without inventing specific birds or events not in the diary.\n\n"
+        )
     prompt = (
         "You are writing the caption for an Instagram REEL from a small family "
-        "farm, @pawel_and_pawleen — a fixed-camera time-lapse of the chicken "
-        "coop over a day.\n\n"
+        "farm, @pawel_and_pawleen — a fixed-camera time-lapse over a day.\n\n"
         f"{BRAND_RULES}\n"
         f"{context_block}"
-        "Frame descriptions (chronological):\n"
-        f"{drafts_block}\n\n"
+        f"{avoid_block}"
+        f"{material_block}"
         "Write ONE warm caption BODY: 1-2 sentences, specific to what's in the "
         "frames, genuine (not tech-marketing). NO hashtags (those are added "
         "separately). Do not mention cameras, AI, or technology."

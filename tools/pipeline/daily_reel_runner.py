@@ -1,4 +1,4 @@
-# Author: Claude Sonnet 4.6; Claude Opus 4.7 (22-June-2026 — duo2 timelapse lane); Claude Fable 5 (16-Jul-2026 — mba-cam lane relabeled brooder→turkey pen, v2.46.0)
+# Author: Claude Sonnet 4.6; Claude Opus 4.7 (22-June-2026 — duo2 timelapse lane); Claude Fable 5 (16-Jul-2026 — mba-cam lane relabeled brooder→turkey pen, v2.46.0; Codex captions for vlm_bypass lanes + posted-caption dedup + tag rotation from ledger + chicks bucket retired, v2.47.0)
 # Date: 09-May-2026 (updated 09-May-2026 — landscape mode + LM Studio caption synthesis + 4 timelapse lanes; 10-May-2026 — GWTC approval gate; 22-June-2026 — DUO2_TIMELAPSE_LANE)
 # PURPOSE: Shared runner for scheduled Instagram Reel lanes. The
 #          existing mixed-camera daily Reel uses the approval-gated
@@ -513,6 +513,7 @@ def _build_reel_caption(
         _load_hashtag_library,
         build_caption,
         pick_hashtags,
+        recent_tags_used,
     )
 
     best_meta: dict = {}
@@ -532,11 +533,13 @@ def _build_reel_caption(
     library = _load_hashtag_library(REPO_ROOT / "tools" / "pipeline" / "hashtags.yml")
     # Reels always draw from the reel platform bucket + farm content buckets,
     # regardless of which gem's scene won the best-metadata selection.
+    # v2.47.0: chicks bucket retired (the flock is grown); tag rotation now
+    # actually fed from the posted-caption ledger instead of a hardcoded [].
     tags = pick_hashtags(
         vlm_metadata=best_meta,
         library=library,
-        last_n_tags_used=[],
-        buckets_override=["reel", "chickens", "chicks", "homestead"],
+        last_n_tags_used=recent_tags_used(db_path),
+        buckets_override=["reel", "chickens", "homestead"],
     )
     return build_caption(journal_body=journal, hashtags=tags)
 
@@ -667,6 +670,26 @@ def _generate_reel_caption(
 
     if not drafts:
         # Raw-tier frames (vlm_bypass cameras) have no caption_drafts.
+        # v2.47.0: try Codex with the lane's scene hint + diary context first —
+        # the timelapse lanes used to post their hardcoded fallback string
+        # ("A day in the coop run.") verbatim every single day. The fallback
+        # literal is still the last resort when Codex is unavailable.
+        if cfg.get("instagram", {}).get("reels", {}).get("codex_caption", True):
+            try:
+                from tools.pipeline.codex_reel_curator import generate_caption_body
+                from tools.pipeline.ig_poster import recent_posted_captions
+                codex_body = generate_caption_body(
+                    [],
+                    _load_farm_context(),
+                    scene_hint=fallback,
+                    avoid=recent_posted_captions(db_path),
+                    log=log,
+                )
+            except Exception as exc:
+                log.warning("codex timelapse caption unavailable (%s); using fallback", exc)
+                codex_body = None
+            if codex_body:
+                return _wrap_caption_with_hashtags(db_path, gem_ids, codex_body)
         return _build_reel_caption(db_path, gem_ids, fallback)
 
     # Prefer Codex (gpt-5.5, the otherwise-idle OpenAI sub) for the caption
@@ -677,7 +700,13 @@ def _generate_reel_caption(
     if cfg.get("instagram", {}).get("reels", {}).get("codex_caption", True):
         try:
             from tools.pipeline.codex_reel_curator import generate_caption_body
-            codex_body = generate_caption_body(drafts, _load_farm_context(), log=log)
+            from tools.pipeline.ig_poster import recent_posted_captions
+            codex_body = generate_caption_body(
+                drafts,
+                _load_farm_context(),
+                avoid=recent_posted_captions(db_path),
+                log=log,
+            )
         except Exception as exc:
             log.warning("codex caption unavailable (%s); using LM Studio", exc)
             codex_body = None
@@ -705,6 +734,19 @@ def _generate_reel_caption(
 
     drafts_block = "\n".join(f"- {d}" for d in drafts)
     farm_context = _load_farm_context()
+    # v2.47.0: do-not-repeat list from the posted-caption ledger — before
+    # this, consecutive reels rephrased the same diary fact daily.
+    try:
+        from tools.pipeline.ig_poster import recent_posted_captions as _recent
+        avoid_block_items = _recent(db_path, limit=5)
+    except Exception:
+        avoid_block_items = []
+    avoid_block = (
+        "Recent captions already posted — do NOT repeat their subjects or "
+        "phrasing:\n" + "\n".join(f"- {a[:160]}" for a in avoid_block_items) + "\n\n"
+        if avoid_block_items
+        else ""
+    )
     context_block = (
         f"Recent farm diary entries — use these for named chickens, hatch "
         f"progress, breeding-program details, and one concrete win to ground "
@@ -715,6 +757,7 @@ def _generate_reel_caption(
     prompt = (
         "You are writing a caption for an Instagram Reel from a small farm. "
         f"{context_block}"
+        f"{avoid_block}"
         "Below are descriptions of individual frames from the Reel:\n\n"
         f"{drafts_block}\n\n"
         "Write a single short caption (1-2 sentences, no hashtags) that captures "
@@ -753,7 +796,12 @@ def _generate_reel_caption(
 def _wrap_caption_with_hashtags(db_path: Path, gem_ids: list[int], body: str) -> str:
     """Append verified hashtags (hashtags.yml) to a caption body. Shared by the
     Codex and LM Studio caption paths so both get the brand safety net."""
-    from tools.pipeline.ig_poster import _load_hashtag_library, build_caption, pick_hashtags
+    from tools.pipeline.ig_poster import (
+        _load_hashtag_library,
+        build_caption,
+        pick_hashtags,
+        recent_tags_used,
+    )
 
     best_meta: dict = {}
     best_reactions = -1
@@ -769,11 +817,12 @@ def _wrap_caption_with_hashtags(db_path: Path, gem_ids: list[int], body: str) ->
             best_meta = meta
 
     library = _load_hashtag_library(REPO_ROOT / "tools" / "pipeline" / "hashtags.yml")
+    # v2.47.0: chicks bucket retired (grown flock); rotation fed from ledger.
     tags = pick_hashtags(
         vlm_metadata=best_meta,
         library=library,
-        last_n_tags_used=[],
-        buckets_override=["reel", "chickens", "chicks", "homestead"],
+        last_n_tags_used=recent_tags_used(db_path),
+        buckets_override=["reel", "chickens", "homestead"],
     )
     return build_caption(journal_body=body, hashtags=tags)
 

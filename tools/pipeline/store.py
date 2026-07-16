@@ -1,5 +1,5 @@
-# Author: Claude Opus 4.6 (1M context), Claude Opus 4.7 (1M context) — IG columns 20-Apr-2026, story columns 20-Apr-2026 (Phase 2); Claude Sonnet 4.6 (edits 27-April-2026 — store_raw() for vlm_bypass cameras, v2.37.13; 04-May-2026 — sqlite timeout=30 to fix DB lock errors, v2.40.2)
-# Date: 13-April-2026 (last touched 04-May-2026)
+# Author: Claude Opus 4.6 (1M context), Claude Opus 4.7 (1M context) — IG columns 20-Apr-2026, story columns 20-Apr-2026 (Phase 2); Claude Sonnet 4.6 (edits 27-April-2026 — store_raw() for vlm_bypass cameras, v2.37.13; 04-May-2026 — sqlite timeout=30 to fix DB lock errors, v2.40.2); Claude Fable 5 (edits 16-July-2026 — reel_permalink/reel_posted_at columns + ig_posted_captions ledger table, v2.47.0)
+# Date: 13-April-2026 (last touched 16-July-2026)
 # PURPOSE: Persist a captured + enriched image. Writes JPEG to disk per tier
 #          (full-res for share_worth=strong, downscaled for decent, discard
 #          for skip), writes a sidecar .json next to the JPEG, and inserts a
@@ -100,7 +100,31 @@ _LATE_COLUMNS = [
     ("discord_message_id",            "discord_message_id TEXT"),
     ("discord_reactions",             "discord_reactions INT DEFAULT 0"),
     ("discord_reactions_checked_at",  "discord_reactions_checked_at TEXT"),
+    # v2.47.0 (16-Jul-2026): reels used to stamp their permalink into
+    # ig_permalink on every source frame, which starved the carousel lane
+    # (its selector requires ig_permalink IS NULL). Reel usage now has its
+    # own ledger so the photo/carousel and reel lanes are independent.
+    ("reel_permalink",                "reel_permalink TEXT"),
+    ("reel_posted_at",                "reel_posted_at TEXT"),
 ]
+
+# v2.47.0 (16-Jul-2026): every caption actually published to IG is persisted
+# here — previously captions were only recoverable from ephemeral /tmp logs.
+# This is both the audit trail and the dedup source (recent captions are fed
+# back into caption synthesis; recent tags into pick_hashtags rotation).
+_POSTED_CAPTIONS_SQL = """
+CREATE TABLE IF NOT EXISTS ig_posted_captions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    posted_at TEXT NOT NULL,
+    surface TEXT NOT NULL,
+    media_id TEXT,
+    permalink TEXT,
+    caption TEXT NOT NULL,
+    tags_csv TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_posted_captions_posted_at
+    ON ig_posted_captions(posted_at);
+"""
 
 _DB_LOCK = threading.Lock()  # WAL mode still wants serialized writes from this process
 
@@ -177,6 +201,8 @@ def ensure_schema(db_path: Path) -> None:
             _add_column_if_missing(c, "image_archive", col_name, col_def)
         # Step 3: indexes that reference late columns must run AFTER the ALTER.
         c.executescript(_LATE_INDEX_SQL)
+        # Step 4: side tables (posted-caption ledger, v2.47.0). Idempotent.
+        c.executescript(_POSTED_CAPTIONS_SQL)
 
 
 def _downscale_jpeg(jpeg_bytes: bytes, long_edge_px: int, quality: int) -> bytes:

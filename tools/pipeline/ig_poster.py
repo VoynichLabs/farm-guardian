@@ -344,6 +344,113 @@ def _write_permalink(
         c.commit()
 
 
+def _write_reel_usage(
+    db_path: Path,
+    gem_id: int,
+    permalink: Optional[str],
+    posted_at_iso: Optional[str],
+) -> None:
+    """UPDATE image_archive.{reel_permalink, reel_posted_at} for a gem.
+
+    v2.47.0: reels used to write ig_permalink/ig_posted_at here, which
+    starved the carousel lane (its selector requires ig_permalink IS NULL
+    and both lanes ran at 18:00). Reel usage now has its own ledger so
+    photo/carousel eligibility survives a frame's appearance in a reel.
+    """
+    with sqlite3.connect(str(db_path)) as c:
+        c.execute(
+            """
+            UPDATE image_archive
+               SET reel_permalink = COALESCE(?, reel_permalink),
+                   reel_posted_at = COALESCE(?, reel_posted_at)
+             WHERE id = ?
+            """,
+            (permalink, posted_at_iso, gem_id),
+        )
+        c.commit()
+
+
+# ---------------------------------------------------------------------------
+# Posted-caption ledger (v2.47.0) — audit trail + dedup source
+# ---------------------------------------------------------------------------
+
+_TAG_RE = None  # compiled lazily; module imports stay cheap
+
+
+def record_posted_caption(
+    db_path: Path,
+    surface: str,
+    media_id: Optional[str],
+    permalink: Optional[str],
+    caption: str,
+) -> None:
+    """Persist a caption that actually went live on IG.
+
+    Best-effort by contract: callers invoke this AFTER a successful
+    publish, so a failure here must never raise into the posting path.
+    Tags are parsed out of the caption ('#word') into tags_csv so
+    recent_tags_used() can feed pick_hashtags' rotation without callers
+    threading tag lists around.
+    """
+    global _TAG_RE
+    try:
+        if _TAG_RE is None:
+            import re as _re
+            _TAG_RE = _re.compile(r"#(\w+)")
+        tags_csv = ",".join(_TAG_RE.findall(caption))
+        with sqlite3.connect(str(db_path)) as c:
+            c.execute(
+                """
+                INSERT INTO ig_posted_captions
+                    (posted_at, surface, media_id, permalink, caption, tags_csv)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    datetime.now(timezone.utc).isoformat(),
+                    surface,
+                    media_id,
+                    permalink,
+                    caption,
+                    tags_csv,
+                ),
+            )
+            c.commit()
+    except Exception as e:  # noqa: BLE001 — never break a live post over audit
+        log.warning("record_posted_caption failed (%s): %s", surface, e)
+
+
+def recent_posted_captions(db_path: Path, limit: int = 8) -> list[str]:
+    """Last N caption bodies that went live, newest first. Fed into caption
+    synthesis as a do-not-repeat list. Empty list on any error (a missing
+    table on a not-yet-migrated DB must not break caption building)."""
+    try:
+        with sqlite3.connect(str(db_path)) as c:
+            rows = c.execute(
+                "SELECT caption FROM ig_posted_captions ORDER BY id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [r[0] for r in rows]
+    except Exception:
+        return []
+
+
+def recent_tags_used(db_path: Path, posts: int = 3) -> list[str]:
+    """Union of hashtags used in the last N live posts (no '#'), for
+    pick_hashtags' rotation dedup. Empty list on any error."""
+    try:
+        with sqlite3.connect(str(db_path)) as c:
+            rows = c.execute(
+                "SELECT tags_csv FROM ig_posted_captions ORDER BY id DESC LIMIT ?",
+                (posts,),
+            ).fetchall()
+        tags: list[str] = []
+        for (csv,) in rows:
+            tags.extend(t for t in (csv or "").split(",") if t)
+        return tags
+    except Exception:
+        return []
+
+
 # ---------------------------------------------------------------------------
 # Helper: find the local JPEG on disk for a given gem
 # ---------------------------------------------------------------------------
@@ -1330,14 +1437,15 @@ def post_reel_to_ig(
         result["permalink"] = pub["permalink"]
         result["posted_at"] = pub["timestamp"]
 
-        # Propagate the reel's permalink + posted_at to each source gem
-        # so should_post_ig's 3h/12h cadence gates naturally prevent
-        # re-posting those frames as standalone photos. Best-effort:
+        # Record reel usage on each source gem. v2.47.0: writes the
+        # dedicated reel_permalink/reel_posted_at columns — NOT
+        # ig_permalink — so the carousel/photo lanes (which require
+        # ig_permalink IS NULL) keep their candidate pool. Best-effort:
         # a DB write failure here doesn't invalidate the already-live
         # IG post.
         for gid in gem_ids:
             try:
-                _write_permalink(
+                _write_reel_usage(
                     db_path=db_path,
                     gem_id=gid,
                     permalink=pub["permalink"],
@@ -1345,9 +1453,12 @@ def post_reel_to_ig(
                 )
             except Exception as e:
                 log.warning(
-                    "ig_poster: failed to write reel permalink to gem %s: %s",
+                    "ig_poster: failed to write reel usage to gem %s: %s",
                     gid, e,
                 )
+        record_posted_caption(
+            db_path, "reel", pub["media_id"], pub["permalink"], caption,
+        )
         log.info("ig_poster: posted reel -> %s", pub["permalink"])
 
         # Cross-post to FB Page as a video. FB tags it "Video" rather
@@ -1502,6 +1613,9 @@ def post_gem_to_ig(
             gem_id,
             permalink=pub["permalink"],
             posted_at_iso=pub["timestamp"],
+        )
+        record_posted_caption(
+            db_path, "photo", pub["media_id"], pub["permalink"], full_caption,
         )
         log.info("ig_poster: posted gem %s -> %s", gem_id, pub["permalink"])
 
@@ -1777,6 +1891,9 @@ def post_carousel_to_ig(
                     "ig_poster: failed to write carousel permalink to gem %s: %s",
                     gid, e,
                 )
+        record_posted_caption(
+            db_path, "carousel", pub["media_id"], pub["permalink"], full_caption,
+        )
         log.info(
             "ig_poster: posted carousel of %d gems -> %s",
             n, pub["permalink"],
