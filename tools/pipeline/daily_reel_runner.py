@@ -1,5 +1,5 @@
-# Author: Claude Sonnet 4.6; Claude Opus 4.7 (22-June-2026 — duo2 timelapse lane); Claude Fable 5 (16-Jul-2026 — mba-cam lane relabeled brooder→turkey pen, v2.46.0; Codex captions for vlm_bypass lanes + posted-caption dedup + tag rotation from ledger + chicks bucket retired, v2.47.0)
-# Date: 09-May-2026 (updated 09-May-2026 — landscape mode + LM Studio caption synthesis + 4 timelapse lanes; 10-May-2026 — GWTC approval gate; 22-June-2026 — DUO2_TIMELAPSE_LANE)
+# Author: Claude Sonnet 4.6; Claude Opus 4.7 (22-June-2026 — duo2 timelapse lane); Claude Fable 5 (16-Jul-2026 — mba-cam lane relabeled brooder→turkey pen, v2.46.0; Codex captions for vlm_bypass lanes + posted-caption dedup + tag rotation from ledger + chicks bucket retired, v2.47.0; D8 codex_reel_curator wired into the s7-daily lane + opener pacing hook, D10 CAMERA_OF_THE_DAY_POOL/pick_camera_of_the_day rotation, v2.48.0)
+# Date: 09-May-2026 (updated 09-May-2026 — landscape mode + LM Studio caption synthesis + 4 timelapse lanes; 10-May-2026 — GWTC approval gate; 22-June-2026 — DUO2_TIMELAPSE_LANE; 16-Jul-2026 — D8/D10)
 # PURPOSE: Shared runner for scheduled Instagram Reel lanes. The
 #          existing mixed-camera daily Reel uses the approval-gated
 #          flow: build MP4, upload a Discord preview, wait for a human
@@ -10,9 +10,18 @@
 #          upload/transcode, pending-state handling, quota-ledger
 #          checks, caption construction, and reel MP4 creation so new
 #          lane scripts stay thin and the publish path does not fork.
+#          16-Jul-2026 (D8): the s7-daily lane now runs its selector
+#          output through codex_reel_curator.curate() to prune weak/
+#          redundant frames before stitching, plus a one-frame "hook"
+#          duplicate at the front of the stitch list. 16-Jul-2026
+#          (D10): CAMERA_OF_THE_DAY_POOL + pick_camera_of_the_day()
+#          give the per-camera timelapse lanes a shared rotation entry
+#          point (scripts/ig-camera-of-the-day-reel.py) without
+#          touching the existing standalone lanes/plists.
 # SRP/DRY check: Pass - one responsibility is "run a configured daily
 #                Reel lane." Reuses ig_selection, reel_stitcher,
-#                ig_poster, discord_harvester, and tools.social.ledger.
+#                ig_poster, discord_harvester, codex_reel_curator, and
+#                tools.social.ledger.
 
 from __future__ import annotations
 
@@ -229,6 +238,54 @@ DUO2_TIMELAPSE_LANE = DailyReelLane(
     landscape_mode=True,
     discord_preview_scale="960:540",
 )
+
+
+# D10 (16-Jul-2026): rotation pool for the consolidated "camera of the day"
+# timelapse lane (farm-2026's 16-Jul-2026-birdcatraz-era-refresh-plan.md,
+# Part D10). The six lanes ending in _TIMELAPSE_LANE defined above are:
+# MBA_CAM, GWTC, USB_CAM, DOMINATOR_CAM, HOUSE_YARD_CAM, DUO2. Pool
+# selection, camera by camera:
+#   - MBA_CAM, DOMINATOR_CAM, DUO2: live plists today (20:30/21:15/21:20) —
+#     exactly the evening stack this rotation is meant to thin. IN.
+#   - USB_CAM: live plist (21:00) too, so IN by the same logic. Boss says
+#     the camera is physically disconnected right now (separate hardware
+#     issue, out of scope here) — its selector already no-ops to an empty
+#     reel on a quiet day (see the "not enough frames" skip below), so the
+#     pool stays ready for the moment it's reconnected without another
+#     code change.
+#   - GWTC: EXCLUDED. `cameras.gwtc.enabled` is `false` in config.json
+#     today (confirmed live), so a gwtc timelapse would find zero frames
+#     every single time it's picked — a dead rotation slot, not a
+#     consolidation win.
+#   - HOUSE_YARD_CAM: EXCLUDED. Unlike the other four, this lane has never
+#     had a plist (checked both deploy/ig-scheduled/ and the live
+#     ~/Library/LaunchAgents/) — it has never posted to IG. The lanes this
+#     rotation consolidates are the ones already stacking in the evening
+#     window; house-yard isn't part of that stack, so folding it in here
+#     would be a new content surface riding in on a consolidation change,
+#     not a reduction of one. Left out deliberately — see
+#     followups_for_main_session if Boss wants it added to the pool later.
+CAMERA_OF_THE_DAY_POOL: tuple[DailyReelLane, ...] = (
+    MBA_CAM_TIMELAPSE_LANE,
+    USB_CAM_TIMELAPSE_LANE,
+    DOMINATOR_CAM_TIMELAPSE_LANE,
+    DUO2_TIMELAPSE_LANE,
+)
+
+
+def pick_camera_of_the_day(
+    pool: tuple[DailyReelLane, ...] = CAMERA_OF_THE_DAY_POOL,
+    now: Optional[datetime] = None,
+) -> DailyReelLane:
+    """Deterministically pick one lane from `pool` for "today".
+
+    Picks by day-of-year modulo pool size: the same UTC calendar day always
+    maps to the same camera (idempotent across retries/re-runs within a
+    day) and the pool cycles evenly across the year. `now` defaults to the
+    current UTC time; pass an explicit value for testing.
+    """
+    now = now or datetime.now(timezone.utc)
+    return pool[now.timetuple().tm_yday % len(pool)]
 
 
 def setup_logging() -> None:
@@ -1107,9 +1164,57 @@ def _build_publish_and_notify(
         log.info("build: not enough frames for %s reel", lane.lane_id)
         return 0
 
-    log.info("build: stitching %d frames for %s lane", len(gem_ids), lane.lane_id)
+    # D8 (16-Jul-2026): for the s7-daily lane only, hand the raw selector
+    # output to codex_reel_curator.curate() to prune redundant/weak frames.
+    # curate() re-runs select_s7_daily_reel_gems() itself and never drops
+    # below scheduled_cfg's s7_daily_reel_min_frames floor, so this can only
+    # shrink (never grow or reorder) what _select_gems already returned. A
+    # Codex outage must never break the reel — any exception here falls
+    # back to the unpruned selection unchanged. gem_ids (used below for the
+    # caption and the posted-state/associated_gem_ids record) is updated to
+    # the curated set; the pacing hook's duplicate stays scoped to a
+    # stitch-only copy so it doesn't double-count the opener frame's draft
+    # in caption synthesis or the associated-gems record.
+    stitch_ids = gem_ids
+    if lane.lane_id == S7_DAILY_REEL_LANE.lane_id:
+        try:
+            from tools.pipeline.codex_reel_curator import curate as _curate_s7_daily
+
+            plan = _curate_s7_daily(
+                db_path, scheduled_cfg, now=datetime.now(timezone.utc)
+            )
+            if plan.get("keep_ids"):
+                log.info(
+                    "build: s7-daily curation kept %d/%d frames (source=%s)",
+                    len(plan["keep_ids"]),
+                    plan.get("candidate_count", len(gem_ids)),
+                    plan.get("source"),
+                )
+                gem_ids = plan["keep_ids"]
+        except Exception as exc:
+            log.warning(
+                "build: s7-daily curation failed (%s); using raw selection",
+                exc,
+            )
+        stitch_ids = gem_ids
+
+        # Pacing hook: hold the opening frame for one extra beat by
+        # duplicating it at the front of the STITCH list only. reel_stitcher
+        # applies a single seconds_per_frame to every list entry (no
+        # per-frame duration support), so repeating an id is the cheap way
+        # to give the reel a "hook" without an ffmpeg rewrite. gem_ids[0] is
+        # chronologically earliest (both _select_gems and curate() preserve
+        # chronological order) and already representative. Only when
+        # there's enough material that losing one bucket's worth of
+        # distinct frames won't thin the time-lapse, and only with headroom
+        # under reel_stitcher's hard 90-frame cap (_MIN_FRAMES=2/
+        # _MAX_FRAMES=90) so the +1 can't push it over.
+        if 3 <= len(gem_ids) < 90:
+            stitch_ids = [gem_ids[0]] + gem_ids
+
+    log.info("build: stitching %d frames for %s lane", len(stitch_ids), lane.lane_id)
     try:
-        mp4_path = _stitch_reel(lane, gem_ids, db_path, reels_cfg, log)
+        mp4_path = _stitch_reel(lane, stitch_ids, db_path, reels_cfg, log)
     except Exception as exc:
         log.error("build: stitch failed: %s", exc)
         return 1

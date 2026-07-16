@@ -1,5 +1,5 @@
-# Author: Claude Opus 4.7 (1M context); Claude Fable 5 (16-Jul-2026 — scene-mapped photo subdir + Birdcatraz scene/hashtag buckets, v2.46.0)
-# Date: 20-April-2026 (Phase 4 core + Phase 6 predicate/hashtags 20-Apr-2026; Phase 2 stories 20-Apr-2026; FB crosspost hooks 20-Apr-2026; Birdcatraz scene routing 16-Jul-2026)
+# Author: Claude Opus 4.7 (1M context); Claude Fable 5 (16-Jul-2026 — scene-mapped photo subdir + Birdcatraz scene/hashtag buckets, v2.46.0; build_caption's default sign_off now rotates day-of-year instead of one hardcoded literal, D11, v2.48.0)
+# Date: 20-April-2026 (Phase 4 core + Phase 6 predicate/hashtags 20-Apr-2026; Phase 2 stories 20-Apr-2026; FB crosspost hooks 20-Apr-2026; Birdcatraz scene routing 16-Jul-2026; sign-off rotation 16-Jul-2026)
 # PURPOSE: Post curated gems to Instagram @pawel_and_pawleen via Meta
 #          Graph API. Parallels gem_poster.py (which posts to Discord)
 #          but with a multi-step container+publish flow required by
@@ -776,10 +776,36 @@ def pick_hashtags(
     return out[:max_tags]
 
 
+# D11 (16-Jul-2026): the sign-off used to be one hardcoded literal
+# ("📸 @markbarney121") on every single post. Same handle throughout — only
+# the lead emoji/framing rotates, deterministically by day-of-year modulo
+# list length, same rotation style as
+# daily_reel_runner.pick_camera_of_the_day (idempotent across re-runs on
+# the same day, no cross-call state to maintain).
+_SIGN_OFF_ROTATION: tuple[str, ...] = (
+    "📸 @markbarney121",
+    "🐔 @markbarney121",
+    "🌾 @markbarney121",
+)
+
+# Sentinel distinct from None: build_caption's `sign_off` default needs to
+# mean "caller didn't specify — rotate," which is different from a caller
+# explicitly passing sign_off=None or sign_off="" to omit the sign-off line
+# entirely (documented behavior below, unchanged). Using None as the default
+# would collapse those two cases.
+_ROTATE_SIGN_OFF = object()
+
+
+def _rotating_sign_off(now: Optional[datetime] = None) -> str:
+    """Pick today's sign-off from _SIGN_OFF_ROTATION by day-of-year."""
+    now = now or datetime.now(timezone.utc)
+    return _SIGN_OFF_ROTATION[now.timetuple().tm_yday % len(_SIGN_OFF_ROTATION)]
+
+
 def build_caption(
     journal_body: str,
     hashtags: list[str],
-    sign_off: Optional[str] = "📸 @markbarney121",
+    sign_off: Optional[str] = _ROTATE_SIGN_OFF,  # type: ignore[assignment]
 ) -> str:
     """Build a full IG caption from journal body + tags + sign-off.
 
@@ -790,15 +816,22 @@ def build_caption(
       <blank line>
       <#tag1 #tag2 ...>
 
-    If hashtags is empty, the hashtag line is omitted. If sign_off is
-    None or empty, the sign-off line and its blank line are omitted.
+    If hashtags is empty, the hashtag line is omitted. If sign_off is left
+    unset (the default), one is picked automatically from the day-of-year
+    sign_off rotation (_rotating_sign_off) — same @markbarney121 handle,
+    varying lead emoji. Callers that want a specific sign-off, or NO
+    sign-off at all, pass sign_off explicitly: None or "" omits the
+    sign-off line and its blank line entirely.
 
     Total length guarded to stay under the 2200-char IG limit; raises
     ValueError if the caller built something too long.
     """
+    resolved_sign_off = (
+        _rotating_sign_off() if sign_off is _ROTATE_SIGN_OFF else sign_off
+    )
     parts = [journal_body.rstrip()]
-    if sign_off:
-        parts.extend(["", sign_off.strip()])
+    if resolved_sign_off:
+        parts.extend(["", resolved_sign_off.strip()])
     if hashtags:
         tag_line = " ".join("#" + t.lstrip("#") for t in hashtags)
         parts.extend(["", tag_line])
