@@ -413,9 +413,19 @@ def ingest(image_path: str, caption: str) -> dict:
             result["message"] = f"Unsupported image type {ext!r} (need jpg/jpeg/png)."
             return result
 
-        # 1. Caption -> roster name(s).
+        # 1. Caption -> roster name(s). Do this FIRST: if the caption names no
+        #    roster bird, stop here BEFORE the vision model runs. This is what
+        #    makes the hook "only birds you name" — a gourd, a screenshot, or
+        #    plain chatter matches nothing and costs zero VLM inference.
         matched = match_caption_names(caption)
         result["birds"] = matched
+        if not matched:
+            result["status"] = "no_match"
+            result["message"] = (
+                "I didn't recognize a roster bird's name in that caption, so I "
+                "left the flock file untouched. Name the bird and I'll file it."
+            )
+            return result
 
         # 2. Vision (count + composition drive the gate; caption -> descriptor).
         meta = _run_vlm(src.read_bytes())
@@ -430,15 +440,6 @@ def ingest(image_path: str, caption: str) -> dict:
         composition = meta.get("composition") or ""
         descriptor = _descriptor_from_vlm(meta)
         is_group_comp = composition in ("group", "wide")
-
-        # 3. No name in the caption -> nothing to wire up.
-        if not matched:
-            result["status"] = "no_match"
-            result["message"] = (
-                "I didn't recognize a roster bird's name in that caption, so I "
-                "left the flock file untouched. Name the bird and I'll file it."
-            )
-            return result
 
         n = len(matched)
 
