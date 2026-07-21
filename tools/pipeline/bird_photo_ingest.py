@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import shutil
 import sys
@@ -88,6 +89,16 @@ _PIPE_DIR = Path(__file__).resolve().parent
 # Media types git_helper will host; we mirror the check so we fail with a clear
 # message before touching the VLM rather than deep inside the git step.
 _ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png"}
+
+# Cross-actor de-dup. The whole point of this module is to be the SINGLE code
+# path that files a bird photo — the OpenClaw hook calls it, and any interactive
+# agent (Bubba) should call it too instead of hand-committing. To make two
+# near-simultaneous filings of the SAME bird safe, we take a short-lived
+# per-subject claim before committing. First writer wins; the second no-ops with
+# status "deduped". A claim older than the TTL is treated as stale and taken
+# over (so a crashed run can't wedge a bird forever).
+_CLAIM_DIR = Path.home() / ".openclaw" / "state" / "bird-ingest-claims"
+_CLAIM_TTL_S = 600  # 10 minutes
 
 # The literal word "suspected" must NEVER appear in a committed filename (it
 # leaked into an earlier hand-named file — IMG_6227-ingebird-suspected-... —
@@ -325,6 +336,46 @@ def _verify_roster_contains(needle: str) -> bool:
         return False
 
 
+# --- de-dup claim -----------------------------------------------------------
+def _claim_subject(subject_slug: str) -> bool:
+    """Atomically claim `subject_slug`. Returns True if we won the claim (safe to
+    commit), False if another processor holds a FRESH claim (skip to avoid a
+    duplicate). Stale claims (> _CLAIM_TTL_S) are taken over."""
+    try:
+        _CLAIM_DIR.mkdir(parents=True, exist_ok=True)
+        claim = _CLAIM_DIR / f"{subject_slug or 'unknown'}.claim"
+        now = datetime.now().timestamp()
+        try:
+            fd = os.open(str(claim), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+            os.write(fd, str(now).encode())
+            os.close(fd)
+            return True
+        except FileExistsError:
+            try:
+                age = now - float((claim.read_text() or "0").strip())
+            except Exception:  # noqa: BLE001 — unreadable/garbage claim = stale
+                age = _CLAIM_TTL_S + 1
+            if age > _CLAIM_TTL_S:
+                claim.write_text(str(now))
+                return True
+            return False
+    except Exception as exc:  # noqa: BLE001 — never let de-dup bookkeeping
+        # block a real filing; degrade to "no claim system" rather than fail.
+        log.warning("bird_photo_ingest: claim check failed (%s) — proceeding", exc)
+        return True
+
+
+def _release_subject(subject_slug: str) -> None:
+    """Drop the claim so a retry can proceed (used after a FAILED filing; a
+    successful filing keeps the claim until the TTL expires to block dups)."""
+    try:
+        (_CLAIM_DIR / f"{subject_slug or 'unknown'}.claim").unlink()
+    except FileNotFoundError:
+        pass
+    except Exception as exc:  # noqa: BLE001
+        log.warning("bird_photo_ingest: claim release failed: %s", exc)
+
+
 # --- entry point ------------------------------------------------------------
 def ingest(image_path: str, caption: str) -> dict:
     """Ingest one Discord-dropped bird photo + caption into the farm-2026
@@ -422,6 +473,18 @@ def ingest(image_path: str, caption: str) -> dict:
         result["filename"] = filename
 
         subject = matched[0] if n == 1 else ", ".join(matched)
+
+        # De-dup: claim this subject before ANY commit, so a near-simultaneous
+        # filing of the same bird (the hook AND an interactive agent) can't
+        # double-commit. First writer wins; the loser no-ops as "deduped".
+        if not _claim_subject(name_slug):
+            result["status"] = "deduped"
+            result["message"] = (
+                f"Another filing of {subject} is already in flight — skipped to "
+                f"avoid a duplicate. (If that one failed, retry in a few minutes.)"
+            )
+            return result
+
         img_commit_msg = f"public/photos/birds: {subject} portrait (discord drop auto)"
         try:
             # Temp file carries the FINAL basename so git_helper commits it
@@ -436,6 +499,7 @@ def ingest(image_path: str, caption: str) -> dict:
                     commit_message=img_commit_msg,
                 )
         except (GitHelperError, FileNotFoundError, ValueError) as exc:
+            _release_subject(name_slug)  # failed cleanly — let a retry through
             result["status"] = "error"
             result["message"] = f"Image commit failed, no roster change made: {exc}"
             return result
@@ -470,6 +534,7 @@ def ingest(image_path: str, caption: str) -> dict:
         except GitHelperError as exc:
             # Image already landed; the JSON commit didn't. Report honestly —
             # this is NOT a clean success.
+            _release_subject(name_slug)  # roster not done — allow a retry
             result["status"] = "partial"
             result["message"] = (
                 f"Image landed at {rel_image}, but the roster JSON commit "
@@ -486,6 +551,7 @@ def ingest(image_path: str, caption: str) -> dict:
             # git races before (feedback_photo_management) — never claim a clean
             # win we can't see in HEAD. Downgrade to partial so the reply tells
             # Boss to eyeball /flock.
+            _release_subject(name_slug)  # not confirmed — allow a retry
             result["status"] = "partial"
             result["message"] = (
                 f"Image landed at {rel_image} and I wrote {bird_name}'s photo, "
