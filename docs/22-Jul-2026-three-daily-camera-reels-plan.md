@@ -35,7 +35,7 @@ camera to post daily on its own — the rotation is the opposite of that.
 1. **house-yard plist created** — `~/Library/LaunchAgents/com.farmguardian.ig-house-yard-cam-timelapse-reel.plist`,
    runs 09:00 local, points at the existing shim `scripts/ig-house-yard-cam-timelapse-reel.py`
    → `HOUSE_YARD_CAM_TIMELAPSE_LANE`.
-2. **duo2 reactivated** — renamed off `.disabled`, loaded. Runs 18:00 local.
+2. **duo2 reactivated** — renamed off `.disabled`, loaded. Runs 15:00 local.
 3. **camera-of-the-day disabled** — booted out, renamed
    `.plist.disabled-22jul2026`.
 4. **config faster playback** — `tools/pipeline/config.json`:
@@ -43,7 +43,7 @@ camera to post daily on its own — the rotation is the opposite of that.
    - `instagram.scheduled.timelapse_reel_max_frames` 60 → 90
    - crossfade stays 0.15 (< 0.4 spf, satisfies stitcher guard).
 
-Post times (Boss-chosen): house-yard 09:00 · s7 12:00 · duo2 18:00. (Plus the
+Post times (Boss-chosen): house-yard 09:00 · s7 12:00 · duo2 15:00. (Plus the
 still-running 12:30 carousel and 18:00 mixed reel — see open item.)
 
 ## Verification

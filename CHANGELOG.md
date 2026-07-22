@@ -20,10 +20,10 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 **What:** Reverted the v2.48.x "camera of the day" rotation per Boss directive. The farm now posts exactly three per-camera time-lapse Reels every day, each from one camera, never combined:
 - **house-yard** (Reolink E1 PTZ) — new LaunchAgent `com.farmguardian.ig-house-yard-cam-timelapse-reel` at 09:00 local. This lane's code (`HOUSE_YARD_CAM_TIMELAPSE_LANE`) existed but had never been scheduled, so house-yard had never posted a reel. Now it does, daily.
-- **duo2** (Reolink Duo 2 panoramic) — `com.farmguardian.ig-duo2-timelapse-reel` reactivated (was `.disabled`, only posting ~1 day in 4 via the rotation) and now runs on its own daily at 18:00.
+- **duo2** (Reolink Duo 2 panoramic) — `com.farmguardian.ig-duo2-timelapse-reel` reactivated (was `.disabled`, only posting ~1 day in 4 via the rotation) and now runs on its own daily at 15:00.
 - **s7-cam** — `com.farmguardian.ig-s7-daily-reel` retimed from 21:00 to 12:00 (noon), still daily.
 
-Boss-chosen post times: house-yard 09:00 · s7 12:00 · duo2 18:00. Running earlier in the day also aligns each reel better with "yesterday" — a 09:00 run's 24h window is mostly the prior calendar day, where the old 21:00 runs skewed toward the current day.
+Boss-chosen post times: house-yard 09:00 · s7 12:00 · duo2 15:00. Running earlier in the day also aligns each reel better with "yesterday" — a 09:00 run's 24h window is mostly the prior calendar day, where the old 21:00 runs skewed toward the current day.
 
 Disabled: `com.farmguardian.ig-camera-of-the-day-reel` (booted out, renamed `.plist.disabled-22jul2026`). The mba-cam / usb-cam / dominator-cam / gwtc per-camera plists were already `.disabled`; with the rotation gone they no longer post by any path (the rotation had been their only live route). mba-cam and usb-cam are offline hardware right now (USB webcam is plugged into the MacBook Air, not facing birds); dominator-cam is not aimed at any flock — none produce good frames, so none should post.
 
