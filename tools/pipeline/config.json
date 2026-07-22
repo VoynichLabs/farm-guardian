@@ -38,7 +38,7 @@
       "enabled": true,
       "auto_dry_run": false,
       "output_root": "data/reels",
-      "seconds_per_frame": 1.0,
+      "seconds_per_frame": 0.4,
       "crossfade_seconds": 0.15,
       "frames_per_reel_default": 6
     },
@@ -60,7 +60,7 @@
       "s7_daily_reel_require_source_reactions": false,
       "timelapse_reel_window_hours": 24,
       "timelapse_reel_bucket_minutes": 5,
-      "timelapse_reel_max_frames": 60,
+      "timelapse_reel_max_frames": 90,
       "timelapse_reel_min_frames": 6,
       "timelapse_reel_daylight_only_cameras": [
         "gwtc",

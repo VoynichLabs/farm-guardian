@@ -4,6 +4,23 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-07-22
 
+### v2.50.0 — Three fixed daily camera reels; kill the camera-of-the-day rotation (Claude Opus 4.8) — 22-Jul-2026
+
+**What:** Reverted the v2.48.x "camera of the day" rotation per Boss directive. The farm now posts exactly three per-camera time-lapse Reels every day, each from one camera, never combined:
+- **house-yard** (Reolink E1 PTZ) — new LaunchAgent `com.farmguardian.ig-house-yard-cam-timelapse-reel` at 20:40 local. This lane's code (`HOUSE_YARD_CAM_TIMELAPSE_LANE`) existed but had never been scheduled, so house-yard had never posted a reel. Now it does, daily.
+- **duo2** (Reolink Duo 2 panoramic) — `com.farmguardian.ig-duo2-timelapse-reel` reactivated (was `.disabled`, only posting ~1 day in 4 via the rotation) and now runs on its own daily at 21:20.
+- **s7-cam** — `com.farmguardian.ig-s7-daily-reel` unchanged, already daily at 21:00.
+
+Disabled: `com.farmguardian.ig-camera-of-the-day-reel` (booted out, renamed `.plist.disabled-22jul2026`). The mba-cam / usb-cam / dominator-cam / gwtc per-camera plists were already `.disabled`; with the rotation gone they no longer post by any path (the rotation had been their only live route). mba-cam and usb-cam are offline hardware right now (USB webcam is plugged into the MacBook Air, not facing birds); dominator-cam is not aimed at any flock — none produce good frames, so none should post.
+
+**Faster playback (all reel lanes):** `tools/pipeline/config.json` — `reels.seconds_per_frame` 1.0 → 0.4 (each frame on screen ~0.4s instead of 1s) and `instagram.scheduled.timelapse_reel_max_frames` 60 → 90 (fill the stitcher's hard 90-frame cap). A full-day Reolink day now packs 90 frames into ~23s (was up to ~60s at 1s/frame) — the "more images, each shown for less time" Boss asked for. crossfade_seconds stays 0.15 (still < the new 0.4 spf, satisfies the stitcher's `crossfade < spf` guard). Source window unchanged at the previous 24h, so each morning's reel is yesterday condensed.
+
+**Why:** A rotation that benches most cameras on any given day is the opposite of what Boss wants — he wants each Reolink and the S7 to tell their own daily story. The Frankenstein "stitch two cameras into one reel" idea was explicitly rejected; each reel is single-camera.
+
+**How / verification:** Both new/reactivated lanes dry-run-selected the full 90 frames from `data/guardian.db` (house-yard 90, duo2 90 — both ≥ the 6-frame minimum, both `WILL POST`). Config validated as JSON. All three jobs confirmed loaded via `launchctl list`. No Python code changed — the lane definitions, selectors, and stitcher were already in place; this is scheduling + config only. Plan: `docs/22-Jul-2026-three-daily-camera-reels-plan.md`.
+
+**Open item flagged to Boss:** the 18:00 mixed reaction-gated Reel (`ig-daily-reel`) and the `ig-s7-backlog-reel` drainer are separate surfaces, not per-camera timelapses; left running pending Boss's call on whether they stay.
+
 ### v2.49.0 — VLM prompt: leg-band–aware bird identification (Claude Opus 4.8) — 22-Jul-2026
 
 **What:** The VLM enrichment prompt now uses the flock's new colored, numbered leg bands (banded ~2026-07-21). Two edits: (1) `roster.py::format_named_individuals_block()` appends each named bird's *confirmed* `leg_band` (color/number/side) to its line in the `{named_individuals_block}`, giving the model a reference to match; (2) `prompt.md` gains a **Leg bands** guidance block plus a `caption_draft` bullet. 8 of the 11 living named birds now carry a unique color+number band (Henridotta purple #12, Ingebird green #2, Henriessa pink #8, Adelbird blue #7, …); the 3 unbanded birds render no band clause.
