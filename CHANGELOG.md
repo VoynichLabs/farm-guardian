@@ -4,6 +4,14 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-07-22
 
+### v2.51.0 — Discord bird-photo → farm-2026 flock roster ingest (Claude Opus 4.8) — 22-Jul-2026
+
+**What:** New module `tools/pipeline/bird_photo_ingest.py` — the roster-write half of the "Boss drops a bird photo + names it → it lands on the website" flow that the existing gem/IG lanes never did (they only write the IG-hosting dirs). Given an image + a caption naming a roster bird, it: matches the name against `flock-profiles.json` (substring-on-top-of `roster.match_name`), runs `vlm_enricher.enrich()` for a descriptor slug + `bird_count` + `caption_draft`, applies an ambiguity gate (one name but >1 bird in frame → `ambiguous`, no write — flag, never guess), renames to the roster filename convention, commits the JPEG into `farm-2026/public/photos/birds/` via `git_helper.commit_image_to_farm_2026()`, sets the bird's `photo`, **appends the shot to the bird's append-only `photos[]` history** (the /flock aging timeline), verifies both landed in HEAD, and de-dups via a short-lived per-bird claim so it can't collide with the OpenClaw hook or an interactive agent. Optional 3rd arg relays the outcome back to Discord. Triggered by `~/.openclaw/hooks/bird-photo-trigger/` (OpenClaw internal hook) and/or Bubba via the `farm-bird-roster-photo` skill.
+
+**Why:** Boss wanted named bird photos he drops in Discord to auto-appear on the flock page as that bird's portrait, and to accumulate an aging timeline — without hand-editing JSON or hand-committing (which had caused duplicate portraits). The caption names the bird, so no risky auto-ID; the VLM only counts/slugs/captions.
+
+**How:** Reuses `git_helper` (commit/push/rebase-retry/osxkeychain), `vlm_enricher` + `schema.json`, and `roster.py` verbatim. Fails safe (VLM down → no write). Roster JSON written with `ensure_ascii=True` (default) to match the file's existing `\uXXXX` escaping and stop whole-file churn. Skips the VLM entirely when the caption names no roster bird. Verified end-to-end on real drops (Henridotta). farm-2026 side: CHANGELOG v1.33.0.
+
 ### v2.50.0 — Three fixed daily camera reels; kill the camera-of-the-day rotation (Claude Opus 4.8) — 22-Jul-2026
 
 **What:** Reverted the v2.48.x "camera of the day" rotation per Boss directive. The farm now posts exactly three per-camera time-lapse Reels every day, each from one camera, never combined:
