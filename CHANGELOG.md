@@ -2,7 +2,17 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] - 2026-07-16
+## [Unreleased] - 2026-07-22
+
+### v2.49.0 — VLM prompt: leg-band–aware bird identification (Claude Opus 4.8) — 22-Jul-2026
+
+**What:** The VLM enrichment prompt now uses the flock's new colored, numbered leg bands (banded ~2026-07-21). Two edits: (1) `roster.py::format_named_individuals_block()` appends each named bird's *confirmed* `leg_band` (color/number/side) to its line in the `{named_individuals_block}`, giving the model a reference to match; (2) `prompt.md` gains a **Leg bands** guidance block plus a `caption_draft` bullet. 8 of the 11 living named birds now carry a unique color+number band (Henridotta purple #12, Ingebird green #2, Henriessa pink #8, Adelbird blue #7, …); the 3 unbanded birds render no band clause.
+
+**Why:** The prompt described several named birds as "near mirror images" / "near-identical" by plumage (Birdimir↔Ingebird, Henridotta↔Adelbird) — the exact ambiguity that got structured named-bird auto-ID disabled in v2.38.2. A legible band resolves it: bands are the reliable discriminator plumage never was. The biggest payoff is the handheld Discord bird-drop path (`bird_photo_ingest.py`, which reads the same prompt.md/roster) and richer captions ("purple leg band #12 visible").
+
+**How / safety:** Identification stays **soft** (the v2.38.2 boundary) — the model *may* say "likely X" and describe a band, but is never forced to. The load-bearing guardrail is anti-confabulation: the prompt requires reporting ONLY a band actually visible on the leg in *this* frame, never inferring one from plumage, and reading color AND number (colors look alike small/dim — the number disambiguates; live trap: orange #1 on the right leg is the non-named pullet Robirda). Verified two-sided against the live qwen3-vl-4b: on close banded portraits it read "purple leg band #12" / "pink leg band #08" correctly; on three no-band frames (a pre-banding hatch chick, a live distant flock, an empty pen) it invented no band. **Honest limitation:** it reliably reads *legible* bands into captions, but names birds only softly and only on clean frames — distant overhead Guardian frames rarely show a readable leg. Reliable band→name mapping belongs in deterministic Python (a schema band-observation field), noted as a follow-up, not this change.
+
+**Dual-file sync (the 16-Jul-2026 trap):** production reads the LM Studio Birds preset (`~/.lmstudio/config-presets/Birds.preset.json`), not `prompt.md` directly — so the prompt.md change was mirrored into the preset's `systemPrompt` (verified round-trip-identical) and the pipeline daemon was kickstarted to load both the synced preset and the updated `roster.py`. `schema.json` unchanged. Plan: `docs/22-Jul-2026-vlm-leg-band-identification-plan.md`.
 
 ### v2.48.1 — Activation + adversarial-review fixes (Claude Fable 5 / Claude Opus 4.8) — 16-Jul-2026
 

@@ -1,5 +1,5 @@
-# Author: Claude Fable 5
-# Date: 16-July-2026
+# Author: Claude Opus 4.8
+# Date: 22-July-2026
 # PURPOSE: Bridge to farm-2026's content/flock-profiles.json — the canonical
 #          bird roster (names, breeds, hatch dates, the `ornitharch` named-
 #          individual flag). farm-guardian never read this file before
@@ -10,6 +10,15 @@
 #          Mirrors the existing FARM_DIARY_DIR path pattern in
 #          daily_reel_runner.py (both read out of the farm-2026 checkout on
 #          this same Mac Mini).
+#
+#          22-Jul-2026 (Claude Opus 4.8): the named-individual block now also
+#          surfaces each bird's confirmed leg_band (color/number/side). The
+#          flock was banded ~2026-07-21 and a legible band is a far more
+#          reliable ID than plumage — it resolves the near-identical siblings
+#          (Birdimir/Ingebird, Henridotta/Adelbird) the prompt used to hedge.
+#          We render only the *confirmed*-band fact here; the anti-confabulation
+#          rules (report only a band you can SEE, never infer one from plumage)
+#          live globally in prompt.md.
 # SRP/DRY check: Pass — single responsibility is loading + caching the
 #                roster; callers (prompt-building, discord sync, reel
 #                captions) own their own use of it.
@@ -119,6 +128,30 @@ _HEDGE_MARKERS = (
 )
 
 
+def _format_band(leg_band: Optional[dict]) -> str:
+    """Render a bird's *confirmed* leg band as a short factual clause for the
+    prompt — e.g. "Wears a purple leg band #12 on the left leg."
+
+    Returns "" when there is no band, it isn't confirmed, or the color is
+    missing: we never tell the VLM to look for a band that isn't verified on the
+    bird. The band's color+number is unique per living bird, so that pair is the
+    match key; `side` is included only as confirmation. The anti-confabulation
+    rules (report only a band you can actually SEE, never infer one from
+    plumage) live in prompt.md, which applies to every frame globally.
+    """
+    if not isinstance(leg_band, dict) or not leg_band.get("confirmed"):
+        return ""
+    color = (leg_band.get("color") or "").strip()
+    if not color:
+        return ""
+    number = leg_band.get("number")
+    side = (leg_band.get("side") or "").strip()
+    num_part = f" #{number}" if number is not None else ""
+    side_part = f" on the {side} leg" if side else ""
+    article = "an" if color[:1].lower() in "aeiou" else "a"  # "an orange"
+    return f"Wears {article} {color} leg band{num_part}{side_part}."
+
+
 def format_named_individuals_block() -> str:
     """Render the VLM prompt's "Named individuals" section from the live
     roster, replacing the two hardcoded bird writeups that used to live
@@ -147,7 +180,14 @@ def format_named_individuals_block() -> str:
         hatch = b.get("hatch_date", "")
         bits = [p for p in (breed, f"b. {hatch}" if hatch else "") if p]
         header = f"**{name}**" + (f" ({', '.join(bits)})" if bits else "") + ":"
-        lines.append(f"- {header} {desc} Matching this profile, you may say \"likely {name}.\"")
+        # A confirmed leg band is appended as its own clause; the global
+        # anti-confabulation rules in prompt.md govern how the VLM may use it.
+        band_clause = _format_band(b.get("leg_band"))
+        band_part = f" {band_clause}" if band_clause else ""
+        lines.append(
+            f"- {header} {desc}{band_part} "
+            f"Matching this profile, you may say \"likely {name}.\""
+        )
     if not lines:
         return ""
     return "\n".join(lines)
