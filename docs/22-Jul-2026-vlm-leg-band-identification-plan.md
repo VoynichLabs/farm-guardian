@@ -59,8 +59,11 @@ guard against that is the whole point of the edit. `prompt.md` will state, hard:
 - A clearly legible band **outranks plumage**; a band you can't read changes
   nothing.
 
-Each bird's `side` goes in its line (confirmatory only) — the prompt will **not**
-teach a left/right semantic, because `color+number` is already unique.
+Each bird's `side` (left/right) goes in its line. **Correction (v2.51.1):** the
+prompt now treats the leg as a first-class part of the band's identity and
+matches on **color + number + leg**, not color+number with side as a footnote —
+per Boss, the same color-and-number can belong to a different bird on the other
+leg. (The original plan wrongly called side "confirmatory only.")
 
 ## Payoff (calibrated — don't over-promise)
 
