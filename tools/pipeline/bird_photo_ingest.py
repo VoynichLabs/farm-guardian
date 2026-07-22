@@ -280,32 +280,57 @@ def _find_record(bird_name: str) -> Optional[dict]:
     return None
 
 
-def _set_photo_and_commit(bird_name: str, photo_value: str, commit_message: str) -> bool:
-    """Set flock_birds[name].photo = photo_value, then commit ONLY
-    content/flock-profiles.json (path-scoped commit) and push with rebase-retry.
+def _set_photo_and_commit(
+    bird_name: str,
+    photo_value: str,
+    commit_message: str,
+    photo_date: Optional[str] = None,
+    caption: Optional[str] = None,
+) -> bool:
+    """Set flock_birds[name].photo = photo_value (the current hero portrait) AND
+    append the shot to that bird's append-only photos[] history (the aging
+    timeline — every picture we've ever had of the bird). Then commit ONLY
+    content/flock-profiles.json (path-scoped) and push with rebase-retry.
 
     The path-scoped `git commit -- <file>` ignores anything else a concurrent
-    pipeline may have left staged and leaves the working tree clean, so
+    pipeline may have left staged and keeps the working tree clean, so
     _push_with_rebase_retry's `pull --rebase` stays clean. Returns True if a
-    change was written+committed, False if the bird/field was already identical.
+    change was written+committed, False if it was already up to date.
     """
-    data = json.loads(FLOCK_PROFILES_PATH.read_text())
+    src = FLOCK_PROFILES_PATH.read_text()
+    data = json.loads(src)
     changed = False
     for bird in data.get("flock_birds", []):
         if bird.get("name") == bird_name:
             if bird.get("photo") != photo_value:
                 bird["photo"] = photo_value
                 changed = True
+            # Append to the photo history (dedup by filename basename) so it
+            # accumulates instead of overwriting. `photo` above is the current
+            # portrait; photos[] is the full timeline.
+            history = bird.setdefault("photos", [])
+            base = photo_value.split("/")[-1]
+            if not any(p.get("file", "").split("/")[-1] == base for p in history):
+                entry: dict = {"file": photo_value}
+                if photo_date:
+                    entry["date"] = photo_date
+                if caption:
+                    entry["caption"] = caption
+                history.append(entry)
+                # Chronological, undated last — matches the /flock render order.
+                history.sort(
+                    key=lambda p: (p.get("date") is None, p.get("date") or "", p.get("file", ""))
+                )
+                changed = True
             break
     if not changed:
         return False
 
-    # indent=2 + ensure_ascii=False round-trips the file's existing UTF-8
-    # literals (— × curly quotes) without reformatting — the diff must touch
-    # only the one photo line (this file drives /flock; photos have been lost
-    # to sloppy git ops before).
+    # ensure_ascii default (True) matches the file's existing \uXXXX escapes, so
+    # the diff is just this bird's change — writing literal UTF-8 (ensure_ascii=
+    # False) would un-escape the WHOLE file and churn every unicode line.
     FLOCK_PROFILES_PATH.write_text(
-        json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+        json.dumps(data, indent=2) + ("\n" if src.endswith("\n") else "")
     )
 
     rel = "content/flock-profiles.json"
@@ -529,8 +554,10 @@ def ingest(image_path: str, caption: str) -> dict:
                 photo_value,
                 commit_message=(
                     f"content/flock-profiles.json: set {bird_name} photo to "
-                    f"{photo_value} (discord drop auto)"
+                    f"{photo_value} + append to history (discord drop auto)"
                 ),
+                photo_date=datetime.now().strftime("%Y-%m-%d"),
+                caption=((meta.get("caption_draft") or "").strip()[:450] or None),
             )
         except GitHelperError as exc:
             # Image already landed; the JSON commit didn't. Report honestly —
