@@ -698,59 +698,6 @@ def _load_farm_context(limit: int = 3, char_cap: int = 600) -> str:
         return ""
 
 
-def _sample_frames_as_data_urls(
-    db_path: Path,
-    gem_ids: list[int],
-    cfg: dict,
-    log: logging.Logger,
-    sample: int = 3,
-) -> list[str]:
-    """Return up to `sample` frames from across the reel as base64 data URLs.
-
-    Used to ground captions for the vlm_bypass timelapse lanes, whose frames
-    are raw and were never described by the VLM at capture time. Samples
-    evenly across the (chronological) gem list so the model sees the day's
-    arc — morning, midday, evening — rather than three near-identical frames.
-
-    Reuses the pipeline's own VLM downscale (vlm_input_long_edge_px, 768 by
-    default): duo2 raws are ~6 MB each, so full-res would mean a ~24 MB
-    base64 payload for a caption. Best-effort — any failure returns fewer
-    (or no) frames and the caller falls back to a text-only prompt.
-    """
-    if not gem_ids:
-        return []
-
-    from tools.pipeline.orchestrator import _downscale_for_vlm
-    from tools.pipeline.store import resolve_gem_image_path
-
-    long_edge = int(cfg.get("vlm_input_long_edge_px", 768))
-    # Evenly spaced picks including first and last.
-    if len(gem_ids) <= sample:
-        picks = list(gem_ids)
-    else:
-        step = (len(gem_ids) - 1) / (sample - 1) if sample > 1 else 0
-        picks = [gem_ids[round(i * step)] for i in range(sample)]
-
-    urls: list[str] = []
-    for gem_id in picks:
-        try:
-            row = _fetch_gem_row(db_path, gem_id)
-            if not row:
-                continue
-            path = resolve_gem_image_path(row, db_path)
-            if not path or not Path(path).exists():
-                continue
-            small = _downscale_for_vlm(Path(path).read_bytes(), long_edge)
-            import base64
-            urls.append(
-                "data:image/jpeg;base64,"
-                + base64.b64encode(small).decode("ascii")
-            )
-        except Exception as exc:
-            log.info("caption: frame %s unusable for grounding (%s)", gem_id, exc)
-    return urls
-
-
 def _generate_reel_caption(
     db_path: Path,
     gem_ids: list[int],
@@ -858,7 +805,6 @@ def _generate_reel_caption(
     # give us nothing but the lane's scene hint. Before v2.51.5 the second
     # case never reached the model at all — it short-circuited to the
     # hardcoded literal, which is why those lanes posted the same text daily.
-    frame_urls: list[str] = []
     if drafts:
         subject_block = (
             "THE REEL — descriptions of individual frames, in order:\n\n"
@@ -867,37 +813,21 @@ def _generate_reel_caption(
         )
         specificity = "Be warm and specific to what is actually in the frames. "
     else:
-        # No drafts means a vlm_bypass timelapse lane, where the scene hint is
-        # a fixed per-lane string that never changes day to day. Text alone
-        # therefore gives the model nothing current to write about, and it
-        # reaches for the diary instead (verified: three different scene hints
-        # produced identical diary-derived captions). Attach real frames so it
-        # writes about the footage. The model is already a VLM and the frames
-        # are on disk; this is ~3 extra calls per lane per day.
-        frame_urls = _sample_frames_as_data_urls(db_path, gem_ids, cfg, log)
-        if frame_urls:
-            subject_block = (
-                "THE REEL — a fixed-angle time-lapse of one scene across the "
-                f"day ({fallback.rstrip('.')}). Attached are {len(frame_urls)} "
-                "frames sampled from it in chronological order.\n"
-                "Write about what you can actually see in these frames.\n\n"
-            )
-            specificity = (
-                "Describe what is genuinely visible in the attached frames. "
-                "Do not invent events or birds you cannot see. "
-            )
-        else:
-            subject_block = (
-                "THE REEL — a fixed-angle time-lapse of one scene across the "
-                f"day.\nScene: {fallback}\n"
-                "There are no per-frame descriptions. The caption must be "
-                "about THIS scene.\n\n"
-            )
-            specificity = (
-                "Be warm and grounded in this scene. Do not invent events, "
-                "birds, or details you were not given, and do not describe a "
-                "different part of the farm than the scene above. "
-            )
+        # vlm_bypass lanes: house-yard and duo2, both permanently aimed at the
+        # same yard. Nothing described their frames at capture and the scene
+        # never changes, so the caption is carried by the farm diary below —
+        # that is the only thing that differs day to day, and per Boss
+        # (23-Jul-2026) a yard time-lapse needs nothing more. Deliberately NOT
+        # sending frames to the VLM here: the pixels are the same every day,
+        # so it would buy nothing for three extra vision calls per reel.
+        subject_block = (
+            "THE REEL — a fixed-angle time-lapse of the same yard across the "
+            f"day.\nScene: {fallback}\n\n"
+        )
+        specificity = (
+            "Be warm and plausible for a day in the yard. Do not invent "
+            "events or details you were not given. "
+        )
 
     prompt = (
         "You are writing a caption for an Instagram Reel from a small farm.\n\n"
@@ -913,19 +843,10 @@ def _generate_reel_caption(
         "quotes, or commentary."
     )
 
-    # Multimodal content only when we actually attached frames; otherwise a
-    # plain string body, exactly as before.
-    if frame_urls:
-        user_content: object = [{"type": "text", "text": prompt}] + [
-            {"type": "image_url", "image_url": {"url": url}} for url in frame_urls
-        ]
-    else:
-        user_content = prompt
-
     try:
         payload = {
             "model": vlm_model,
-            "messages": [{"role": "user", "content": user_content}],
+            "messages": [{"role": "user", "content": prompt}],
             "max_tokens": 100,
             "temperature": 0.7,
             "reasoning_effort": "none",
