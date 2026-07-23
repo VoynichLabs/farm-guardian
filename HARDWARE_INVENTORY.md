@@ -8,7 +8,7 @@
 > |---|---|
 > | "The Six Cameras" | **Seven** configured cameras (`house-yard`, `s7-cam`, `usb-cam`, `gwtc`, `mba-cam`, `dominator-cam`, `duo2`), plus a disabled `iphone-cam` row |
 > | `usb-cam` is on the MSI Dominator `192.168.0.194:8090` | **The two config files disagree.** `config.json` points `usb-cam` at `Marks-MacBook-Air.local:8089`; `tools/pipeline/config.json` still points it at `192.168.0.194:8090`. Reconcile before trusting either |
-> | GWTC at `192.168.0.68` | GWTC is at **`192.168.0.69`**, and `gwtc` is **`enabled: false`** in both config files |
+> | GWTC at `192.168.0.68` | GWTC is at **`192.168.0.69`**, and `gwtc` is **`enabled: false`** in both config files. **23-Jul-2026: the laptop is healthy and SSH-reachable, but its `Hy-HD-Camera` reports `Present: False` — absent from the device bus — so ffmpeg crash-loops (dies in 0-1s, NOT the wedged-dshow zombie the watchdog handles) and the RTSP path 404s. Needs hands on the laptop; check for a function-key camera toggle first.** |
 > | GWTC runs "LM Studio on :9099" | **False — retracted.** GWTC has never run LM Studio. The only LM Studio is the Mac Mini's on `localhost:1234`, currently serving `qwen/qwen3-vl-4b`. GWTC's signature is MediaMTX on `:8554` |
 > | Mac Mini at `192.168.0.71` | Mac Mini is at **`192.168.0.54`** |
 > | duo2 time-lapse reel "daily 21:20" | **15:00**, as one of three fixed daily camera reels (house-yard 09:00, s7 12:00, duo2 15:00) |

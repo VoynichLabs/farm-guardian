@@ -17,6 +17,12 @@ The system mostly works. Every social lane that should post is posting; yard-dia
 | 5 | `phoenix.sh` March-snapshot landmine | ✅ **Defused.** Ran `phoenix.sh backup` against the healthy gateway, so `last-known-good.json` is now today's config instead of 2026-03-01. Safety net kept, landmine gone. |
 | 6 | Larry up / Egon answering SSH | ⚠️ **Boss call.** Documented in CLAUDE.md; Egon marked do-not-SSH pending a Linode dashboard check. |
 
+**23-Jul-2026 follow-ups:**
+- **helpshift Slack reports — FIXED.** Both `com.waterswim.helpshift-{daily,weekly}-report` had failed every run since ~14-Jul with `Missing required env vars: SLACK_BOT_TOKEN`. The token was found on the Katana (`C:\Users\markb\Documents\GitHub\support\.env`) and copied into `~/Documents/GitHub/helpshift-audit/.env` (gitignored; a `.env.bak-before-slack-token-20260723` backup was taken first). Verified with `daily_slack_report.py --dry-run`: exit 0, real tickets pulled, nothing posted. `SLACK_CHANNEL` needed no action — it is hardcoded in `helpshift_report_common.py`, not an env var.
+- **GWTC — reachable, camera dead.** See CLAUDE.md Camera 4. Laptop healthy and SSH-reachable at `.69`; webcam absent from the device bus, ffmpeg crash-looping. Needs hands on the laptop.
+- **Katana IP corrected** `.3` → `.4` in CLAUDE.md and `bubba-workspace/memory/reference/network.md`.
+- **mba-cam — decision made: KEEP CAPTURING.** Boss wants to re-enable the turkey-pen reel lane later, and the raw stockpile is what it will draw on. The ~2 GB/day and the sleep-time `ConnectTimeout` noise are accepted, not defects. Removed from the open-decisions list below.
+
 **Also fixed in the same pass:** `~/.openclaw/secrets.json` locked to 0600; log rotation widened to cover `guardian.out.log` (was 93 MB, uncovered), the discord-reaction-sync pair, cloudflared and the lmstudio watchdog, with the threshold dropped 50 MB → 25 MB (~130 MB reclaimed immediately); the stale `qwen3.5-9b` fallback default in `daily_reel_runner.py` corrected to the live model so a missing config key can never trigger LM Studio's auto-load.
 
 **Reel captions — fixed 23-Jul-2026 by deleting the dependency, not restoring it.** Boss confirmed the Codex subscription is gone for good, so `codex login` was never the answer. `tools/pipeline/codex_reel_curator.py` has been deleted and all caption synthesis moved to the local VLM already running for the pipeline (`qwen/qwen3-vl-4b`):
