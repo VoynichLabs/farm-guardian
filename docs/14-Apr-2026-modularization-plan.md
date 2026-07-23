@@ -1,3 +1,5 @@
+> 🚫 **NOT EXECUTED (banner added 22-Jul-2026).** This refactor was never approved or started; the line counts below are an April-2026 snapshot and are now far off. Re-audit before picking it up.
+
 # Modularization Plan — 14-Apr-2026
 
 **Goal:** no single Python file over ~500 lines, aiming for a 300–400 line comfort zone, so a coding agent loading a default 400-line window sees a whole unit. Improve SRP at the file level; eliminate the "god file" shape in `dashboard.py`, `database.py`, `capture.py`, and `guardian.py`.

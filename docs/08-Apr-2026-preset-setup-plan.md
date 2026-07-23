@@ -1,3 +1,5 @@
+> ⛔ **SUPERSEDED — DO NOT EXECUTE (banner added 22-Jul-2026).** Five presets (0-4) are already saved on the camera. Running the procedure below would overwrite three of them. `AGENTS_CAMERA.md` is the current preset reference. Kept only as history of how the procedure was designed.
+
 # Preset Setup Plan — 08-Apr-2026
 
 **Author:** Claude Opus 4.6 (remote session)

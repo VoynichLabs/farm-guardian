@@ -1,6 +1,15 @@
 # How It All Fits — Photos, Metadata, and the Instagram Pipeline
 
-**Last updated:** 2026-05-04
+**Last updated:** 2026-07-22
+
+> ⚠️ **Read the corrections in this box before trusting the rest of this file.** Several sections below describe an April-2026 world:
+> - **Per-cycle IG auto-posting is DEAD** (`instagram.enabled=false`) and has been since early May. Publishing happens on scheduled LaunchAgent lanes, not on the capture cycle. Anywhere below that says "live auto-posting" is wrong.
+> - **Reels and Stories are not "no code" — they are live.** Three fixed daily camera reels (house-yard 09:00, s7 12:00, duo2 15:00), a mixed reel at 18:00, a carousel at 12:30, and hourly reacted-gem Stories all post today.
+> - **The production VLM is `qwen/qwen3-vl-4b`** (since v2.44.3, 01-Jul-2026), not any glm/qwen3.5 model named below.
+> - **Both config files ARE tracked in git**, deliberately. The gitignore claim below is wrong.
+> - The camera fleet is **seven** cameras, not four.
+>
+> Current authority: [`SOCIAL_MEDIA_MAP.md`](./SOCIAL_MEDIA_MAP.md) for lanes and cadence, `CLAUDE.md` for cameras and the VLM, [`22-Jul-2026-mac-mini-ecosystem-audit.md`](./22-Jul-2026-mac-mini-ecosystem-audit.md) for what is currently broken.
 **Audience:** a human or an AI agent who is new to this project and needs the 10,000-ft view of where the farm's photographs live, how they get tagged, and how they end up on Instagram.
 **Companion docs:** [`19-Apr-2026-instagram-posting-plan.md`](./19-Apr-2026-instagram-posting-plan.md) · [`20-Apr-2026-ig-poster-implementation-plan.md`](./20-Apr-2026-ig-poster-implementation-plan.md) · [`20-Apr-2026-instagram-manager-agent-plan.md`](./20-Apr-2026-instagram-manager-agent-plan.md)
 
@@ -170,7 +179,7 @@ Both the Discord post and the IG post are wrapped in try/except so any failure (
 
 **Discord bot token** for `tools/discord_harvester.py` — read from OpenClaw's config at runtime.
 
-None of these credentials appear in any committed file. The gitignore at `~/Documents/GitHub/farm-guardian/.gitignore` includes `.env`, `tools/pipeline/config.json`, and everything under `data/` for exactly this reason.
+None of these credentials appear in any committed file. The gitignore at `~/Documents/GitHub/farm-guardian/.gitignore` includes `.env` and everything under `data/`. **Correction (22-Jul-2026): `tools/pipeline/config.json` and the root `config.json` are deliberately TRACKED, not ignored** — and the root `config.json` does contain LAN-only camera passwords. Commit changes to both when you edit either.
 
 ---
 
@@ -196,7 +205,7 @@ Flipping either flag requires a daemon restart to take effect:
 launchctl kickstart -k gui/$(id -u)/com.farmguardian.pipeline
 ```
 
-**Current state as of 2026-04-20:** `enabled: true, auto_dry_run: false`. Live auto-posting.
+**Current state as of 2026-07-22:** `instagram.enabled = false`. **Per-cycle auto-posting is dead and must not be re-enabled** — publishing moved to the scheduled lanes in [`SOCIAL_MEDIA_MAP.md`](./SOCIAL_MEDIA_MAP.md). The flags below still exist but no longer drive publishing.
 
 ---
 
@@ -233,8 +242,8 @@ Works whether the flags are on or off.
 
 ## Things that are intentionally NOT in scope yet
 
-- **Reels.** Plan exists in `19-Apr-2026-instagram-posting-plan.md` §V3 — stitch 5–10 brooder shots with ffmpeg into a 9:16 MP4, add a slow pan/zoom, post as `media_type=REELS`. No code.
-- **Stories.** Same API, different endpoint (`media_type=STORIES`). Trivial to add once someone decides the cadence.
+- ~~**Reels.**~~ **SHIPPED.** Four reel lanes run daily (three fixed camera time-lapses + one mixed). See `tools/pipeline/ig_poster.py::post_reel_to_ig` and `daily_reel_runner.py`.
+- ~~**Stories.**~~ **SHIPPED.** Reacted-gem Stories publish hourly via `social-publisher`, hosted from `data/story-assets/`.
 - **Historical archive replay.** The swarm-coordination chick-photos + farm-vision dev-test pools could feed a "this week two years ago" retrospective mode. Would need a schema-normalizer and a curation flag.
 - **IG manager agent.** Reading + replying to comments, DMs, curated like/follow queues. See `20-Apr-2026-instagram-manager-agent-plan.md` for the full scoping — Meta's official API restricts this heavily; there's a trade-off call to make.
 - **Hashtag rotation state.** `pick_hashtags(last_n_tags_used=[])` currently has no memory. Once auto-posting has been live for a week, the audit trail will show repetition patterns worth avoiding. Cheap to add; waiting on data.

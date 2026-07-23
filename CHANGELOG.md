@@ -4,6 +4,23 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-07-22
 
+### v2.51.3 — Docs truth pass + ~11 GB cruft reclaim (Claude Fable 5) — 22-Jul-2026
+
+**What:** No behavior change — documentation corrections and disk cleanup following the read-only ecosystem audit (`docs/22-Jul-2026-mac-mini-ecosystem-audit.md`).
+
+**Why:** Every canon doc had drifted far enough to actively mislead the next agent — most dangerously, `CLAUDE.md` named the wrong production VLM in the very section that warns agents to be careful with LM Studio, which invited a "fix" that would have swapped a working model out.
+
+**Docs corrected:**
+- `CLAUDE.md` — camera roster rewritten from 4 to the real **7** (with a table and an explicit warning about the `usb-cam`/`mba-cam` divergence between the two config files); production VLM corrected to **`qwen/qwen3-vl-4b`**; `usb-cam` host corrected to the MacBook Air; Mac Mini IP `.71` → `.54`; GWTC `.68` → `.69` and marked disabled; reel/carousel times corrected (house-yard 09:00, s7 12:00, carousel 12:30, duo2 15:00, mixed 18:00); reciprocate lane marked disabled since 23-Apr; false "no presets exist" TODO closed; multi-machine table annotated with real satellite status (Egon flagged decommissioned — do not SSH).
+- `docs/SOCIAL_MEDIA_MAP.md` — lane table rebuilt from live plist `StartCalendarInterval` values; added the house-yard and duo2 reel lanes, insights-fetch, weekly-digest and pipeline digests; recorded that the mixed reel's Discord approval gate is gone (`approval_required=False`); documented the saturated IG quota and the failing codex curator; noted `chicken-daily-pick` is a stock-picking job, not a farm lane.
+- `docs/13-Apr-2026-lm-studio-reference.md` — retracted the "GWTC runs LM Studio on :9099" claim; rewrote the "how Guardian relates to LM Studio" section to state the pipeline is a live production caller on `qwen/qwen3-vl-4b`.
+- `docs/HOW_IT_ALL_FITS.md`, `HARDWARE_INVENTORY.md` — correction boxes at the top covering dead per-cycle auto-posting, shipped Reels/Stories, the seven-camera roster, tracked-not-ignored config files, and the retracted GWTC/LM-Studio claim.
+- Eight stale plan docs given status banners. Two were actively dangerous: `08-Apr-2026-preset-setup-plan.md` (executing it would overwrite 3 of 5 live camera presets) and `13-Apr-2026-s7-phone-setup.md` (its `pkill`+`nohup` restart would double-spawn Guardian under launchd).
+
+**Reclaimed ~11 GB:** pruned `data/backups` from 111 daily DB snapshots to 17 (last 14 dailies + first-of-month, 12 G → 3.2 G); deleted dead-lane and pre-July reel MP4s (~2 G, posted-state files preserved); removed the `.score100-backup-20260712-180753/` dir (superseded by git history), stray `preset_test_*.jpg`, and orphaned SQLite sidecars; pruned 53 stale `openclaw.json` snapshots, 104 `auth-profiles` backups, `~/.openclaw/logs` (36 M), old gateway plist backups, and image-cache entries older than 30 days.
+
+**Deliberately NOT deleted:** `~/.openclaw/workspace-isolated` (596 M) — it looked like a dead workspace but contains five git repos with **unpushed commits**. Left for Boss.
+
 ### v2.51.2 — Per-lane reel pacing: fast Reolink time-lapses, s7 back to original speed (Claude Opus 4.8) — 22-Jul-2026
 
 **What:** v2.50.0 made reels faster by dropping the **global** `instagram.reels.seconds_per_frame` 1.0 → 0.4. That was too blunt — it sped up every lane, including the s7 daily reel, which Boss wants at its original pacing. Fixed by scoping the change:

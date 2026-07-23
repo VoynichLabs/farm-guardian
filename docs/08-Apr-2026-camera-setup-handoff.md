@@ -1,3 +1,5 @@
+> 📌 **SUPERSEDED as operational state (banner added 22-Jul-2026).** The world described here is gone: Guardian runs as a LaunchAgent (not a foreground process), presets exist, and the fleet is seven cameras. **`AGENTS_CAMERA.md` is the single source of truth for camera operations.** Kept as history of the original calibration session.
+
 # Camera Setup Handoff — 08-Apr-2026
 
 **Purpose:** This document is a complete handoff for the next Claude session to continue helping Mark set up and calibrate his Reolink E1 Outdoor Pro PTZ camera. Read this entire document before doing anything.

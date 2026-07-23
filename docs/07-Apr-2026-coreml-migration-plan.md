@@ -1,3 +1,5 @@
+> 🚫 **NEVER IMPLEMENTED / ABANDONED (banner added 22-Jul-2026).** Guardian still runs PyTorch YOLO (`.pt`). No CoreML conversion was ever done. Kept in case the startup-time pain returns and the plan is worth re-deriving.
+
 # CoreML Migration — Drop PyTorch from Guardian
 
 **Date:** 07-Apr-2026

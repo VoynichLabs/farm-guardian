@@ -49,15 +49,12 @@ both an OpenAI-compatible API (`/v1/...`) and a native management API
 (`/api/v1/...`) on `http://localhost:1234`. It can also serve over
 the LAN at `http://192.168.0.105:1234` (Mac Mini's LAN IP).
 
-**There is a second LM Studio instance on the LAN.** The GWTC
-(Gateway) laptop runs LM Studio on a non-standard port: **9099**, not
-1234. The model lineup on GWTC is different from the Mac Mini and
-the laptop's IP drifts on DHCP — find it by scanning for port 9099
-on the /24 (recipe in CLAUDE.md "Network & Machine Access" section)
-or by reading `~/bubba-workspace/memory/reference/network.md`.
-Everything in this document is about the Mac Mini's instance unless
-explicitly noted; if you target the GWTC instance you are coordinating
-with a different machine's resources, not this one's.
+**~~There is a second LM Studio instance on the LAN (GWTC, port 9099).~~
+RETRACTED — this was wrong.** GWTC does not run LM Studio and never
+did; the claim was a cross-wired reference to a different machine, and
+CLAUDE.md explicitly corrects it. GWTC's only service signature is
+MediaMTX on port `8554`. There is exactly one LM Studio on this
+network: the Mac Mini's, on `localhost:1234`.
 
 LM Studio holds models in VRAM as long-lived "instances" rather than
 loading per-request. Loading is slow (5–30 s); inference is fast.
@@ -65,17 +62,29 @@ Loading is *also* dangerous — see the incident below.
 
 ## How Farm Guardian relates to LM Studio
 
-**Currently:** Guardian does not call LM Studio. The original
-`vision.py` (species refinement using `glm-4.6v-flash`) was removed in
-v2.17.0 ("just show me the picture, no classification" — Boss). There
-is no Guardian-side path that opens a connection to LM Studio at the
-time of writing.
+*(Updated 2026-07-22 — the original April text said nothing called LM
+Studio. That is long obsolete.)*
 
-**Planned:** A standalone tool (not part of the main pipeline) that
-samples brooder snapshots and sends them to `glm-4.6v-flash` for
-narrative interpretation. See
-`docs/13-Apr-2026-brooder-vlm-narrator-plan.md`. The plan codifies
-the safety rules from this document into a small Python script.
+**The VLM image pipeline is a live production caller.** The
+`com.farmguardian.pipeline` LaunchAgent runs `tools/pipeline/vlm_enricher.py`,
+which POSTs every captured frame from every enabled camera to
+`/v1/chat/completions` on **`qwen/qwen3-vl-4b`** — the current
+production VLM since v2.44.3 (01-Jul-2026), verified loaded 2026-07-22.
+It loads the model itself at 16k context via `ensure_model_loaded` at
+daemon startup. If LM Studio stops, the gem/caption/curation stack
+stops producing. The safety rules in this document are therefore
+load-bearing, not theoretical.
+
+**Guardian itself (`guardian.py`) still does not call LM Studio.** The
+original `vision.py` (species refinement using `glm-4.6v-flash`) was
+removed in v2.17.0 ("just show me the picture, no classification" —
+Boss). *Guardian = detection, no LM Studio; pipeline = VLM enrichment,
+requires LM Studio.*
+
+⚠️ **Model names below are an April-2026 snapshot.** Wherever this
+document says `glm-4.6v-flash` or `qwen/qwen3.5-9b` in an example, the
+current production model is `qwen/qwen3-vl-4b`. Always check what is
+actually loaded with `GET /v1/models` before acting on any example here.
 
 **If you add new LM Studio integrations:** keep them out of the hot
 path (capture / detect / alerts). Failure modes — slow inference,

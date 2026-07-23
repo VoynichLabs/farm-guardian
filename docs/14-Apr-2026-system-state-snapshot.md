@@ -1,3 +1,5 @@
+> 📌 **HISTORICAL SNAPSHOT — no longer current (banner added 22-Jul-2026).** This was accurate on 14-Apr-2026 and is now three months stale (four cameras then, seven now; several services since renamed, disabled, or moved hosts). Read it as a dated artifact, not as system state. For current state: `CLAUDE.md`, `HARDWARE_INVENTORY.md`, `docs/SOCIAL_MEDIA_MAP.md`, and `docs/22-Jul-2026-mac-mini-ecosystem-audit.md`.
+
 # System State Snapshot — 2026-04-14 14:40 ET
 
 **Author:** Claude Opus 4.6 (1M context)

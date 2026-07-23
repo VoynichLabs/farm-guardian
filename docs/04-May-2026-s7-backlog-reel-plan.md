@@ -1,3 +1,5 @@
+> 🔄 **SUPERSEDED (banner added 22-Jul-2026).** This per-calendar-date, self-terminating, daily-12:00 design was replaced three days later by v2.40.6: the live lane is **pool-based** (oldest ~25 reacted gems regardless of date), fires **4× daily at 09/13/17/20**, and uses hour-keyed state files. Current authority: the header of `scripts/ig-s7-backlog-reel.py` and CHANGELOG v2.40.6 / v2.40.11. Kept for the original design history.
+
 # 04-May-2026 — S7 Backlog Reel Plan
 
 ## Context

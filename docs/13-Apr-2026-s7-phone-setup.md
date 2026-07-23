@@ -1,3 +1,5 @@
+> ⚠️ **PARTIALLY SUPERSEDED (banner added 22-Jul-2026).** The IP Webcam install/verify steps below are still useful, but the operational parts predate launchd: **do not use the `pkill` + `nohup` restart recipe** — Guardian runs under `com.farmguardian.guardian` with `KeepAlive`, so that would spawn a duplicate. Restart with `launchctl kickstart -k gui/501/com.farmguardian.guardian`. For current S7 state (portrait orientation, persisted focus, no incandescent WB push, standalone USB power, no ADB host) read the CLAUDE.md "Camera 2 (s7-cam)" section and `docs/11-May-2026-s7-camera-explained.md` first.
+
 # S7 Phone Setup — HTTP Snapshot Mode
 
 **Author:** Claude Opus 4.6 (1M context)

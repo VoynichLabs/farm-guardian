@@ -4,13 +4,13 @@ This is the current, live map of how cute photos of the flock get from camera fr
 
 **This file is the source of truth for how the social pipeline runs *today*.** The dated docs in this directory (e.g. `19-Apr-2026-instagram-posting-plan.md`, `23-Apr-2026-nextdoor-plan.md`) are frozen planning artifacts — they're useful for *why* a thing exists, not *what's running now*. If those docs and this file disagree, this file wins; update it instead of writing another dated doc.
 
-Verified against `launchctl list | grep farmguardian` and `~/Library/LaunchAgents/com.farmguardian.*` on 2026-05-04. Throwback deactivation updated 2026-05-03. Story image hosting updated 2026-05-04. S7 backlog reel lane added 2026-05-04.
+**Verified 2026-07-22** against `launchctl list | grep farmguardian` and the `StartCalendarInterval` of every live plist in `~/Library/LaunchAgents/`. (Prior verification was 2026-05-04; every posting time in this file was wrong by then. If you are reading this more than ~60 days after the date above, re-verify before trusting a single row.)
 
 ---
 
 ## The one-paragraph version
 
-**2026-05-02 exception:** the S7 daily time-lapse Reel is not reaction-gated. It selects sharp, safe `s7-cam` frames from one fixed portrait angle, posts automatically at 21:00 local, then sends a Discord notice that mentions Mark.
+**Three fixed daily camera reels (v2.50.0, 22-Jul-2026):** exactly one reel per camera per day — `house-yard` 09:00, `s7-cam` 12:00, `duo2` 15:00. They are never combined and there is no camera-of-the-day rotation (that lane was created and killed on 22-Jul; its plist is suffixed `.disabled-22jul2026`). These time-lapse reels are **not** reaction-gated — they select sharp, safe frames from their own camera and post automatically, then send a Discord notice mentioning Mark. The separate *mixed* reel at 18:00 draws on reacted gems across cameras.
 
 Cameras and iPhone live ingest are the active raw sources. Camera frames flow through the VLM enricher (LM Studio, every cycle) and only the ones the VLM rates `share_worth=strong` get dropped into Discord `#farm-2026` for Boss to react to. **A Boss reaction on Discord is the quality gate.** Every active mixed outbound lane (IG photo, IG carousel, IG story, IG reel, FB Page, Nextdoor) reads `image_archive.discord_reactions > 0` as its filter. Throwback/on-this-day archive lanes are disabled as of 2026-05-03 because the current selection quality is bad. Every successful IG post auto-mirrors to the FB Page. Engagement automation (likes/comments on IG and Nextdoor) runs as separate session-capped tools, not on a schedule.
 
@@ -20,16 +20,28 @@ Cameras and iPhone live ingest are the active raw sources. Camera frames flow th
 
 | Surface | Code | LaunchAgent | Cadence | Source |
 |---|---|---|---|---|
-| **IG S7 time-lapse reel** | `tools/pipeline/ig_poster.py::post_reel_to_ig` | `com.farmguardian.ig-s7-daily-reel` | daily 21:00 | sharp, safe `s7-cam` frames from the past 24h, bucketed across the day and ffmpeg-stitched into one fixed-angle time-lapse Reel. No source-frame or final-preview reaction gate. After IG/FB publish, posts a Discord notice as `farm-reel-s7` mentioning `<@293569238386606080>`. State: `data/reels/s7/posted/`. Script: `scripts/ig-s7-daily-reel.py`. |
-| **IG S7 backlog reel** | `tools/pipeline/ig_poster.py::post_reel_to_ig` | `com.farmguardian.ig-s7-backlog-reel` | daily 12:00 | drains the s7-cam story-queue backlog one calendar date at a time (oldest first). Each run finds the oldest date with ≥10 unprocessed reacted s7-cam gems, picks the best 50 by score, stitches a portrait Reel, auto-posts to IG/FB, marks those gems `used-in-backlog-reel:YYYY-MM-DD` so they leave the story queue, then sends a Discord notice. Self-terminating: exits 0 with "backlog empty" when all eligible dates are processed. State: `data/reels/s7-backlog/posted/`. Script: `scripts/ig-s7-backlog-reel.py`. |
+| **IG house-yard time-lapse reel** | `tools/pipeline/ig_poster.py::post_reel_to_ig` | `com.farmguardian.ig-house-yard-cam-timelapse-reel` | **daily 09:00** | sharp, safe `house-yard` frames from the past 24h, stitched into one fixed-angle time-lapse Reel. Newest of the three fixed camera reels (v2.50.0, 22-Jul-2026) — first scheduled fire was 2026-07-23 09:00. |
+| **IG duo2 time-lapse reel** | `tools/pipeline/ig_poster.py::post_reel_to_ig` | `com.farmguardian.ig-duo2-timelapse-reel` | **daily 15:00** | same shape, `duo2` frames. Retimed from an evening slot on 22-Jul-2026. |
+| **IG S7 time-lapse reel** | `tools/pipeline/ig_poster.py::post_reel_to_ig` | `com.farmguardian.ig-s7-daily-reel` | **daily 12:00** (was 21:00 until 22-Jul-2026) | sharp, safe `s7-cam` frames from the past 24h, bucketed across the day and ffmpeg-stitched into one fixed-angle time-lapse Reel. No source-frame or final-preview reaction gate. After IG/FB publish, posts a Discord notice as `farm-reel-s7` mentioning `<@293569238386606080>`. State: `data/reels/s7/posted/`. Script: `scripts/ig-s7-daily-reel.py`. |
+| **IG S7 backlog reel** | `tools/pipeline/ig_poster.py::post_reel_to_ig` | `com.farmguardian.ig-s7-backlog-reel` | **4× daily — 09:00, 13:00, 17:00, 20:00** | drains the s7-cam story-queue backlog. **Rewritten in v2.40.6 to be pool-based, not per-calendar-date:** it takes the oldest ~25 reacted s7-cam gems regardless of date, stitches a portrait Reel, auto-posts to IG/FB, marks those gems used so they leave the story queue, then sends a Discord notice. State is hour-keyed under `data/reels/s7-backlog/posted/`. Script: `scripts/ig-s7-backlog-reel.py`. (The original per-date, self-terminating design described in `04-May-2026-s7-backlog-reel-plan.md` is dead.) |
 | **IG photo** (single) | `tools/pipeline/ig_poster.py` | none — emergency CLI only | manual | reaction-gated gem |
-| **IG carousel** | `tools/pipeline/ig_poster.py::post_carousel_to_ig` | `com.farmguardian.ig-daily-carousel` | daily 18:00 | today's reacted strong+sharp gems |
+| **IG carousel** | `tools/pipeline/ig_poster.py::post_carousel_to_ig` | `com.farmguardian.ig-daily-carousel` | **daily 12:30** (was 18:00 until v2.47.0, 16-Jul-2026) | today's reacted strong+sharp gems |
 | **IG story** | `tools/pipeline/ig_poster.py::post_gem_to_story` | (rolled into `social-publisher`) | hourly | every unposted reacted gem, FIFO, 5-success/tick cap, shared 25 rolling-24h IG quota |
-| **IG reel** | `tools/pipeline/ig_poster.py::post_reel_to_ig` | `com.farmguardian.ig-daily-reel` | daily 18:00 | past 24h reacted gems, ffmpeg-stitched; **Discord approval gate**: reel MP4 posted to `#farm-2026` first — Boss must react before it publishes to IG (checked on the next day's 18:00 run). Unreacted reels expire after 48h. State: `data/reels/pending/`, `posted/`, `expired/`. Script: `scripts/ig-daily-reel.py`. |
+| **IG reel** (mixed) | `tools/pipeline/ig_poster.py::post_reel_to_ig` | `com.farmguardian.ig-daily-reel` | daily 18:00 | past 24h reacted gems across cameras, ffmpeg-stitched. **The Discord approval gate is GONE** — `daily_reel_runner.py` sets `approval_required=False` for this lane, so it builds and publishes in the same run. (Older docs describing "Boss must react before it publishes" are stale.) State: `data/reels/pending/`, `posted/`, `expired/`. Script: `scripts/ig-daily-reel.py`. |
 | **FB Page** ("Yorkies App") | `tools/pipeline/fb_poster.py` | none — tail-called from each `ig_poster` success | mirrors IG | every successful IG post auto-dual-posts |
 | **On-this-day → IG/FB stories** | `tools/on_this_day/post_daily.py` (via `scripts/on-this-day-stories.py`) | disabled/fail-closed | OFF | Disabled 2026-05-03. Script and direct publish/auto-story paths exit unless `FARM_ON_THIS_DAY_STORIES_ENABLED=1`; `social-publisher` archive fallback is also off via `archive_fallback_enabled=false`. |
 | **Unified social publisher** | `scripts/social-publisher.py` | `com.farmguardian.social-publisher` | hourly (`StartInterval=3600`) | runs reacted gem Story lane only while archive fallback is disabled |
-| **Nextdoor** (Hampton CT) | `tools/nextdoor/crosspost.py` (via `scripts/nextdoor-crosspost.py`) | `com.farmguardian.nextdoor-crosspost` | 18:30 today active; 08:00 throwback fail-closed | 1 reacted live-cam gem per day. The archive/throwback lane exits unless `FARM_NEXTDOOR_THROWBACK_ENABLED=1`. |
+| **Nextdoor** (Hampton CT) | `tools/nextdoor/crosspost.py` (via `scripts/nextdoor-crosspost.py`) | `com.farmguardian.nextdoor-crosspost` | 18:30 today active; 08:00 throwback fail-closed | 1 reacted live-cam gem per day. The archive/throwback lane exits unless `FARM_NEXTDOOR_THROWBACK_ENABLED=1`. ⚠️ **This posts DAILY and has for months** (verified in the logs), which contradicts the "1 post/week, Sunday mornings" constraint still written in `CLAUDE.md`. Boss needs to settle which is intended. |
+
+### Measurement / reporting lanes (not publishing)
+
+| Surface | Code | LaunchAgent | Cadence | What it does |
+|---|---|---|---|---|
+| **IG insights fetch** | `scripts/ig-insights-fetch.py` | `com.farmguardian.ig-insights-fetch` | nightly 23:30 | pulls per-post Instagram insights via Graph for the farm-2026 analytics surface (16-Jul-2026 Birdcatraz-era work, Part B1) |
+| **IG weekly digest** | `scripts/ig-weekly-digest.py` | `com.farmguardian.ig-weekly-digest` | Sundays 20:00 | weekly Instagram performance digest (Part B2) |
+| **Pipeline digest** | `scripts/pipeline-digest.py --slot {noon,evening}` | `com.farmguardian.pipeline-digest-{noon,evening}` | twice daily | posts a pipeline health/activity summary to Discord, including rolling-24h IG quota usage. Logs nothing on success — exit code 0 is the only signal a digest actually went out. |
+
+**Not a social lane despite the name:** `com.farmguardian.chicken-daily-pick` runs `~/bin/chicken-daily-pick.py`, a **stock-picking** job (rotates a 5-ticker basket at market open, weekdays 09:30). It has nothing to do with chickens or Instagram. Don't file it here.
 
 ---
 
@@ -48,7 +60,9 @@ Cameras and iPhone live ingest are the active raw sources. Camera frames flow th
 
 ## Shared infrastructure
 
-- **S7 time-lapse exception:** `com.farmguardian.ig-s7-daily-reel` does not use `discord_reactions`; it selects sharp, safe `s7-cam` frames and posts a Discord notice after publishing.
+- **Fixed camera-reel exception:** the three fixed daily camera reels (`house-yard` 09:00, `s7` 12:00, `duo2` 15:00) do not use `discord_reactions`; each selects sharp, safe frames from its own camera and posts a Discord notice after publishing.
+- **IG publish quota is saturated.** The account runs at ~20-23 publishes per rolling 24h against Instagram's hard cap of 25, with the publisher self-capping at 22. There is a standing reacted-gem Story backlog of roughly 190 items that has hovered between 180 and 255 since early July — that is the zero-loss backstop working, not a bug, but it means **adding another publishing lane starves the Story queue further.** Use the selector's own count (`select_all_unposted_story_gems`), not raw `discord_reactions > 0` SQL, when reasoning about backlog depth; the raw count is inflated by rows the eligibility filters exclude.
+- **Reel captioning degrades silently.** `tools/pipeline/codex_reel_curator.py` has failed with an OpenAI `401 invalid_api_key` on every reel build since at least 2026-07-07; reels still post because the curator falls back, but no reel has ever been curated by that path in production. Fix the key in the codex CLI's own auth config (not the repo `.env`) or remove the call.
 - **Mark's Discord user ID:** `293569238386606080`. Mention format is `<@293569238386606080>`. The S7 daily time-lapse Reel notice uses this mention so Mark gets alerted when the auto-post lands.
 - **Reel quota note:** the mixed daily Reel and S7 time-lapse Reel both consume one IG `media` publish when they post. The shared ledger is checked before Reel publishing so a full 25-per-24h window delays the Reel instead of retrying into a known hard cap.
 

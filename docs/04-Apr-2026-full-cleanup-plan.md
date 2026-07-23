@@ -1,3 +1,5 @@
+> ✅ **CLOSED (banner added 22-Jul-2026).** Phases A-D/F are done. Phase E1 (enable `vision.py`) is permanently obsolete — `vision.py` was removed in v2.17.0. The verification row claiming `config.json` is untracked is no longer true; both config files are deliberately tracked. Phase G (tests) remains genuinely open. Kept as the record of the v2.1.0 stabilization; the "IN PROGRESS" status below is not current.
+
 # Farm Guardian — Full Cleanup & Stabilization Plan
 
 **Author:** Mark Barney (Claude Opus 4.6)
