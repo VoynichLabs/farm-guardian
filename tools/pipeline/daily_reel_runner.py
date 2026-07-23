@@ -37,7 +37,7 @@ import time
 import urllib.parse
 import uuid
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -47,7 +47,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from tools.pipeline.caption_brand import BRAND_RULES  # noqa: E402
+from tools.pipeline.caption_brand import BRAND_RULES, brand_violations  # noqa: E402
 
 MARK_DISCORD_USER_ID = "293569238386606080"
 
@@ -698,6 +698,95 @@ def _load_farm_context(limit: int = 3, char_cap: int = 600) -> str:
         return ""
 
 
+def _todays_observations(db_path: Path, log: logging.Logger, hours: int = 24) -> str:
+    """Fresh farm facts for today, derived from frames the pipeline already
+    VLM-enriched. Costs one SQL query and no model calls.
+
+    Why this exists (23-Jul-2026): captions were built almost entirely from
+    _load_farm_context(), and the diary had gone stale — 23 entries on disk but
+    only ONE inside the 21-day window (2026-07-09, roost order). Every reel
+    therefore rewrote that same anecdote; four of the last five posted captions
+    were the same sentence rephrased, and the do-not-repeat list could only
+    push the model into another paraphrase because it had nothing else to say.
+    Meanwhile the pipeline was recording thousands of enriched observations a
+    day and none of it reached the caption. This surfaces that.
+
+    Deliberately farm-wide rather than per-camera: the yard lanes are
+    vlm_bypass so their own frames carry no observations, and "what the birds
+    did today" is true of the flock regardless of which camera watched. The
+    phrasing below is careful not to claim a behaviour happened in this
+    particular reel's frames.
+    """
+    # ts is stored ISO-with-T ("2026-07-23T09:43:07+00:00"). Comparing it
+    # against SQLite's datetime('now',...) (space-separated) is a trap: "T"
+    # sorts after " ", so every row sharing the cutoff's date compares greater
+    # and the window silently widens to ~24-48h. Build the bound in the stored
+    # format instead — correct AND still index-friendly on ts.
+    cutoff = (
+        datetime.now(timezone.utc) - timedelta(hours=int(hours))
+    ).strftime("%Y-%m-%dT%H:%M:%S")
+    try:
+        con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        try:
+            rows = con.execute(
+                """SELECT activity, bird_count, lighting, any_special_chick
+                   FROM image_archive
+                   WHERE ts > ?
+                     AND activity IS NOT NULL AND activity != ''""",
+                (cutoff,),
+            ).fetchall()
+        finally:
+            con.close()
+    except Exception as exc:
+        log.info("caption: today's observations unavailable (%s)", exc)
+        return ""
+
+    if not rows:
+        return ""
+
+    # "none-visible" dominates raw counts and says nothing worth captioning.
+    acts: dict[str, int] = {}
+    for activity, _bc, _lt, _sc in rows:
+        if activity and activity != "none-visible":
+            acts[activity] = acts.get(activity, 0) + 1
+    ranked = sorted(acts.items(), key=lambda kv: kv[1], reverse=True)
+
+    facts: list[str] = []
+    if ranked:
+        common = [a for a, _n in ranked[:3]]
+        facts.append("mostly " + ", ".join(common))
+        # Rare behaviours are the interesting ones — a single dust-bath is
+        # better caption material than the thousandth foraging frame.
+        rare = [a for a, n in ranked if n <= max(3, len(rows) // 500)]
+        if rare:
+            facts.append("also glimpsed: " + ", ".join(rare[:3]))
+
+    counts = [bc for _a, bc, _lt, _sc in rows if isinstance(bc, int) and bc > 0]
+    if counts:
+        facts.append(f"up to {max(counts)} birds in frame at once")
+
+    dim = sum(1 for _a, _bc, lt, _sc in rows if lt == "dim")
+    if dim and len(rows) > 20:
+        share = dim / len(rows)
+        if share > 0.35:
+            facts.append("a lot of dim, low light today")
+        elif share > 0.05:
+            facts.append("bright most of the day, dim at the edges")
+
+    if sum(1 for _a, _bc, _lt, sc in rows if sc):
+        facts.append("one of the special birds turned up")
+
+    if not facts:
+        return ""
+    return (
+        "TODAY ON THE FARM — observed across the cameras in the last 24h. This "
+        "is the freshest material available; prefer it over the older diary "
+        "below, and do not claim these happened in this exact reel:\n- "
+        + "\n- ".join(facts)
+        + "\n\n"
+    )
+
+
 def _generate_reel_caption(
     db_path: Path,
     gem_ids: list[int],
@@ -779,12 +868,21 @@ def _generate_reel_caption(
         avoid_block_items = _recent(db_path, limit=5)
     except Exception:
         avoid_block_items = []
+    # 23-Jul-2026: "do not repeat subjects or phrasing" was too weak. With only
+    # one usable diary entry left, the model had nothing else to reach for and
+    # simply paraphrased — four of the last five posted captions were the same
+    # perch sentence reworded. Now it is told explicitly to change SUBJECT.
     avoid_block = (
-        "Recent captions already posted — do NOT repeat their subjects or "
-        "phrasing:\n" + "\n".join(f"- {a[:160]}" for a in avoid_block_items) + "\n\n"
+        "ALREADY POSTED — these are the most recent captions on the account. "
+        "Your caption must be about a DIFFERENT subject. Rewording any of "
+        "these, or reusing their central image or anecdote, is a failure — "
+        "pick something else to talk about:\n"
+        + "\n".join(f"- {a[:160]}" for a in avoid_block_items)
+        + "\n\n"
         if avoid_block_items
         else ""
     )
+    todays_block = _todays_observations(db_path, log)
     # The diary is BACKGROUND, not the subject. It is far richer than a
     # one-line scene hint, so if it leads the prompt the model writes about
     # the diary and ignores what the reel actually shows — verified
@@ -792,11 +890,14 @@ def _generate_reel_caption(
     # captions about a perch incident from the diary. Subject goes first and
     # is stated as authoritative; the diary is explicitly demoted to a source
     # of names/context that must fit the scene.
+    # The diary is now the LAST resort, not the lead. It holds the only named
+    # birds we have (the VLM's individuals_visible_csv is still generic
+    # "adult"/"chick"), so it stays in — but it is one aging entry, and letting
+    # it lead is exactly what produced weeks of identical captions.
     context_block = (
-        f"BACKGROUND — recent farm diary entries. Use these only for names and "
-        f"context that plausibly fit the scene above. Do NOT describe diary "
-        f"events that would not be visible in this particular reel:\n\n"
-        f"{farm_context}\n\n"
+        f"OLDER BACKGROUND — farm diary. May be days old. Use it only for bird "
+        f"names or standing context, and only if it fits. Do NOT make a stale "
+        f"diary event the subject of the caption:\n\n{farm_context}\n\n"
         if farm_context
         else ""
     )
@@ -833,39 +934,70 @@ def _generate_reel_caption(
         "You are writing a caption for an Instagram Reel from a small farm.\n\n"
         f"{BRAND_RULES}\n"
         f"{subject_block}"
+        f"{todays_block}"
         f"{context_block}"
         f"{avoid_block}"
         "Write a single short caption (1-2 sentences, no hashtags) about the "
         f"reel described above. {specificity}"
-        "If the background mentions a named bird or recent event that genuinely "
-        "fits this scene, reference it concretely rather than writing in "
-        "generic terms. Reply with the caption text only — no preamble, "
-        "quotes, or commentary."
+        "Lead with something from TODAY where you can — a behaviour the birds "
+        "were actually seen doing, or how the day looked — rather than "
+        "restating older diary news. Reply with the caption text only — no "
+        "preamble, quotes, or commentary."
     )
 
-    try:
-        payload = {
-            "model": vlm_model,
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 100,
-            "temperature": 0.7,
-            "reasoning_effort": "none",
-        }
-        vlm_timeout = int(cfg.get("vlm_timeout_seconds", 300))
-        resp = _req.post(
-            f"{lm_base}/v1/chat/completions",
-            json=payload,
-            timeout=vlm_timeout,
-        )
-        if resp.status_code != 200:
-            raise RuntimeError(f"chat endpoint returned http={resp.status_code}")
-        synthesized = resp.json()["choices"][0]["message"]["content"].strip()
-        log.info("lm_studio: synthesized reel caption: %r", synthesized[:80])
-    except Exception as exc:
-        log.warning("lm_studio: caption synthesis failed (%s); using fallback", exc)
-        return _build_reel_caption(db_path, gem_ids, fallback)
+    # Generate, then VERIFY. The brand prohibitions are not left to
+    # instruction-following: this model has demonstrably produced "no one
+    # looking at the camera, no one chasing a hawk" while being told not to
+    # mention either. A violating caption is regenerated, not patched —
+    # deleting "hawk" from a sentence about hawks leaves a sentence about
+    # nothing. If it still violates, we post the deterministic literal, which
+    # is dull but always safe.
+    vlm_timeout = int(cfg.get("vlm_timeout_seconds", 300))
+    attempts = 3
+    for attempt in range(1, attempts + 1):
+        this_prompt = prompt
+        if attempt > 1:
+            # Corrective nudge stays positive — restating the banned words is
+            # what plants them in the first place.
+            this_prompt = prompt + (
+                "\n\nYour previous attempt drifted off-voice. Write it again "
+                "as the farmer simply describing the birds' day in plain "
+                "words, with nothing about how the scene was observed and "
+                "nothing about anything threatening them."
+            )
+        try:
+            resp = _req.post(
+                f"{lm_base}/v1/chat/completions",
+                json={
+                    "model": vlm_model,
+                    "messages": [{"role": "user", "content": this_prompt}],
+                    "max_tokens": 100,
+                    "temperature": 0.7,
+                    "reasoning_effort": "none",
+                },
+                timeout=vlm_timeout,
+            )
+            if resp.status_code != 200:
+                raise RuntimeError(f"chat endpoint returned http={resp.status_code}")
+            synthesized = resp.json()["choices"][0]["message"]["content"].strip()
+        except Exception as exc:
+            log.warning("lm_studio: caption synthesis failed (%s); using fallback", exc)
+            return _build_reel_caption(db_path, gem_ids, fallback)
 
-    return _wrap_caption_with_hashtags(db_path, gem_ids, synthesized)
+        bad = brand_violations(synthesized)
+        if not bad:
+            log.info("lm_studio: synthesized reel caption: %r", synthesized[:80])
+            return _wrap_caption_with_hashtags(db_path, gem_ids, synthesized)
+        log.warning(
+            "caption: brand violation %s on attempt %d/%d: %r",
+            bad, attempt, attempts, synthesized[:100],
+        )
+
+    log.error(
+        "caption: %d attempts all violated brand rules; using safe literal",
+        attempts,
+    )
+    return _build_reel_caption(db_path, gem_ids, fallback)
 
 
 def _wrap_caption_with_hashtags(db_path: Path, gem_ids: list[int], body: str) -> str:
