@@ -4,6 +4,14 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-07-23
 
+### v2.51.10 — Diary posts to the right channel; fix "unresolved" tripping the resolved-incident filter (Claude Fable 5) — 23-Jul-2026
+
+**Wrong channel (Boss caught it).** The first cut of `farm-diary-from-discord.py` hardcoded `1476787165638951026` — which is **#swarm-coordination**, the reciprocate harvester's channel, not #farm-2026. The docs literally say "NOT `#farm-2026`" right beside that ID. The verified #farm-2026 ID (`1482466978806497522`) was already in the codebase at `tools/discord_harvester.CHANNEL_ID`, so the script now **imports** it rather than keeping a third copy. Today's entry was reposted to the correct channel. Schedule confirmed at 20:00 as intended.
+
+**`--force` now replaces the day instead of stacking.** The slug comes from a model-generated title, which drifts as the day's conversation moves, so re-running produced a second entry for the same date and both fed the caption context. It now clears other same-day entries first.
+
+**Bug: "unresolved" matched "resolved".** `_load_farm_context()` drops diary entries that read as a healed health incident, but it tested with bare substring containment — so `"resolved" in "unresolved"` is True and an explicitly **un**resolved item was treated as resolved. Today's entry said *"Origin unresolved"* about a mystery white cockerel, and the entire day's diary was silently dropped from every reel caption. Now matched on word boundaries with a negative lookbehind for `un`, and unit-checked both ways. Caption context went from 600 chars (today missing) to 1,207 (today present).
+
 ### v2.51.9 — Daily farm diary from Discord; mba-cam/usb-cam mislabelling recorded (Claude Fable 5) — 23-Jul-2026
 
 **The diary is fed again.** `scripts/farm-diary-from-discord.py` + `com.farmguardian.farm-diary` (daily 20:00) implement `docs/20-Jul-2026-daily-diary-from-discord-plan.md`, which was written 3 days earlier and never built. It pulls the last 24h of `#meet-the-lobsters`, distills only the farm-relevant substance via Bubba's own model (claude CLI, print mode), writes `farm-2026/content/diary/YYYY-MM-DD-<slug>.md`, and posts it to `#farm-2026` for Boss's reaction.

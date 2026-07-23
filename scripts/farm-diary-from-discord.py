@@ -46,8 +46,15 @@ OPENCLAW_CONFIG = Path.home() / ".openclaw" / "openclaw.json"
 # Source: the only channel wired requireMention=False, i.e. where the farm
 # conversation actually happens rather than direct commands to Bubba.
 SOURCE_CHANNEL_ID = "1471632572953006337"   # #meet-the-lobsters
-# Destination: the reaction-gate channel every outbound lane already reads.
-FARM_CHANNEL_ID = "1476787165638951026"     # #farm-2026
+
+# Destination: #farm-2026. Imported, NOT re-hardcoded — the first cut of this
+# script hardcoded 1476787165638951026 from a CLAUDE.md passage and posted the
+# diary into #swarm-coordination by mistake. That ID is the reciprocate
+# harvester's channel; the docs even say "NOT #farm-2026" right next to it.
+# tools/discord_harvester.CHANNEL_ID is the verified value
+# (docs/skills-farm-2026-discord-post.md confirms it via the webhook endpoint),
+# so take it from there and let there be exactly one source of truth.
+from tools.discord_harvester import CHANNEL_ID as FARM_CHANNEL_ID  # noqa: E402
 
 DIARY_DIR = Path.home() / "Documents" / "GitHub" / "farm-2026" / "content" / "diary"
 
@@ -248,6 +255,15 @@ def main() -> int:
         return 0
 
     DIARY_DIR.mkdir(parents=True, exist_ok=True)
+    # --force means "redo today", not "add a second entry for today". The
+    # title (and therefore the slug) is model-generated and shifts as the
+    # day's conversation moves on, so a naive rewrite leaves duplicates that
+    # both feed the caption context. Clear the day first.
+    if args.force:
+        for stale in DIARY_DIR.glob(f"{day}-*.md"):
+            if stale != path:
+                stale.unlink()
+                log.info("force: removed superseded entry %s", stale.name)
     path.write_text(body.rstrip() + "\n", encoding="utf-8")
     log.info("wrote %s (%d chars)", path, len(body))
     post_to_discord(token, body, path, dry_run=False)

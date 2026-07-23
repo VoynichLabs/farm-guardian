@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import re
 import os
 import shutil
 import sqlite3
@@ -632,9 +633,20 @@ FARM_CONTEXT_MAX_AGE_DAYS = 21
 
 # A dated health-incident entry that reads as resolved must not resurface even
 # when it still falls inside the freshness window.
+#
+# 23-Jul-2026: these are matched on WORD BOUNDARIES, not as bare substrings.
+# Plain `"resolved" in text` also fires on "unresolved" — the exact opposite
+# meaning — and it really happened: the 23-Jul entry said "Origin unresolved"
+# about a mystery cockerel and the whole day's diary was silently dropped from
+# the caption context as a "resolved health incident".
 _RESOLVED_MARKERS = (
     "cleared up", "cleared per", "has cleared", "resolved", "healed",
     "all clear", "no longer", "fully recovered",
+)
+
+_RESOLVED_RE = re.compile(
+    r"(?<!un)\b(" + "|".join(re.escape(m) for m in _RESOLVED_MARKERS) + r")\b",
+    re.IGNORECASE,
 )
 
 _DIARY_MONTHS = {
@@ -698,7 +710,7 @@ def _load_farm_context(limit: int = 3, char_cap: int = 600) -> str:
         chunks: list[str] = []
         for _d, f in dated:
             text = f.read_text(encoding="utf-8", errors="ignore").strip()
-            if any(mark in text.lower() for mark in _RESOLVED_MARKERS):
+            if _RESOLVED_RE.search(text):
                 continue
             chunks.append(text[:char_cap].strip())
             if len(chunks) >= limit:
