@@ -4,6 +4,16 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-07-23
 
+### v2.51.7 — Captions name living birds from the flock roster (Claude Fable 5) — 23-Jul-2026
+
+**What:** `_living_flock_roster()` feeds the caption prompt the names, breeds and colours of the **living** flock from `farm-2026/content/flock-profiles.json`.
+
+**Why:** v2.51.6 fixed *what* captions talk about but left *names* dependent on the dying diary — every named bird in recent captions came from the single surviving diary entry, which ages out of the 21-day window on ~2026-07-30, after which captions would have gone permanently nameless. `flock-profiles.json` holds 35 birds with breed/colour/temperament and was last updated 22-Jul-2026, so it is actively maintained, unlike the diary. Nothing in the caption path was reading it.
+
+**⚠️ The deceased filter is load-bearing, not a nicety.** The roster tracks flock history, so **7 of the 35 birds are dead** — including Henrietta and Birdatha, who read as ordinary hens from name and breed alone. Passing the raw roster to the model would have produced cheerful present-tense captions about dead birds on a public account. Only `status == "active"` is surfaced (strict allowlist, so an unrecognised future status excludes rather than leaks), and `deceased_date`/`cause_of_death` are never included. Verified by assertion: no deceased name appears in generated output across all four lanes.
+
+**Verified** (read-only, nothing posted): house-yard produced *"…Birdsula's still the quiet one, but the turkeys' red heads are making the whole yard feel brighter"* — a living named bird plus real roster detail. All four lanes brand-clean.
+
 ### v2.51.6 — Captions: fresh daily material + enforced brand safety (Claude Fable 5) — 23-Jul-2026
 
 **The bug, found by reading the posted-caption ledger:** four of the last five captions posted to `@pawel_and_pawleen` were the same sentence reworded — *"Henriella and Birdsilla still share the top perch…"*. Root cause: captions were built from `_load_farm_context()`, and the farm diary had gone stale. 23 entries exist on disk but only **ONE** falls inside the 21-day freshness window (`2026-07-09-roost-order-and-headcount.md`). Every reel got handed that same file and had nothing else to write about; the v2.47.0 do-not-repeat list could only push the model into another paraphrase. In ~7 days that entry ages out entirely and captions would have degraded further.

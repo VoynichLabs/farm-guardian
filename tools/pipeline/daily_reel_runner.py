@@ -613,6 +613,16 @@ def _build_reel_caption(
 
 FARM_DIARY_DIR = Path.home() / "Documents" / "GitHub" / "farm-2026" / "content" / "diary"
 
+# The flock roster — the living birds' names, breeds and personalities. This is
+# the durable source of NAMES for captions; the diary is not. As of 23-Jul-2026
+# the diary has one usable entry left (see _todays_observations) and every named
+# bird in recent captions came from it, so when it ages out the captions would
+# have lost names entirely. This file is actively maintained (last touched
+# 22-Jul-2026) and carries 35 birds.
+FLOCK_PROFILES_PATH = (
+    Path.home() / "Documents" / "GitHub" / "farm-2026" / "content" / "flock-profiles.json"
+)
+
 
 # Diary entries older than this are treated as stale and never injected into
 # captions. A frozen diary folder (no new entries for weeks) must not surface a
@@ -696,6 +706,58 @@ def _load_farm_context(limit: int = 3, char_cap: int = 600) -> str:
         return "\n\n---\n\n".join(chunks)
     except Exception:
         return ""
+
+
+def _living_flock_roster(log: logging.Logger, limit: int = 14) -> str:
+    """Names of birds that are ALIVE, for captions to use.
+
+    ⚠️ The deceased filter is the whole point of this function, not a nicety.
+    flock-profiles.json tracks the flock's history, so it carries birds that
+    have died — 7 of 35 at the time of writing, including Henrietta and
+    Birdatha, both of whom read as perfectly ordinary hens from their name and
+    breed alone. Handing the raw roster to the caption model would have it
+    writing cheerful present-tense captions about dead birds. Only
+    status == "active" is ever surfaced, and the death fields
+    (deceased_date / cause_of_death) are never included at all.
+
+    Best-effort: returns "" on any failure, so captions degrade to unnamed
+    rather than break.
+    """
+    try:
+        data = json.loads(FLOCK_PROFILES_PATH.read_text(encoding="utf-8"))
+        birds = data.get("flock_birds") or []
+    except Exception as exc:
+        log.info("caption: flock roster unavailable (%s)", exc)
+        return ""
+
+    lines: list[str] = []
+    for bird in birds:
+        if not isinstance(bird, dict):
+            continue
+        # Strict allowlist on status: anything not explicitly "active" is
+        # excluded, so an unrecognised future status can never leak a dead
+        # bird into a caption.
+        if (bird.get("status") or "").strip().lower() != "active":
+            continue
+        if bird.get("deceased_date") or bird.get("cause_of_death"):
+            continue
+        name = (bird.get("name") or "").strip()
+        if not name:
+            continue
+        bits = [b for b in (bird.get("breed"), bird.get("color_description")) if b]
+        detail = f" — {', '.join(str(b)[:60] for b in bits)}" if bits else ""
+        lines.append(f"{name}{detail}")
+        if len(lines) >= limit:
+            break
+
+    if not lines:
+        return ""
+    return (
+        "THE FLOCK (living birds you may name — use a name only if it fits "
+        "what the reel shows; never invent one):\n- "
+        + "\n- ".join(lines)
+        + "\n\n"
+    )
 
 
 def _todays_observations(db_path: Path, log: logging.Logger, hours: int = 24) -> str:
@@ -883,6 +945,7 @@ def _generate_reel_caption(
         else ""
     )
     todays_block = _todays_observations(db_path, log)
+    roster_block = _living_flock_roster(log)
     # The diary is BACKGROUND, not the subject. It is far richer than a
     # one-line scene hint, so if it leads the prompt the model writes about
     # the diary and ignores what the reel actually shows — verified
@@ -935,6 +998,7 @@ def _generate_reel_caption(
         f"{BRAND_RULES}\n"
         f"{subject_block}"
         f"{todays_block}"
+        f"{roster_block}"
         f"{context_block}"
         f"{avoid_block}"
         "Write a single short caption (1-2 sentences, no hashtags) about the "
