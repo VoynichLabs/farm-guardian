@@ -38,10 +38,15 @@ camera to post daily on its own — the rotation is the opposite of that.
 2. **duo2 reactivated** — renamed off `.disabled`, loaded. Runs 15:00 local.
 3. **camera-of-the-day disabled** — booted out, renamed
    `.plist.disabled-22jul2026`.
-4. **config faster playback** — `tools/pipeline/config.json`:
-   - `reels.seconds_per_frame` 1.0 → 0.4
-   - `instagram.scheduled.timelapse_reel_max_frames` 60 → 90
-   - crossfade stays 0.15 (< 0.4 spf, satisfies stitcher guard).
+4. **faster playback — Reolink lanes ONLY** (corrected in v2.51.2; the first
+   pass changed the global and wrongly sped up the s7 reel):
+   - `instagram.scheduled.timelapse_reel_max_frames` 60 → 90 (timelapse lanes
+     only — s7 uses its own `s7_daily_reel_max_frames`, untouched).
+   - `reels.seconds_per_frame` stays **1.0** globally.
+   - `DailyReelLane.seconds_per_frame = 0.4` set on house-yard and duo2 only;
+     every other lane inherits the 1.0 global.
+   - crossfade stays 0.15 (< 0.4, satisfies the stitcher guard).
+   - Result: Reolink reels ~22.6s for 90 frames; s7 unchanged from before.
 
 Post times (Boss-chosen): house-yard 09:00 · s7 12:00 · duo2 15:00. (Plus the
 still-running 12:30 carousel and 18:00 mixed reel — see open item.)
