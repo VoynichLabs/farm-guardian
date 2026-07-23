@@ -16,6 +16,13 @@ Closes the two gaps left after the v2.51.9 writer: the Boss's reaction now produ
 
 Verified: both scripts compile and dry-run clean against the real diary folder + live `#farm-2026`; the field note generated from today's entry has valid frontmatter, an auto-selected cover (`/photos/carousel/2026-07-23/…`), no duplicate title, and is MDX-safe; the staleness check reads healthy (2 usable of 24 entries, 1,207 chars of caption context); both LaunchAgents load. Nothing publishes without a real Boss reaction, so the end-to-end publish confirms on his next reaction to a diary post.
 
+### v2.51.13 — GWTC screen is disabled ON PURPOSE (touchscreen + chickens), not fried (Claude Fable 5) — 23-Jul-2026
+
+Correction to v2.51.12. Boss clarified: GWTC is a **touchscreen** laptop and the chickens kept touching it, so the screen was deliberately disabled at the hardware level. That reconciles all the evidence — Windows enumerates the panel (`NV116WHM-T16`, T = touch) and reports it active/full-power/brightness 90, but it stays dark, and `Get-PnpDevice` shows **no active HID touch-screen device**. So it is intentional, not a failure. My two prior diagnoses ("brightness pinned low", then "dead backlight") were both wrong; the brightness value does take in software, the panel is simply off on purpose.
+
+- Removed the `farmcam-screen-on` scheduled task from GWTC — it was created on the wrong brightness theory and was pointlessly trying to light a deliberately-disabled screen every hour. `deploy/gwtc/screen-on.ps1` + `register-screen-task.ps1` stay in the repo as dead artifacts.
+- CLAUDE.md now says plainly: screen is black by design, do not diagnose it as a dead backlight or replace the panel. It runs headless fine.
+
 ### v2.51.12 — GWTC usb-cam: black-frame recovery + daylight WB fix (Claude Fable 5) — 23-Jul-2026
 
 **Black frame (Boss reported "down").** The GWTC USB camera served a **pure-black** image (max pixel literally 0) while every status was green — the host reported the device open and grabbing every 0.5s, and Guardian showed 6/6 online. So nothing flagged it; only the pixels were dead. This is a UVC "device handle alive, sensor feed dead" fault. Restarting the grabber reopened the device and it came back to a real 549 KB frame. Saved the one-liner as `C:\farm-services\restart-usbcam.ps1` (repo copy `deploy/gwtc/restart-usbcam.ps1`) for next time. If it recurs, the right permanent fix is a watchdog that samples the frame and auto-restarts on all-black — noted, not yet built.
