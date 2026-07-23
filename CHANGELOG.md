@@ -2,6 +2,27 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased] - 2026-07-23
+
+### v2.51.4 — Fix the failures the audit found (Claude Fable 5) — 23-Jul-2026
+
+**What:** Repaired the broken things catalogued in `docs/22-Jul-2026-mac-mini-ecosystem-audit.md` rather than leaving them as a to-do list.
+
+**Repo changes:**
+- `deploy/pipeline/farm-pipeline-log-prune.sh` — widened from 2 logs to 8. `/tmp/guardian.out.log` had grown to **93 MB** completely uncovered, and the discord-reaction-sync pair was unbounded too. Threshold 50 MB → 25 MB, since 50 MB let guardian's log reach ~93 MB between daily runs. Keeps the original inode-preserving overwrite so running services never lose their fd. Reinstalled to `~/bin/` and run once: **~130 MB reclaimed**, both services verified still up afterward.
+- `tools/pipeline/daily_reel_runner.py` — the LM Studio caption path's fallback model default was the long-dead `qwen/qwen3.5-9b`. It never fires today because `vlm_model_id` is set in config, but if that key were ever dropped the code would request an unloaded model, and `/v1/chat/completions` **silently auto-loads** — the exact behavior that took this machine down on 2026-04-13. Corrected to `qwen/qwen3-vl-4b` with a comment explaining why the default must track production.
+
+**System changes (outside the repo, recorded here so they aren't invisible):**
+- Retired `com.bubba.anthropic-token-refresh` — failing every 15 minutes since 2026-07-02 (1,528 runs) because the OpenClaw 6.11 upgrade migrated auth into sqlite and deleted the file it synced into. Booted out; plist renamed `.retired-23jul2026`.
+- Fixed the `daily-email-summary` OpenClaw cron job. Its `toolsAllow` list could not be enforced under the claude-cli runtime *and* was wrong anyway — it granted no shell tool while the job shells out to `himalaya`. Cleared the list; a manual run now reports `ok`.
+- Defused `phoenix.sh`: its `last-known-good.json` restore source was a **2026-03-01** snapshot, so anyone running `phoenix.sh health` during an outage would have silently rolled Bubba's config back 4.5 months. Ran its own `backup` verb against the healthy gateway so the snapshot is current. Safety net preserved.
+- `chmod 600 ~/.openclaw/secrets.json` (was world-readable).
+- `~/.openclaw/workspace-isolated/ai-my-org` — cleared an interactive rebase abandoned mid-conflict in February. The one "unpushed" commit only added author metadata that upstream already carries in richer form, so the branch was fast-forwarded to `origin/main`; the old tip is preserved at tag `local-main-pre-sync-20260723`. `PlanExe2026`'s uncommitted OpenRouter gemini-3.1-flash profile was committed and pushed.
+
+**Known-unfixable without Boss:** reel captions. `codex_reel_curator.py` expects the Codex subscription over OAuth, but `~/.codex/auth.json` has drifted to `apikey` mode with a dead key and no valid OpenAI key exists on this box. The three fixed daily camera reels have therefore been posting a hardcoded literal caption since ~07-Jul (the mixed reel is unaffected — it falls back to LM Studio). One interactive `codex login` fixes it; `codex_caption` was left enabled so it self-heals.
+
+**Explicitly not "fixed":** the per-cycle ConnectTimeouts from `usb-cam`/`dominator-cam`/`mba-cam` are expected behavior for opportunistic cameras on hosts that sleep — disabling them would break their intended auto-recovery. Log rotation addressed the real symptom.
+
 ## [Unreleased] - 2026-07-22
 
 ### v2.51.3 — Docs truth pass + ~11 GB cruft reclaim (Claude Fable 5) — 22-Jul-2026

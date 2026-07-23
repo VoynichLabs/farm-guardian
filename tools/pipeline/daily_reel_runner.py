@@ -780,7 +780,12 @@ def _generate_reel_caption(
             return _wrap_caption_with_hashtags(db_path, gem_ids, codex_body)
 
     lm_base = cfg.get("lm_studio_base", "http://localhost:1234")
-    vlm_model = cfg.get("vlm_model_id", "qwen/qwen3.5-9b")
+    # Default must track the live production VLM. If it drifts stale and the
+    # config key ever goes missing, the guard below sees "not loaded" and falls
+    # back — but a stale name here is one edit away from requesting an unloaded
+    # model, which /v1/chat/completions silently auto-loads (the 2026-04-13
+    # incident that took the box down).
+    vlm_model = cfg.get("vlm_model_id", "qwen/qwen3-vl-4b")
 
     # Verify LM Studio is up and the right model is loaded before calling.
     try:

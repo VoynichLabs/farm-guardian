@@ -6,7 +6,32 @@ Author: Claude Fable 5. Scope: whole Mac Mini ecosystem (farm-guardian, LaunchAg
 
 The system mostly works. Every social lane that should post is posting; yard-diary, FB cross-post, Bubba's gateway, and the tunnel are verified healthy. The real problems are: **both Reolink cameras were off-network at audit time**, ~6 things fail on a loop and nobody notices, and the "read this first" docs (CLAUDE.md, SOCIAL_MEDIA_MAP, HOW_IT_ALL_FITS, HARDWARE_INVENTORY, lm-studio-reference) are all wrong about the current system in ways that will burn the next agent.
 
-## Fix-now (actually broken)
+## STATUS — most of this was fixed 23-Jul-2026
+
+| # | Item | Status |
+|---|---|---|
+| 1 | Both Reolinks unreachable | ✅ **Was transient.** `house-yard` and `duo2` are both capturing normally (verified by fresh archive frames). No outage. |
+| 2 | `anthropic-token-refresh` failing every 15 min | ✅ **Retired.** Its target file was deleted by the OpenClaw 6.11 auth migration; the gateway no longer needs it. Booted out, plist renamed `.retired-23jul2026`. |
+| 3 | codex_reel_curator 401 | ⚠️ **Needs Boss — see below.** |
+| 4 | OpenClaw `daily-email-summary` cron erroring | ✅ **Fixed and verified.** Its `toolsAllow` list was both unenforceable under the claude-cli runtime *and* wrong (no shell tool, yet the job shells out to `himalaya`). Cleared it; a manual run now reports `ok`. |
+| 5 | `phoenix.sh` March-snapshot landmine | ✅ **Defused.** Ran `phoenix.sh backup` against the healthy gateway, so `last-known-good.json` is now today's config instead of 2026-03-01. Safety net kept, landmine gone. |
+| 6 | Larry up / Egon answering SSH | ⚠️ **Boss call.** Documented in CLAUDE.md; Egon marked do-not-SSH pending a Linode dashboard check. |
+
+**Also fixed in the same pass:** `~/.openclaw/secrets.json` locked to 0600; log rotation widened to cover `guardian.out.log` (was 93 MB, uncovered), the discord-reaction-sync pair, cloudflared and the lmstudio watchdog, with the threshold dropped 50 MB → 25 MB (~130 MB reclaimed immediately); the stale `qwen3.5-9b` fallback default in `daily_reel_runner.py` corrected to the live model so a missing config key can never trigger LM Studio's auto-load.
+
+**The one thing only Boss can fix — reel captions.** `tools/pipeline/codex_reel_curator.py` was designed to use the Codex **subscription via OAuth**, but `~/.codex/auth.json` has drifted to `auth_mode: "apikey"` with a dead key (`...H5CR8A`), and there is no valid OpenAI key anywhere on this machine to swap in. Consequence: the mixed 18:00 reel is fine (it falls back to LM Studio), but **the three fixed daily camera reels fall back to a hardcoded literal caption** and have been posting near-identical text since ~07-Jul. The fix is one interactive command:
+
+```bash
+codex login
+```
+
+`instagram.reels.codex_caption` was deliberately left enabled so captions heal the moment that login succeeds — no config change needed afterward.
+
+**Deliberately NOT changed (they look broken but aren't):** `usb-cam`, `dominator-cam` and `mba-cam` log ConnectTimeouts every pipeline cycle. That is *expected* — they are opportunistic cameras on hosts that sleep or get powered down (the MSI Dominator is Boss's day-to-day laptop; the MacBook Air sleeps overnight). Disabling them would break the intended "comes back when the host wakes" behavior. The log noise was the real problem and rotation now handles it. `mba-cam` does still capture ~2 GB/day that no publishing lane consumes — that one is a genuine Boss call, not a bug.
+
+---
+
+## Fix-now (actually broken) — original findings, kept for the record
 
 1. **Both Reolinks (house-yard + duo2) unreachable** at every documented IP; no RTSP host on the /24 at audit time. house-yard is the only detection-enabled camera. Needs hands: check camera power/WiFi; then pin static DHCP leases on the router and reconcile the IP mess (config says .88/.155, pipeline config .89, HARDWARE_INVENTORY .156, running Guardian reported .2). [ST-02, D1-08]
 2. **`com.bubba.anthropic-token-refresh` has failed every 15 min since 02-Jul** (1,528 failed runs) — the OpenClaw 6.11 upgrade moved auth into sqlite and deleted the file it syncs. Gateway doesn't need it anymore. Retire: bootout + delete the plist. [OB-01/CM-01]
