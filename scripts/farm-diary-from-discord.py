@@ -219,11 +219,18 @@ def main() -> int:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
 
-    day = datetime.now().strftime("%Y-%m-%d")
-    existing = sorted(DIARY_DIR.glob(f"{day}-*.md"))
+    # Filenames use the repo-wide dated convention, DD-Mon-YYYY (CLAUDE.md
+    # "Plans (required)"). The diary folder had drifted into two formats —
+    # 2026-07-09-... and 18-may-2026-... — and was normalised on 23-Jul-2026.
+    # `day` is the human-facing date that goes in the entry heading; `stamp`
+    # is the filename prefix.
+    now = datetime.now()
+    day = now.strftime("%Y-%m-%d")
+    stamp = f"{now.day:02d}-{now.strftime('%b')}-{now.year}"
+    existing = sorted(DIARY_DIR.glob(f"{stamp}-*.md"))
     if existing and not args.force and not args.dry_run:
         log.info("entry already exists for %s (%s); nothing to do",
-                 day, existing[0].name)
+                 stamp, existing[0].name)
         return 0
 
     token = _token()
@@ -247,7 +254,7 @@ def main() -> int:
 
     first = body.lstrip().split("\n", 1)[0]
     title = re.sub(r"^#+\s*", "", first).split("—")[0].strip()
-    path = DIARY_DIR / f"{day}-{slugify(title)}.md"
+    path = DIARY_DIR / f"{stamp}-{slugify(title)}.md"
 
     if args.dry_run:
         print(f"\n----- would write {path} -----\n{body}\n")
@@ -260,7 +267,7 @@ def main() -> int:
     # day's conversation moves on, so a naive rewrite leaves duplicates that
     # both feed the caption context. Clear the day first.
     if args.force:
-        for stale in DIARY_DIR.glob(f"{day}-*.md"):
+        for stale in DIARY_DIR.glob(f"{stamp}-*.md"):
             if stale != path:
                 stale.unlink()
                 log.info("force: removed superseded entry %s", stale.name)

@@ -4,6 +4,12 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-07-23
 
+### v2.51.11 — Diary filenames normalised to DD-Mon-YYYY (Claude Fable 5) — 23-Jul-2026
+
+The diary folder had drifted into two naming conventions — `2026-07-09-roost-order.md` and `18-may-2026-hatch-window.md` — depending on which session wrote the entry. Boss's preferred form is day, month spelled out, year, which is also the repo-wide dated-file convention in CLAUDE.md. All 24 entries renamed in `farm-2026`, and `scripts/farm-diary-from-discord.py` now emits the same shape.
+
+Checked before touching anything: `daily_reel_runner._diary_date()` lowercases the filename and accepts 3-or-more-letter month names, so capitalised `DD-Mon-YYYY` parses fine; and the website reads `.mdx` only, so these `.md` files are invisible to it and nothing public changed. Verified after: all 24 parse, and the caption context still resolves to 1,207 chars including today's entry. Renames went through `git mv` where possible so history follows the files (macOS is case-insensitive, so case-only renames needed a temp-name hop).
+
 ### v2.51.10 — Diary posts to the right channel; fix "unresolved" tripping the resolved-incident filter (Claude Fable 5) — 23-Jul-2026
 
 **Wrong channel (Boss caught it).** The first cut of `farm-diary-from-discord.py` hardcoded `1476787165638951026` — which is **#swarm-coordination**, the reciprocate harvester's channel, not #farm-2026. The docs literally say "NOT `#farm-2026`" right beside that ID. The verified #farm-2026 ID (`1482466978806497522`) was already in the codebase at `tools/discord_harvester.CHANNEL_ID`, so the script now **imports** it rather than keeping a third copy. Today's entry was reposted to the correct channel. Schedule confirmed at 20:00 as intended.
