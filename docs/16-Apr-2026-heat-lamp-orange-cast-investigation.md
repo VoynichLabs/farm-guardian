@@ -76,6 +76,21 @@ ssh -i ~/.ssh/id_ed25519 markb@192.168.0.50 'cd ~/Documents/GitHub/farm-guardian
 
 Or delegate via `ssh ... 'c -p "..."'` pattern per `docs/skills-s7-adb-operations.md` conventions — that's the intended multi-Claude path for hands-on work on the MBA.
 
+## Daylight is the OPPOSITE of the heat-lamp case (confirmed 23-Jul-2026)
+
+Everything above is about a UVC webcam under a **tungsten heat lamp**, where the red channel clips and gray-world is a (bad) attempt to compensate. **In natural daylight the correct setting is the reverse: gray-world OFF.**
+
+On **GWTC** (`192.168.0.69:8089`, USB camera in the coop run, natural light), the camera came back on 23-Jul-2026 washing out with the exact cyan/purple/yellow posterisation from the top of this doc — but the cause was gray-world *over-correcting a bright daylight scene*, not a heat lamp. The scene was only ~0.3–0.6% clipped, so it was not even a real exposure problem; gray-world was manufacturing the rainbow from balanced input. Fix, verified by eye and by measuring balanced B/G/R (≈146/146/146, was 170 with heavy posterisation):
+
+```
+set USB_CAM_AUTO_WB=false
+set USB_CAM_WB_STRENGTH=0
+```
+
+set in `C:\farm-services\usb-cam-host\start.bat` on GWTC (persists across reboot — the `usb-cam-host` scheduled task runs that file at logon). No exposure clamp was needed; the only remaining blown region is genuine bright sky at the frame edge.
+
+**Rule of thumb:** heat lamp / tungsten → the whole gray-world+orange-desat stack (this doc's main body). Natural daylight → `AUTO_WB=false`. Do not carry a heat-lamp WB config onto a daylight camera or vice-versa; they are contradictory. The line below about `WB_STRENGTH=0` leaving a red cast is a **heat-lamp-only** caveat.
+
 ## What NOT to do (pre-buried commit reviews)
 
 - Don't add a fourth color-correction pass. Three already exist, each partially undoing the last. Adding more just adds more artifacts.
