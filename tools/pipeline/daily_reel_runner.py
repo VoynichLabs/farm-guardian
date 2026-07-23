@@ -1,5 +1,5 @@
-# Author: Claude Sonnet 4.6; Claude Opus 4.7 (22-June-2026 — duo2 timelapse lane); Claude Fable 5 (16-Jul-2026 — mba-cam lane relabeled brooder→turkey pen, v2.46.0; Codex captions for vlm_bypass lanes + posted-caption dedup + tag rotation from ledger + chicks bucket retired, v2.47.0; D8 codex_reel_curator wired into the s7-daily lane + opener pacing hook, D10 CAMERA_OF_THE_DAY_POOL/pick_camera_of_the_day rotation, v2.48.0)
-# Date: 09-May-2026 (updated 09-May-2026 — landscape mode + LM Studio caption synthesis + 4 timelapse lanes; 10-May-2026 — GWTC approval gate; 22-June-2026 — DUO2_TIMELAPSE_LANE; 16-Jul-2026 — D8/D10)
+# Author: Claude Sonnet 4.6; Claude Opus 4.7 (22-June-2026 — duo2 timelapse lane); Claude Fable 5 (16-Jul-2026 — mba-cam lane relabeled brooder→turkey pen, v2.46.0; Codex captions for vlm_bypass lanes + posted-caption dedup + tag rotation from ledger + chicks bucket retired, v2.47.0; D8 codex_reel_curator wired into the s7-daily lane + opener pacing hook, D10 CAMERA_OF_THE_DAY_POOL/pick_camera_of_the_day rotation, v2.48.0); Claude Opus 4.8 (22-Jul-2026 — per-lane seconds_per_frame override so the two Reolink time-lapse lanes play fast without speeding up the s7/mixed lanes, v2.50.1)
+# Date: 09-May-2026 (updated 09-May-2026 — landscape mode + LM Studio caption synthesis + 4 timelapse lanes; 10-May-2026 — GWTC approval gate; 22-June-2026 — DUO2_TIMELAPSE_LANE; 16-Jul-2026 — D8/D10; 22-Jul-2026 — per-lane pacing override)
 # PURPOSE: Shared runner for scheduled Instagram Reel lanes. The
 #          existing mixed-camera daily Reel uses the approval-gated
 #          flow: build MP4, upload a Discord preview, wait for a human
@@ -77,6 +77,13 @@ class DailyReelLane:
     # discord_preview_scale: ffmpeg scale filter for the Discord upload copy.
     # Portrait lanes use "540:960" (9:16); landscape lanes use "960:540".
     discord_preview_scale: str = "540:960"
+    # seconds_per_frame: per-lane override of reels.seconds_per_frame. None =
+    # inherit the global config value. 22-Jul-2026: Boss wants the two Reolink
+    # time-lapse lanes (house-yard, duo2) to play FAST — many frames, each on
+    # screen briefly — while the s7/mixed lanes keep their original slower
+    # 1.0s pacing. Speed was briefly changed globally, which wrongly sped up
+    # the s7 reel; this field is what keeps the change scoped to one lane.
+    seconds_per_frame: Optional[float] = None
 
 
 MIXED_DAILY_REEL_LANE = DailyReelLane(
@@ -214,6 +221,7 @@ HOUSE_YARD_CAM_TIMELAPSE_LANE = DailyReelLane(
     mention_user_id=MARK_DISCORD_USER_ID,
     landscape_mode=True,
     discord_preview_scale="960:540",
+    seconds_per_frame=0.4,
 )
 
 # 22-June-2026 (Claude Opus 4.7): duo2 (Reolink Duo 2 WiFi) time-lapse lane, the
@@ -237,6 +245,7 @@ DUO2_TIMELAPSE_LANE = DailyReelLane(
     mention_user_id=MARK_DISCORD_USER_ID,
     landscape_mode=True,
     discord_preview_scale="960:540",
+    seconds_per_frame=0.4,
 )
 
 
@@ -912,11 +921,30 @@ def _stitch_reel(
     slug = uuid.uuid4().hex[:8]
     mp4_path = out_dir / f"{lane.output_filename_prefix}-{stamp}-{slug}.mp4"
 
+    # Per-lane pacing override. reel_stitcher applies one seconds_per_frame to
+    # the whole reel, so a faster lane is expressed by handing it a shallow
+    # copy of reels_cfg with that key replaced — the global stays untouched for
+    # every other lane. crossfade must stay < seconds_per_frame (stitcher
+    # guard), so clamp it down when a lane runs faster than the global fade.
+    stitch_cfg = reels_cfg
+    if lane.seconds_per_frame is not None:
+        stitch_cfg = dict(reels_cfg)
+        stitch_cfg["seconds_per_frame"] = lane.seconds_per_frame
+        crossfade = float(stitch_cfg.get("crossfade_seconds", 0.15))
+        if crossfade >= lane.seconds_per_frame:
+            stitch_cfg["crossfade_seconds"] = round(lane.seconds_per_frame / 2, 3)
+        log.info(
+            "build: %s lane pacing override %.2fs/frame (global %.2fs)",
+            lane.lane_id,
+            lane.seconds_per_frame,
+            float(reels_cfg.get("seconds_per_frame", 1.0)),
+        )
+
     try:
         stitch_gems_to_reel(
             gem_ids=gem_ids,
             db_path=db_path,
-            config=reels_cfg,
+            config=stitch_cfg,
             output_path=mp4_path,
             landscape=lane.landscape_mode,
         )

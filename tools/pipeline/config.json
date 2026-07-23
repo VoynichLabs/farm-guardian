@@ -38,7 +38,7 @@
       "enabled": true,
       "auto_dry_run": false,
       "output_root": "data/reels",
-      "seconds_per_frame": 0.4,
+      "seconds_per_frame": 1.0,
       "crossfade_seconds": 0.15,
       "frames_per_reel_default": 6
     },

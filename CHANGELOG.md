@@ -4,6 +4,17 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-07-22
 
+### v2.51.2 — Per-lane reel pacing: fast Reolink time-lapses, s7 back to original speed (Claude Opus 4.8) — 22-Jul-2026
+
+**What:** v2.50.0 made reels faster by dropping the **global** `instagram.reels.seconds_per_frame` 1.0 → 0.4. That was too blunt — it sped up every lane, including the s7 daily reel, which Boss wants at its original pacing. Fixed by scoping the change:
+- `instagram.reels.seconds_per_frame` restored to **1.0** (s7-daily, s7-backlog, the mixed 18:00 reel, weekly, mba/dominator — all back to exactly their pre-v2.50.0 pacing).
+- New optional `DailyReelLane.seconds_per_frame` field (default `None` = inherit global). Set to **0.4** on `HOUSE_YARD_CAM_TIMELAPSE_LANE` and `DUO2_TIMELAPSE_LANE` only.
+- `_stitch_reel` applies the override onto a **shallow copy** of `reels_cfg` so the global dict is never mutated for other lanes, and clamps `crossfade_seconds` to `spf/2` if the global fade would violate `reel_stitcher`'s `crossfade < seconds_per_frame` guard (at 0.4 vs 0.15 it doesn't, but a future faster lane would trip it). Logs the override when it fires.
+
+**Why:** Boss: "now the S7 goes too fast. The S7 reel should go as slowly as it did before." Only the two Reolink time-lapses were supposed to be fast; a per-lane knob is the right shape since `reel_stitcher` applies one `seconds_per_frame` per reel.
+
+**Verification:** Lane-by-lane resolution printed — s7-daily/s7-backlog/daily/mba/dominator all 1.0s, house-yard/duo2 both 0.4s. Real end-to-end stitch on the duo2 lane (6 live frames): ffmpeg logged the override and produced **1.63s measured** against 1.65s predicted (would have been ~5.25s at 1.0s/frame). Test clip deleted. A full 90-frame Reolink reel is ~22.6s.
+
 ### v2.51.1 — Leg side is part of the band ID (Claude Opus 4.8) — 22-Jul-2026
 
 **What/why:** v2.49.0 told the VLM to match a band on color + number and treat the leg (left/right) as merely "confirmatory." Per Boss, the leg is a first-class part of a band's identity — the same color-and-number can belong to a different bird on the other leg. `prompt.md` now instructs the model to read and match **color + number + leg**, and to state the leg in captions ("green band #2 on the left leg"). `roster.py::_format_band` already emitted each bird's side, so the named-individual block is unchanged. Mirrored into the LM Studio Birds preset (`~/.lmstudio/config-presets/Birds.preset.json`); pipeline daemon kickstarted. No schema change — the structured band-observation field ("Dimension 2") was dropped as over-built; the prompt-level fix is sufficient.
