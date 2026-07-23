@@ -68,7 +68,7 @@ All canon docs failed verification. Highest-value corrections:
 - 3 dead OpenClaw workspaces (~600 MB), stale `~/.openclaw/logs` (36 MB), bubba-workspace root .baks/JPGs, 557 MB CLI image cache. [OB-06/09/12]
 - 11 dead scripts/tools in the repo (iphone lane, s7 smoke/battery tools, six dead ig-* reel shims, test-siren). Keep ig-post.py, add-camera.py, env-gated throwback scripts, usb-cam-host, discord_harvester. [RH-14]
 - LaunchAgent graveyard: rename-or-remove the loaded-but-no-op `archive-throwback`; delete `.retired`/`.bak`/`.disabled-*` plists that predate May. [RH-15]
-- mba-cam raw capture burns ~2 GB/day of frames no lane consumes — Boss call: warm standby or off. [RH-08]
+- ~~mba-cam raw capture — Boss call.~~ **SETTLED 23-Jul-2026: keep capturing.** It feeds the turkey-pen reel lane Boss plans to re-enable. Do not disable it to reclaim disk. [RH-08]
 - OpenClaw cron: delete the June-15-only `trading-monitor` job before it wakes up in 2027; purge 7 disabled Feb–Jun jobs. [OB-10]
 
 ## Credentials map (findability — all good)
@@ -103,7 +103,7 @@ Ordered; each task is self-contained. Get Boss approval on B4, C5, C6 cadence/re
   - C3. LaunchAgent graveyard cleanup; archive-throwback plist to .disabled.
   - C4. Commit the live config.json threshold change (0.7, Boss's dashboard tuning from 22-Jul) — it's production truth.
   - C5. data/backups rotation (Boss picks retention) + one-time prune.
-  - C6. mba-cam raw capture: Boss call, then disable or document.
+  - ~~C6. mba-cam raw capture: Boss call.~~ **DONE — settled: keep capturing** (feeds the future turkey-pen reel lane).
 - **D. Watch items**
   - D1. 23-Jul ~09:05: verify first-ever house-yard reel run succeeded (`/tmp/ig-house-yard-cam-timelapse-reel.err.log`). Note: today's retime means no s7/duo2 reel posted 22-Jul (UTC-dated state files; self-heals tomorrow).
   - D2. IG quota stays saturated at ~22/25 daily; adding lanes will starve the story backlog further.
