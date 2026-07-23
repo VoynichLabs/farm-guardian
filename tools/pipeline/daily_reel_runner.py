@@ -1,4 +1,4 @@
-# Author: Claude Sonnet 4.6; Claude Opus 4.7 (22-June-2026 — duo2 timelapse lane); Claude Fable 5 (16-Jul-2026 — mba-cam lane relabeled brooder→turkey pen, v2.46.0; Codex captions for vlm_bypass lanes + posted-caption dedup + tag rotation from ledger + chicks bucket retired, v2.47.0; D8 codex_reel_curator wired into the s7-daily lane + opener pacing hook, D10 CAMERA_OF_THE_DAY_POOL/pick_camera_of_the_day rotation, v2.48.0); Claude Opus 4.8 (22-Jul-2026 — per-lane seconds_per_frame override so the two Reolink time-lapse lanes play fast without speeding up the s7/mixed lanes, v2.50.1)
+# Author: Claude Sonnet 4.6; Claude Opus 4.7 (22-June-2026 — duo2 timelapse lane); Claude Fable 5 (16-Jul-2026 — mba-cam lane relabeled brooder→turkey pen, v2.46.0; Codex captions for vlm_bypass lanes + posted-caption dedup + tag rotation from ledger + chicks bucket retired, v2.47.0; D8 codex_reel_curator wired into the s7-daily lane + opener pacing hook, D10 CAMERA_OF_THE_DAY_POOL/pick_camera_of_the_day rotation, v2.48.0); Claude Opus 4.8 (22-Jul-2026 — per-lane seconds_per_frame override so the two Reolink time-lapse lanes play fast without speeding up the s7/mixed lanes, v2.50.1); Claude Fable 5 (23-Jul-2026 — Codex subscription lapsed: all caption synthesis moved to the local VLM, timelapse lanes no longer short-circuit to a literal, BRAND_RULES extracted to caption_brand.py, s7 Codex frame-curation removed, v2.51.5)
 # Date: 09-May-2026 (updated 09-May-2026 — landscape mode + LM Studio caption synthesis + 4 timelapse lanes; 10-May-2026 — GWTC approval gate; 22-June-2026 — DUO2_TIMELAPSE_LANE; 16-Jul-2026 — D8/D10; 22-Jul-2026 — per-lane pacing override)
 # PURPOSE: Shared runner for scheduled Instagram Reel lanes. The
 #          existing mixed-camera daily Reel uses the approval-gated
@@ -10,17 +10,16 @@
 #          upload/transcode, pending-state handling, quota-ledger
 #          checks, caption construction, and reel MP4 creation so new
 #          lane scripts stay thin and the publish path does not fork.
-#          16-Jul-2026 (D8): the s7-daily lane now runs its selector
-#          output through codex_reel_curator.curate() to prune weak/
-#          redundant frames before stitching, plus a one-frame "hook"
-#          duplicate at the front of the stitch list. 16-Jul-2026
+#          16-Jul-2026 (D8): the s7-daily lane keeps a one-frame "hook"
+#          duplicate at the front of the stitch list (its Codex frame
+#          curation was removed 23-Jul-2026, see v2.51.5). 16-Jul-2026
 #          (D10): CAMERA_OF_THE_DAY_POOL + pick_camera_of_the_day()
 #          give the per-camera timelapse lanes a shared rotation entry
 #          point (scripts/ig-camera-of-the-day-reel.py) without
 #          touching the existing standalone lanes/plists.
 # SRP/DRY check: Pass - one responsibility is "run a configured daily
 #                Reel lane." Reuses ig_selection, reel_stitcher,
-#                ig_poster, discord_harvester, codex_reel_curator, and
+#                ig_poster, discord_harvester, caption_brand, and
 #                tools.social.ledger.
 
 from __future__ import annotations
@@ -47,6 +46,8 @@ import requests
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+
+from tools.pipeline.caption_brand import BRAND_RULES  # noqa: E402
 
 MARK_DISCORD_USER_ID = "293569238386606080"
 
@@ -697,6 +698,59 @@ def _load_farm_context(limit: int = 3, char_cap: int = 600) -> str:
         return ""
 
 
+def _sample_frames_as_data_urls(
+    db_path: Path,
+    gem_ids: list[int],
+    cfg: dict,
+    log: logging.Logger,
+    sample: int = 3,
+) -> list[str]:
+    """Return up to `sample` frames from across the reel as base64 data URLs.
+
+    Used to ground captions for the vlm_bypass timelapse lanes, whose frames
+    are raw and were never described by the VLM at capture time. Samples
+    evenly across the (chronological) gem list so the model sees the day's
+    arc — morning, midday, evening — rather than three near-identical frames.
+
+    Reuses the pipeline's own VLM downscale (vlm_input_long_edge_px, 768 by
+    default): duo2 raws are ~6 MB each, so full-res would mean a ~24 MB
+    base64 payload for a caption. Best-effort — any failure returns fewer
+    (or no) frames and the caller falls back to a text-only prompt.
+    """
+    if not gem_ids:
+        return []
+
+    from tools.pipeline.orchestrator import _downscale_for_vlm
+    from tools.pipeline.store import resolve_gem_image_path
+
+    long_edge = int(cfg.get("vlm_input_long_edge_px", 768))
+    # Evenly spaced picks including first and last.
+    if len(gem_ids) <= sample:
+        picks = list(gem_ids)
+    else:
+        step = (len(gem_ids) - 1) / (sample - 1) if sample > 1 else 0
+        picks = [gem_ids[round(i * step)] for i in range(sample)]
+
+    urls: list[str] = []
+    for gem_id in picks:
+        try:
+            row = _fetch_gem_row(db_path, gem_id)
+            if not row:
+                continue
+            path = resolve_gem_image_path(row, db_path)
+            if not path or not Path(path).exists():
+                continue
+            small = _downscale_for_vlm(Path(path).read_bytes(), long_edge)
+            import base64
+            urls.append(
+                "data:image/jpeg;base64,"
+                + base64.b64encode(small).decode("ascii")
+            )
+        except Exception as exc:
+            log.info("caption: frame %s unusable for grounding (%s)", gem_id, exc)
+    return urls
+
+
 def _generate_reel_caption(
     db_path: Path,
     gem_ids: list[int],
@@ -707,11 +761,15 @@ def _generate_reel_caption(
     """Synthesize a reel caption using LM Studio when available.
 
     Collects caption_drafts from VLM-enriched frames, then calls the
-    currently-loaded model to synthesize a single cohesive caption from
-    all the drafts. Falls back to _build_reel_caption() when:
+    currently-loaded model to synthesize a single cohesive caption. When a
+    lane has no drafts (raw-tier / vlm_bypass timelapse cameras) the model
+    writes from the lane's scene hint plus the farm diary instead — as of
+    v2.51.5 that case is a different prompt, not a bail-out.
+
+    Falls back to _build_reel_caption()'s literal only when:
       - LM Studio is unreachable
       - The expected VLM model isn't loaded
-      - No caption_drafts exist (raw-tier / vlm_bypass frames)
+      - The chat call itself fails
 
     This is strictly better-effort: the caption pipeline always succeeds
     and the pipeline never blocks on LM Studio availability.
@@ -734,51 +792,14 @@ def _generate_reel_caption(
         if draft:
             drafts.append(draft)
 
-    if not drafts:
-        # Raw-tier frames (vlm_bypass cameras) have no caption_drafts.
-        # v2.47.0: try Codex with the lane's scene hint + diary context first —
-        # the timelapse lanes used to post their hardcoded fallback string
-        # ("A day in the coop run.") verbatim every single day. The fallback
-        # literal is still the last resort when Codex is unavailable.
-        if cfg.get("instagram", {}).get("reels", {}).get("codex_caption", True):
-            try:
-                from tools.pipeline.codex_reel_curator import generate_caption_body
-                from tools.pipeline.ig_poster import recent_posted_captions
-                codex_body = generate_caption_body(
-                    [],
-                    _load_farm_context(),
-                    scene_hint=fallback,
-                    avoid=recent_posted_captions(db_path),
-                    log=log,
-                )
-            except Exception as exc:
-                log.warning("codex timelapse caption unavailable (%s); using fallback", exc)
-                codex_body = None
-            if codex_body:
-                return _wrap_caption_with_hashtags(db_path, gem_ids, codex_body)
-        return _build_reel_caption(db_path, gem_ids, fallback)
-
-    # Prefer Codex (gpt-5.5, the otherwise-idle OpenAI sub) for the caption
-    # body: better prose than the local model, and it keeps LM Studio free for
-    # the per-frame bird judging it does full-time. Falls through to the LM
-    # Studio path below on any failure. Hashtags are appended from the verified
-    # hashtags.yml library either way, so the brand safety net stays engaged.
-    if cfg.get("instagram", {}).get("reels", {}).get("codex_caption", True):
-        try:
-            from tools.pipeline.codex_reel_curator import generate_caption_body
-            from tools.pipeline.ig_poster import recent_posted_captions
-            codex_body = generate_caption_body(
-                drafts,
-                _load_farm_context(),
-                avoid=recent_posted_captions(db_path),
-                log=log,
-            )
-        except Exception as exc:
-            log.warning("codex caption unavailable (%s); using LM Studio", exc)
-            codex_body = None
-        if codex_body:
-            return _wrap_caption_with_hashtags(db_path, gem_ids, codex_body)
-
+    # NOTE (23-Jul-2026, v2.51.5): the Codex path that used to run before this
+    # is gone — the OpenAI Codex subscription lapsed, so `codex exec` returned
+    # 401 on every reel build from ~07-Jul onward. For the mixed lane that was
+    # invisible (it fell through to LM Studio below), but the vlm_bypass
+    # timelapse lanes returned the hardcoded literal instead, so house-yard /
+    # s7 / duo2 posted near-identical captions for two weeks. Both lane types
+    # now synthesize on the local VLM, and the no-drafts case is handled by
+    # the scene-hint prompt below rather than by an early return.
     lm_base = cfg.get("lm_studio_base", "http://localhost:1234")
     # Default must track the live production VLM. If it drifts stale and the
     # config key ever goes missing, the guard below sees "not loaded" and falls
@@ -803,7 +824,6 @@ def _generate_reel_caption(
         log.info("lm_studio: unreachable (%s); using fallback caption", exc)
         return _build_reel_caption(db_path, gem_ids, fallback)
 
-    drafts_block = "\n".join(f"- {d}" for d in drafts)
     farm_context = _load_farm_context()
     # v2.47.0: do-not-repeat list from the posted-caption ledger — before
     # this, consecutive reels rephrased the same diary fact daily.
@@ -818,31 +838,94 @@ def _generate_reel_caption(
         if avoid_block_items
         else ""
     )
+    # The diary is BACKGROUND, not the subject. It is far richer than a
+    # one-line scene hint, so if it leads the prompt the model writes about
+    # the diary and ignores what the reel actually shows — verified
+    # 23-Jul-2026: three different scene hints produced byte-identical
+    # captions about a perch incident from the diary. Subject goes first and
+    # is stated as authoritative; the diary is explicitly demoted to a source
+    # of names/context that must fit the scene.
     context_block = (
-        f"Recent farm diary entries — use these for named chickens, hatch "
-        f"progress, breeding-program details, and one concrete win to ground "
-        f"the caption:\n\n{farm_context}\n\n"
+        f"BACKGROUND — recent farm diary entries. Use these only for names and "
+        f"context that plausibly fit the scene above. Do NOT describe diary "
+        f"events that would not be visible in this particular reel:\n\n"
+        f"{farm_context}\n\n"
         if farm_context
         else ""
     )
+    # Two shapes of source material. VLM-enriched lanes give us per-frame
+    # caption_drafts; the vlm_bypass timelapse lanes (house-yard, s7, duo2)
+    # give us nothing but the lane's scene hint. Before v2.51.5 the second
+    # case never reached the model at all — it short-circuited to the
+    # hardcoded literal, which is why those lanes posted the same text daily.
+    frame_urls: list[str] = []
+    if drafts:
+        subject_block = (
+            "THE REEL — descriptions of individual frames, in order:\n\n"
+            + "\n".join(f"- {d}" for d in drafts)
+            + "\n\n"
+        )
+        specificity = "Be warm and specific to what is actually in the frames. "
+    else:
+        # No drafts means a vlm_bypass timelapse lane, where the scene hint is
+        # a fixed per-lane string that never changes day to day. Text alone
+        # therefore gives the model nothing current to write about, and it
+        # reaches for the diary instead (verified: three different scene hints
+        # produced identical diary-derived captions). Attach real frames so it
+        # writes about the footage. The model is already a VLM and the frames
+        # are on disk; this is ~3 extra calls per lane per day.
+        frame_urls = _sample_frames_as_data_urls(db_path, gem_ids, cfg, log)
+        if frame_urls:
+            subject_block = (
+                "THE REEL — a fixed-angle time-lapse of one scene across the "
+                f"day ({fallback.rstrip('.')}). Attached are {len(frame_urls)} "
+                "frames sampled from it in chronological order.\n"
+                "Write about what you can actually see in these frames.\n\n"
+            )
+            specificity = (
+                "Describe what is genuinely visible in the attached frames. "
+                "Do not invent events or birds you cannot see. "
+            )
+        else:
+            subject_block = (
+                "THE REEL — a fixed-angle time-lapse of one scene across the "
+                f"day.\nScene: {fallback}\n"
+                "There are no per-frame descriptions. The caption must be "
+                "about THIS scene.\n\n"
+            )
+            specificity = (
+                "Be warm and grounded in this scene. Do not invent events, "
+                "birds, or details you were not given, and do not describe a "
+                "different part of the farm than the scene above. "
+            )
+
     prompt = (
-        "You are writing a caption for an Instagram Reel from a small farm. "
+        "You are writing a caption for an Instagram Reel from a small farm.\n\n"
+        f"{BRAND_RULES}\n"
+        f"{subject_block}"
         f"{context_block}"
         f"{avoid_block}"
-        "Below are descriptions of individual frames from the Reel:\n\n"
-        f"{drafts_block}\n\n"
-        "Write a single short caption (1-2 sentences, no hashtags) that captures "
-        "the spirit of what is happening. Be warm and specific to what is actually "
-        "in the frames. When the diary above mentions named chickens, current "
-        "hatches, or a recent farm event that fits, reference it concretely "
-        "rather than writing in generic terms. Do not mention cameras, AI, or "
-        "technology."
+        "Write a single short caption (1-2 sentences, no hashtags) about the "
+        f"reel described above. {specificity}"
+        "If the background mentions a named bird or recent event that genuinely "
+        "fits this scene, reference it concretely rather than writing in "
+        "generic terms. Reply with the caption text only — no preamble, "
+        "quotes, or commentary."
     )
+
+    # Multimodal content only when we actually attached frames; otherwise a
+    # plain string body, exactly as before.
+    if frame_urls:
+        user_content: object = [{"type": "text", "text": prompt}] + [
+            {"type": "image_url", "image_url": {"url": url}} for url in frame_urls
+        ]
+    else:
+        user_content = prompt
 
     try:
         payload = {
             "model": vlm_model,
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": [{"role": "user", "content": user_content}],
             "max_tokens": 100,
             "temperature": 0.7,
             "reasoning_effort": "none",
@@ -1197,47 +1280,24 @@ def _build_publish_and_notify(
         log.info("build: not enough frames for %s reel", lane.lane_id)
         return 0
 
-    # D8 (16-Jul-2026): for the s7-daily lane only, hand the raw selector
-    # output to codex_reel_curator.curate() to prune redundant/weak frames.
-    # curate() re-runs select_s7_daily_reel_gems() itself and never drops
-    # below scheduled_cfg's s7_daily_reel_min_frames floor, so this can only
-    # shrink (never grow or reorder) what _select_gems already returned. A
-    # Codex outage must never break the reel — any exception here falls
-    # back to the unpruned selection unchanged. gem_ids (used below for the
-    # caption and the posted-state/associated_gem_ids record) is updated to
-    # the curated set; the pacing hook's duplicate stays scoped to a
-    # stitch-only copy so it doesn't double-count the opener frame's draft
-    # in caption synthesis or the associated-gems record.
+    # D8 (16-Jul-2026) wired the s7-daily lane through
+    # codex_reel_curator.curate() to prune redundant/weak frames. REMOVED
+    # 23-Jul-2026 (v2.51.5): that curation ran on `codex exec`, the OpenAI
+    # Codex subscription has lapsed, and every call had been returning 401
+    # since ~07-Jul — so it only ever logged "source=fallback" and handed
+    # back the unpruned selection anyway. Deleting it costs no real frame
+    # pruning and saves a doomed subprocess (up to a 240 s timeout) on every
+    # s7 build. If frame pruning is wanted again, reimplement it against the
+    # local VLM in LM Studio rather than reviving the Codex dependency.
     stitch_ids = gem_ids
     if lane.lane_id == S7_DAILY_REEL_LANE.lane_id:
-        try:
-            from tools.pipeline.codex_reel_curator import curate as _curate_s7_daily
-
-            plan = _curate_s7_daily(
-                db_path, scheduled_cfg, now=datetime.now(timezone.utc)
-            )
-            if plan.get("keep_ids"):
-                log.info(
-                    "build: s7-daily curation kept %d/%d frames (source=%s)",
-                    len(plan["keep_ids"]),
-                    plan.get("candidate_count", len(gem_ids)),
-                    plan.get("source"),
-                )
-                gem_ids = plan["keep_ids"]
-        except Exception as exc:
-            log.warning(
-                "build: s7-daily curation failed (%s); using raw selection",
-                exc,
-            )
-        stitch_ids = gem_ids
-
         # Pacing hook: hold the opening frame for one extra beat by
         # duplicating it at the front of the STITCH list only. reel_stitcher
         # applies a single seconds_per_frame to every list entry (no
         # per-frame duration support), so repeating an id is the cheap way
         # to give the reel a "hook" without an ffmpeg rewrite. gem_ids[0] is
-        # chronologically earliest (both _select_gems and curate() preserve
-        # chronological order) and already representative. Only when
+        # chronologically earliest (_select_gems preserves chronological
+        # order) and already representative. Only when
         # there's enough material that losing one bucket's worth of
         # distinct frames won't thin the time-lapse, and only with headroom
         # under reel_stitcher's hard 90-frame cap (_MIN_FRAMES=2/

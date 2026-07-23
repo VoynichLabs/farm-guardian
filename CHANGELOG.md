@@ -4,6 +4,19 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-07-23
 
+### v2.51.5 — Drop the dead Codex dependency; reel captions now written by the local VLM from real frames (Claude Fable 5) — 23-Jul-2026
+
+**Why:** Boss confirmed the OpenAI Codex subscription is gone, so nothing may depend on it. `codex exec` had been returning 401 on every reel build since ~07-Jul. The mixed 18:00 reel hid this (it already fell through to LM Studio), but the three fixed daily camera reels are `vlm_bypass` lanes with no per-frame `caption_draft` values, so their Codex failure returned a **hardcoded literal** — house-yard, s7 and duo2 posted near-identical captions for two weeks.
+
+**What:**
+- **Deleted `tools/pipeline/codex_reel_curator.py`.** Its only engine was `codex exec`; every function had been returning its fallback for weeks. Its s7-daily frame-curation call is removed too — it only ever logged `source=fallback` while burning a subprocess with up to a 240 s timeout per build. If frame pruning is wanted again, reimplement it on the local VLM.
+- **New `tools/pipeline/caption_brand.py`.** `BRAND_RULES` was the durable asset inside the deleted module — the grown flock must not be called chicks, and captions must never carry predator/hawk-watching framing (CLAUDE.md content policy, learned from a real live post). It now has a properly-named home and is injected into every caption prompt. It was previously **absent** from the LM Studio prompt, so switching engines without extracting it would have started producing off-brand captions.
+- **`_generate_reel_caption` unified on LM Studio.** The no-drafts case no longer short-circuits to the literal; it prompts the model like any other lane.
+- **Timelapse lanes are now grounded in real footage.** Text alone was not enough: their scene hint is a fixed per-lane string, so the model ignored it and wrote from the farm diary — verified, three different scene hints produced byte-identical captions about a diary event. Those lanes now attach **3 frames sampled evenly across the day** (reusing `orchestrator._downscale_for_vlm` at `vlm_input_long_edge_px`, ~100 KB each) to the caption call, so the caption describes what is actually on screen. Costs ~3 extra VLM calls per lane per day against a pipeline already doing thousands.
+- Prompt restructured so the subject leads and the diary is explicitly demoted to background that must fit the scene.
+
+**Verified against live data before commit** (read-only, nothing posted): duo2 → *"The flock settles into the coop run after a morning escape… the quiet, sun-dappled yard"*; house-yard → *"The sun rises over the garden… the pink canopy now open and the sunflowers peeking through"* — visual detail present only in the frames. Mixed-lane (drafts) path unchanged and still text-only. Frame sampler returns `[]` cleanly on empty/bogus ids and on gems with no image on disk. Fallback order is frames → text-only scene prompt → deterministic literal, so a caption always exists even with LM Studio down.
+
 ### v2.51.4 — Fix the failures the audit found (Claude Fable 5) — 23-Jul-2026
 
 **What:** Repaired the broken things catalogued in `docs/22-Jul-2026-mac-mini-ecosystem-audit.md` rather than leaving them as a to-do list.

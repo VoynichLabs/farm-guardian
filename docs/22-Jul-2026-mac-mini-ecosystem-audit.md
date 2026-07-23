@@ -12,20 +12,19 @@ The system mostly works. Every social lane that should post is posting; yard-dia
 |---|---|---|
 | 1 | Both Reolinks unreachable | ✅ **Was transient.** `house-yard` and `duo2` are both capturing normally (verified by fresh archive frames). No outage. |
 | 2 | `anthropic-token-refresh` failing every 15 min | ✅ **Retired.** Its target file was deleted by the OpenClaw 6.11 auth migration; the gateway no longer needs it. Booted out, plist renamed `.retired-23jul2026`. |
-| 3 | codex_reel_curator 401 | ⚠️ **Needs Boss — see below.** |
+| 3 | codex_reel_curator 401 | ✅ **Fixed by removing the dependency (v2.51.5).** The Codex subscription is gone for good, so captions moved to the local VLM — see below. |
 | 4 | OpenClaw `daily-email-summary` cron erroring | ✅ **Fixed and verified.** Its `toolsAllow` list was both unenforceable under the claude-cli runtime *and* wrong (no shell tool, yet the job shells out to `himalaya`). Cleared it; a manual run now reports `ok`. |
 | 5 | `phoenix.sh` March-snapshot landmine | ✅ **Defused.** Ran `phoenix.sh backup` against the healthy gateway, so `last-known-good.json` is now today's config instead of 2026-03-01. Safety net kept, landmine gone. |
 | 6 | Larry up / Egon answering SSH | ⚠️ **Boss call.** Documented in CLAUDE.md; Egon marked do-not-SSH pending a Linode dashboard check. |
 
 **Also fixed in the same pass:** `~/.openclaw/secrets.json` locked to 0600; log rotation widened to cover `guardian.out.log` (was 93 MB, uncovered), the discord-reaction-sync pair, cloudflared and the lmstudio watchdog, with the threshold dropped 50 MB → 25 MB (~130 MB reclaimed immediately); the stale `qwen3.5-9b` fallback default in `daily_reel_runner.py` corrected to the live model so a missing config key can never trigger LM Studio's auto-load.
 
-**The one thing only Boss can fix — reel captions.** `tools/pipeline/codex_reel_curator.py` was designed to use the Codex **subscription via OAuth**, but `~/.codex/auth.json` has drifted to `auth_mode: "apikey"` with a dead key (`...H5CR8A`), and there is no valid OpenAI key anywhere on this machine to swap in. Consequence: the mixed 18:00 reel is fine (it falls back to LM Studio), but **the three fixed daily camera reels fall back to a hardcoded literal caption** and have been posting near-identical text since ~07-Jul. The fix is one interactive command:
+**Reel captions — fixed 23-Jul-2026 by deleting the dependency, not restoring it.** Boss confirmed the Codex subscription is gone for good, so `codex login` was never the answer. `tools/pipeline/codex_reel_curator.py` has been deleted and all caption synthesis moved to the local VLM already running for the pipeline (`qwen/qwen3-vl-4b`):
 
-```bash
-codex login
-```
-
-`instagram.reels.codex_caption` was deliberately left enabled so captions heal the moment that login succeeds — no config change needed afterward.
+- The mixed lane was never visibly broken — it already fell through to LM Studio.
+- **The three daily camera reels were the real damage**: being `vlm_bypass`, they had no per-frame descriptions, so on Codex failure they returned a hardcoded literal and posted near-identical captions for two weeks.
+- Text alone couldn't fix them — their scene hint is a fixed per-lane string, so the model just wrote from the farm diary instead (verified: three different scene hints produced byte-identical captions). They now **attach 3 real frames** sampled across the day to the caption call. Verified output: duo2 → *"settles into the coop run… sun-dappled yard"*, house-yard → *"the pink canopy now open and the sunflowers peeking through"* — visual detail that exists only in the footage.
+- `BRAND_RULES` (no "chicks" for the grown flock, never any predator/hawk framing) was the durable asset inside the deleted module; it now lives in `tools/pipeline/caption_brand.py` and is injected into every caption prompt.
 
 **Deliberately NOT changed (they look broken but aren't):** `usb-cam`, `dominator-cam` and `mba-cam` log ConnectTimeouts every pipeline cycle. That is *expected* — they are opportunistic cameras on hosts that sleep or get powered down (the MSI Dominator is Boss's day-to-day laptop; the MacBook Air sleeps overnight). Disabling them would break the intended "comes back when the host wakes" behavior. The log noise was the real problem and rotation now handles it. `mba-cam` does still capture ~2 GB/day that no publishing lane consumes — that one is a genuine Boss call, not a bug.
 
