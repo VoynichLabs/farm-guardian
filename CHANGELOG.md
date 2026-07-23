@@ -4,6 +4,21 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-07-23
 
+### v2.51.9 — Daily farm diary from Discord; mba-cam/usb-cam mislabelling recorded (Claude Fable 5) — 23-Jul-2026
+
+**The diary is fed again.** `scripts/farm-diary-from-discord.py` + `com.farmguardian.farm-diary` (daily 20:00) implement `docs/20-Jul-2026-daily-diary-from-discord-plan.md`, which was written 3 days earlier and never built. It pulls the last 24h of `#meet-the-lobsters`, distills only the farm-relevant substance via Bubba's own model (claude CLI, print mode), writes `farm-2026/content/diary/YYYY-MM-DD-<slug>.md`, and posts it to `#farm-2026` for Boss's reaction.
+
+This closes the root cause behind v2.51.6/.7: the diary had **one** entry inside its 21-day window, so every reel caption rewrote the same 09-Jul roost anecdote, and that entry ages out ~30-Jul. Verified end to end — 160 messages in, a real entry out (roosters crowing at 6AM and now more of them; a bee working the squash blossoms), and `_load_farm_context()` now returns 1,207 chars including today. Guardrails from the plan are enforced in the prompt: distill only, invent nothing, hedge uncertainty, emit `NO-ENTRY` when the day held no farm content, never paste raw chat.
+
+**🚨 `mba-cam` was serving the USB camera for two days.** Caught by Boss. Between **2026-07-21 13:31Z and 2026-07-23 12:55Z** the USB camera was plugged into the MacBook Air, and `usb-cam-host` defaults to `USB_CAM_PREFER_EXTERNAL=true` — so that host served the *external* camera while the pipeline kept filing frames under `mba-cam`. **8,682 archive rows in that window are USB-camera footage of the turkey pen, not FaceTime HD.** A time-lapse reel was built from them on 23-Jul before the mistake was spotted; it was a `--dry-run` and never published.
+
+- **The tell is resolution:** the 2013 FaceTime HD cannot exceed 1280x720; the USB camera is 1920x1080. Any `mba-cam` row at 1920x1080 is mislabelled.
+- **Now correct and verified:** `mba-cam` = FaceTime HD @ 1280x720, `usb-cam` = the USB camera on GWTC @ 1920x1080.
+- **No data was rewritten.** The contaminated rows are raw-tier under `raw_retention_hours=48`, so they sweep themselves by **25-Jul 12:55Z** and leave any 24h reel window by **24-Jul 12:55Z**. Do not re-enable the `mba-cam` reel lane before then.
+- **Generalised in the docs:** a camera name means the DEVICE, and `PREFER_EXTERNAL` can silently change which device a host's endpoint serves. After any physical move, check `/health` for `resolved_device_name` + `resolution` before trusting a label.
+
+**Also verified today:** the house-yard reel lane fired under launchd for the first time (09:00, exit 0) and published <https://www.instagram.com/reel/DbIuQrDk8RA/> with a caption from the new local-VLM path — *"The flock's morning routine: drinking, foraging, dust-bathing…"*, real observed behaviour rather than the frozen literal.
+
 ### v2.51.8 — usb-cam back on GWTC, mba-cam live on FaceTime, GWTC screen fixed (Claude Fable 5) — 23-Jul-2026
 
 **Hardware move (Boss, at the coop):** the USB camera + hub were unplugged from the MacBook Air and plugged into GWTC. That frees the MBA's built-in FaceTime HD, which Boss wanted back as `mba-cam`.

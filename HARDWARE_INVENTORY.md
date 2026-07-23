@@ -17,6 +17,19 @@
 >
 > Everything else (hardware quirks, the Fn+F6 trap, the USB-port trap, name-binding, the device-not-location naming rule) is unaffected and still correct.
 
+> ### 🚨 `mba-cam` vs `usb-cam` — the label lied for two days (23-Jul-2026)
+>
+> **A camera name here means the DEVICE, never the host it is plugged into.** That rule was silently broken between **2026-07-21 13:31Z and 2026-07-23 12:55Z**: the USB camera was plugged into the MacBook Air, and because `usb-cam-host` defaults to `USB_CAM_PREFER_EXTERNAL=true` it served that external camera — while the pipeline was still filing the frames under `mba-cam`. So **8,682 archive rows labelled `mba-cam` in that window are actually USB-camera footage of the turkey pen**, not the MacBook Air's FaceTime HD.
+>
+> **How to tell them apart, definitively:** resolution. The 2013 FaceTime HD physically cannot exceed **1280x720**. The USB camera is **1920x1080**. Any `mba-cam` row at 1920x1080 is mislabelled. (A further 19 rows at 640x480 on 23-Jul are the degraded transition while the camera was being moved.)
+>
+> **Current state is correct and verified:** `mba-cam` = MacBook Air FaceTime HD @ 1280x720 (the MBA plist now sets `USB_CAM_PREFER_EXTERNAL=false`); `usb-cam` = the USB camera, now on GWTC @ 1920x1080.
+>
+> **Do not build anything from the contaminated window.** It is raw-tier with `raw_retention_hours=48`, so it sweeps itself by **2026-07-25 12:55Z** and leaves any 24h reel window by **2026-07-24 12:55Z**. Don't re-enable the `mba-cam` reel lane before then, or the reel will be USB-camera footage wearing an MBA label — which is exactly what happened to a build on 23-Jul.
+>
+> **The general trap:** whenever a USB camera is plugged into a host that also has a built-in camera, `PREFER_EXTERNAL` decides which one that host's endpoint actually serves — and nothing downstream can tell. After ANY physical camera move, verify with `curl http://<host>:8089/health` and check `resolved_device_name` and `resolution` before trusting the label.
+
+
 
 **Last verified end-to-end:** 2026-06-22 ET (Claude Opus 4.7, Bubba sub-agent — v2.43.0 — tightened onboard motion-detection sensitivity on BOTH Reolinks (house-yard MD 25→18, duo2 MD 41→28; sensitivity only, AI/spotlight/siren/auto-track untouched); duo2 now cuts a daily time-lapse reel like the other cams (`com.farmguardian.ig-duo2-timelapse-reel`, daily 21:20). **Live Reolink IPs corrected: house-yard = `192.168.0.89`, duo2 = `192.168.0.156`** — the `.88`/`.14` values still appearing in the table/text below are STALE (both failed to connect 2026-06-22; `config.json` + `tools/pipeline/config.json` already use the live IPs)). Prior: 2026-06-12 ET (Claude Opus 4.8 — v2.41.2 — `usb-cam` moved onto the MSI Dominator at `192.168.0.194:8090` alongside `dominator-cam` at `:8089`; both feeds are **name-bound** by DirectShow FriendlyName and **auto-start on login** via AtLogOn scheduled tasks — survive reboot, can't swap). Prior: 2026-05-06 ET (Opus 4.7 — v2.40.5 — added `dominator-cam`: opportunistic, manually started by Boss via desktop shortcut on the MSI Dominator GT72)
 

@@ -415,11 +415,13 @@ ssh -i ~/.ssh/id_ed25519 markb@192.168.0.50 'c -p "Granular task description her
 | 2 | `s7-cam` | Galaxy S7 IP Webcam, HTTP snapshot `192.168.0.249:8080` | off | live |
 | 3 | `usb-cam` | `usb-cam-host` on **GWTC**, `192.168.0.69:8089` (moved off the MBA 23-Jul-2026) | off | live, 1920x1080 |
 | 4 | `gwtc` | Gateway laptop MediaMTX `rtsp://192.168.0.69:8554/gwtc` | off | **disabled in both configs** |
-| 5 | `mba-cam` | MacBook Air `192.168.0.50:8089` — the built-in FaceTime HD, freed when the USB cam moved to GWTC | off | live, 1280x720, **enabled in both** as of 23-Jul-2026 |
+| 5 | `mba-cam` | MacBook Air `192.168.0.50:8089` — the built-in **FaceTime HD @ 1280x720**, freed when the USB cam moved to GWTC | off | live, **enabled in both** as of 23-Jul-2026. ⚠️ archive rows labelled `mba-cam` between 21-Jul 13:31Z and 23-Jul 12:55Z are actually USB-camera footage — see HARDWARE_INVENTORY.md |
 | 6 | `dominator-cam` | `192.168.0.194:8089` | off | enabled |
 | 7 | `duo2` | Reolink Duo 2 WiFi, `rtsp://…@192.168.0.155:554` | **ON** | live |
 
 ✅ **The old usb-cam/mba-cam config divergence is FIXED (23-Jul-2026).** Both files now agree: `usb-cam` → `192.168.0.69:8089` (GWTC), `mba-cam` → the MacBook Air, both enabled.
+
+**⚠️ A camera name is the DEVICE, and `PREFER_EXTERNAL` can silently break that.** If a USB camera is plugged into a host that also has a built-in camera, `usb-cam-host` defaults to serving the *external* one — so the host's endpoint changes identity while every config, archive row and reel keeps the old label. This actually happened: `mba-cam` frames from **21-Jul 13:31Z to 23-Jul 12:55Z** are the USB camera in the turkey pen, not the MacBook Air's FaceTime HD, and a reel got built from them before anyone noticed. **Resolution is the tell** — the 2013 FaceTime HD cannot exceed 1280x720, the USB camera is 1920x1080. After ANY physical camera move, run `curl http://<host>:8089/health` and check `resolved_device_name` + `resolution` before trusting a label.
 
 **⚠️ MBA gotcha when the USB camera is unplugged from it:** `usb-cam-host` defaults to `USB_CAM_PREFER_EXTERNAL=true`, and in that mode it **deliberately refuses to serve the built-in camera** ("serving the built-in as usb-cam is precisely the bug this avoids"). So pulling the USB cam does NOT auto-fall-back to FaceTime — the endpoint just 503s. The MBA's plist now sets `USB_CAM_PREFER_EXTERNAL=false` so it serves FaceTime at index 0. Env changes need `launchctl bootout` + `bootstrap` (a `kickstart` re-runs the job from launchd's CACHED plist and silently ignores your edit), and the grabber needs a restart after any physical swap to re-enumerate.
 
