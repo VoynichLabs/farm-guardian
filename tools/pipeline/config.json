@@ -112,7 +112,7 @@
       "offpeak_cycle_seconds": 180,
       "raw_retention_hours": 48,
       "capture_method": "ip_webcam",
-      "ip_webcam_base": "http://192.168.0.194:8090",
+      "ip_webcam_base": "http://192.168.0.69:8089",
       "photo_path": "/photo.jpg",
       "trigger_focus": false,
       "context": "Cheap generic USB webcam (UVC, 1920x1080, lower image quality than the S7) mounted inside the CHICKEN COOP RUN (part of BIRDCATRAZ, the outdoor enclosed poultry area), watching the flock in natural daylight. Subjects: adult and adolescent chickens, mixed rare/exotic breeds \u2014 the whole flock is grown or nearly grown now. NO chicks in this view. Camera angle is fixed and may be partially obstructed by birds very close to the lens. Score conservatively \u2014 this is a budget sensor and a 7 here is a genuinely good shot for this camera.",

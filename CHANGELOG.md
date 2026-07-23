@@ -4,6 +4,23 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-07-23
 
+### v2.51.8 — usb-cam back on GWTC, mba-cam live on FaceTime, GWTC screen fixed (Claude Fable 5) — 23-Jul-2026
+
+**Hardware move (Boss, at the coop):** the USB camera + hub were unplugged from the MacBook Air and plugged into GWTC. That frees the MBA's built-in FaceTime HD, which Boss wanted back as `mba-cam`.
+
+**Config — both files, now in agreement:**
+- `usb-cam` → `http://192.168.0.69:8089` (GWTC). This also retires the long-standing divergence where `config.json` said the MBA and `tools/pipeline/config.json` still pointed at the dead Dominator `192.168.0.194:8090`.
+- `mba-cam` → the MacBook Air, and **enabled in Guardian** (was `enabled: false`); the pipeline already had it on.
+- Verified live: usb-cam 1920x1080 `ok`, mba-cam 1280x720 `ok`, Guardian roster 6/6.
+
+**MBA gotcha worth knowing (cost a live outage to find):** `usb-cam-host` defaults to `USB_CAM_PREFER_EXTERNAL=true`, and in that mode it *deliberately* refuses to open the built-in camera rather than serve a laptop webcam as "usb-cam". Unplugging the USB camera therefore does not fall back to FaceTime — the endpoint just goes stale. Fixed by setting `USB_CAM_PREFER_EXTERNAL=false` in the MBA's LaunchAgent. Two traps around it: env changes need `launchctl bootout` + `bootstrap` (a plain `kickstart` re-runs from launchd's **cached** plist and silently ignores the edit), and the grabber holds a stale capture session across a physical swap, so it needs a restart to re-enumerate.
+
+**GWTC screen — fixed.** Boss couldn't tell from the coop whether the laptop was even running. It was: up since 20-Jul, SSH + MediaMTX both live. The panel was black because **brightness was pinned below visibility**, a leftover of the "birdproofing" done when it sat in the nesting box. `deploy/gwtc/screen-on.ps1` forces the monitor on, nudges the input stack, sets brightness to 90 and re-asserts never-sleep timeouts; `deploy/gwtc/register-screen-task.ps1` registers it as the `farmcam-screen-on` task on two triggers (at logon, and hourly).
+
+**GWTC built-in webcam is still dead** and its `gwtc` lane stays disabled — `Hy-HD-Camera` reports `Present: False`, absent from the device bus, so ffmpeg crash-loops. Moot now that the USB camera serves from that host.
+
+**Docs:** CLAUDE.md's camera roster now opens with an explicit warning that hardware moves constantly, the table is a snapshot rather than a contract, and the two-command way to verify reality before trusting it.
+
 ### v2.51.7 — Captions name living birds from the flock roster (Claude Fable 5) — 23-Jul-2026
 
 **What:** `_living_flock_roster()` feeds the caption prompt the names, breeds and colours of the **living** flock from `farm-2026/content/flock-profiles.json`.
