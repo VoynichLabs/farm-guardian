@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.farmguardian.diary-staleness</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/macmini/Documents/GitHub/farm-guardian/venv/bin/python</string>
+        <string>/Users/macmini/Documents/GitHub/farm-guardian/scripts/diary-staleness-check.py</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/macmini/Documents/GitHub/farm-guardian</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/Users/macmini/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+    <!-- Daily 09:00: catch a diary about to age out (or a writer that died
+         overnight) in the morning, with hours of runway before captions starve.
+         Per docs/23-Jul-2026-diary-visible-and-staleness-alarm-plan.md. -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>9</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>/tmp/diary-staleness.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/diary-staleness.err.log</string>
+    <key>RunAtLoad</key>
+    <false/>
+</dict>
+</plist>
