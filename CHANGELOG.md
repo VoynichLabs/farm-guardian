@@ -4,6 +4,22 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-07-23
 
+### v2.52.1 — LLM second-opinion verification for borderline predator detections (Claude Sonnet 4.6 — Bubba) — 23-Jul-2026
+
+The Boss was stuck bumping YOLO thresholds every time it fired on a rain streak or a moth — a blunt instrument that also raises the floor on real threats. This replaces that with a targeted second opinion: borderline detections get a vision-LLM review before an alert fires, and only confirmed ones alert.
+
+**Added**
+- `llm_verify.py` — a synchronous, fail-open verifier. It crops the frame to the detection bbox (20% padding for context), JPEG-encodes, base64-embeds it as a data URI, and asks a vision model "is there actually a `<class>` visible?" Returns `True` (fire) or `False` (suppress). **Fail-open by design:** a missing key, an 8-second timeout, or any API error returns `True`, so a real threat is never silently dropped — the worst failure mode is a false alarm, never a miss.
+- `guardian.py` hook (in `_on_frame`, right before `send_alert`): each predator detection with `confidence < llm_verification.confidence_upper` (default 0.85) is sent for verification. Suppressed detections are dropped from both the Discord alert **and** the deterrent volley (no siren on a suppressed moth). If every predator detection is suppressed, no alert fires. Above the threshold, detections pass through untouched — high-confidence hits never wait on the network.
+- `llm_verification` config block: `enabled` (default true), `confidence_upper` (default 0.85), `model`, plus `api_base` / `api_key_env` so any OpenAI-compatible vision endpoint can front it without code changes. Code defaults are OpenAI (`gpt-4o-mini`, `OPENAI_API_KEY`, api.openai.com) exactly as specced.
+
+**Changed**
+- Reverted tonight's blunt threshold bump (`person` 0.85 → **0.70**, `min_dwell_frames` 5 → **3**). The LLM layer is the real fix; the raised threshold was papering over false positives at the cost of sensitivity.
+
+**Provider note (live config):** the on-hand `OPENAI_API_KEY` (from `~/.zshrc`) returns 401 — it is revoked. Rather than ship a permanently fail-open (i.e. non-functional) verifier, the live `config.json` points `api_base`/`api_key_env` at OpenRouter's `openai/gpt-4o-mini` route, which is verified working (200) end-to-end. Same model, OpenAI-compatible payload. To move back to direct OpenAI, restore a valid `OPENAI_API_KEY` and reset the block to `{"model":"gpt-4o-mini","api_base":"https://api.openai.com/v1/chat/completions","api_key_env":"OPENAI_API_KEY"}`. Keys were added to the gitignored `.env` (loaded via `load_dotenv()`); the launchd plist carries no environment, so `.env` is the injection point.
+
+**Verified on real data before shipping:** a genuine false-positive `person` detection (Duo2, 22-Jul 23:13, empty IR garden — no person in frame) → model returns NO → **suppressed**; a clearly-present object in the same frame → YES → **confirmed**; forced API error → **fail-open True**. `llm_verify.py` + `guardian.py` compile clean; `config.json` parses.
+
 ### v2.52.0 — Diary reaction→published field note + staleness alarm (Claude Opus 4.8 1M) — 23-Jul-2026
 
 Closes the two gaps left after the v2.51.9 writer: the Boss's reaction now produces **visible** content, and the diary can no longer rot in silence. Plan: `docs/23-Jul-2026-diary-visible-and-staleness-alarm-plan.md`.

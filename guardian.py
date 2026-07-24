@@ -1,7 +1,10 @@
-# Author: Claude Opus 4.7 — Bubba coding sub-agent (dormant motion-siren deterrent),
+# Author: Claude Sonnet 4.6 (Bubba) — LLM second-opinion verification for borderline detections,
+#         Claude Opus 4.7 — Bubba coding sub-agent (dormant motion-siren deterrent),
 #         Claude Opus 4.8 (1M context) — Bubba coding sub-agent (motion-alert wiring),
 #         Claude Opus 4.6 (updated), OpenAI Codex GPT-5.4 Mini (prior)
-# Date: 22-June-2026 (v2.44.0 — stage motion-triggered siren deterrent, DORMANT/off by default);
+# Date: 23-July-2026 (v2.52.1 — borderline predator detections get an OpenAI vision second opinion
+#       before an alert fires; see llm_verify.py and the "llm_verification" config block, fail-open);
+#       22-June-2026 (v2.44.0 — stage motion-triggered siren deterrent, DORMANT/off by default);
 #       12-June-2026 (v2.41.0 — fire send_motion_alert on hardware-motion transition, gated)
 # PURPOSE: Main service entry point for Farm Guardian v2. Orchestrates camera discovery,
 #          frame capture, YOLO animal detection, animal visit tracking (for alert dedup),
@@ -63,6 +66,7 @@ from zoneinfo import ZoneInfo
 from discovery import CameraDiscovery
 from capture import FrameCaptureManager, FrameResult, HttpUrlSnapshotSource, ReolinkSnapshotSource, UsbSnapshotSource
 from detect import AnimalDetector, DetectionResult
+from llm_verify import verify_detection
 from alerts import AlertManager
 from logger import EventLogger
 from database import GuardianDB
@@ -714,9 +718,48 @@ class GuardianService:
 
             # Send alert and fire deterrents if predator detections passed all filters
             if result.has_predators:
+                # Borderline detections (below llm_verification.confidence_upper) get an
+                # OpenAI vision second opinion before firing — a rain streak or moth at 0.75
+                # is exactly the false positive a raised threshold would miss. Fail-open lives
+                # in verify_detection(), so an API error can never silently drop a real threat.
+                predator_dets = result.predator_detections
+                llm_cfg = self._config.get("llm_verification", {})
+                if llm_cfg.get("enabled", True):
+                    upper = llm_cfg.get("confidence_upper", 0.85)
+                    model = llm_cfg.get("model", "gpt-4o-mini")
+                    api_base = llm_cfg.get("api_base", "https://api.openai.com/v1/chat/completions")
+                    api_key_env = llm_cfg.get("api_key_env", "OPENAI_API_KEY")
+                    confirmed = []
+                    for det in predator_dets:
+                        if det.confidence < upper:
+                            log.info(
+                                "LLM verify: '%s' %s @ %.2f (< %.2f) — requesting second opinion",
+                                result.camera_name, det.class_name, det.confidence, upper,
+                            )
+                            if verify_detection(
+                                result.frame, det.class_name, det.confidence, det.bbox,
+                                model=model, api_base=api_base, api_key_env=api_key_env,
+                            ):
+                                confirmed.append(det)
+                            else:
+                                log.info(
+                                    "LLM verify: suppressed '%s' %s @ %.2f — LLM says not a real detection",
+                                    result.camera_name, det.class_name, det.confidence,
+                                )
+                        else:
+                            confirmed.append(det)
+                    predator_dets = confirmed
+
+                if not predator_dets:
+                    log.info(
+                        "LLM verify: all predator detections for '%s' suppressed — no alert fired",
+                        result.camera_name,
+                    )
+                    return
+
                 sent = self._alert_manager.send_alert(
                     camera_name=result.camera_name,
-                    detections=result.predator_detections,
+                    detections=predator_dets,
                     frame=result.frame,
                 )
                 if sent:
@@ -724,12 +767,12 @@ class GuardianService:
                     self.recent_alerts.append({
                         "timestamp": datetime.now().isoformat(),
                         "camera": result.camera_name,
-                        "classes": [d.class_name for d in result.predator_detections],
+                        "classes": [d.class_name for d in predator_dets],
                         "sent": True,
                     })
 
                 # Phase 3: Fire deterrents for predator tracks
-                for det in result.predator_detections:
+                for det in predator_dets:
                     track = self._tracker.get_track_for_detection(
                         result.camera_name, det.class_name
                     )
