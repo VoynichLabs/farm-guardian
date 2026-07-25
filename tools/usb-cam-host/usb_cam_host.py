@@ -1,4 +1,27 @@
 # Author: Claude Sonnet 4.6
+# Date: 25-July-2026 (Claude Opus 5 — BUG FIX in _apply_highlight_rolloff(). The
+#        curve was NON-MONOTONIC and effectively inverted: with the shipped
+#        defaults (knee 0.75, strength 0.6) it mapped input 191 -> 255 and input
+#        255 -> 217, so brighter pixels came out DARKER. Because the pass runs
+#        per-channel, near-white regions had each of B/G/R remapped by a
+#        different amount, which tore the hue apart and produced the
+#        cyan/yellow/magenta posterisation that has repeatedly been misdiagnosed
+#        as a white-balance or heat-lamp problem (see
+#        docs/16-Apr-2026-heat-lamp-orange-cast-investigation.md — the rainbow
+#        artefacts blamed on gray-world there are at least partly THIS).
+#        Correct form: knee + headroom*(1-strength)*(1-(1-t)^3), which is
+#        continuous at the knee (191 -> 191), monotonic throughout, and reaches
+#        a ceiling of knee + headroom*(1-strength) at full scale. Verified
+#        numerically before and after.
+#        Found on GWTC's daylight coop camera, whose frames were washed out with
+#        rainbow fringing on every strut; live config there is now
+#        HIGHLIGHT_STRENGTH=0 / ORANGE_DESAT=1.0 / SHARPEN_AMOUNT=0.3 because a
+#        daylight wood-and-shavings scene needs none of the brooder-era
+#        corrections. The default of 0.6 meant this bug was also live on
+#        mba-cam and dominator-cam.
+#        SRP/DRY check: Pass — fixed the existing helper in place; no new
+#        function, no new module, no change to the call site or the env-var
+#        surface.)
 # Date: 03-July-2026 (Claude Opus 4.8 — adds USB_CAM_PREFER_EXTERNAL, default on:
 #        auto-selects the first NON-built-in video device so the host binds to the
 #        real USB webcam wherever it runs (MBA / Dominator / future host) instead
@@ -804,10 +827,16 @@ def _apply_highlight_rolloff(frame: np.ndarray, knee: float, strength: float) ->
     f = frame.astype(np.float32)
     over = np.maximum(f - knee_255, 0.0)
     headroom = max(1.0, 255.0 - knee_255)
-    # Cubic ease-out pulls values strongly toward the knee when far above it,
-    # lightly when just above. strength scales how aggressively we pull.
     t = np.clip(over / headroom, 0.0, 1.0)
-    compressed = knee_255 + headroom * (1.0 - strength * (1.0 - (1.0 - t) ** 3))
+    # Cubic ease-out over the above-knee band. The curve MUST be monotonic:
+    # t=0 maps to the knee itself (continuous with the untouched range below),
+    # t=1 maps to knee + headroom*(1-strength) (the ceiling, pulled down by
+    # `strength`), and it increases throughout. See the 25-Jul-2026 bug note in
+    # the module header for what happens when it is not — the previous form
+    # mapped 191 -> 255 and 255 -> 217, i.e. brighter input produced DARKER
+    # output, and because this runs per-channel it tore the hue apart in
+    # near-white regions and produced cyan/yellow/magenta fringing.
+    compressed = knee_255 + headroom * (1.0 - strength) * (1.0 - (1.0 - t) ** 3)
     out = np.where(f > knee_255, compressed, f)
     return np.clip(out, 0, 255).astype(np.uint8)
 

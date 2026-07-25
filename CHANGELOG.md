@@ -4,6 +4,31 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-07-25
 
+### v2.52.4 — Highlight rolloff was inverted: the "rainbow artefact" was a bug, not white balance (Claude Opus 5) — 25-Jul-2026
+
+Boss asked why the GWTC coop camera looked washed out. It wasn't white balance, wasn't the heat lamp, and wasn't exposure — `_apply_highlight_rolloff()` has been mathematically wrong since it was written.
+
+**The bug.** With the shipped defaults (`knee=0.75`, `strength=0.6`) the curve was non-monotonic and effectively inverted:
+
+```
+input 191 -> 255.0        input 235 -> 217.9
+input 200 -> 241.3        input 255 -> 216.8      <- brighter in, DARKER out
+```
+
+The pass runs **per-channel**, so in a near-white region where B/G/R differ by a few counts, each channel landed somewhere completely different on that inverted curve. That tears the hue apart and generates cyan/yellow/magenta fringing on every bright edge.
+
+**This has been misdiagnosed repeatedly.** The "rainbow artefacts" attributed to gray-world WB in `docs/16-Apr-2026-heat-lamp-orange-cast-investigation.md` are at least partly this bug — which is why turning gray-world off never fully fixed them, and why several agents (including me, earlier today) reached for exposure and contrast instead.
+
+**Fixed** — `compressed = knee + headroom*(1-strength)*(1-(1-t)**3)`. Continuous at the knee (191 → 191), monotonic throughout, ceiling of `knee + headroom*(1-strength)` at full scale. Verified numerically before and after; the curve is now provably monotonic across the whole above-knee band.
+
+**Scope:** the default is `0.6`, so this was live on **`mba-cam` and `dominator-cam`** too, not just GWTC.
+
+**GWTC live config changed** (via the existing `set-cam.ps1` helper — no new tooling): `HIGHLIGHT_STRENGTH=0.0`, `ORANGE_DESAT=1.0`, `SHARPEN_AMOUNT=0.3`. A daylight wood-and-shavings scene needs none of the brooder-era corrections — orange desaturation in particular was stripping colour from the wood and pine shavings, which are exactly the orange hues it targets. Measured on the live frame: saturation **+24%** (26.2 → 32.4), mean level 162 → 125, darkest 1% recovered from 60 → 29. The rainbow fringing is gone and the wood has real colour.
+
+**Gotcha worth remembering:** `start.bat` sets its env once at batch start and its `:loop` respawns Python with the **stale** environment, so killing the Python process (or `Stop-ScheduledTask` alone) silently reapplies the old settings — `/health` kept reporting `highlight_strength: 0.6` after the edit. You must kill the `cmd.exe` hosting `start.bat` as well. `tune-usbcam.ps1` warns about this in a comment; it cost a cycle here anyway. Always confirm against `/health`, never against the contents of `start.bat`.
+
+**Still open:** the scene is genuinely over-exposed — the camera meters for the dark coop floor, so everything past the mesh clips. The rolloff was *masking* this in measurements by pulling the 255s down before anything sampled them. Real fix is `USB_CAM_AUTO_EXPOSURE`/`USB_CAM_EXPOSURE`, which needs an empirical sweep on DirectShow. Not attempted yet.
+
 ### v2.52.3 — GWTC: dead webcam was killing the network from the next USB port over (Claude Opus 5) — 25-Jul-2026
 
 Root cause of GWTC's recurring "vanished off the LAN" dropouts, found by mapping USB port locations. One software change, applied and verified.
