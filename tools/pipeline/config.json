@@ -64,8 +64,7 @@
       "timelapse_reel_min_frames": 6,
       "timelapse_reel_daylight_only_cameras": [
         "gwtc",
-        "usb-cam",
-        "duo2"
+        "usb-cam"
       ],
       "timelapse_reel_daylight_start_hour": 6,
       "timelapse_reel_daylight_end_hour": 20,

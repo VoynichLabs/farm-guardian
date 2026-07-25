@@ -4,6 +4,21 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-07-25
 
+### v2.53.1 — duo2 time-lapse Reel is a full 24 hours again (Claude Opus 5) — 25-Jul-2026
+
+The duo2 daily Reel was throwing away every night frame and, as a direct side effect, had a jarring hard cut in the middle of it. Boss directive: "I want all of the footage… I want them to just be a normal time-lapse." Plan: `docs/24-Jul-2026-reolink-timelapse-full-24h-plan.md`.
+
+**Changed**
+- `tools/pipeline/config.json` — removed `"duo2"` from `instagram.scheduled.timelapse_reel_daylight_only_cameras` (now `["gwtc", "usb-cam"]`). One line; no code changed.
+
+**Why one line fixed two symptoms.** The lane runs at 15:00 over a rolling 24h window (15:00 yesterday → 15:00 today). The `06:00–20:00` daylight filter deleted `20:00→06:00` out of the *middle* of that otherwise-contiguous span, so the Reel played yesterday afternoon → dusk and then jumped discontinuously to this morning's dawn. The cut was an artifact of the filter, not a separate bug — dropping the filter restores the night footage and closes the gap in the same stroke. `select_timelapse_gems` already had the all-hours path; it is the one `house-yard` has always taken, so duo2 now simply behaves like its sibling.
+
+**`house-yard` was never affected** — it was not on the daylight list and was already a continuous all-hours time-lapse. No change.
+
+**Verified against the live DB (25-Jul-2026), before and after.** Before: `daylight filter kept 4990/8534 raw frames for duo2`, selector returned 90 frames with **0** from the dark 21:00–04:00 band. After: that log line is **absent**, the selector reports `picked 90/8530` (the full unfiltered denominator), and the 90 frames spread evenly across all 24 local hours with **29** from the dark band — matching house-yard's 29/90 exactly. Largest gap between consecutive frames fell to 22.8 min, which is ordinary even-subsample spacing rather than the previous ~10-hour hole. Frame count and Reel duration are unchanged (90 frames, ~22.6s): duo2 captures every 10s, so the 5-minute bucketing already produced far more than `timelapse_reel_max_frames: 90` and the change alters *which* 90, not how many. `tools/pipeline/test_ig_selection_timelapse.py` passes both cases; the gwtc daylight-only path is untouched.
+
+**Scope note.** Only `house-yard` and `duo2` time-lapse lanes are live — the usb-cam, dominator-cam, gwtc, mba-cam and camera-of-the-day plists all carry `.disabled` suffixes and produce nothing. The 18:00 mixed `ig-daily-reel` gates on `discord_reactions >= 1` and `vlm_bypass` raw frames are never posted to Discord individually, so it cannot pull these frames and is unaffected. **Landmine recorded for later:** `usb-cam` appears in *both* `timelapse_reel_daylight_only_cameras` and `timelapse_golden_windows.cameras`; `use_golden` is tested first, so its daylight-list entry is dead config today — anyone removing the golden-window block to unfilter that lane would silently re-activate a 06:00–20:00 filter. Both entries must be removed together.
+
 ### v2.53.0 — Night alert artifact suppression: four gates, local-only verification (Claude Opus 5) — 25-Jul-2026
 
 The night of 24→25 Jul produced **139 Discord alerts between 00:00 and 07:00**, 135 of them `person` on `duo2`. Every one was a spider web. Boss went out and confirmed the physical cause: fine strands strung from the camera housing bridge to the lens glass. Anchored on the bridge, a strand sits directly in front of the IR LEDs *and* millimetres from the glass — so it takes the illuminator side-on at full power while being hopelessly out of focus, and clips to a fat white vertical bar exactly where YOLO wants to see a person. That is also why every false positive hugged the frame border. Plan: `docs/25-Jul-2026-night-alert-artifact-suppression-plan.md`.
