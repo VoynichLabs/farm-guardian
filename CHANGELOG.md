@@ -60,7 +60,23 @@ The pass runs **per-channel**, so in a near-white region where B/G/R differ by a
 
 **Gotcha worth remembering:** `start.bat` sets its env once at batch start and its `:loop` respawns Python with the **stale** environment, so killing the Python process (or `Stop-ScheduledTask` alone) silently reapplies the old settings — `/health` kept reporting `highlight_strength: 0.6` after the edit. You must kill the `cmd.exe` hosting `start.bat` as well. `tune-usbcam.ps1` warns about this in a comment; it cost a cycle here anyway. Always confirm against `/health`, never against the contents of `start.bat`.
 
-**Still open:** the scene is genuinely over-exposed — the camera meters for the dark coop floor, so everything past the mesh clips. The rolloff was *masking* this in measurements by pulling the 255s down before anything sampled them. Real fix is `USB_CAM_AUTO_EXPOSURE`/`USB_CAM_EXPOSURE`, which needs an empirical sweep on DirectShow. Not attempted yet.
+**Exposure — swept and fixed.** The scene was also genuinely over-exposed: the camera metered for the dark coop floor, so everything past the mesh clipped. (The broken rolloff had been *masking* this in measurements by pulling the 255s down before anything sampled them, which is why the clipping numbers looked harmless.) DirectShow exposure values are vendor-specific, so this was measured, not guessed — a sweep of manual `-6 / -7 / -8 / -9` against the auto baseline, sampling the blown outdoor region and the coop floor separately:
+
+| setting | blown ≥250 | outdoor | coop floor | saturation |
+|---|---|---|---|---|
+| auto (baseline) | 0.30% | 139.6 | 53.9 | 32.4 |
+| manual −6 | 0.00% | 240.9 | 230.0 | 8.8 |
+| manual −7 | 0.14% | 181.9 | 197.3 | 15.6 |
+| manual −8 | 0.08% | 119.4 | 140.3 | 35.6 |
+| **manual −9** | **0.00%** | **37.3** | **56.3** | **59.2** |
+
+**Live setting: `AUTO_EXPOSURE=manual`, `EXPOSURE=-9`.** End-to-end against this morning's frame: saturation **26.2 → 62.1** (+137%), blown pixels 0.07% → 0.01%, darkest 1% 60 → 9. Birds, foliage, wood grain and shaving texture are all resolved where before there was a flat haze.
+
+**Trade-off, stated plainly:** manual exposure does not adapt. −9 is tuned for the bright sunny conditions it was measured in; on a heavily overcast day or at dusk it will be too dark. If that shows up, `set-cam.ps1 EXPOSURE=-8` is the one-command step back, and `AUTO_EXPOSURE=auto` restores adaptive metering entirely — which is now a much better baseline than it was, since the rolloff bug that was corrupting it is fixed.
+
+**Also fixed: `set-cam.ps1` itself** (now tracked at `deploy/gwtc/set-cam.ps1`; it previously existed only on GWTC). Its restart was ineffective — it never killed the `cmd.exe` running `start.bat`, so the `:loop` respawned Python with the stale environment and tuning silently did nothing. It now kills the batch host by CommandLine match, then Python, then restarts the task, then **verifies against `/health`** rather than against the contents of `start.bat`. Backup at `set-cam.ps1.bak-25jul2026`.
+
+**Bug scope confirmed by probe:** `mba-cam` already runs `highlight_strength: 0.0` / `sharpen: 0.0`, so it was unaffected in practice. `dominator-cam` (`192.168.0.194`) was unreachable and has not been checked — it takes the code default of `0.6`, so verify it when it next comes up.
 
 ### v2.52.3 — GWTC: dead webcam was killing the network from the next USB port over (Claude Opus 5) — 25-Jul-2026
 
