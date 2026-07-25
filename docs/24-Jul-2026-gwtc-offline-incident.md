@@ -92,22 +92,46 @@ re-enumeration that bounced the WiFi NIC (`InstanceId: USB\VID_0BDA&PID_D723&MI_
 the adapter is genuinely on the USB bus). Link down/up forced a fresh DHCP request, which
 got a lease. The hub plug fixed the network *incidentally*, by bouncing the NIC.
 
-### 3. `farmcam-wifi-watchdog` is DEAD — it never fired during the outage
+### 3. `farmcam-wifi-watchdog` is NOT broken — that claim is WITHDRAWN
 
-`C:\farm-services\wifi-watchdog.log`, last lines:
+An earlier revision of this doc asserted the watchdog was "DEAD" because
+`C:\farm-services\wifi-watchdog.log` has no entries after `2026-07-24 02:27:26`. **That was
+wrong, and it is the same inference-from-absence error that produced the dead-battery and
+"16 hours clean" mistakes.** Verified state on 25-Jul:
+
+| Check | Result |
+|---|---|
+| `Get-ScheduledTaskInfo` | `State: Ready`, `LastRun: 12:39:39`, `LastResult: 0`, `NextRun: 12:41:41`, `Missed: 0` |
+| Runs on schedule? | Yes — every 2 minutes, as designed |
+| Detection logic correct? | **Yes, tested empirically** (below) |
+
+**The script only writes to its log when it detects failure** (`if ($fails -ge 3)`). There is
+no heartbeat line. So log silence means "no failure detected," *not* "did not run."
+
+**The `ping.exe` exit-code theory is also dead.** The obvious suspicion was that `ping.exe`
+returns 0 in the no-route/APIPA state, blinding the check. Tested directly on GWTC:
 
 ```
-2026-07-24 02:25:15  gateway 3/3 fail, bouncing Wi-Fi
-2026-07-24 02:25:34  post-bounce reachable=True
-2026-07-24 02:27:14  gateway 3/3 fail, bouncing Wi-Fi
-2026-07-24 02:27:26  post-bounce reachable=False
+A: no route to subnet (the APIPA case)  -> "Request timed out."  exit 1  -> counted as FAIL ✓
+B: real gateway, currently up            ->                       exit 0  -> not a fail    ✓
+C: unused IP on local subnet             -> "Request timed out."  exit 1  -> counted as FAIL ✓
 ```
 
-**Nothing after 02:27 on 24-Jul.** It should have run every 2 minutes and bounced the
-adapter ~255 times across the 8.5-hour outage. It fired zero times. Its own
-`Restart-NetAdapter` is precisely the action that would have recovered the APIPA state —
-that is exactly what the 02:25 entry did successfully. Fixing this task is the single
-highest-value repair, and it is a desk job over SSH, not a coop trip.
+The detection works correctly in exactly the state GWTC was in. Theory discarded.
+
+**Whether it ran during the 21:30 → 06:06 window is UNKNOWABLE.**
+`Microsoft-Windows-TaskScheduler/Operational` has `IsEnabled: False` on this box, so there
+is no run history. A query over that window returns 0 events, which is meaningless — the
+log is switched off. **Do not cite that zero as evidence of anything.**
+
+**The real defect is observability, not the watchdog.** Two cheap fixes, both desk jobs
+over SSH, that would have made this whole incident a five-minute diagnosis:
+
+1. **Enable Task Scheduler history** (`wevtutil sl Microsoft-Windows-TaskScheduler/Operational /e:true`)
+   so "did it run?" is answerable.
+2. **Add a heartbeat line to `wifi-watchdog.ps1`** — log every run, not only failures, so
+   silence becomes meaningful instead of ambiguous. This is the single change that would
+   have prevented three wrong conclusions in this session.
 
 ### 4. Signal strength is NOT the problem — the docs are wrong
 
