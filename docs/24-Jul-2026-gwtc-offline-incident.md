@@ -1,7 +1,24 @@
 # GWTC offline — 24-Jul-2026 incident diagnosis
 
-**Status:** GWTC (`192.168.0.69`, Gateway GWTC116-2, coop laptop) is off the network.
-Confirmed absent from the router's client list by Boss. `usb-cam` lane is down with it.
+**Status: RESOLVED 25-Jul-2026 06:06 EDT. GWTC recovered and `usb-cam` is healthy.**
+
+Verified 25-Jul ~12:00 EDT: ports 22 / 8089 / 8554 all open at `192.168.0.69`, ARP entry
+present (`f0:35:75:81:2c:45`), and `/health` reports the **correct** camera —
+`device_index: 1`, `resolution: [1920,1080]`, `grabber_alive: true`, `total_failures: 0`.
+That is the external USB camera, not a built-in; the label is trustworthy. Frames resumed
+at `2026-07-25T10:06:17Z`.
+
+**Total outage: ~10 hours** (19:59:34 EDT 24-Jul → 06:06 EDT 25-Jul).
+
+The diagnosis below is retained because the failure is recurring — twice in the 18 hours
+before it went down for good — and the next occurrence should start from here rather than
+from scratch.
+
+**⚠️ Open question that determines the permanent fix:** did GWTC self-heal overnight, or
+did a human press the power button around 06:06? Outage #1 self-healed in ~90 min with no
+intervention, so self-healing is proven possible on this box. If #2 also self-healed, H1
+(power-cycling leaves it off) is weakened and this is a pure weak-signal WiFi problem. If a
+human recovered it, H1 stands. **Answer this before spending money on a fix.**
 
 **This doc exists to stop the next agent (or me) from re-running three theories that
 are already dead, and to correct a self-blame narrative that the logs disprove.**
@@ -153,32 +170,19 @@ if one exists.
 
 ---
 
-## Independent of GWTC: restoring the turkey-pen lane today
+## ⛔ The USB camera stays on GWTC — do NOT propose moving it to the MacBook Air
 
-The 1080p turkey-pen feed does not have to wait on GWTC. The MacBook Air
-(`192.168.0.50`) is **up and healthy right now** — verified this session:
+**Boss directive, 25-Jul-2026, explicit and unprompted: "We are absolutely not moving the
+USB cam to the MacBook Air. Stop suggesting that."**
 
-```
-{"ok":true,"prefer_external":false,"resolved_device_index":0,
- "resolution":[1280,720],"grabber_alive":true,"camera_open":true,
- "latest_frame_age_ms":294,"total_grabs":217116}
-```
+An earlier revision of this doc recommended relocating the camera to the MBA as an outage
+workaround. That recommendation is **withdrawn**. Do not re-derive it, do not offer it as a
+fallback during the next GWTC outage, and do not treat MBA health checks as evidence that
+the move is a good idea. The camera lives on GWTC in the turkey pen; a GWTC outage is fixed
+by fixing GWTC.
 
-Moving the USB camera to the MBA restores the lane, **but there is a trap.** Per CLAUDE.md
-and confirmed by the `/health` output above, the MBA's plist now sets
-`USB_CAM_PREFER_EXTERNAL=false`, so it would keep serving the built-in FaceTime HD at
-**1280x720** and silently label it `usb-cam`. Getting exactly this wrong is what produced
-the mislabeled 21-Jul → 23-Jul frames.
-
-Required sequence:
-1. Flip `USB_CAM_PREFER_EXTERNAL=true` in the MBA plist.
-2. `launchctl bootout` **then** `bootstrap` — a `kickstart` re-runs from launchd's *cached*
-   plist and silently ignores the edit.
-3. `curl http://192.168.0.50:8089/health` and confirm `resolved_device_name` and
-   `resolution` are the USB camera's **1920x1080**, not FaceTime's 1280x720, before
-   trusting the label.
-4. Update the `usb-cam` URL in **both** `config.json` and `tools/pipeline/config.json`
-   (or use `scripts/add-camera.py`), then reload both LaunchAgents.
+(The MBA also remains the host for `mba-cam` — its own separate lane, its own built-in
+FaceTime HD at 1280x720. That is unchanged and unrelated.)
 
 ---
 
