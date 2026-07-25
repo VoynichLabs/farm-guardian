@@ -59,7 +59,82 @@ cross-referenced against `image_archive`:
 
 ---
 
-## Live hypotheses, ranked
+## CONFIRMED ROOT CAUSE (25-Jul, from GWTC's own event logs)
+
+The hypotheses below were superseded by direct evidence pulled over SSH once GWTC was
+reachable. **Read this section, not them.**
+
+### 1. The machine was UP the entire time we believed it was dead
+
+`Get-WinEvent` boot/shutdown events and `EventLog 6013` (uptime 52171 s at 12:00 on 25-Jul)
+put continuous uptime from **21:30 EDT 24-Jul**. Every probe, and all four "power cycles",
+were aimed at a machine that was running fine. We had no way to know because the screen,
+keyboard and touchpad are all deliberately disabled.
+
+### 2. WiFi ASSOCIATED but never got a DHCP lease — it sat on APIPA for 8.5 hours
+
+From `Microsoft-Windows-WLAN-AutoConfig/Operational`:
+
+```
+21:30:55  11000  Wireless network association started
+21:30:58  11001  Wireless network association succeeded
+21:30:58  11005  Wireless security succeeded
+21:31:00   8001  WLAN AutoConfig has successfully connected
+```
+
+The radio link was good. What failed was IPv4 address acquisition — no lease, so Windows
+self-assigned `169.254.x.x`. That state is invisible on `192.168.0.0/24` **and absent from
+the router's DHCP lease list**, which is exactly what we observed and mis-read as "off the
+network." This is hypothesis H3 below, confirmed.
+
+**Recovery mechanism:** plugging the USB hub back in at 06:06 caused a USB bus
+re-enumeration that bounced the WiFi NIC (`InstanceId: USB\VID_0BDA&PID_D723&MI_02\...` —
+the adapter is genuinely on the USB bus). Link down/up forced a fresh DHCP request, which
+got a lease. The hub plug fixed the network *incidentally*, by bouncing the NIC.
+
+### 3. `farmcam-wifi-watchdog` is DEAD — it never fired during the outage
+
+`C:\farm-services\wifi-watchdog.log`, last lines:
+
+```
+2026-07-24 02:25:15  gateway 3/3 fail, bouncing Wi-Fi
+2026-07-24 02:25:34  post-bounce reachable=True
+2026-07-24 02:27:14  gateway 3/3 fail, bouncing Wi-Fi
+2026-07-24 02:27:26  post-bounce reachable=False
+```
+
+**Nothing after 02:27 on 24-Jul.** It should have run every 2 minutes and bounced the
+adapter ~255 times across the 8.5-hour outage. It fired zero times. Its own
+`Restart-NetAdapter` is precisely the action that would have recovered the APIPA state —
+that is exactly what the 02:25 entry did successfully. Fixing this task is the single
+highest-value repair, and it is a desk job over SSH, not a coop trip.
+
+### 4. Signal strength is NOT the problem — the docs are wrong
+
+`netsh wlan show interfaces` on 25-Jul: **Signal 88%**, 72.2 Mbps rx/tx, 802.11n, 2.4 GHz,
+channel 5, BSSID `5c:a6:e6:16:f1:0f`. CLAUDE.md and
+`docs/18-Apr-2026-gwtc-current-state-and-install-walkthrough.md` both assert the coop sits
+at "~34% signal" and build a whole weak-signal-driver-wedge narrative on it. **At 88% that
+narrative does not apply to this incident.** Stop diagnosing GWTC dropouts as signal
+problems without re-measuring first.
+
+### 5. Separate, unrelated fault: the box is losing power
+
+Two `Kernel-Power 41` / `EventLog 6008` unexpected shutdowns on 24-Jul (≈11:19 and
+≈19:43–19:59), plus a ~7h45m fully-powered-off gap from 11:19 to 19:03. `Win32_Battery`
+reports "WB Lion Battery" at 100% with `BatteryStatus=2` (on AC) — yet the machine still
+hard-dies. A battery gauge reading 100% that cannot survive any AC interruption is the
+classic dead-cell signature. This is what *starts* the outages; the DHCP/watchdog failure
+is what makes them last 8.5 hours instead of 90 seconds.
+
+Note on timestamps: Event 6008's "previous shutdown at 19:43:37" is derived from a
+periodically-flushed registry value and lags the true crash by up to ~15 min, which
+reconciles it with the last archived frame at 19:59:34. GWTC's clock is in sync with the
+Mini (both 12:06:51 on 25-Jul) — there is no clock skew.
+
+---
+
+## Live hypotheses, ranked (SUPERSEDED — kept for the reasoning trail)
 
 ### H1 — Physical power-cycling is leaving the laptop OFF (new, untested, best fit)
 
