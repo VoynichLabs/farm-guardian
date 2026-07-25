@@ -2,7 +2,36 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] - 2026-07-23
+## [Unreleased] - 2026-07-25
+
+### v2.52.2 — GWTC wifi-watchdog heartbeat logging + Task Scheduler history (Claude Opus 5) — 25-Jul-2026
+
+GWTC dropped off the LAN for 8.5 hours on 24-Jul. Diagnosing it took hours and produced **three confidently wrong conclusions** — a dead battery, a dead watchdog, 16 hours of healthy frames — every one of them from reading *absence of log lines* as evidence. The box could not report on itself, so the fix is observability, not another component.
+
+**Root cause of the outage itself** (confirmed from GWTC's own event logs, not inferred): the machine was **up the whole time** (continuous uptime from 21:30 on 24-Jul) and its WiFi **associated successfully** at 21:30:58 — but it never obtained a DHCP lease, so it sat on APIPA `169.254.x.x`. That state is invisible on `192.168.0.0/24` *and* absent from the router's lease table, which is exactly what made a running machine look powered off. It recovered at 06:06 when Boss re-plugged the USB hub: the adapter is genuinely USB-attached (`USB\VID_0BDA&PID_D723`), so bus re-enumeration bounced the NIC and forced a fresh DHCP request.
+
+**Added**
+- `deploy/gwtc/wifi-watchdog.ps1` — **now tracked in git.** This script previously existed *only* on GWTC at `C:\farm-services\wifi-watchdog.ps1`, with no repo copy and no review history. The repo copy is now the source of truth; deploy with `scp deploy/gwtc/wifi-watchdog.ps1 markb@192.168.0.69:C:/farm-services/wifi-watchdog.ps1`.
+- **Heartbeat logging.** The script previously wrote to its log *only* on failure, so a silent log was ambiguous between "ran, all healthy" and "never ran." It now logs every run: `2026-07-25 12:47:11  ok fails=0/3 ip=192.168.0.69`.
+- **IPv4 in every log line.** `ip=169.254.x.x` makes the APIPA failure — the actual 24-Jul root cause — readable at a glance instead of requiring event-log forensics.
+- **Bounded log growth.** ~36 KB/day; rotates to `.1` at 1 MB (≈28 days), one previous file retained.
+- **Error surfacing.** `Restart-NetAdapter` is wrapped so a failed bounce logs its reason rather than failing silently. Log writes are wrapped so a locked/unwritable log can never take the watchdog itself down.
+
+**Changed**
+- **Task Scheduler history ENABLED on GWTC** (`wevtutil sl Microsoft-Windows-TaskScheduler/Operational /e:true`, verified `IsEnabled: True`). It was off — the Windows default — so "did the watchdog run overnight?" was unanswerable, and a query returning zero events looked like proof of failure when it only meant the log was switched off.
+
+**Verified live on GWTC**
+- Heartbeat present in `wifi-watchdog.log`; task `LastTaskResult: 0`, running on its 2-minute cadence.
+- Original script backed up to `C:\farm-services\wifi-watchdog.ps1.bak-25jul2026`.
+
+**Corrections to the record — three claims made during this incident were wrong and are withdrawn** (full detail in [`docs/24-Jul-2026-gwtc-offline-incident.md`](docs/24-Jul-2026-gwtc-offline-incident.md)):
+1. *"Dead battery / it can't survive an AC interruption."* `Win32_Battery BatteryStatus=2` means **on AC**, matching Boss: GWTC is never off AC. `Kernel-Power 41` records only that the OS stopped uncleanly — it does not identify a cause. Cause remains **untested**; candidates are a hard hang or a thermal trip (Celeron N4020, chicken coop, late July), and some reboots in the window may simply be Boss's own power cycles.
+2. *"The wifi-watchdog is dead."* It is healthy — `State: Ready`, `LastResult: 0`, `Missed: 0`, running every 2 minutes. The follow-on theory that `ping.exe` returns 0 in the no-route/APIPA state was also **tested and disproved on the box**: no-route returns exit 1 and is correctly counted as a failure.
+3. *"usb-cam ran clean for ~16 hours on 24-Jul."* Hourly `image_archive` counts show frames in **exactly one hour** that day (19:03–19:59, 806 frames). Guardian only logs `snapshot returned None` when a poll fails, so a quiet log means "no failures logged," never "frames delivered."
+
+**Also corrected:** CLAUDE.md and the 18-Apr walkthrough both assert the coop sits at "~34% signal" and build a weak-signal-driver-wedge narrative on it. Measured 25-Jul: **88%**, 72.2 Mbps, 802.11n, channel 5. Re-measure before reaching for that explanation again.
+
+**Screen:** Boss asked for the panel to be turned back on. It cannot be done over SSH — every software lever already reports it as on (`Integrated Monitor (NV116WHM-T16)` status OK, Intel UHD 600 actively driving 1366×768 native, brightness 90, display sleep timeout 0, no disabled PnP devices anywhere on the box). Whatever is keeping it dark is physical and needs hands at the laptop. Unrelated but noted while looking: one USB device is in an error state — `Unknown USB Device (Device Descriptor Request Failed)`, `USB\VID_0000&PID_0002` — worth a look given the camera and the WiFi share that bus.
 
 ### v2.52.1 — LLM second-opinion verification for borderline predator detections (Claude Sonnet 4.6 — Bubba) — 23-Jul-2026
 
