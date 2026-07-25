@@ -1,5 +1,7 @@
-# Author: Claude Opus 4.6 (updated), Cascade (Claude Sonnet 4) (original)
-# Date: 07-April-2026
+# Author: Claude Opus 5 (v2.53.0 — Detection.suppression_reason),
+#         Claude Opus 4.6 (updated), Cascade (Claude Sonnet 4) (original)
+# Date: 25-July-2026 (v2.53.0 — carry a suppression reason on each Detection so the artifact
+#       filter's verdict reaches both the DB record and the alert gate); 07-April-2026
 # PURPOSE: YOLOv8 animal detection for Farm Guardian. Loads a YOLOv8 model (nano by default)
 #          and runs inference on frames captured from RTSP streams. Implements the v1
 #          false-positive suppression strategy from PLAN.md:
@@ -32,6 +34,10 @@ class Detection:
     is_predator: bool
     bbox_area_pct: float  # bounding box area as % of frame area
     frame_count: int  # how many consecutive frames this class has been seen
+    # Set by guardian.py from artifact_filter when this detection is barred from alerting
+    # (e.g. "static-region" — a spider web that has held the same pixels for hours). The
+    # detection is still logged in full; this only governs the alert path.
+    suppression_reason: Optional[str] = None
 
 
 @dataclass
@@ -49,6 +55,11 @@ class DetectionResult:
     @property
     def predator_detections(self) -> list[Detection]:
         return [d for d in self.detections if d.is_predator]
+
+    @property
+    def alertable_predator_detections(self) -> list[Detection]:
+        """Predator detections that no suppression rule has barred from alerting."""
+        return [d for d in self.detections if d.is_predator and d.suppression_reason is None]
 
 
 class AnimalDetector:

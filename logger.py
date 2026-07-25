@@ -1,12 +1,20 @@
-# Author: Claude Opus 4.6 (updated), Cascade (Claude Sonnet 4) (original)
-# Date: 13-April-2026 (v2.17.0 — vision refinement removed)
+# Author: Claude Opus 5 (v2.53.0 — suppression pass-through),
+#         Claude Opus 4.6 (updated), Cascade (Claude Sonnet 4) (original)
+# Date: 25-July-2026 (v2.53.0 — log_event() forwards suppression_reason to the DB);
+#       13-April-2026 (v2.17.0 — vision refinement removed)
 # PURPOSE: Structured event logging for Farm Guardian. Dual-write: persists detection events
 #          to both daily-rotated JSONL log files (v1 legacy) and SQLite database (v2) via
 #          the database.py module. Saves snapshot images to daily subdirectories under the
 #          configured events directory. Each event includes timestamp, camera name, detection
 #          class, confidence score, bounding box, snapshot path, and optional track id.
 #          Backward-compatible: if no DB instance is provided, behaves exactly as v1.
-# SRP/DRY check: Pass — single responsibility is event persistence (log + snapshot + DB).
+#          v2.53.0: added the optional suppression_reason parameter, which populates the
+#          detections.suppressed / suppression_reason columns. Those columns have existed in
+#          the schema (and in database.insert_detection's signature) since v2 but nothing
+#          wrote them; the artifact filter is the first producer. Suppressed detections are
+#          recorded in full — suppression governs the ALERT path only.
+# SRP/DRY check: Pass — single responsibility is event persistence (log + snapshot + DB). The
+#                new parameter reuses insert_detection's existing columns; no schema change.
 
 import json
 import logging
@@ -72,6 +80,7 @@ class EventLogger:
         is_predator: Optional[bool] = None,
         track_id: Optional[int] = None,
         model_name: str = "yolov8n",
+        suppression_reason: Optional[str] = None,
     ) -> dict:
         """
         Record a detection event. Writes to JSONL (legacy) and SQLite (v2).
@@ -88,6 +97,11 @@ class EventLogger:
             is_predator: explicit predator flag (if None, checks predator_classes)
             track_id: associated track id from tracker module
             model_name: which model produced this detection
+            suppression_reason: why this detection was barred from alerting (e.g.
+                artifact_filter.SUPPRESSION_REASON). Non-None sets detections.suppressed=1,
+                which dashboard.py and reports.py already exclude from their counts. The
+                detection is still recorded in full — suppression hides it from the ALERT
+                path, never from the record.
         """
         now = datetime.now()
         day_dir = self._daily_dir(now)
@@ -116,6 +130,9 @@ class EventLogger:
         }
         if track_id is not None:
             event["track_id"] = track_id
+        if suppression_reason is not None:
+            event["suppressed"] = True
+            event["suppression_reason"] = suppression_reason
         if model_name != "yolov8n":
             event["model"] = model_name
         if extra:
@@ -143,6 +160,8 @@ class EventLogger:
                     track_id=track_id,
                     snapshot_path=snapshot_path,
                     model_name=model_name,
+                    suppressed=suppression_reason is not None,
+                    suppression_reason=suppression_reason,
                 )
                 event["db_id"] = db_id
             except Exception as exc:

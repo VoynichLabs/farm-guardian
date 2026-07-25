@@ -4,6 +4,39 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-07-25
 
+### v2.53.0 — Night alert artifact suppression: four gates, local-only verification (Claude Opus 5) — 25-Jul-2026
+
+The night of 24→25 Jul produced **139 Discord alerts between 00:00 and 07:00**, 135 of them `person` on `duo2`. Every one was a spider web. Boss went out and confirmed the physical cause: fine strands strung from the camera housing bridge to the lens glass. Anchored on the bridge, a strand sits directly in front of the IR LEDs *and* millimetres from the glass — so it takes the illuminator side-on at full power while being hopelessly out of focus, and clips to a fat white vertical bar exactly where YOLO wants to see a person. That is also why every false positive hugged the frame border. Plan: `docs/25-Jul-2026-night-alert-artifact-suppression-plan.md`.
+
+**The flood was not caused by the webs — it was caused by the verifier dying.** v2.52.1's second opinion ran against a metered remote API. It made 3,813 calls in two nights, ran the account balance to zero at **00:02:20**, and then returned `402 Payment Required` **1,147 consecutive times**. Verification is fail-open, so from two minutes past midnight the alarm silently degraded to "alert on everything" for six hours. When it *could* run, it was excellent — 2,425 suppressions against 74 confirmations, a 97% suppression rate. The idea was right; putting a metered third-party API on the critical path of a farm alarm, with no floor underneath it, was not.
+
+**The alert path is now four gates, cheapest first**, each independently sufficient to have prevented that night:
+
+- **① Alert cooldown moved BEFORE verification** (`guardian.py`). v2.52.1 verified every predator detection and applied the 90s per-class cooldown afterwards inside `send_alert`, so it paid for ~16 verifications per alert that could actually fire — 1,147 calls to produce 139 alerts. Reuses `AlertManager.should_alert()`, no new state.
+- **② `artifact_filter.py` (new) — static-region suppression.** Free, in-process, no network. A bbox that holds the same pixels for 10+ minutes is scenery, not a visitor. Suppresses the **alert**, never the record: rows are written with `suppressed=1, suppression_reason='static-region'`. Three safety properties: every region's first ten minutes always alert (so a predator is never muted on arrival), a region that starts moving again is immediately un-muted and logged, and regions decay after 300s of absence so a cleared web never mutes that patch of frame permanently. State is in-memory; a restart begins clean.
+- **③ `llm_verify.py` rewritten — LOCAL ONLY.** Now talks to the `qwen/qwen3-vl-4b` already loaded in LM Studio on this Mac Mini. ~1.2s, free, no key, no network, cannot return 402. **There is deliberately no `api_key_env`, no `api_base` override and no remote fallback** — not even a disabled one, because that is the same failure one config edit away. Enforces the LM Studio safety rules from `docs/13-Apr-2026-lm-studio-reference.md`: loaded-model check before every call (reusing `vlm_enricher.list_loaded_models`), **never** loads a model, single in-flight via a module lock. Also switched from sending a bare crop to sending the **annotated full frame** downscaled to 768px — measured, the crop took 5,733ms and returned an unexplained "NO" while the annotated frame took 1,434ms and correctly said *"a bright, out-of-focus streak from an insect or spider web on the lens"*. Cropping to the blob discards the context that makes the call decidable. Output is constrained by `response_format` json_schema grammar sampling; `unsure` always resolves toward alerting.
+- **④ Graduated fail-open** (`alerts.py`). Fail-open stays — a threat is never silently dropped — but a verifier that cannot answer no longer produces either silence or an unlabelled flood. The alert fires marked **⚠️ UNVERIFIED** in drab grey, on its own 900s per-camera+class debounce, plus a once-per-6h `@Boss` health notice saying the alarm is running unfiltered. Applied to last night that is ~4 flagged alerts/hour and one message, instead of six silent hours at 139.
+
+**Verified against the real recorded night, not theory** (`scripts/replay-artifact-filter.py`, new — replays `data/guardian.db` rows through the production modules, driving the filter's clock with recorded timestamps):
+
+| | duo2 `person`, 25-Jul 00:00–07:00 |
+|---|---|
+| alerts before (no filter) | **136** (actual production figure: 135 — the harness matches reality) |
+| after gates ①+② | 42 |
+| after gates ①+②+③ | **0** — 42 real VLM calls, 42 suppressed, 0 confirmed |
+| real person, house-yard 24-Jul 21:44 | **still alerts** (0 of 14 detections suppressed) |
+
+Also fault-injected: LM Studio unreachable and model-not-loaded both return `available=False` and never "suppress"; the unverified debounce and health-notice debounce both hold; a second camera is not throttled by the first's. And contention-checked: the 42 verification calls ran alongside the live image pipeline, which enriched 307 frames in the same window with LM Studio still healthy at 16k context.
+
+**Two bugs found and fixed during verification, both by running against real data rather than reasoning about it:**
+- The filter's first cut measured drift as peak-distance-from-first-sighting. One excursion — YOLO's box jumps ~122px on these webs at p95 — permanently disqualified a region, and since no detection gap that night exceeded 88s the decay never reset it. Result: 26.6% suppression where 95%+ was needed. Replaced with a rolling-window 90th-percentile spread, which forgets old excursions and rose to 92.6%. (90% of these detections sit within **3px** of their median.)
+- The replay harness itself was unfaithful: it replayed all detections including `is_predator=0` rows, which `detect.py` clears when dwell is unmet and which never reach the alert path in production. They also carry no snapshot, which is how it was caught — 1,120 of the duo2 rows had `is_predator=0` and zero snapshots. Filtering to `is_predator=1` made the "before" figure land on 136 against a real 135.
+
+**Also:** `guardian.log` had reached **616 MB** unrotated, spanning 14-Apr to 25-Jul, because `setup_logging()` built a plain `FileHandler` with no cap. Now a `RotatingFileHandler` (`logging.max_bytes` / `backup_count`, defaults 50 MB × 5 → ~300 MB ceiling). The oversized file was archived to `~/guardian-log-archive/guardian-2026-04-14_2026-07-25.log.gz` (17 MB, integrity verified) and truncated in place; append-mode meant Guardian never missed a line.
+
+**Not done, and deliberately:** no detection threshold was touched (Boss has rejected that twice, and v2.52.1 already reverted one such bump); no Laplacian/blur gate (Boss distrusts that calibration — already recorded in CLAUDE.md for `usb-cam-host`). Deterrents fire for **confirmed** detections only — an unverified detection gets the Discord alert but no siren, because 139 sirens overnight would have been far worse than 139 messages and Boss still sees every alert.
+
+**The actual root cause still needs hands:** clean the duo2 lens and housing. All of this is software surviving a dirty lens.
 ### v2.52.4 — Highlight rolloff was inverted: the "rainbow artefact" was a bug, not white balance (Claude Opus 5) — 25-Jul-2026
 
 Boss asked why the GWTC coop camera looked washed out. It wasn't white balance, wasn't the heat lamp, and wasn't exposure — `_apply_highlight_rolloff()` has been mathematically wrong since it was written.

@@ -115,12 +115,20 @@ active camera. The correct lever for memory pressure is model choice /
 context-length reduction / unloading stale co-resident models inside
 LM Studio, never quitting the app.
 
-**Guardian itself (the detection service, `guardian.py`) does NOT call
-LM Studio.** `vision.py` was removed in v2.17.0 because over-engineered
-species refinement wasn't worth the operational complexity. This is the
-distinction that tripped up past agents: *Guardian = detection, no LM
-Studio; pipeline = VLM enrichment, requires LM Studio.* Two services,
-same repo.
+**⚠️ CORRECTED 25-Jul-2026 (v2.53.0): Guardian NOW CALLS LM STUDIO TOO.**
+The old rule below — "Guardian = detection, no LM Studio" — is no longer
+true and is kept only so the correction is legible. `llm_verify.py` sends
+borderline night predator detections to the same loaded `qwen/qwen3-vl-4b`
+for a second opinion before an alert fires. Guardian is a **read-only**
+consumer: loaded-model check before every call, **never** loads a model,
+single in-flight via a module lock. `ensure_model_loaded()` in the pipeline
+remains this repo's ONLY load path. See the "Night predator alerts" section
+near the top of this file.
+
+`vision.py` was removed in v2.17.0 because over-engineered species
+refinement wasn't worth the operational complexity — that is still true,
+and v2.53.0 did not bring it back. The verifier answers one yes/no
+question about a single bbox; it does not classify species.
 
 Before you write or modify ANY code that opens a connection to LM
 Studio, read **`docs/13-Apr-2026-lm-studio-reference.md`** in full.
@@ -142,6 +150,18 @@ The brooder narrator plan
 (`docs/13-Apr-2026-brooder-vlm-narrator-plan.md`) is the canonical
 example of how to call LM Studio safely from a Guardian-adjacent
 tool. Use it as the template for any new integration.
+
+## Night predator alerts — READ THIS BEFORE TOUCHING DETECTION THRESHOLDS
+
+**If `duo2` (or any IR camera) is firing `person` alerts at night with the box hugging the frame edge, it is a SPIDER WEB ON THE LENS.** Physically confirmed by Boss 25-Jul-2026: fine strands strung from the camera housing bridge to the lens glass. Anchored on the bridge, a strand sits directly in front of the IR LEDs *and* millimetres from the glass, so it takes the illuminator side-on at full power while being hopelessly out of focus — clipping to a fat white vertical bar exactly where YOLO wants to see a person. That geometry is also why every false positive hugs the frame border. It only happens after dark because that is when the illuminator is on, and spiders rebuild nightly because insects gather at the IR glow. **The fix is a microfiber cloth, not code.** Expect to redo it every couple of weeks in summer.
+
+**DO NOT raise the detection threshold. Boss has rejected this twice.** v2.52.1 already reverted one such bump (`person` 0.85 → 0.70). A raised threshold also raises the floor on real threats — it is the blunt instrument this whole subsystem exists to replace.
+
+**DO NOT put a paid or remote API on the alert path, and do not add a config option for one.** v2.52.1 pointed the verifier at a metered vision API. It made 3,813 calls in two nights, ran the balance to zero at 00:02:20 on 25-Jul-2026, then returned `402 Payment Required` 1,147 times in a row. Because verification is fail-open, the alarm silently degraded to "alert on everything" and posted 139 Discord alerts overnight. `llm_verify.py` now talks to `http://localhost:1234` and nothing else, and holds no key-reading logic to re-point. **If you find yourself shopping for a hosted vision endpoint from inside this repo, you have already taken a wrong turn** — `qwen/qwen3-vl-4b` is loaded on this Mini, free, and answers in ~1.2s.
+
+**Guardian DOES call LM Studio as of v2.53.0.** This corrects the long-standing "Guardian = detection, no LM Studio; pipeline = VLM enrichment" split stated in the LM Studio section below — that line is now wrong for Guardian. Guardian is a strictly **read-only** consumer: it checks `/v1/models` before every call, **never** loads a model (the pipeline's `ensure_model_loaded()` at daemon startup remains this repo's only load path), and holds a module-level lock so it is single-in-flight, because both processes share one LM Studio.
+
+The alert path is four gates, cheapest first — alert-cooldown pre-check → static-region artifact filter (`artifact_filter.py`) → local VLM (`llm_verify.py`) → graduated fail-open (⚠️ UNVERIFIED alerts + a health notice, never silence). Replayed against the real 25-Jul night: 136 alerts → **0**, with a real person walking across house-yard still alerting. Verify changes with `scripts/replay-artifact-filter.py --with-vlm` before shipping; **the house-yard 21:44 real-person case is the regression test that matters** — if it goes quiet, the change is wrong no matter how good the duo2 numbers look. Full detail: `docs/25-Jul-2026-night-alert-artifact-suppression-plan.md` and CHANGELOG v2.53.0.
 
 ## Heat-lamp orange cast — READ THIS BEFORE "FIXING" THE BROODER COLOR
 

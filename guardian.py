@@ -1,8 +1,12 @@
-# Author: Claude Sonnet 4.6 (Bubba) — LLM second-opinion verification for borderline detections,
+# Author: Claude Opus 5 — four-gate night alert artifact suppression (v2.53.0),
+#         Claude Sonnet 4.6 (Bubba) — LLM second-opinion verification for borderline detections,
 #         Claude Opus 4.7 — Bubba coding sub-agent (dormant motion-siren deterrent),
 #         Claude Opus 4.8 (1M context) — Bubba coding sub-agent (motion-alert wiring),
 #         Claude Opus 4.6 (updated), OpenAI Codex GPT-5.4 Mini (prior)
-# Date: 23-July-2026 (v2.52.1 — borderline predator detections get an OpenAI vision second opinion
+# Date: 25-July-2026 (v2.53.0 — the alert path is now four gates: alert-cooldown pre-check ->
+#       static-region artifact filter -> LOCAL VLM second opinion -> graduated fail-open. Plan:
+#       docs/25-Jul-2026-night-alert-artifact-suppression-plan.md. Also: rotated log handler);
+#       23-July-2026 (v2.52.1 — borderline predator detections get an OpenAI vision second opinion
 #       before an alert fires; see llm_verify.py and the "llm_verification" config block, fail-open);
 #       22-June-2026 (v2.44.0 — stage motion-triggered siren deterrent, DORMANT/off by default);
 #       12-June-2026 (v2.41.0 — fire send_motion_alert on hardware-motion transition, gated)
@@ -36,6 +40,24 @@
 #          Host can fire — today that is house-yard (type:ptz). duo2 is type:fixed (no Host, not
 #          polled, supports_motion:false) so it is currently inert until wired with a Host.
 # SRP/DRY check: Pass — reviewed the detection flow when removing the vision refinement.
+#          v2.53.0: the night of 24->25 Jul 2026 produced 139 Discord alerts between midnight
+#          and 07:00, 135 of them spider webs on the duo2 lens (physically confirmed by Boss:
+#          fine strands strung from the housing bridge to the lens glass, blown out by the IR
+#          illuminator). Root cause of the FLOOD was not the webs but the verifier: v2.52.1's
+#          remote vision API ran its account balance to zero at 00:02:20 and returned 402 for
+#          1,147 consecutive calls, and fail-open silently degraded the alarm to "alert on
+#          everything". _on_frame is now four gates, cheapest first, each independently
+#          sufficient to have prevented that night:
+#            ① AlertManager.should_alert() BEFORE verification (was after — v2.52.1 paid for
+#              ~16 verifications per alert that could actually fire);
+#            ② StaticArtifactFilter — a bbox that holds the same pixels for 10+ minutes is
+#              scenery, not a visitor. Free, in-process. Suppresses the ALERT, not the record;
+#            ③ llm_verify against the LOCAL LM Studio VLM (~1.2s, no key, no billing);
+#            ④ graduated fail-open — when ③ cannot answer the alert STILL fires, but marked
+#              UNVERIFIED on a 15-minute debounce, plus a one-per-6h @-mention to Boss.
+#          Deterrents fire for CONFIRMED detections only. An unverified detection gets the
+#          Discord alert but no siren: 139 sirens overnight would have been far worse than
+#          139 messages, and Boss still sees every alert and can act.
 #          The motion-alert wiring reuses _get_camera_config and _detection_window_open (DRY)
 #          and adds no new time math; all alert delivery stays in AlertManager. The motion-siren
 #          wiring reuses CameraController.siren_timed and the existing _window_allows_minutes /
@@ -51,6 +73,7 @@ os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "stimeout;5000000"
 import argparse
 import json
 import logging
+import logging.handlers  # RotatingFileHandler — not exposed by `import logging` alone
 import signal
 import sys
 import threading
@@ -66,6 +89,7 @@ from zoneinfo import ZoneInfo
 from discovery import CameraDiscovery
 from capture import FrameCaptureManager, FrameResult, HttpUrlSnapshotSource, ReolinkSnapshotSource, UsbSnapshotSource
 from detect import AnimalDetector, DetectionResult
+from artifact_filter import StaticArtifactFilter
 from llm_verify import verify_detection
 from alerts import AlertManager
 from logger import EventLogger
@@ -111,6 +135,9 @@ class GuardianService:
         self._camera_ctrl = CameraController(config)
         self._alert_manager = AlertManager(config, camera_controller=self._camera_ctrl)
         self._event_logger = EventLogger(config, db=self._db)
+        # Gate ② of the night-alert fix — free, in-process, no network. Runs ahead of the
+        # cooldown and VLM gates so near-lens artifacts never cost a verification.
+        self._artifact_filter = StaticArtifactFilter(config)
 
         # Phase 2: Tracking (vision refinement removed v2.17.0 — Boss decision: just
         # YOLO detection at night; if it sees something interesting, send the picture.
@@ -694,6 +721,16 @@ class GuardianService:
                 return
 
             for det in result.detections:
+                # Gate ②: has this bbox been sitting in the same pixels long enough to be
+                # scenery rather than a visitor? Spider webs strung from the housing bridge
+                # to the lens hold position for hours; a real animal never does. Classified
+                # BEFORE logging so the DB row records the suppression, and only for
+                # predator classes (nothing else can raise an alert anyway).
+                if det.is_predator and self._artifact_filter is not None:
+                    det.suppression_reason = self._artifact_filter.classify(
+                        result.camera_name, det
+                    )
+
                 # Track this detection as part of an animal visit (used by alert
                 # dedup — one Discord post per visit, not one per frame).
                 track = self._tracker.process_detection(
@@ -702,7 +739,8 @@ class GuardianService:
                 )
                 track_id = track.track_id if track else None
 
-                # Log to JSONL + DB
+                # Log to JSONL + DB. Suppressed detections are still recorded in full —
+                # suppression governs the alert path, never the record.
                 event = self._event_logger.log_event(
                     camera_name=result.camera_name,
                     detection_class=det.class_name,
@@ -713,50 +751,104 @@ class GuardianService:
                     is_predator=det.is_predator,
                     track_id=track_id,
                     model_name="yolov8n",
+                    suppression_reason=det.suppression_reason,
                 )
                 self.recent_detections.append(event)
 
             # Send alert and fire deterrents if predator detections passed all filters
             if result.has_predators:
-                # Borderline detections (below llm_verification.confidence_upper) get an
-                # OpenAI vision second opinion before firing — a rain streak or moth at 0.75
-                # is exactly the false positive a raised threshold would miss. Fail-open lives
-                # in verify_detection(), so an API error can never silently drop a real threat.
-                predator_dets = result.predator_detections
+                # ---- Gate ②: static-region artifact filter ------------------------------
+                # Already applied above (before logging, so the DB records the suppression).
+                # Anything a web/scenery region muted is gone from this list.
+                predator_dets = result.alertable_predator_detections
+                if not predator_dets:
+                    return
+
+                # ---- Gate ①: alert cooldown BEFORE verification -------------------------
+                # v2.52.1 verified first and applied the cooldown inside send_alert, so it
+                # paid for ~16 verifications per alert that could actually fire (1,147 calls
+                # -> 139 alerts on 25-Jul-2026). Reusing the AlertManager's own public
+                # cooldown check here means we only spend a VLM round-trip on a detection
+                # that could genuinely post.
+                predator_dets = [
+                    d for d in predator_dets
+                    if self._alert_manager.should_alert(d.class_name)
+                ]
+                if not predator_dets:
+                    return
+
+                # ---- Gate ③: local VLM second opinion -----------------------------------
+                # Borderline detections get checked against the vision model already loaded
+                # in LM Studio on this machine. Local, free, ~1.2s. See llm_verify.py — there
+                # is deliberately no remote/paid path.
+                confirmed: list = []
+                unverified: list = []
+                unavailable_reason: Optional[str] = None
+
                 llm_cfg = self._config.get("llm_verification", {})
                 if llm_cfg.get("enabled", True):
                     upper = llm_cfg.get("confidence_upper", 0.85)
-                    model = llm_cfg.get("model", "gpt-4o-mini")
-                    api_base = llm_cfg.get("api_base", "https://api.openai.com/v1/chat/completions")
-                    api_key_env = llm_cfg.get("api_key_env", "OPENAI_API_KEY")
-                    confirmed = []
-                    for det in predator_dets:
-                        if det.confidence < upper:
-                            log.info(
-                                "LLM verify: '%s' %s @ %.2f (< %.2f) — requesting second opinion",
-                                result.camera_name, det.class_name, det.confidence, upper,
-                            )
-                            if verify_detection(
-                                result.frame, det.class_name, det.confidence, det.bbox,
-                                model=model, api_base=api_base, api_key_env=api_key_env,
-                            ):
-                                confirmed.append(det)
-                            else:
-                                log.info(
-                                    "LLM verify: suppressed '%s' %s @ %.2f — LLM says not a real detection",
-                                    result.camera_name, det.class_name, det.confidence,
-                                )
-                        else:
-                            confirmed.append(det)
-                    predator_dets = confirmed
+                    lm_base = llm_cfg.get("lm_studio_base", "http://localhost:1234")
+                    model = llm_cfg.get("model", "qwen/qwen3-vl-4b")
+                    timeout_s = llm_cfg.get("timeout_seconds", 10)
 
-                if not predator_dets:
-                    log.info(
-                        "LLM verify: all predator detections for '%s' suppressed — no alert fired",
-                        result.camera_name,
+                    for det in predator_dets:
+                        if det.confidence >= upper:
+                            # High-confidence hits never wait on the model.
+                            confirmed.append(det)
+                            continue
+
+                        log.info(
+                            "LLM verify: '%s' %s @ %.2f (< %.2f) — requesting second opinion",
+                            result.camera_name, det.class_name, det.confidence, upper,
+                        )
+                        verdict = verify_detection(
+                            result.frame, det.class_name, det.confidence, det.bbox,
+                            lm_base=lm_base, model=model, timeout_s=timeout_s,
+                        )
+                        if not verdict.available:
+                            # Could not look. Gate ④ decides — never treated as "suppress".
+                            unverified.append(det)
+                            unavailable_reason = verdict.error or "verifier unavailable"
+                        elif verdict.alert_worthy:
+                            confirmed.append(det)
+                        else:
+                            log.info(
+                                "LLM verify: suppressed '%s' %s @ %.2f — model says %s (%s)",
+                                result.camera_name, det.class_name, det.confidence,
+                                verdict.verdict, verdict.what_it_is or "no description",
+                            )
+                else:
+                    confirmed = list(predator_dets)
+
+                # ---- Gate ④: graduated fail-open ----------------------------------------
+                # A verifier that cannot answer must never produce silence, and must never
+                # produce an unlabelled flood either. Alerts still fire, marked UNVERIFIED,
+                # on their own long debounce, and Boss gets told once that the alarm is
+                # running unfiltered.
+                if unverified:
+                    self._alert_manager.send_verifier_health_notice(
+                        unavailable_reason or "verifier unavailable"
                     )
+                    if self._alert_manager.send_unverified_alert(
+                        camera_name=result.camera_name,
+                        detections=unverified,
+                        frame=result.frame,
+                        reason=unavailable_reason or "verifier unavailable",
+                    ):
+                        self._alerts_sent += 1
+                        self.recent_alerts.append({
+                            "timestamp": datetime.now().isoformat(),
+                            "camera": result.camera_name,
+                            "classes": [d.class_name for d in unverified],
+                            "sent": True,
+                            "unverified": True,
+                        })
+
+                if not confirmed:
                     return
 
+                predator_dets = confirmed
                 sent = self._alert_manager.send_alert(
                     camera_name=result.camera_name,
                     detections=predator_dets,
@@ -1057,10 +1149,19 @@ def setup_logging(config: dict, debug: bool = False) -> None:
 
     handlers: list[logging.Handler] = [logging.StreamHandler(sys.stdout)]
 
-    # Optional file logging
+    # Optional file logging — ROTATED. Until v2.53.0 this was a plain FileHandler with no
+    # cap, and guardian.log reached 616 MB spanning 14-Apr to 25-Jul-2026 before anyone
+    # noticed. Defaults give a hard ceiling of ~300 MB total (50 MB x 1 live + 5 backups).
     log_file = log_cfg.get("file")
     if log_file:
-        file_handler = logging.FileHandler(log_file, encoding="utf-8")
+        max_bytes = int(log_cfg.get("max_bytes", 50 * 1024 * 1024))
+        backup_count = int(log_cfg.get("backup_count", 5))
+        file_handler = logging.handlers.RotatingFileHandler(
+            log_file,
+            maxBytes=max_bytes,
+            backupCount=backup_count,
+            encoding="utf-8",
+        )
         handlers.append(file_handler)
 
     logging.basicConfig(

@@ -1,7 +1,9 @@
-# Author: Claude Opus 4.7 — Bubba coding sub-agent (motion-alert separate debounce),
+# Author: Claude Opus 5 (v2.53.0 — unverified alert lane + verifier health notice),
+#         Claude Opus 4.7 — Bubba coding sub-agent (motion-alert separate debounce),
 #         Claude Opus 4.8 (1M context) — Bubba coding sub-agent (motion-alert add),
 #         Claude Opus 4.6 (updated), Cascade (Claude Sonnet 4) (original)
-# Date: 22-June-2026 (v2.43.0 — separate motion_alert.cooldown_seconds debounce);
+# Date: 25-July-2026 (v2.53.0 — send_unverified_alert + send_verifier_health_notice);
+#       22-June-2026 (v2.43.0 — separate motion_alert.cooldown_seconds debounce);
 #       12-June-2026 (v2.41.0 — send_motion_alert for camera-hardware motion)
 # PURPOSE: Discord alert manager for Farm Guardian. Posts webhook messages to the
 #          #farm-2026 Discord channel when predator-class animals are detected. Each alert
@@ -18,8 +20,18 @@
 #          embed color, so motion alerts and predator alerts never throttle each other. This is
 #          pure-upside: it only ADDS alerts and can never suppress a predator detection. Gating
 #          (enable flag / night-only / per-camera opt-in) lives in guardian.py, not here.
+#          v2.53.0: added send_unverified_alert() — the graduated fail-open lane. When the
+#          local VLM verifier cannot be consulted, the alert STILL fires (never silently drop
+#          a threat) but is labelled UNVERIFIED, drawn in a drab grey, and rides its own long
+#          per-camera+class debounce (llm_verification.unverified_cooldown_seconds, default
+#          900s). Also added send_verifier_health_notice(), a once-per-6h @-mention telling
+#          Boss the alarm is running unfiltered. Both exist because of 25-Jul-2026: the
+#          verifier 402'd 1,147 times in silence and the fail-open posted 139 alerts overnight.
 # SRP/DRY check: Pass — single responsibility is alert delivery via Discord webhook. The new
-#          motion path reuses _capture_http_snapshot / _encode_snapshot / _post_webhook (DRY).
+#          motion path reuses _capture_http_snapshot / _encode_snapshot / _post_webhook (DRY);
+#          the unverified path reuses all three plus the same cooldown-dict pattern that
+#          motion alerts already prove out. _post_webhook gained an optional `content` field
+#          rather than a second posting function.
 
 import io
 import logging
@@ -43,6 +55,15 @@ _ALERT_COLOR = 0xFF4500
 # Discord embed color for camera-hardware motion alerts (amber/gold) — visually
 # distinct from the red-orange predator alerts so the two are obvious at a glance.
 _MOTION_ALERT_COLOR = 0xFFC107
+
+# Grey — UNVERIFIED predator alerts, fired when the local VLM could not be consulted.
+# Deliberately drab: Boss must be able to tell at a glance that this alarm is unfiltered
+# rather than confirmed, without it competing visually with a real confirmed predator.
+_UNVERIFIED_ALERT_COLOR = 0x95A5A6
+
+# Discord user id for Boss — used only by the verifier-down health notice, which is the one
+# message that must not be missed. Same id used across the repo's Discord tooling.
+_BOSS_DISCORD_ID = "293569238386606080"
 
 # Maximum retries for buffered alerts before dropping them
 _MAX_RETRIES = 3
@@ -78,6 +99,19 @@ class AlertManager:
         self._motion_cooldown_seconds = motion_alert_cfg.get(
             "cooldown_seconds", self._cooldown_seconds
         )
+
+        # Graduated fail-open (v2.53.0). When the local VLM cannot be consulted, alerts still
+        # fire — never silently drop a real threat — but on a much longer debounce and clearly
+        # labelled, so a broken verifier degrades to a handful of flagged alerts per hour
+        # instead of the 139-in-six-hours flood of 25-Jul-2026. Kept in its own dict so it can
+        # never throttle a confirmed predator alert.
+        llm_cfg = config.get("llm_verification", {})
+        self._unverified_cooldown_seconds = llm_cfg.get("unverified_cooldown_seconds", 900)
+        self._health_notice_cooldown_seconds = llm_cfg.get(
+            "health_notice_cooldown_seconds", 21600
+        )
+        self._last_unverified_alert_time: dict[str, float] = defaultdict(float)
+        self._last_health_notice_time: float = 0.0
 
         # Track last alert time per class to enforce cooldown
         # Key: class_name -> last alert unix timestamp
@@ -267,6 +301,134 @@ class AlertManager:
 
         return sent
 
+    def send_unverified_alert(
+        self,
+        camera_name: str,
+        detections: list[Detection],
+        frame: Optional[np.ndarray] = None,
+        reason: str = "verifier unavailable",
+    ) -> bool:
+        """Send a predator alert that could NOT be checked by the local VLM.
+
+        This is the graduated fail-open path (gate ④ of the 25-Jul-2026 plan). The alert still
+        goes out — a threat is never silently dropped because a verifier was down — but it is
+        visually marked UNVERIFIED and rides its own, much longer cooldown
+        (llm_verification.unverified_cooldown_seconds, default 900s) keyed per camera+class.
+
+        Why the long debounce: on 25-Jul-2026 the verifier fail-open ran for six hours and
+        produced 139 alerts. With this path the same outage yields roughly four flagged alerts
+        per hour per camera+class, plus one health notice — enough to know something is wrong
+        and to see a real intruder, few enough to sleep through if it is webs.
+
+        Returns True if an alert was actually sent.
+        """
+        alertable = [
+            d for d in detections
+            if d.is_predator and self._unverified_cooldown_passed(camera_name, d.class_name)
+        ]
+        if not alertable:
+            return False
+
+        now = datetime.now()
+        now_ts = time.time()
+
+        classes = sorted(set(d.class_name for d in alertable))
+        lines = [
+            f"**Camera:** {camera_name}",
+            f"**Time:** {now.strftime('%I:%M:%S %p')}",
+            "",
+            f"⚠️ **This detection could not be verified** — {reason}.",
+            "Treat it as unfiltered: it may be a real animal, or a camera artifact.",
+            "",
+        ]
+        for d in alertable:
+            lines.append(
+                f"- **{d.class_name.title()}** — {d.confidence:.0%} confidence, "
+                f"{d.bbox_area_pct:.1f}% of frame, seen {d.frame_count} frames"
+            )
+
+        embed = {
+            "title": f"⚠️ UNVERIFIED: {', '.join(c.title() for c in classes)}",
+            "description": "\n".join(lines),
+            "color": _UNVERIFIED_ALERT_COLOR,
+            "timestamp": now.isoformat(),
+            "footer": {"text": f"Farm Guardian | {camera_name} | unverified"},
+        }
+
+        # Same snapshot path as send_alert — sharp HTTP snapshot preferred, frame as fallback.
+        snapshot_bytes: Optional[bytes] = None
+        if self._include_snapshot:
+            if self._camera_ctrl is not None:
+                snapshot_bytes = self._capture_http_snapshot(camera_name, frame, alertable)
+            if snapshot_bytes is None and frame is not None:
+                snapshot_bytes = self._encode_snapshot(frame, alertable)
+        if snapshot_bytes:
+            embed["image"] = {"url": "attachment://snapshot.jpg"}
+
+        sent = self._post_webhook(embed, snapshot_bytes)
+
+        if sent:
+            with self._lock:
+                for d in alertable:
+                    self._last_unverified_alert_time[f"{camera_name}:{d.class_name}"] = now_ts
+            log.info(
+                "UNVERIFIED alert sent — %s on '%s' (%s)",
+                ", ".join(classes), camera_name, reason,
+            )
+        else:
+            # Not retry-buffered: an unverified alert is inherently low-confidence, and the
+            # next detection re-raises it once the cooldown lapses. Buffering would risk
+            # posting stale unverified noise after the verifier has already recovered.
+            log.warning("UNVERIFIED alert failed for '%s' — not buffered", camera_name)
+
+        return sent
+
+    def _unverified_cooldown_passed(self, camera_name: str, class_name: str) -> bool:
+        """Check the dedicated unverified-alert debounce for one camera+class."""
+        with self._lock:
+            last = self._last_unverified_alert_time.get(f"{camera_name}:{class_name}", 0)
+            return (time.time() - last) >= self._unverified_cooldown_seconds
+
+    def send_verifier_health_notice(self, reason: str) -> bool:
+        """Tell Boss, once per health_notice_cooldown_seconds, that verification is down.
+
+        The failure this exists for is silence: on 25-Jul-2026 the verifier returned 402 for
+        1,147 consecutive calls and the only trace was log lines nobody was reading. A
+        degraded alarm must announce itself.
+
+        Returns True if a notice was actually posted.
+        """
+        now_ts = time.time()
+        with self._lock:
+            if (now_ts - self._last_health_notice_time) < self._health_notice_cooldown_seconds:
+                return False
+            self._last_health_notice_time = now_ts
+
+        embed = {
+            "title": "⚠️ Predator alert verification is DOWN",
+            "description": (
+                f"**Reason:** {reason}\n\n"
+                "Detections can no longer be checked against the local vision model, so "
+                "predator alerts are going out **unfiltered** and marked UNVERIFIED. "
+                "Expect false alarms from lens artifacts until this is fixed.\n\n"
+                "Usual cause: LM Studio is not running, or `qwen/qwen3-vl-4b` is not loaded."
+            ),
+            "color": _UNVERIFIED_ALERT_COLOR,
+            "timestamp": datetime.now().isoformat(),
+            "footer": {"text": "Farm Guardian | verifier health"},
+        }
+        payload_content = f"<@{_BOSS_DISCORD_ID}>"
+
+        sent = self._post_webhook(embed, None, content=payload_content)
+        if sent:
+            log.warning("Posted verifier-down health notice: %s", reason)
+        else:
+            # Re-arm so the next failure tries again rather than staying silent for 6 hours.
+            with self._lock:
+                self._last_health_notice_time = 0.0
+            log.error("Failed to post verifier-down health notice: %s", reason)
+        return sent
+
     def _build_title(self, detections: list[Detection]) -> str:
         """Build a concise alert title from the detection list."""
         classes = sorted(set(d.class_name for d in detections))
@@ -390,13 +552,25 @@ class AlertManager:
             )
             return None
 
-    def _post_webhook(self, embed: dict, snapshot_bytes: Optional[bytes] = None) -> bool:
-        """Post to the Discord webhook. Returns True on success."""
+    def _post_webhook(
+        self,
+        embed: dict,
+        snapshot_bytes: Optional[bytes] = None,
+        content: Optional[str] = None,
+    ) -> bool:
+        """Post to the Discord webhook. Returns True on success.
+
+        `content` is the plain-text message body above the embed. It exists so the
+        verifier-down health notice can @-mention Boss — embeds cannot trigger a mention
+        ping on their own, only the content field can.
+        """
         if not self._webhook_url or "YOUR_WEBHOOK" in self._webhook_url:
             log.info("Webhook not configured — alert logged only: %s", embed.get("title"))
             return True  # Treat as success so it doesn't buffer forever
 
         payload = {"embeds": [embed]}
+        if content:
+            payload["content"] = content
 
         try:
             if snapshot_bytes:
