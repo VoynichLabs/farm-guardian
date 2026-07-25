@@ -118,14 +118,42 @@ at "~34% signal" and build a whole weak-signal-driver-wedge narrative on it. **A
 narrative does not apply to this incident.** Stop diagnosing GWTC dropouts as signal
 problems without re-measuring first.
 
-### 5. Separate, unrelated fault: the box is losing power
+### 5. Separate fault: two unclean shutdowns — CAUSE UNKNOWN, do not guess
 
-Two `Kernel-Power 41` / `EventLog 6008` unexpected shutdowns on 24-Jul (≈11:19 and
-≈19:43–19:59), plus a ~7h45m fully-powered-off gap from 11:19 to 19:03. `Win32_Battery`
-reports "WB Lion Battery" at 100% with `BatteryStatus=2` (on AC) — yet the machine still
-hard-dies. A battery gauge reading 100% that cannot survive any AC interruption is the
-classic dead-cell signature. This is what *starts* the outages; the DHCP/watchdog failure
-is what makes them last 8.5 hours instead of 90 seconds.
+Windows recorded two `Kernel-Power 41` / `EventLog 6008` unexpected shutdowns on 24-Jul
+(≈11:19 and ≈19:43–19:59), with the machine off ≈11:19→19:03 and ≈19:43→21:30.
+`Win32_Battery` reports "WB Lion Battery", `EstimatedChargeRemaining=100`,
+`BatteryStatus=2` — and per the WMI enum, **2 means the system is on AC**. That matches
+Boss: GWTC is never off AC.
+
+**⛔ An earlier revision of this doc asserted "dead battery / the box can't survive an AC
+interruption." That was an unsupported inference and Boss corrected it. It is withdrawn.**
+Kernel-Power 41 means only "the OS stopped without a clean shutdown" — it does **not**
+identify a cause. On a machine that never leaves AC, the candidates are a hard hang, a
+thermal trip (Celeron N4020, chicken coop, late July, dust and feathers in the vents), or a
+firmware/driver fault. **None of these has been tested.** Do not write any of them into a
+narrative until someone pulls thermal events / `Get-CimInstance` thermal zones, and note
+that some of the reboots in this window may simply be Boss's own four power cycles.
+
+### 6. Correction: the 24-Jul "16 hours of clean frames" claim was WRONG
+
+An earlier revision claimed `usb-cam` ran cleanly from ~04:00 to 19:59 on 24-Jul. It did
+not. Hourly counts from `image_archive` show frames in **exactly one hour** that entire
+day:
+
+```
+07-24 19  |  806        <- 19:03-19:59 only
+07-25 06  | 1513
+07-25 07  | 1643
+07-25 08  | 1639
+07-25 09-12 | ~20/hr    <- cadence drop, separate question
+```
+
+The error came from reading *absence of failure entries* in `guardian.log` as evidence of
+success. It is not — Guardian only logs `snapshot returned None` when it polls and fails.
+A silent window means "no failures logged," which is not the same as "frames delivered."
+**Always confirm uptime against `image_archive` counts, never against the absence of log
+lines.**
 
 Note on timestamps: Event 6008's "previous shutdown at 19:43:37" is derived from a
 periodically-flushed registry value and lags the true crash by up to ~15 min, which
