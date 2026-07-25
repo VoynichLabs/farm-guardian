@@ -297,6 +297,67 @@ if one exists.
 
 ---
 
+## THE MECHANISM — a dead webcam on the root hub, one port away from the WiFi
+
+Found 25-Jul by mapping USB port locations. This is the first explanation that accounts for
+*every* observation in this incident, and it yields a real software fix.
+
+### The dead built-in webcam is NOT absent — it is failing enumeration, forever
+
+| | |
+|---|---|
+| Failing device | `Unknown USB Device (Device Descriptor Request Failed)` |
+| InstanceId | `USB\VID_0000&PID_0002\5&2FF55CF5&0&8` |
+| Problem | `CM_PROB_FAILED_POST_START` |
+| Location | **`Port_#0008.Hub_#0001`** |
+| `Hy-HD-Camera` last location | **`Port_#0008.Hub_#0001`** — the same port |
+| Webcam last removal | `06/07/2026 23:18:42` |
+| Failure first installed | `06/04/2026 08:38:25` |
+
+`VID_0000&PID_0002` is the placeholder Windows assigns when a device **cannot return its
+device descriptor**. Same port as the webcam ⇒ **the failing device is the webcam.** It is
+electrically present and retrying enumeration in a loop; it just can't identify itself. It
+died between **4 and 7 June 2026**.
+
+### Topology — why this took the network down
+
+```
+Intel USB 3.0 eXtensible Host Controller
+└── USB Root Hub 30  (Hub_#0001)
+    ├── Port 6 → Generic USB Hub (VIA VL812, VID_2109&PID_2812)   <- the hub Boss unplugs
+    │             └── Port 4 → USB CAMERA (VID_32E6, 1920x1080, WORKING)
+    ├── Port 7 → Realtek 8723DU WiFi NIC (VID_0BDA&PID_D723)      <- THE NETWORK
+    └── Port 8 → dead webcam, permanent enumeration failure
+```
+
+**The WiFi NIC and the dead webcam are adjacent ports on the same root hub.** A device stuck
+failing descriptor requests retries indefinitely and disturbs its siblings on that hub. And
+because the WiFi is itself a USB device, a bus disturbance is a *network* outage.
+
+This also explains the recovery: re-plugging the hub on port 6 forces a re-enumeration pass
+across the root hub, which bounced the WiFi NIC and produced the fresh DHCP request that
+got a lease at 06:06. **The hub plug never had anything to do with the camera — it fixed the
+network by shaking the bus.**
+
+### Fix applied 25-Jul: the dead webcam is now disabled
+
+```powershell
+Disable-PnpDevice -InstanceId 'USB\VID_0000&PID_0002\5&2FF55CF5&0&8' -Confirm:$false
+# -> Status: Error / Problem: CM_PROB_DISABLED
+```
+
+Verified immediately after: WiFi NIC `Status: OK`, `netsh wlan` state connected, `usb-cam`
+`/health` still serving 1920x1080 with `grabber_alive: true`. Zero downside — the camera is
+physically dead and served nothing.
+
+### ⛔ NEVER reset the USB root hub on GWTC remotely
+
+`Restart-PnpDevice` / disable-enable on `USB\ROOT_HUB30\4&b1a3af0&0&0`, or on the Intel xHCI
+controller, **will take the WiFi NIC down with it** — it is a child of that root hub. There
+is no remote recovery from that: no screen, no keyboard, and the network is the thing you
+just killed. That is precisely the 8.5-hour outage. Disable/reset **individual leaf devices
+by exact InstanceId only**, and verify the WiFi in the same command.
+
 ## ⛔ The USB camera stays on GWTC — do NOT propose moving it to the MacBook Air
 
 **Boss directive, 25-Jul-2026, explicit and unprompted: "We are absolutely not moving the

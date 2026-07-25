@@ -4,6 +4,23 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-07-25
 
+### v2.52.3 — GWTC: dead webcam was killing the network from the next USB port over (Claude Opus 5) — 25-Jul-2026
+
+Root cause of GWTC's recurring "vanished off the LAN" dropouts, found by mapping USB port locations. One software change, applied and verified.
+
+**The finding**
+- The long-standing `Unknown USB Device (Device Descriptor Request Failed)` (`VID_0000&PID_0002`, `CM_PROB_FAILED_POST_START`) sits at **`Port_#0008.Hub_#0001`**. `Hy-HD-Camera`'s last recorded location is **the same port**. The failing device *is* the built-in webcam — electrically present, retrying enumeration forever, unable to return its descriptor so Windows can't name it. It died between **4 and 7 June 2026**.
+- **The Realtek 8723DU WiFi NIC is itself a USB device, on `Port_#0007` of the same root hub** — one port from the dead camera. Endless failed-enumeration retries disturb the bus the network depends on, and because the NIC is USB, a bus disturbance *is* a network outage.
+- This explains the recovery nobody could account for: re-plugging the hub on port 6 forces a root-hub re-enumeration that bounces the WiFi NIC, producing the fresh DHCP request that got a lease at 06:06. **The hub plug never fixed the camera — it fixed the network by shaking the bus.**
+
+**Changed**
+- **Disabled the dead webcam** on GWTC: `Disable-PnpDevice -InstanceId 'USB\VID_0000&PID_0002\5&2FF55CF5&0&8'` → `CM_PROB_DISABLED`. Stops the enumeration-retry loop next to the WiFi NIC. Zero downside — the camera is physically dead and served nothing. Verified in the same call: WiFi NIC `Status: OK` and connected, `usb-cam` `/health` still serving 1920×1080 with `grabber_alive: true`.
+
+**Corrected**
+- CLAUDE.md claimed the webcam was "not on the device bus at all." Wrong — it is on the bus and failing enumeration, which is a materially different fault with a materially different consequence (it was breaking the network, not just the camera lane).
+
+**⛔ New hard rule** — added to CLAUDE.md and the incident doc: **never reset the USB root hub or the Intel xHCI controller on GWTC remotely.** The WiFi NIC is a child of that root hub, so doing so kills the only way back into a machine with no screen and no keyboard. Disable or reset individual leaf devices by exact InstanceId only, and verify the WiFi in the same command.
+
 ### v2.52.2 — GWTC wifi-watchdog heartbeat logging + Task Scheduler history (Claude Opus 5) — 25-Jul-2026
 
 GWTC dropped off the LAN for 8.5 hours on 24-Jul. Diagnosing it took hours and produced **three confidently wrong conclusions** — a dead battery, a dead watchdog, 16 hours of healthy frames — every one of them from reading *absence of log lines* as evidence. The box could not report on itself, so the fix is observability, not another component.
