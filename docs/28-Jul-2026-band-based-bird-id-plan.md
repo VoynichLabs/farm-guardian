@@ -383,3 +383,28 @@ words** — the two entries had collapsed onto one bird — and claimed superlat
 photograph supports. Corrected before shipping. The honest finding is that
 **Henridotta and Adelbird are not separable by plumage**, and both entries now
 say so instead of offering a tell that does not work.
+
+## Final regression result — no meaningful change to the gem gate
+
+Paired, 60 identical frames, scored under the pre-change and current
+prompt/schema, comparing the **recomputed** score (the one that posts to
+Discord), not the VLM's discarded `overall_score`:
+
+| | old | new |
+|---|---|---|
+| mean score | 59.9 | 61.4 (+1.5) |
+| **≥80, i.e. posts to Discord** | 19/60 (32%) | 21/60 (35%) |
+| expression_score (VLM input) | 11.9 | 13.1 |
+| detail_score (VLM input) | 11.9 | 12.8 |
+| largest_subject_pct (VLM input) | 39.1 | 38.6 |
+| inference (paired, identical contention) | — | **+3%** |
+
+Per-frame: 36 stayed out, 16 stayed in, **5 newly post, 3 newly blocked**.
+That is near-symmetric and is ordinary run-to-run variance for a
+temperature-sampled 4B model, not an effect of the edit. Scaled to the full
+firehose the gem rate moves from ~1.10% to ~1.20% — no flood, no silence.
+
+⚠️ Note these percentages are on the **archive-drawn pool** (decent/strong
+only, since `skip` frames keep no JPEG), so 32%/35% are not comparable to the
+1.10% all-frames figure. They are only comparable to *each other*, which is
+the entire point of pairing.
