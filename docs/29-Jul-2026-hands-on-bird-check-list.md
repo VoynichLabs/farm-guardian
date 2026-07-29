@@ -141,7 +141,10 @@ bird by a visible band — the ID is someone's say-so:
   it updates itself the next time you band a bird.
 
 **One thing I could not fix and will not pretend otherwise:** the AI reads band
-*colours* well and *numbers* sometimes, but it got left-vs-right wrong on every
-single bird I tested. It cannot tell a bird's left leg from its right. So the
-left-leg-means-ours rule is yours to read, not the camera's — the lookup
-ignores the leg entirely and works off colour and number.
+*colours* well (5 of 6) and *numbers* sometimes, but it got left-vs-right wrong
+on nearly every bird I tested — it answered "right" for five birds that all
+wear their band on the left. (It did get Robirda's right leg correct, so it is
+not literally always wrong, just not trustworthy.) So the left-leg-means-ours
+rule is yours to read, not the camera's. The lookup now ignores the leg
+entirely and works off colour and number, which is enough to tell all twelve
+banded birds apart.

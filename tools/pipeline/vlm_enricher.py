@@ -47,6 +47,7 @@ import base64
 import hashlib
 import json
 import logging
+import re
 import threading
 import time
 from pathlib import Path
@@ -129,6 +130,63 @@ def ensure_model_loaded(
         timeout=timeout,
     ).raise_for_status()
     return outcome
+
+
+# Clauses that mention a leg band, in the shapes the model actually produces:
+# "with a green leg band #2", "wearing a purple band", "no leg band visible",
+# ", one with a white leg band on its left leg,". Deliberately greedy about the
+# leading preposition/conjunction so removing the clause doesn't strand "with"
+# or "and" dangling at the end of a sentence.
+_BAND_CLAUSE_RE = re.compile(
+    r"""
+    \s*
+    (?:,\s*)?                                   # leading comma
+    (?:\b(?:and|with|wearing|sporting|but|while|its?|has|having|there\s+is)\b\s*)*
+    (?:\bno\b\s*)?                              # "...no leg band visible"
+    (?:\ba\b\s*|\ban\b\s*|\bone\b\s*)?
+    (?:\b\w+\b\s+){0,2}?                        # optional colour / adjective
+    \bleg[-\s]?band\b | \bband\b                # the noun itself
+    [^.;!?]*                                    # rest of the clause
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
+def _strip_band_clauses(text: str) -> str:
+    """Remove any sentence or clause mentioning a leg band from caption text.
+
+    Sentence-level first (a sentence that is *about* a band goes entirely),
+    then clause-level for bands mentioned mid-sentence. Falls back to returning
+    the original text if stripping would leave nothing — an unedited caption
+    that mentions a band is still better than an empty one, and the caller
+    logs so it can be caught.
+    """
+    def tidy(s: str) -> str:
+        s = re.sub(r"\s*,\s*,", ",", s)
+        s = re.sub(r"\s+([.,;!?])", r"\1", s)
+        s = re.sub(r"\s{2,}", " ", s).strip(" ,;—-")
+        if s and not s.endswith((".", "!", "?")):
+            s += "."
+        return s
+
+    # 1. Sentence level — a sentence that talks about a band goes entirely.
+    sentences = re.split(r"(?<=[.!?])\s+", text.strip())
+    kept = [s for s in sentences if "band" not in s.lower()]
+    if kept:
+        return tidy(" ".join(kept))
+
+    # 2. Every sentence mentioned a band (about 1 caption in 600). Strip at
+    #    clause level instead.
+    out = tidy(_BAND_CLAUSE_RE.sub("", text))
+    if out and "band" not in out.lower():
+        return out
+
+    # 3. Last resort — split on commas and dashes too and drop any fragment
+    #    naming a band. Returns "" if nothing survives; a caption is optional
+    #    downstream, whereas a published false band claim is the whole bug.
+    frags = [f for f in re.split(r"\s*[,;—]\s*|\s+-\s+", text) if "band" not in f.lower()]
+    out = tidy(", ".join(f.strip() for f in frags if f.strip()))
+    return out if "band" not in out.lower() else ""
 
 
 def prompt_for(camera_name: str, camera_context: str, prompt_template: str) -> str:
@@ -299,6 +357,17 @@ def enrich(
     except Exception as exc:  # noqa: BLE001 — band ID is never load-bearing
         log.warning("band resolution skipped: %s", exc)
         obj["band_bird"] = None
+
+    # prompt.md tells the model never to mention a band in the caption. It
+    # mostly obeys — and then doesn't, on about 5% of frames (measured over 100
+    # real s7 frames, 28-Jul-2026, AFTER the instruction was added). A prose
+    # claim we didn't parse is a claim we can't check, and unchecked band claims
+    # in captions are the exact defect this whole change exists to remove, so
+    # the instruction gets a deterministic backstop rather than another rewrite.
+    for field in ("caption_draft", "share_reason"):
+        text = obj.get(field)
+        if isinstance(text, str) and "band" in text.lower():
+            obj[field] = _strip_band_clauses(text)
 
     return {
         "metadata": obj,
