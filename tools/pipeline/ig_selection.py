@@ -800,9 +800,10 @@ def select_s7_weekly_gems_reel_gems(
     the exact backlog this lane just finished clearing — even at the
     stitcher's 90-frame maximum it would still lose ~22/week. So this
     selects the week's HIGHLIGHTS from a sliding 7-day window: surplus gems
-    age out of the window instead of queueing. They already appeared in that
-    day's daily Reel, and because only *posted* frames get marked they keep
-    their Story-queue eligibility.
+    age out of the window instead of queueing. Nothing is lost by that —
+    they already appeared in that day's daily Reel, and Story eligibility
+    is a separate track this marker has never gated (see
+    mark_gems_used_in_backlog_reel).
 
     Discord reactions are the quality gate — Boss already voted on these
     frames. VLM share_worth is intentionally NOT used as a ranking signal
@@ -1119,12 +1120,28 @@ def mark_gems_used_in_backlog_reel(
     db_path: Path,
     gem_ids: list[int],
 ) -> None:
-    """Mark gems as consumed by a backlog Reel so they leave the story queue.
+    """Mark gems as consumed by a weekly gems Reel so they aren't reused.
 
     Sets ig_story_skip_reason = 'used-in-backlog-reel' on each gem.
-    select_all_unposted_story_gems and select_s7_backlog_reel_gems both
-    exclude these rows so the same gem never gets posted as a story or
-    re-selected for another backlog reel.
+
+    ⚠️ CORRECTED 28-Jul-2026. This docstring used to claim the marker also
+    removed the gem from the Story queue — "so the same gem never gets
+    posted as a story or re-selected for another backlog reel." **That was
+    never true.** select_all_unposted_story_gems filters only on
+    ig_story_id IS NULL and 'story-permanent-skip:%'; it has never looked
+    at 'used-in-backlog-reel'. Measured against the live archive: of 1,746
+    gems carrying this marker, **1,569 were posted as Stories anyway.**
+
+    So the marker's real and only effect is reel-side de-duplication —
+    a gem cannot be picked up by a later weekly gems Reel. Story
+    eligibility is untouched, and a gem legitimately appears in both a
+    Reel and a Story. Do not "restore" a Story-queue exclusion on the
+    strength of the old wording; that behaviour never shipped, and adding
+    it now would silently cut ~16 gems/day out of the Story lane.
+
+    The marker STRING stays 'used-in-backlog-reel' even though the lane was
+    renamed s7-backlog -> s7-weekly-gems: 1,746 historical rows carry it and
+    renaming would re-expose every one of them to re-selection.
     """
     if not gem_ids:
         return

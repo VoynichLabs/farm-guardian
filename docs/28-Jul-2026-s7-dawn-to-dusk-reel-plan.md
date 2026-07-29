@@ -119,11 +119,22 @@ into the weekly gems reel.** Same pool, same `used-in-backlog-reel` marker, same
 no-double-post guarantee — only the cadence and the framing change. ~77 reacted
 gems/week comfortably clears a 20-frame minimum.
 
-Note the existing side effect, which is retained deliberately: marking a gem
-consumed also removes it from the hourly Story queue, so a gem goes into the weekly
-reel *or* a Story, never both. The **daily** lane writes no marker, so a gem can
-appear in the daily reel and still be picked up by the weekly one — which is
-exactly the behaviour Boss asked for.
+**⚠️ Corrected during implementation.** This section originally claimed that
+marking a gem consumed also removes it from the hourly Story queue — "a gem goes
+into the weekly reel *or* a Story, never both." That was inherited from
+`mark_gems_used_in_backlog_reel`'s own docstring and it is **false**.
+`select_all_unposted_story_gems` filters on `ig_story_id IS NULL` and
+`story-permanent-skip:%` only; it has never looked at `used-in-backlog-reel`.
+Measured: of 1,746 marked gems, **1,569 were posted as Stories anyway.**
+
+The marker's only real effect is reel-side de-duplication. This matters for the
+retirement decision: because the backlog lane never withheld anything from the
+Story queue, retiring it releases nothing into that queue and cannot pull the
+21:00 reel's quota out from under it. Net quota pressure still falls (the backlog
+lane spent ~1 publish/day; the weekly spends ~1/week).
+
+The **daily** lane writes no marker at all, so a gem can appear in the daily reel
+and still be picked up by the weekly one — which is exactly what Boss asked for.
 
 ---
 

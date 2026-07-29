@@ -6,9 +6,11 @@
 #
 #          Each run picks the week's best Discord-reacted portrait s7-cam
 #          gems, stitches them into a 9:16 portrait Reel, posts to IG+FB
-#          without approval, marks those gems consumed so they leave the
-#          story queue and cannot recur in a later weekly Reel, and sends a
-#          Discord notice mentioning Mark.
+#          without approval, marks those gems consumed so they cannot
+#          recur in a later weekly Reel, and sends a Discord notice
+#          mentioning Mark. NOTE: the marker does NOT remove a gem from the
+#          Story queue — that was a long-standing docstring error corrected
+#          28-Jul-2026; see mark_gems_used_in_backlog_reel.
 #
 #          HISTORY: this was the 4x/day s7-backlog drain (09/13/17/20). That
 #          backlog is finished — 1,746 gems consumed, 15 left, under the

@@ -1,5 +1,5 @@
-# Author: Claude Sonnet 4.6; Claude Opus 4.7 (22-June-2026 — duo2 timelapse lane); Claude Fable 5 (16-Jul-2026 — mba-cam lane relabeled brooder→turkey pen, v2.46.0; Codex captions for vlm_bypass lanes + posted-caption dedup + tag rotation from ledger + chicks bucket retired, v2.47.0; D8 codex_reel_curator wired into the s7-daily lane + opener pacing hook, D10 CAMERA_OF_THE_DAY_POOL/pick_camera_of_the_day rotation, v2.48.0); Claude Opus 4.8 (22-Jul-2026 — per-lane seconds_per_frame override so the two Reolink time-lapse lanes play fast without speeding up the s7/mixed lanes, v2.50.1); Claude Fable 5 (23-Jul-2026 — Codex subscription lapsed: all caption synthesis moved to the local VLM, timelapse lanes no longer short-circuit to a literal, BRAND_RULES extracted to caption_brand.py, s7 Codex frame-curation removed, v2.51.5)
-# Date: 09-May-2026 (updated 09-May-2026 — landscape mode + LM Studio caption synthesis + 4 timelapse lanes; 10-May-2026 — GWTC approval gate; 22-June-2026 — DUO2_TIMELAPSE_LANE; 16-Jul-2026 — D8/D10; 22-Jul-2026 — per-lane pacing override)
+# Author: Claude Sonnet 4.6; Claude Opus 4.7 (22-June-2026 — duo2 timelapse lane); Claude Fable 5 (16-Jul-2026 — mba-cam lane relabeled brooder→turkey pen, v2.46.0; Codex captions for vlm_bypass lanes + posted-caption dedup + tag rotation from ledger + chicks bucket retired, v2.47.0; D8 codex_reel_curator wired into the s7-daily lane + opener pacing hook, D10 CAMERA_OF_THE_DAY_POOL/pick_camera_of_the_day rotation, v2.48.0); Claude Opus 4.8 (22-Jul-2026 — per-lane seconds_per_frame override so the two Reolink time-lapse lanes play fast without speeding up the s7/mixed lanes, v2.50.1); Claude Fable 5 (23-Jul-2026 — Codex subscription lapsed: all caption synthesis moved to the local VLM, timelapse lanes no longer short-circuit to a literal, BRAND_RULES extracted to caption_brand.py, s7 Codex frame-curation removed, v2.51.5); Claude Opus 5 (28-Jul-2026 — S7 daily lane rebuilt dawn-to-dusk: per-frame gem holds via _s7_daily_frame_holds, frame-0 duplication hack deleted, covered-day state key, s7-backlog lane converted to S7_WEEKLY_GEMS_REEL_LANE, v2.54.0)
+# Date: 09-May-2026 (updated 09-May-2026 — landscape mode + LM Studio caption synthesis + 4 timelapse lanes; 10-May-2026 — GWTC approval gate; 22-June-2026 — DUO2_TIMELAPSE_LANE; 16-Jul-2026 — D8/D10; 22-Jul-2026 — per-lane pacing override; 28-Jul-2026 — per-frame durations for reacted gems + weekly gems lane)
 # PURPOSE: Shared runner for scheduled Instagram Reel lanes. The
 #          existing mixed-camera daily Reel uses the approval-gated
 #          flow: build MP4, upload a Discord preview, wait for a human
@@ -1560,10 +1560,12 @@ def _build_publish_and_notify(
 
     _append_ledger(ledger_path, lane, date_key, result, dry_run)
 
-    # Mark posted gems so they leave the story queue and don't get re-selected
-    # by a later weekly reel. The marker string stays 'used-in-backlog-reel'
-    # even though the lane was renamed — 1,746 historical rows carry it and
-    # renaming it would re-expose every one of them.
+    # Mark posted gems so a later weekly reel can't re-select them. This does
+    # NOT remove them from the Story queue — the marker function's docstring
+    # claimed it did for months, but select_all_unposted_story_gems has never
+    # filtered on it (1,569 of 1,746 marked gems were posted as Stories too).
+    # The marker string stays 'used-in-backlog-reel' even though the lane was
+    # renamed — 1,746 historical rows carry it and renaming re-exposes them.
     if lane.lane_id == S7_WEEKLY_GEMS_REEL_LANE.lane_id and not dry_run:
         from tools.pipeline.ig_selection import mark_gems_used_in_backlog_reel
         mark_gems_used_in_backlog_reel(db_path, gem_ids)
