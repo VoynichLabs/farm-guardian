@@ -1960,7 +1960,7 @@ Fills the "Boss is sick / traveling / quiet brooder day" gap in the scheduled po
   - Top-scoring pool shuffled for variety so the same high-score photos don't dominate every day.
   - HEIC source files converted to JPEG via macOS `sips` before posting.
   - TCC: requires Claude Code Full Disk Access (System Settings → Privacy & Security); granted 2026-04-20.
-- **farm-2026 public photo gallery** — `~/Documents/GitHub/farm-2026/public/photos/`. Already-harvested Boss-curated content from the discord_harvester flow. Permitted subdirs: `<month>-<year>` (harvester output) + `birds`, `coop`, `enclosure`, `history` (manually curated). Blocked: `brooder`, `carousel`, `stories`, `yard-diary`, `guardian-detections` (IG output / year-end stockpile).
+- **farm-2026 public photo gallery** — `~/GitHub/farm-2026/public/photos/`. Already-harvested Boss-curated content from the discord_harvester flow. Permitted subdirs: `<month>-<year>` (harvester output) + `birds`, `coop`, `enclosure`, `history` (manually curated). Blocked: `brooder`, `carousel`, `stories`, `yard-diary`, `guardian-detections` (IG output / year-end stockpile).
 
 **State tracking:** `data/archive-throwback-state.json` records `sent_catalog_uuids` + `sent_gallery_paths` so re-runs never duplicate. Grows over time; eventually the catalog exhausts and throwbacks fall back to gallery-only, which also eventually exhausts. At current rates (3 catalog + 2 gallery per day, 18k catalog candidates, 74 gallery candidates): roughly 6000+ days of catalog + 37 days of gallery.
 
@@ -2401,7 +2401,7 @@ Seasonal-record capture of the yard for a year-end retrospective. Separate from 
 
 The initial shell script + `sips` pipeline shipped at 10:44 worked, but Boss then tightened the spec — three captures a day with dated overlays for a proper year retrospective. Python+Pillow let the overlay, the resize, and the slot logic live in one place instead of spread across `sips` + `date` + shell arg parsing. The bash version is gone rather than kept as a fallback; keeping two implementations for the same cron job would rot immediately.
 
-**TCC fix detail:** the initial `com.voynichlabs.*` plist was denied by TCC on first fire (`posix_spawn ... Operation not permitted`) because the script lived under `~/Documents/GitHub/farm-guardian/scripts/`. The replacement plist (a) executes from `~/bin/` (not TCC-locked), and (b) uses the `com.farmguardian.*` label prefix that already works for `com.farmguardian.guardian`. Both changes were needed.
+**TCC fix detail:** the initial `com.voynichlabs.*` plist was denied by TCC on first fire (`posix_spawn ... Operation not permitted`) because the script lived under `~/GitHub/farm-guardian/scripts/`. The replacement plist (a) executes from `~/bin/` (not TCC-locked), and (b) uses the `com.farmguardian.*` label prefix that already works for `com.farmguardian.guardian`. Both changes were needed.
 
 Plan writeup: `docs/17-Apr-2026-yard-diary-capture-plan.md`. Publish path still Railway-CDN, not the Cloudflare tunnel — diary surface survives Mini / tunnel outages.
 

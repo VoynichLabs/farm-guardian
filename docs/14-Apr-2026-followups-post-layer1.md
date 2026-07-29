@@ -51,4 +51,4 @@ Each extracted module gets its own `# Author / Date / PURPOSE / SRP/DRY check` h
 
 **Current state left for Boss:** one manually-launched `guardian.py` serves port 6530 with the v2.25.0 image archive routes live. `com.farm.guardian` is bootstrapped but its respawns fail; they don't hurt the manual process (they exit fast without binding the port). On machine reboot, the manual process will be gone and launchd will resume respawning failed instances. Recommended fix window: next time Boss is at the box, investigate per the list above.
 
-**Workaround if needed before then:** `nohup ~/Documents/GitHub/farm-guardian/venv/bin/python ~/Documents/GitHub/farm-guardian/guardian.py >> ~/Documents/GitHub/farm-guardian/guardian.log 2>&1 & disown` — that's the exact invocation running now.
+**Workaround if needed before then:** `nohup ~/GitHub/farm-guardian/venv/bin/python ~/GitHub/farm-guardian/guardian.py >> ~/GitHub/farm-guardian/guardian.log 2>&1 & disown` — that's the exact invocation running now.

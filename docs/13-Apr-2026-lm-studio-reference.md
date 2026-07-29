@@ -276,7 +276,7 @@ depth. Plan cadence accordingly.
 ## Coordination with G0DM0D3-research
 
 The other repo on this machine —
-`~/Documents/GitHub/G0DM0D3-research/` — also uses LM Studio. Its
+`~/GitHub/G0DM0D3-research/` — also uses LM Studio. Its
 sweeps load models for hours at a time and may load any of the
 models in the table above.
 
@@ -345,7 +345,7 @@ auto-loading. ~14 minutes of overlap was enough.
   back safely, and what to never do.
 
 **Full post-mortem:**
-`~/Documents/GitHub/G0DM0D3-research/docs/13-Apr-2026-watchdog-reset-postmortem.md`
+`~/GitHub/G0DM0D3-research/docs/13-Apr-2026-watchdog-reset-postmortem.md`
 (in the other repo).
 
 ---

@@ -273,7 +273,7 @@ def main(argv: list[str] | None = None) -> int:
         "--farm-2026-repo",
         type=Path,
         default=Path.home() / "Documents" / "GitHub" / "farm-2026",
-        help="farm-2026 repo root (default: ~/Documents/GitHub/farm-2026).",
+        help="farm-2026 repo root (default: ~/GitHub/farm-2026).",
     )
     parser.add_argument(
         "-v",

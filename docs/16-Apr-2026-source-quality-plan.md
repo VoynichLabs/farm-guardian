@@ -42,7 +42,7 @@ Run these in order on a fresh session. Expected outputs are the "happy path"; de
 
 ```bash
 # 1. Is the pipeline writing?
-sqlite3 ~/Documents/GitHub/farm-guardian/data/guardian.db \
+sqlite3 ~/GitHub/farm-guardian/data/guardian.db \
   "SELECT camera_id, MAX(ts) FROM image_archive GROUP BY camera_id;"
 #    Happy: each camera's MAX(ts) is within the last 5-10 minutes.
 #    Current: all stale >12h. s7-cam has no row at all.
@@ -68,8 +68,8 @@ ps -p "$(awk -F= '{print $2}' /Users/macmini/farm-backlog/scraper.pid)" -o pid,e
 tail -10 /Users/macmini/farm-backlog/scraper.log
 
 # 6. Is the other dev still live in the repo?
-cd ~/Documents/GitHub/farm-guardian && git status --short
-cd ~/Documents/GitHub/farm-2026 && git status --short
+cd ~/GitHub/farm-guardian && git status --short
+cd ~/GitHub/farm-2026 && git status --short
 #    Any non-empty output = someone is editing. Stay on your own branch until it clears.
 ```
 
@@ -79,11 +79,11 @@ Two gitignored config files hold the live state. The tracked `config.example.jso
 
 | File | Tracked? | What it controls | Note |
 |---|---|---|---|
-| `~/Documents/GitHub/farm-guardian/config.json` | NO (gitignored) | Guardian: cameras, detection, cadences, Discord, eBird | Copy of shape in `config.example.json` |
-| `~/Documents/GitHub/farm-guardian/config.example.json` | YES | Contract for the above | Must match the live file's **shape**, not its secrets/URLs |
-| `~/Documents/GitHub/farm-guardian/tools/pipeline/config.json` | NO (gitignored) | Pipeline: cameras, cadences, retention, VLM timeout | **Currently stale on s7-cam + mba-cam blocks** |
-| `~/Documents/GitHub/farm-guardian/.env` | NO (gitignored) | `DISCORD_WEBHOOK_URL` etc. | Don't print; Discord skill doc explains |
-| `~/Documents/GitHub/farm-guardian/data/guardian.db` | NO (gitignored) | SQLite, WAL mode, 8 tables | Back up before any schema change: `cp -a data/guardian.db /tmp/` |
+| `~/GitHub/farm-guardian/config.json` | NO (gitignored) | Guardian: cameras, detection, cadences, Discord, eBird | Copy of shape in `config.example.json` |
+| `~/GitHub/farm-guardian/config.example.json` | YES | Contract for the above | Must match the live file's **shape**, not its secrets/URLs |
+| `~/GitHub/farm-guardian/tools/pipeline/config.json` | NO (gitignored) | Pipeline: cameras, cadences, retention, VLM timeout | **Currently stale on s7-cam + mba-cam blocks** |
+| `~/GitHub/farm-guardian/.env` | NO (gitignored) | `DISCORD_WEBHOOK_URL` etc. | Don't print; Discord skill doc explains |
+| `~/GitHub/farm-guardian/data/guardian.db` | NO (gitignored) | SQLite, WAL mode, 8 tables | Back up before any schema change: `cp -a data/guardian.db /tmp/` |
 
 Convention: any config change gets a matching update to `config.example.json` so the repo still describes reality. Per CLAUDE.md.
 
@@ -123,7 +123,7 @@ Ship these in order. Each phase is landable on its own; don't jump ahead until t
    - OR, if you prefer the simpler architecture, stop writing `decent`-tier rows to DB entirely (disk-only archive) — verify `store.py` supports this without breaking `api.py` response shapes first.
 8. **Smoke-test with `--once`:**
    ```bash
-   cd ~/Documents/GitHub/farm-guardian && source venv/bin/activate
+   cd ~/GitHub/farm-guardian && source venv/bin/activate
    python -m tools.pipeline.orchestrator --once --log-level INFO
    ```
    Expected: one cycle per enabled camera, `status: ok` with `inference_ms` around 60-100k ms, new rows in `image_archive`. If any camera returns `status: error`, read `result['reason']` and fix before daemon mode.
@@ -153,7 +153,7 @@ If Phase 2 or 3 breaks production (e.g. new config crashes Guardian or fills dis
 # 1. Stop the pipeline
 launchctl unload ~/Library/LaunchAgents/com.farmguardian.pipeline.plist
 # 2. Revert pipeline config
-cd ~/Documents/GitHub/farm-guardian && git checkout HEAD -- tools/pipeline/config.json  # if committed
+cd ~/GitHub/farm-guardian && git checkout HEAD -- tools/pipeline/config.json  # if committed
 # or restore from backup before edit
 # 3. Restart scraper as safety net
 nohup /Users/macmini/farm-backlog/scraper.sh > /Users/macmini/farm-backlog/scraper.log 2>&1 &
@@ -375,7 +375,7 @@ Items 4-9 are lift-and-shift from my deleted quality plan; they're still real. P
 
 ## Cross-repo scope — farm-2026
 
-Boss's reminder: this work spans both repos. `farm-guardian` produces the images + REST API; **`~/Documents/GitHub/farm-2026`** consumes them and renders gems at `farm.markbarney.net`. The contract between them lives in `farm-2026/app/components/guardian/types.ts`.
+Boss's reminder: this work spans both repos. `farm-guardian` produces the images + REST API; **`~/GitHub/farm-2026`** consumes them and renders gems at `farm.markbarney.net`. The contract between them lives in `farm-2026/app/components/guardian/types.ts`.
 
 Current contract fields the pipeline writes and farm-2026 reads (as of this session):
 
@@ -403,7 +403,7 @@ ce946c2 docs: cross-repo plan for exposing the Guardian image archive
 
 Clean working tree. No in-flight dev work visible there. If the backend contract changes, farm-2026 needs a coordinated release — open a PR there referencing the farm-guardian commit that changes the contract.
 
-**For the next session:** when picking up the pipeline work, `cd ~/Documents/GitHub/farm-2026 && git fetch && git log origin/main --oneline -10` before touching REST response shapes.
+**For the next session:** when picking up the pipeline work, `cd ~/GitHub/farm-2026 && git fetch && git log origin/main --oneline -10` before touching REST response shapes.
 
 ## Files changed in this branch
 

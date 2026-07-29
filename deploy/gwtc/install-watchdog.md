@@ -17,7 +17,7 @@ The watchdog probes `rtsp://localhost:8554/gwtc` every 30s. If no publisher is a
 ```bash
 # 1. Copy the script to GWTC
 scp -o StrictHostKeyChecking=no \
-  ~/Documents/GitHub/farm-guardian/deploy/gwtc/farm-watchdog.ps1 \
+  ~/GitHub/farm-guardian/deploy/gwtc/farm-watchdog.ps1 \
   markb@192.168.0.68:C:/farm-services/farm-watchdog.ps1
 
 # 2. Register as a Shawl-wrapped Windows service
@@ -42,7 +42,7 @@ ssh -o StrictHostKeyChecking=no markb@192.168.0.68 \
 ```bash
 # Push new copy
 scp -o StrictHostKeyChecking=no \
-  ~/Documents/GitHub/farm-guardian/deploy/gwtc/farm-watchdog.ps1 \
+  ~/GitHub/farm-guardian/deploy/gwtc/farm-watchdog.ps1 \
   markb@192.168.0.68:C:/farm-services/farm-watchdog.ps1
 
 # Bounce the service

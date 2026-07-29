@@ -38,7 +38,7 @@ For reacted gem Stories, the current workaround is not GitHub: `post_gem_to_stor
 
 1. Pick a gem via `GET guardian.markbarney.net/api/v1/images/gems?limit=30`
 2. Download it locally: `curl -o /tmp/gem-{id}.jpg "https://guardian.markbarney.net/api/v1/images/gems/{id}/image?size=1920"`
-3. Copy to `~/Documents/GitHub/farm-2026/public/photos/<subdir>/<name>.jpg`
+3. Copy to `~/GitHub/farm-2026/public/photos/<subdir>/<name>.jpg`
 4. `git add && git commit && git push`
 5. **Use the GitHub raw URL immediately — no deploy wait needed:**
    ```
@@ -103,7 +103,7 @@ Either:
 ### Image hosting helper: `farm_2026_commit(local_jpg, subdir) -> str`
 
 Responsibilities (SRP):
-- Copy local JPEG to `~/Documents/GitHub/farm-2026/public/photos/<subdir>/<basename>`
+- Copy local JPEG to `~/GitHub/farm-2026/public/photos/<subdir>/<basename>`
 - `git add` + commit with a descriptive message + `git push`
 - Return the `https://raw.githubusercontent.com/...` URL
 
@@ -396,7 +396,7 @@ pymobiledevice3 afc pull /DCIM/100APPLE/IMG_2156.HEIC /tmp/
   - `pull_photo(device_path: str, local_dest: Path) -> Path` — copies one photo to local disk, converts HEIC→JPG via `sips` if needed
   - `sync_since(since_ts: str, dest_dir: Path) -> list[Path]` — pull everything new into a staging area
 - LaunchAgent polling every 15 min when iPhone is plugged in (detect via `idevice_id -l`)
-- Pulled photos land in `~/Documents/GitHub/farm-2026/public/photos/iphone-drops/{YYYY-MM-DD}/{IMG_XXXX}.jpg`, auto-committed + pushed (reuses the same `git_helper.py` Phase 3 ships)
+- Pulled photos land in `~/GitHub/farm-2026/public/photos/iphone-drops/{YYYY-MM-DD}/{IMG_XXXX}.jpg`, auto-committed + pushed (reuses the same `git_helper.py` Phase 3 ships)
 - Discord preview posted to #farm-2026 for each new photo asking Boss for a caption + approval
 
 **Prerequisites for Channel B to work:**

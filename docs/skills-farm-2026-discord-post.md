@@ -19,7 +19,7 @@ curl -s -m 10 -o /tmp/post.jpg \
   "http://localhost:6530/api/cameras/s7-cam/frame"
 
 # 2. Post to #farm-2026 with a multipart attachment.
-source ~/Documents/GitHub/farm-guardian/.env  # loads DISCORD_WEBHOOK_URL
+source ~/GitHub/farm-guardian/.env  # loads DISCORD_WEBHOOK_URL
 curl -s -m 20 \
   -F 'payload_json={"username":"S7 Brooder","content":"Latest from the brooder — S7, /photoaf.jpg, 1920x1080."}' \
   -F "file=@/tmp/post.jpg" \
@@ -45,7 +45,7 @@ Expected: `HTTP:200`. The response body is the Discord message JSON with CDN URL
 Verify the webhook's channel any time with:
 
 ```bash
-source ~/Documents/GitHub/farm-guardian/.env
+source ~/GitHub/farm-guardian/.env
 curl -s "$DISCORD_WEBHOOK_URL" | python3 -c "import json,sys;d=json.load(sys.stdin);print(f\"name={d['name']} channel_id={d['channel_id']} guild_id={d['guild_id']}\")"
 ```
 
@@ -100,7 +100,7 @@ OUT=/tmp/farm2026-post-$$.jpg
 curl -sS -f -m 10 -o "$OUT" "http://localhost:6530/api/cameras/$CAMERA/frame"
 
 # 2. load webhook URL from the guardian .env (not hardcoded)
-source ~/Documents/GitHub/farm-guardian/.env
+source ~/GitHub/farm-guardian/.env
 
 # 3. post to #farm-2026
 curl -sS -f -m 20 \
@@ -126,7 +126,7 @@ Drop it anywhere on the host (e.g. `tools/farm-2026-discord-post/post.sh`), `chm
 
 - **Webhook 401 / 404:** the URL in `.env` is wrong or the webhook was regenerated. Re-pull from Discord → channel → integrations.
 - **`/api/cameras/<name>/frame` returns 404:** Guardian hasn't captured a frame yet (first-poll-pending; happens after a restart, especially for 60 s-cadence cameras). Wait up to one interval and retry.
-- **`/api/cameras/<name>/frame` returns a stale frame:** Guardian serves its cached last-good frame even when the actual camera source is down. If you suspect the image is old, cross-check `tail guardian.log | grep <camera>` for recent fetch failures. For the S7 specifically, the usual cause is the "IP Webcam on Configuration screen" failure — see `~/Documents/GitHub/farm-guardian/docs/16-Apr-2026-s7-ipwebcam-frozen-incident.md`.
+- **`/api/cameras/<name>/frame` returns a stale frame:** Guardian serves its cached last-good frame even when the actual camera source is down. If you suspect the image is old, cross-check `tail guardian.log | grep <camera>` for recent fetch failures. For the S7 specifically, the usual cause is the "IP Webcam on Configuration screen" failure — see `~/GitHub/farm-guardian/docs/16-Apr-2026-s7-ipwebcam-frozen-incident.md`.
 - **`HTTP:200` but no message in Discord:** almost never happens. If it does, the webhook might be rate-limited (`429` masquerading, or the bot was removed from the channel). Check Discord directly.
 - **Shell-quoting the caption:** the `payload_json` field is JSON inside a shell single-quoted string. If the caption contains a single quote, use the `post.sh` script's double-quoted form and escape accordingly, or pass via a temp JSON file:
   ```bash

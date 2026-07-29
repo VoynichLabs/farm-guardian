@@ -142,7 +142,7 @@ From the Mac Mini:
 
 ```bash
 # Git head matches §1 above
-cd ~/Documents/GitHub/farm-guardian && git log --oneline -4
+cd ~/GitHub/farm-guardian && git log --oneline -4
 
 # All four currently-online cameras return 200s
 for c in house-yard usb-cam gwtc mba-cam; do

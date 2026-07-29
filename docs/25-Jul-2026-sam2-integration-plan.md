@@ -93,7 +93,7 @@ Read the actual detection-to-alert flow before touching anything. The integratio
 ## Model Setup (one-time, before implementation)
 
 ```bash
-cd ~/Documents/GitHub/farm-guardian
+cd ~/GitHub/farm-guardian
 pip install git+https://github.com/facebookresearch/segment-anything-2.git
 # Download checkpoint — small is recommended to start:
 # sam2_hiera_small.pt (~180MB) from https://github.com/facebookresearch/segment-anything-2#model-checkpoints

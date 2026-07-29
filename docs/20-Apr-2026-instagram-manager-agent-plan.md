@@ -48,7 +48,7 @@ This has been the case since Meta tightened the API in ~2018 post-Cambridge Anal
 
 ## System architecture
 
-Single long-running Python service, runs under `launchd`, restarts on crash, logs to a rotating file + Discord alerts on anomalies. Call it `ig_manager/` under `~/Documents/GitHub/farm-guardian/tools/` (it shares infra with Farm Guardian — DB, Discord alerts, keychain loader).
+Single long-running Python service, runs under `launchd`, restarts on crash, logs to a rotating file + Discord alerts on anomalies. Call it `ig_manager/` under `~/GitHub/farm-guardian/tools/` (it shares infra with Farm Guardian — DB, Discord alerts, keychain loader).
 
 ```
 farm-guardian/tools/ig_manager/

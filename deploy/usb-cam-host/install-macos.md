@@ -21,7 +21,7 @@ python -m pip install --only-binary=:all: -r <path-to>/deploy/usb-cam-host/requi
 
 **`--only-binary=:all:` is important on older macOS.** Without it, pip will try to build `opencv-python-headless` from source if the exact wheel isn't available — a half-hour cmake job on a 2013 MacBook Air. `requirements.txt` pins `opencv-python-headless==4.8.1.78` specifically because that version has a prebuilt wheel for macOS 11 + Intel + Python 3.8 (the MBA 2013 ceiling).
 
-Mac Mini note: the Mini runs Python 3.13 from Homebrew and can use the farm-guardian checkout's existing venv directly — `~/Documents/GitHub/farm-guardian/venv` is fine on Sequoia because Full Disk Access is already granted to the Guardian agent's Python. The `~/.local/farm-services/` layout above is only needed on Big Sur hosts and any host where you haven't yet granted the Python binary Full Disk Access.
+Mac Mini note: the Mini runs Python 3.13 from Homebrew and can use the farm-guardian checkout's existing venv directly — `~/GitHub/farm-guardian/venv` is fine on Sequoia because Full Disk Access is already granted to the Guardian agent's Python. The `~/.local/farm-services/` layout above is only needed on Big Sur hosts and any host where you haven't yet granted the Python binary Full Disk Access.
 
 ## 2. Verify the camera
 

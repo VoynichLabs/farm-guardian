@@ -68,7 +68,7 @@ Expected: `JPEG image data`, non-trivial file size (hundreds of KB at 1080p, low
 
 ## Step 4 — Flip the Guardian config
 
-Edit `~/Documents/GitHub/farm-guardian/config.json`. Replace the existing `s7-cam` block with:
+Edit `~/GitHub/farm-guardian/config.json`. Replace the existing `s7-cam` block with:
 
 ```json
 {
@@ -93,7 +93,7 @@ If you set a login/password in step 2.4, fill `username` and `password` accordin
 Restart Guardian:
 
 ```bash
-cd ~/Documents/GitHub/farm-guardian
+cd ~/GitHub/farm-guardian
 # If running via your usual launcher, use that. Otherwise:
 pkill -f "python guardian.py"; sleep 2
 source venv/bin/activate && nohup python guardian.py > guardian.log 2>&1 &

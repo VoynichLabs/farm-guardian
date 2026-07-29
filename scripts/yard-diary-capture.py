@@ -56,10 +56,10 @@ from PIL import Image, ImageDraw, ImageFont
 
 GUARDIAN_URL = "http://localhost:6530/api/v1/cameras/house-yard/snapshot"
 HOME = Path.home()
-MASTERS_DIR = HOME / "Documents/GitHub/farm-guardian/data/yard-diary"
-SITE_REPO = HOME / "Documents/GitHub/farm-2026"
+MASTERS_DIR = HOME / "GitHub/farm-guardian/data/yard-diary"
+SITE_REPO = HOME / "GitHub/farm-2026"
 PUBLISHED_DIR = SITE_REPO / "public/photos/yard-diary"
-LOG_FILE = HOME / "Documents/GitHub/farm-guardian/data/pipeline-logs/yard-diary.log"
+LOG_FILE = HOME / "GitHub/farm-guardian/data/pipeline-logs/yard-diary.log"
 FONT_PATH = "/System/Library/Fonts/HelveticaNeue.ttc"
 
 MIN_BYTES = 50_000

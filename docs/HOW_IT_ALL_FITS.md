@@ -25,9 +25,9 @@ A handful of cameras — a PTZ in the yard, two phones over the brooder, a lapto
 
 ### 1. Live pipeline — THE primary pool (this is what auto-posting draws from)
 
-**Database:** `~/Documents/GitHub/farm-guardian/data/guardian.db`
+**Database:** `~/GitHub/farm-guardian/data/guardian.db`
 **Table:** `image_archive`
-**Files on disk:** `~/Documents/GitHub/farm-guardian/data/archive/YYYY-MM/<camera>/YYYY-MM-DDTHH-MM-SS-<tier>.jpg`
+**Files on disk:** `~/GitHub/farm-guardian/data/archive/YYYY-MM/<camera>/YYYY-MM-DDTHH-MM-SS-<tier>.jpg`
 
 Every surviving frame has a row with ~30 columns of VLM metadata. Schema lives in [`tools/pipeline/store.py`](../tools/pipeline/store.py) (`_SCHEMA_SQL`). Key columns:
 
@@ -50,7 +50,7 @@ Every surviving frame has a row with ~30 columns of VLM metadata. Schema lives i
 **Query the archive directly:**
 
 ```bash
-sqlite3 ~/Documents/GitHub/farm-guardian/data/guardian.db "
+sqlite3 ~/GitHub/farm-guardian/data/guardian.db "
   SELECT image_tier, COUNT(*) FROM image_archive GROUP BY image_tier;
 "
 ```
@@ -76,7 +76,7 @@ These pools contain tagged photos from prior manual work. They're candidates for
 
 | Location | Count | Tagged? | Notes |
 |---|---|---|---|
-| `~/Documents/GitHub/swarm-coordination/chick-photos/` | 6 | Markdown only | 2026-03-25 sex-calling portraits. Analyses at `chicks_larry_complete/bird_N_analysis.md`, written by a Claude sub-agent ("Larry") against the Cream Legbar / Silver Laced Wyandotte / heritage-mixed flock. Breed + sex calls with confidence. Not JSON-structured — a future replay mode would need to normalize these into the same shape as `vlm_json`. |
+| `~/GitHub/swarm-coordination/chick-photos/` | 6 | Markdown only | 2026-03-25 sex-calling portraits. Analyses at `chicks_larry_complete/bird_N_analysis.md`, written by a Claude sub-agent ("Larry") against the Cream Legbar / Silver Laced Wyandotte / heritage-mixed flock. Breed + sex calls with confidence. Not JSON-structured — a future replay mode would need to normalize these into the same shape as `vlm_json`. |
 | `~/bubba-workspace/projects/farm-vision/farm-vision-dev-test.json` | 1 (+ room to grow) | JSON | 2026-03-17 LM Studio run (qwen3.5-35b) against `backyard.png` — full metadata (scene, colors, subjects, aesthetic tags, design usability). The schema is richer than `image_archive.vlm_json` because it was designed for website-background selection, not IG selection. Proof-of-concept for the entire VLM-tagging idea that later became Farm Guardian's pipeline. |
 | `~/Desktop/iphone-today/` | variable | no | AirDropped recent iPhone shots — HEIC + JPG pairs. Boss drops photos here when he wants one posted; the "Channel B" pickup in `19-Apr-2026-instagram-posting-plan.md` will eventually watch this folder. |
 | `~/Pictures/` (Photos Library) | 4,225 items, 23 GB | no | macOS Photos library. **Not** a pipeline source — personal photos, no metadata normalization. Left alone deliberately. |
@@ -179,7 +179,7 @@ Both the Discord post and the IG post are wrapped in try/except so any failure (
 
 **Discord bot token** for `tools/discord_harvester.py` — read from OpenClaw's config at runtime.
 
-None of these credentials appear in any committed file. The gitignore at `~/Documents/GitHub/farm-guardian/.gitignore` includes `.env` and everything under `data/`. **Correction (22-Jul-2026): `tools/pipeline/config.json` and the root `config.json` are deliberately TRACKED, not ignored** — and the root `config.json` does contain LAN-only camera passwords. Commit changes to both when you edit either.
+None of these credentials appear in any committed file. The gitignore at `~/GitHub/farm-guardian/.gitignore` includes `.env` and everything under `data/`. **Correction (22-Jul-2026): `tools/pipeline/config.json` and the root `config.json` are deliberately TRACKED, not ignored** — and the root `config.json` does contain LAN-only camera passwords. Commit changes to both when you edit either.
 
 ---
 
@@ -225,7 +225,7 @@ These can be tuned in `config.json` without a code change — restart picks them
 ## Manually posting (the CLI escape hatch)
 
 ```bash
-cd ~/Documents/GitHub/farm-guardian
+cd ~/GitHub/farm-guardian
 python3 scripts/ig-post.py --gem-id 6849 --caption "$(cat caption.txt)" --dry-run   # preview
 python3 scripts/ig-post.py --gem-id 6849 --caption "$(cat caption.txt)"              # ship
 ```
@@ -254,15 +254,15 @@ Works whether the flags are on or off.
 
 ```bash
 # How many strong gems are waiting to be picked?
-sqlite3 ~/Documents/GitHub/farm-guardian/data/guardian.db \
+sqlite3 ~/GitHub/farm-guardian/data/guardian.db \
   "SELECT COUNT(*) FROM image_archive WHERE image_tier='strong' AND image_quality='sharp' AND ig_permalink IS NULL AND ig_skip_reason IS NULL;"
 
 # What did the auto-poster skip and why?
-sqlite3 ~/Documents/GitHub/farm-guardian/data/guardian.db \
+sqlite3 ~/GitHub/farm-guardian/data/guardian.db \
   "SELECT ig_skip_reason, COUNT(*) FROM image_archive WHERE ig_skip_reason IS NOT NULL GROUP BY ig_skip_reason ORDER BY 2 DESC;"
 
 # What's live on Instagram from the pipeline?
-sqlite3 ~/Documents/GitHub/farm-guardian/data/guardian.db \
+sqlite3 ~/GitHub/farm-guardian/data/guardian.db \
   "SELECT ig_posted_at, camera_id, ig_permalink FROM image_archive WHERE ig_permalink IS NOT NULL ORDER BY ig_posted_at DESC;"
 
 # Is the daemon alive?

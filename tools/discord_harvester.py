@@ -23,7 +23,7 @@ try:
     import requests
 except ImportError:
     print("ERROR: requests library not found. Run with farm-guardian venv:")
-    print("  ~/Documents/GitHub/farm-guardian/venv/bin/python3 discord_harvester.py")
+    print("  ~/GitHub/farm-guardian/venv/bin/python3 discord_harvester.py")
     sys.exit(1)
 
 # ---------------------------------------------------------------------------

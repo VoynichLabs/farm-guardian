@@ -71,7 +71,7 @@ Observed 2026-04-16: Mini's `/health` returns `auto_wb: true, wb_strength: 0.5`;
 
 **Recovery:**
 ```bash
-ssh -i ~/.ssh/id_ed25519 markb@192.168.0.50 'cd ~/Documents/GitHub/farm-guardian && git fetch && git reset --hard origin/main && launchctl unload ~/Library/LaunchAgents/com.farmguardian.usb-cam-host.plist && launchctl load -w ~/Library/LaunchAgents/com.farmguardian.usb-cam-host.plist'
+ssh -i ~/.ssh/id_ed25519 markb@192.168.0.50 'cd ~/GitHub/farm-guardian && git fetch && git reset --hard origin/main && launchctl unload ~/Library/LaunchAgents/com.farmguardian.usb-cam-host.plist && launchctl load -w ~/Library/LaunchAgents/com.farmguardian.usb-cam-host.plist'
 ```
 
 Or delegate via `ssh ... 'c -p "..."'` pattern per `docs/skills-s7-adb-operations.md` conventions — that's the intended multi-Claude path for hands-on work on the MBA.
