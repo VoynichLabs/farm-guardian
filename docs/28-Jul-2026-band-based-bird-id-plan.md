@@ -1,7 +1,20 @@
 # 28-Jul-2026 — Using the leg bands to actually identify birds
 
-**Status: PLAN ONLY — nothing has been changed. Needs your approval, and there are two
-questions at the end I can't answer for you.**
+**Status: BUILT AND SHIPPED, 28-Jul-2026 (v2.55.0).** Boss: "I want you to fix
+everything. Be thorough." Measured outcomes are in the section at the bottom —
+**read that before changing any of this**, because two of the plan's own
+assumptions turned out to be wrong when tested against the live model.
+
+Question 1 (should the AI name birds from bands?) was answered **yes, softly** —
+it resolves a name only when the reading can belong to exactly one living bird.
+Question 2 (`config/flock_bands.json`) was answered by **making it load-bearing**
+as the offline fallback rather than deleting it.
+
+Alongside this, a bigger problem surfaced that the plan below does not mention at
+all: **the plumage half of the AI's cheat sheet described chicks.** Six of the
+eleven named birds still carried their hatch-day down in the field the prompt
+reads on every frame. That is fixed in farm-2026 v1.35.0, and the hands-on
+follow-ups are in [`29-Jul-2026-hands-on-bird-check-list.md`](29-Jul-2026-hands-on-bird-check-list.md).
 
 ---
 
@@ -285,3 +298,88 @@ with nothing checking it.
 Do not "restore" the prose-matching approach on the strength of the 22-Jul plan doc.
 It ran for six days, produced 0 identifications from 440 band sightings, and published
 at least 5 bands that don't exist.
+
+---
+
+# What actually happened when it was built (28-Jul-2026)
+
+Two of this plan's assumptions were wrong. Both were caught by measuring against
+the live model rather than reasoning about it, and both are recorded here so
+nobody re-derives them.
+
+## Wrong assumption 1 — "colour + leg resolves 8 of 12 birds"
+
+The plan proposed matching on **colour + leg**, on the arithmetic that 8 of the
+12 banded birds are unique on that pair and that the leg was legible in 39% of
+sightings versus 4% for the number.
+
+**The model cannot tell a bird's left leg from its right.** Measured on the six
+handheld banding portraits where the band is plainly legible: it read the colour
+correctly 5 times out of 6 and three numbers exactly — and answered **"right" for
+five birds that all wear their band on the left**. (It did read Robirda's genuine
+right leg correctly, so it is not inverted, just unreliable.)
+
+The first implementation let a contradicting leg veto the match. That single rule
+took a run that should have identified four birds down to **zero**.
+
+**`resolve_band()` now ignores the leg entirely** — and does not need it, because
+**colour + number is unique across all twelve banded birds with no collisions**,
+and colour alone is unique for green, red, purple and blue. The leg is still
+recorded in `band_leg` so a future model can be re-measured. ⚠️ Do not
+"improve" the matcher by filtering on the leg.
+
+Live result on the six portraits after the fix: **4 of 6 resolved to the correct
+bird, 0 wrong.** The two misses are correct refusals — Henriella's number was
+illegible and pink is shared with Henriessa; Horstabird's band was not visible.
+
+## Wrong assumption 2 — "prompt.md can stop the model mentioning bands in captions"
+
+The plan assumed that telling the model to keep bands out of `caption_draft`
+would be enough. Measured over 100 real frames **after** that instruction was
+added: **5 still put a band in the caption.** A prose claim we never parsed is a
+claim we cannot check.
+
+`_strip_band_clauses()` in `vlm_enricher.py` now removes band mentions from
+`caption_draft` and `share_reason` deterministically. Verified against all **797**
+real band-mentioning captions in the archive: **0 leaks, 0 captions emptied**,
+mean length 253 → 166 chars.
+
+## A measurement trap worth not falling into twice
+
+The first regression run looked catastrophic — `strong` at 45% against a 2.0%
+baseline, mean score 21.9 → 59.3. **It was a sampling artefact.** Only frames
+scored `decent` or `strong` keep a JPEG on disk, so *any* sample drawn from the
+archive by `image_path` is pre-filtered to good frames and cannot be compared
+against an all-frames baseline. The correct instrument is a **paired** test —
+same frames, old prompt versus new — which is immune to that bias.
+
+Likewise, **inference timing cannot be measured while the pipeline is running.**
+A test harness reported 14,216 ms against a 5,586 ms baseline; the live pipeline
+was simultaneously logging 5,628 ms for the same model. Two inference streams,
+one LM Studio. Paired, under identical contention, the schema change costs
+**+3%**.
+
+And the paired test must score the **recomputed** gem number, not the VLM's
+`overall_score` — `orchestrator._compute_overall_score` discards the model's
+guess and rebuilds the score from `largest_subject_pct`, `expression_score`,
+`detail_score` and `image_quality`/`lighting`. Comparing the discarded field
+measures nothing that reaches Discord.
+
+## Prompt-length guard
+
+The rewritten plumage descriptions are richer, which took the rendered
+named-individuals block from 3,244 to 6,031 characters — a real risk to gem
+calibration on a 4B model. `roster._lead()` trims to leading **whole sentences**
+(240 chars), landing the block at **3,498** — under the 3,676 it was before any
+of today's changes. Every rewritten description leads with the bird's single
+most discriminating feature, so the trim costs nothing.
+
+## What an adversarial review pass caught before commit
+
+Worth recording because the failure mode is subtle: the first draft of the
+rewritten descriptions **described Henridotta and Adelbird in near-identical
+words** — the two entries had collapsed onto one bird — and claimed superlatives
+("the only truly black-headed bird", "by far the largest comb") that no single
+photograph supports. Corrected before shipping. The honest finding is that
+**Henridotta and Adelbird are not separable by plumage**, and both entries now
+say so instead of offering a tell that does not work.
