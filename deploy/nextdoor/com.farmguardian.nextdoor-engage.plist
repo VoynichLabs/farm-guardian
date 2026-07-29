@@ -7,8 +7,8 @@
 
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/macmini/Documents/GitHub/farm-guardian/venv/bin/python</string>
-        <string>/Users/macmini/Documents/GitHub/farm-guardian/tools/nextdoor/engage.py</string>
+        <string>/Users/macmini/GitHub/farm-guardian/venv/bin/python</string>
+        <string>/Users/macmini/GitHub/farm-guardian/tools/nextdoor/engage.py</string>
         <string>--headless</string>
         <string>--max-actions</string>
         <string>8</string>
@@ -17,7 +17,7 @@
     </array>
 
     <key>WorkingDirectory</key>
-    <string>/Users/macmini/Documents/GitHub/farm-guardian</string>
+    <string>/Users/macmini/GitHub/farm-guardian</string>
 
     <key>EnvironmentVariables</key>
     <dict>

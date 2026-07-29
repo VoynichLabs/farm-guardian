@@ -67,7 +67,7 @@ log = logging.getLogger("on_this_day.post_daily")
 # --- Paths ---
 
 FARM_GUARDIAN_ROOT = Path(__file__).resolve().parents[2]
-FARM_2026_REPO = Path("/Users/macmini/Documents/GitHub/farm-2026")
+FARM_2026_REPO = Path("/Users/macmini/GitHub/farm-2026")
 CANDIDATES_DIR = FARM_GUARDIAN_ROOT / "data" / "on-this-day"
 _ENABLE_ENV = "FARM_ON_THIS_DAY_STORIES_ENABLED"
 

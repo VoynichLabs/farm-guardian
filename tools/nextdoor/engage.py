@@ -47,7 +47,7 @@ log = logging.getLogger("nextdoor.engage")
 
 PROFILE_DIR = Path.home() / "Library" / "Application Support" / "farm-nextdoor" / "profile"
 MARKER = Path.home() / "Library" / "Application Support" / "farm-nextdoor" / "bootstrap-ok.json"
-LOG_DIR = Path("/Users/macmini/Documents/GitHub/farm-guardian/data/nextdoor")
+LOG_DIR = Path("/Users/macmini/GitHub/farm-guardian/data/nextdoor")
 
 STEALTH_INIT = r"""
 Object.defineProperty(navigator, 'webdriver', {get: () => undefined});

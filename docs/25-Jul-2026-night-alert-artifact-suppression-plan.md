@@ -421,7 +421,7 @@ semantic call. Tuning gate ② harder against this one night's data would be ove
 ## 10. Deploying to the Mac Mini
 
 Not yet done — this changes the live alarm's behaviour, so it is Boss's call. The Mini runs from
-`/Users/macmini/Documents/GitHub/farm-guardian`.
+`/Users/macmini/GitHub/farm-guardian`.
 
 1. Land the branch (nothing has been committed yet — repo standard is not to commit unasked).
 2. On the Mini: `git pull`.

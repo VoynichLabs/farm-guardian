@@ -7,7 +7,7 @@
 
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/macmini/Documents/GitHub/farm-guardian/venv/bin/python</string>
+        <string>/Users/macmini/GitHub/farm-guardian/venv/bin/python</string>
         <string>-m</string>
         <string>tools.pipeline.orchestrator</string>
         <string>--daemon</string>
@@ -16,7 +16,7 @@
     </array>
 
     <key>WorkingDirectory</key>
-    <string>/Users/macmini/Documents/GitHub/farm-guardian</string>
+    <string>/Users/macmini/GitHub/farm-guardian</string>
 
     <key>EnvironmentVariables</key>
     <dict>

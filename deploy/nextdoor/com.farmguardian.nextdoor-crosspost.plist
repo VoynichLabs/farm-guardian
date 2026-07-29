@@ -7,13 +7,13 @@
 
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/macmini/Documents/GitHub/farm-guardian/venv/bin/python</string>
-        <string>/Users/macmini/Documents/GitHub/farm-guardian/tools/nextdoor/crosspost.py</string>
+        <string>/Users/macmini/GitHub/farm-guardian/venv/bin/python</string>
+        <string>/Users/macmini/GitHub/farm-guardian/tools/nextdoor/crosspost.py</string>
         <string>--headless</string>
     </array>
 
     <key>WorkingDirectory</key>
-    <string>/Users/macmini/Documents/GitHub/farm-guardian</string>
+    <string>/Users/macmini/GitHub/farm-guardian</string>
 
     <key>EnvironmentVariables</key>
     <dict>

@@ -81,7 +81,7 @@ No other Guardian-related agents. The pipeline orchestrator is a long-lived `noh
 
 ```
 launchd: [gui/501/com.farm.guardian [<pid>]:] Service could not initialize:
-  posix_spawn(/Users/macmini/Documents/GitHub/farm-guardian/venv/bin/python),
+  posix_spawn(/Users/macmini/GitHub/farm-guardian/venv/bin/python),
   error 0x1 - Operation not permitted
 ```
 

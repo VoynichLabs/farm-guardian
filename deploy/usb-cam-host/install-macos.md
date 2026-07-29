@@ -10,7 +10,7 @@ Install steps for any macOS host that will be the physical home of the generic U
 mkdir -p ~/.local/farm-services/usb-cam-host
 # Copy just the two files the service needs — skip cloning all of farm-guardian
 # on the target host unless you also need the rest of the repo there.
-scp <mini>:/Users/macmini/Documents/GitHub/farm-guardian/tools/usb-cam-host/usb_cam_host.py \
+scp <mini>:/Users/macmini/GitHub/farm-guardian/tools/usb-cam-host/usb_cam_host.py \
     ~/.local/farm-services/usb-cam-host/
 
 python3 -m venv ~/.local/farm-services/usb-cam-host/venv
@@ -74,8 +74,8 @@ Ctrl-C the service.
 ```bash
 cp deploy/usb-cam-host/com.farmguardian.usb-cam-host.plist ~/Library/LaunchAgents/
 # If you're installing on a host where the repo lives somewhere other than
-# /Users/macmini/Documents/GitHub/farm-guardian, edit the two
-# /Users/macmini/Documents/GitHub/farm-guardian paths in the plist before loading.
+# /Users/macmini/GitHub/farm-guardian, edit the two
+# /Users/macmini/GitHub/farm-guardian paths in the plist before loading.
 launchctl unload ~/Library/LaunchAgents/com.farmguardian.usb-cam-host.plist 2>/dev/null
 launchctl load   ~/Library/LaunchAgents/com.farmguardian.usb-cam-host.plist
 ```

@@ -30,7 +30,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
-DATA_DIR = Path("/Users/macmini/Documents/GitHub/farm-guardian/data/nextdoor")
+DATA_DIR = Path("/Users/macmini/GitHub/farm-guardian/data/nextdoor")
 KILL_SWITCH = Path("/tmp/nextdoor-off")
 COOLDOWN_FLAG = Path("/tmp/nextdoor-cooldown-until")
 

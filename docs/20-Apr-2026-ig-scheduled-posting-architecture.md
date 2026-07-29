@@ -153,7 +153,7 @@ Canonical block:
 "instagram": {
   "enabled": false,          // per-cycle hook — stays false
   "auto_dry_run": false,
-  "farm_2026_repo_path": "/Users/macmini/Documents/GitHub/farm-2026",
+  "farm_2026_repo_path": "/Users/macmini/GitHub/farm-2026",
   "meta_env_file": "/Users/macmini/bubba-workspace/secrets/farm-guardian-meta.env",
   "stories": {
     "enabled": false,         // orchestrator story hook — stays false

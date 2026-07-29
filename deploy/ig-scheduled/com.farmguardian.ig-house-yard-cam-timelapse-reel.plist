@@ -11,8 +11,8 @@
 	<string>com.farmguardian.ig-house-yard-cam-timelapse-reel</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>/Users/macmini/Documents/GitHub/farm-guardian/venv/bin/python</string>
-		<string>/Users/macmini/Documents/GitHub/farm-guardian/scripts/ig-house-yard-cam-timelapse-reel.py</string>
+		<string>/Users/macmini/GitHub/farm-guardian/venv/bin/python</string>
+		<string>/Users/macmini/GitHub/farm-guardian/scripts/ig-house-yard-cam-timelapse-reel.py</string>
 	</array>
 	<key>RunAtLoad</key>
 	<false/>
@@ -30,6 +30,6 @@
 	<key>ThrottleInterval</key>
 	<integer>60</integer>
 	<key>WorkingDirectory</key>
-	<string>/Users/macmini/Documents/GitHub/farm-guardian</string>
+	<string>/Users/macmini/GitHub/farm-guardian</string>
 </dict>
 </plist>

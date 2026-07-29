@@ -2158,7 +2158,7 @@ Builds on `v2.29.0-phase1` (plan docs + hashtag library). Ships the full V2.0 co
   "auto_dry_run": true,
   "min_hours_between_posts": 6,
   "min_hours_per_camera": 12,
-  "farm_2026_repo_path": "/Users/macmini/Documents/GitHub/farm-2026",
+  "farm_2026_repo_path": "/Users/macmini/GitHub/farm-2026",
   "meta_env_file": "/Users/macmini/bubba-workspace/secrets/farm-guardian-meta.env"
 }
 ```

@@ -46,7 +46,7 @@
 |---|---|
 | `tools/pipeline/store.py` | Add `ig_permalink`, `ig_posted_at`, `ig_skip_reason` to `_SCHEMA_SQL`; idempotent via `CREATE TABLE IF NOT EXISTS` + tolerant `ALTER TABLE` block for pre-existing tables |
 | `tools/pipeline/orchestrator.py` | Insert post-Discord hook at ~line 248 behind `cfg["instagram"]["enabled"]`; extend `.env` loading to also source `/Users/macmini/bubba-workspace/secrets/farm-guardian-meta.env` |
-| `tools/pipeline/config.json` | Add `instagram: {enabled: false, manual_approval: true, hashtag_library_path: "hashtags.yml", farm_2026_repo_path: "/Users/macmini/Documents/GitHub/farm-2026"}` |
+| `tools/pipeline/config.json` | Add `instagram: {enabled: false, manual_approval: true, hashtag_library_path: "hashtags.yml", farm_2026_repo_path: "/Users/macmini/GitHub/farm-2026"}` |
 | `config.example.json` (repo root) | Mirror the instagram section for reference |
 | `CHANGELOG.md` | v2.29.0 top entry with what/why/how + Round-trip verified |
 | `CLAUDE.md` | Update the "Operational skills" bullet to reflect that V2.0 has landed |
@@ -295,7 +295,7 @@ if meta_env.exists():
   "instagram": {
     "enabled": false,
     "auto_dry_run": true,
-    "farm_2026_repo_path": "/Users/macmini/Documents/GitHub/farm-2026",
+    "farm_2026_repo_path": "/Users/macmini/GitHub/farm-2026",
     "hashtag_library_path": "hashtags.yml",
     "min_hours_between_posts": 3,
     "min_hours_per_camera": 12,

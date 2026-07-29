@@ -21,7 +21,7 @@ import requests
 LM_STUDIO = "http://localhost:1234"
 MODEL = "qwen/qwen3.6-35b-a3b"
 SAMPLE_IMAGE = Path(
-    "/Users/macmini/Documents/GitHub/farm-2026/public/photos/brooder/"
+    "/Users/macmini/GitHub/farm-2026/public/photos/brooder/"
     "2026-04-19-portrait.jpg"
 )
 SAMPLE_CAPTION = (

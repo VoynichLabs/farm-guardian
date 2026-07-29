@@ -80,12 +80,12 @@ The camera is controlled via `camera_control.py` using the `CameraController` cl
 
 ```python
 import time, json, os, sys
-sys.path.insert(0, "/Users/macmini/Documents/GitHub/farm-guardian")
+sys.path.insert(0, "/Users/macmini/GitHub/farm-guardian")
 from camera_control import CameraController
 
-config = json.load(open("/Users/macmini/Documents/GitHub/farm-guardian/config.json"))
+config = json.load(open("/Users/macmini/GitHub/farm-guardian/config.json"))
 # NOTE: load_dotenv() crashes in heredoc scripts. Instead, use:
-#   set -a && source /Users/macmini/Documents/GitHub/farm-guardian/.env && set +a
+#   set -a && source /Users/macmini/GitHub/farm-guardian/.env && set +a
 # before running python, then use os.environ.get("CAMERA_PASSWORD")
 env_pw = os.environ.get("CAMERA_PASSWORD")
 if env_pw:
@@ -156,7 +156,7 @@ Then use the Read tool on the .jpg file to view it and describe it to Mark.
 `load_dotenv()` crashes when called from a Python heredoc (`<< 'PYEOF'`). Instead, source the .env in bash before running python:
 
 ```bash
-cd /Users/macmini/Documents/GitHub/farm-guardian && source venv/bin/activate && set -a && source .env && set +a && python3 << 'PYEOF'
+cd /Users/macmini/GitHub/farm-guardian && source venv/bin/activate && set -a && source .env && set +a && python3 << 'PYEOF'
 # ... python code here ...
 PYEOF
 ```
@@ -266,7 +266,7 @@ This was built from survey snapshots taken at 0°, 90°, 180°, 270° on 08-Apr-
 
 ### Guardian startup:
 ```bash
-cd /Users/macmini/Documents/GitHub/farm-guardian
+cd /Users/macmini/GitHub/farm-guardian
 source venv/bin/activate
 python guardian.py --debug
 ```

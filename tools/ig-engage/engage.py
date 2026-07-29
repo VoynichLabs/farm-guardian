@@ -50,7 +50,7 @@ log = logging.getLogger("ig-engage.engage")
 
 PROFILE_DIR = Path.home() / "Library" / "Application Support" / "farm-ig-engage" / "profile"
 MARKER = Path.home() / "Library" / "Application Support" / "farm-ig-engage" / "bootstrap-ok.json"
-LOG_DIR = Path("/Users/macmini/Documents/GitHub/farm-guardian/data/ig-engage")
+LOG_DIR = Path("/Users/macmini/GitHub/farm-guardian/data/ig-engage")
 
 TARGET_HASHTAGS = [
     "backyardchickens",

@@ -25,7 +25,7 @@ import budget  # sibling module loaded via sys.path in engage.py
 log = logging.getLogger("ig-engage.challenge")
 
 SCREENSHOT_DIR = Path(
-    "/Users/macmini/Documents/GitHub/farm-guardian/data/ig-engage/challenges"
+    "/Users/macmini/GitHub/farm-guardian/data/ig-engage/challenges"
 )
 
 # Case-insensitive substrings that mean "Meta wants us to stop".

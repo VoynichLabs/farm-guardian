@@ -6,11 +6,11 @@
     <string>com.farmguardian.diary-promote</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/macmini/Documents/GitHub/farm-guardian/venv/bin/python</string>
-        <string>/Users/macmini/Documents/GitHub/farm-guardian/scripts/diary-promote-on-reaction.py</string>
+        <string>/Users/macmini/GitHub/farm-guardian/venv/bin/python</string>
+        <string>/Users/macmini/GitHub/farm-guardian/scripts/diary-promote-on-reaction.py</string>
     </array>
     <key>WorkingDirectory</key>
-    <string>/Users/macmini/Documents/GitHub/farm-guardian</string>
+    <string>/Users/macmini/GitHub/farm-guardian</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>

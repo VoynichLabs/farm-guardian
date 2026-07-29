@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
-DATA_DIR = Path("/Users/macmini/Documents/GitHub/farm-guardian/data/ig-engage")
+DATA_DIR = Path("/Users/macmini/GitHub/farm-guardian/data/ig-engage")
 KILL_SWITCH = Path("/tmp/ig-engage-off")
 COOLDOWN_FLAG = Path("/tmp/ig-engage-cooldown-until")
 

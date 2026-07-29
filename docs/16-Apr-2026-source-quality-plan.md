@@ -226,7 +226,7 @@ echo "PID=$!" > /Users/macmini/farm-backlog/scraper.pid
 Kill the scraper once the pipeline orchestrator is back up and writing rows to `image_archive`. A simple check:
 
 ```bash
-sqlite3 /Users/macmini/Documents/GitHub/farm-guardian/data/guardian.db \
+sqlite3 /Users/macmini/GitHub/farm-guardian/data/guardian.db \
   "SELECT MAX(ts) FROM image_archive;"
 ```
 
@@ -416,7 +416,7 @@ When a fresh session opens this branch:
 1. `git fetch && git log --all --oneline -15` — check what the dev has pushed since 2026-04-16 late afternoon ET. v2.27.8+ probably.
 2. `ps -p "$(cat /Users/macmini/farm-backlog/scraper.pid | awk -F= '{print $2}')" >/dev/null && echo SCRAPER_UP || echo SCRAPER_DEAD`
 3. `tail -5 /Users/macmini/farm-backlog/scraper.log`
-4. `sqlite3 /Users/macmini/Documents/GitHub/farm-guardian/data/guardian.db "SELECT MAX(ts),COUNT(*) FROM image_archive WHERE ts > datetime('now','-1 hour');"` — if count > 0, pipeline is back. Kill scraper. If count = 0 and scraper is running, situation unchanged. If count = 0 and scraper is dead, frames are being lost — restart the scraper and tell Boss.
+4. `sqlite3 /Users/macmini/GitHub/farm-guardian/data/guardian.db "SELECT MAX(ts),COUNT(*) FROM image_archive WHERE ts > datetime('now','-1 hour');"` — if count > 0, pipeline is back. Kill scraper. If count = 0 and scraper is running, situation unchanged. If count = 0 and scraper is dead, frames are being lost — restart the scraper and tell Boss.
 5. Read this doc's "Open — for the next dev" section and pick the highest-priority unblocked item.
 6. Check `git status --short` — if the other dev's in-flight files are still there, he's still live; stay on my branch.
 

@@ -37,7 +37,7 @@ import budget  # sibling module
 log = logging.getLogger("nextdoor.challenge")
 
 SCREENSHOT_DIR = Path(
-    "/Users/macmini/Documents/GitHub/farm-guardian/data/nextdoor/challenges"
+    "/Users/macmini/GitHub/farm-guardian/data/nextdoor/challenges"
 )
 
 # Case-insensitive substrings we treat as "Nextdoor wants us to stop".
