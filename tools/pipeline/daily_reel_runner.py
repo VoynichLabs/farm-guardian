@@ -741,6 +741,19 @@ def _living_flock_roster(log: logging.Logger, limit: int = 14) -> str:
     status == "active" is ever surfaced, and the death fields
     (deceased_date / cause_of_death) are never included at all.
 
+    ⚠️ NAMED BIRDS SORT FIRST — and that ordering is load-bearing, not
+    cosmetic. `limit` truncates the list, and before 28-Jul-2026 the cut was
+    taken in raw file order, which put the anonymous group entries ("Cackle
+    Hatchery cohort (15)", "Barred Rocks (2)", the turkeys) ahead of the
+    individually-named farm-hatched birds simply because they were added to
+    the file earlier. Measured at the time: 9 of the 11 living ornitharchs —
+    Birdthazar, Henriella, Birdsilla, Birdimir, Ingebird, Henriessa,
+    Horstabird, Henridotta, Adelbird — fell past `limit` and NEVER reached the
+    caption writer, so the reels could not name the birds the farm is actually
+    about. Sorting before truncating is the fix; do NOT "simplify" this back
+    to a single pass, and do NOT fix a future recurrence by raising `limit` —
+    that only moves the cliff as the flock grows.
+
     Best-effort: returns "" on any failure, so captions degrade to unnamed
     rather than break.
     """
@@ -751,7 +764,8 @@ def _living_flock_roster(log: logging.Logger, limit: int = 14) -> str:
         log.info("caption: flock roster unavailable (%s)", exc)
         return ""
 
-    lines: list[str] = []
+    named: list[str] = []
+    groups: list[str] = []
     for bird in birds:
         if not isinstance(bird, dict):
             continue
@@ -765,11 +779,16 @@ def _living_flock_roster(log: logging.Logger, limit: int = 14) -> str:
         name = (bird.get("name") or "").strip()
         if not name:
             continue
+        # 160 chars, not 60. color_description carries the feature that tells
+        # near-identical siblings apart ("...the key discriminator against X"),
+        # and a 60-char cut reliably severed it mid-clause — handing the model
+        # a description that fit two birds at once.
         bits = [b for b in (bird.get("breed"), bird.get("color_description")) if b]
-        detail = f" — {', '.join(str(b)[:60] for b in bits)}" if bits else ""
-        lines.append(f"{name}{detail}")
-        if len(lines) >= limit:
-            break
+        detail = f" — {', '.join(str(b)[:160] for b in bits)}" if bits else ""
+        entry = f"{name}{detail}"
+        (named if bird.get("ornitharch") else groups).append(entry)
+
+    lines = (named + groups)[:limit]
 
     if not lines:
         return ""

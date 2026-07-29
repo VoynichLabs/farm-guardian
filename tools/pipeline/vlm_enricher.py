@@ -276,6 +276,30 @@ def enrich(
             f"response_format did not return valid JSON: {content!r}"
         ) from e
 
+    # --- Band resolution: the model observed a ring, Python decides whose ---
+    # The model is told (prompt.md) to report the band into band_color/
+    # band_leg/band_number and to keep it OUT of the caption. Here that
+    # reading is checked against the roster: `band_bird` is a real bird's name
+    # only when the reading can belong to exactly one living bird, and None
+    # for every impossible, ambiguous or absent reading. Downstream consumers
+    # must treat None as "say nothing about a band" — which is the common case
+    # and by design, since these bands are rarely legible at camera distance.
+    #
+    # Wrapped best-effort: a roster that won't load must never fail an
+    # otherwise-good enrichment. See roster.resolve_band for why the matching
+    # does not happen inside the model.
+    try:
+        from tools.pipeline.roster import resolve_band
+
+        obj["band_bird"] = resolve_band(
+            obj.get("band_color"),
+            obj.get("band_leg"),
+            obj.get("band_number"),
+        )
+    except Exception as exc:  # noqa: BLE001 — band ID is never load-bearing
+        log.warning("band resolution skipped: %s", exc)
+        obj["band_bird"] = None
+
     return {
         "metadata": obj,
         "inference_ms": inference_ms,

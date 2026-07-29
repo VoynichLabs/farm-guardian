@@ -22,9 +22,12 @@
       "overall_score":      { "type": "integer", "minimum": 0, "maximum": 100 },
       "share_reason":       { "type": "string", "maxLength": 200 },
       "caption_draft":      { "type": "string", "maxLength": 450 },
-      "concerns":           { "type": "array",  "items": { "type": "string", "maxLength": 200 } }
+      "concerns":           { "type": "array",  "items": { "type": "string", "maxLength": 200 } },
+      "band_color":         { "type": "string", "enum": ["none","yellow","orange","red","green","blue","purple","pink","white"] },
+      "band_leg":           { "type": "string", "enum": ["none","left","right","unsure"] },
+      "band_number":        { "type": "integer", "minimum": -1, "maximum": 99 }
     },
-    "required": ["scene","bird_count","individuals_visible","any_special_chick","apparent_age_days","activity","lighting","composition","image_quality","bird_face_visible","subject_coverage_pct","largest_subject_pct","share_worth","expression_score","detail_score","overall_score","share_reason","caption_draft","concerns"],
+    "required": ["scene","bird_count","individuals_visible","any_special_chick","apparent_age_days","activity","lighting","composition","image_quality","bird_face_visible","subject_coverage_pct","largest_subject_pct","share_worth","expression_score","detail_score","overall_score","share_reason","caption_draft","concerns","band_color","band_leg","band_number"],
     "additionalProperties": false
   }
 }

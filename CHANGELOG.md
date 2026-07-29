@@ -4,6 +4,26 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-07-28
 
+### v2.55.0 — The VLM observes the band, Python decides whose it is; every chick-down bird description replaced (Claude Opus 5) — 28-Jul-2026
+
+Boss, holding the birds: "I'm the one putting hands on birds and bands on birds. I'm counting on you to keep all of this straight." Plan: `docs/28-Jul-2026-band-based-bird-id-plan.md`.
+
+**1. The plumage half of the AI's cheat sheet described birds that no longer exist.** `roster.py` renders each named bird's `color_description` into the VLM prompt on *every* captured frame. Six of the eleven living ornitharchs still carried their **hatch-day down** in that field — Henriella as "grey-and-white down" when she is a 10-week-old bird with a glossy black head and slate body; Birdimir and Ingebird still told apart by a "black vs white spot on top of the head" that `farm-2026`'s own 22-Jun hatch record says **grew out weeks ago** ("no longer reliable now that both have feathered out white"). All 13 banded/named birds' descriptions were rewritten from the 21–23 Jul banding portraits (or, where no July frame exists, the 22–23 Jun juvenile shots, carrying an explicit dated caveat). ⚠️ **Breeds were NOT touched** — per Boss the breeds on file are correct and the birds simply look different from their breed label.
+
+**2. Band matching moved out of the model.** `schema.json` gains `band_color` / `band_leg` / `band_number`; the model now *reports the ring it sees* and is forbidden from naming a bird from it or mentioning it in the caption. `roster.resolve_band()` does the lookup and rejects anything impossible. Measured over **17,617 s7 frames** (22-Jul → 28-Jul) the prose approach it replaces produced **440 band sightings, ZERO identifications, and five published band claims that exist on no bird** ("green #1", "pink #1", "purple #1") — because it gated naming on the band *number*, legible in 4% of sightings.
+
+⚠️ **`resolve_band` deliberately IGNORES the leg — do not "improve" it by filtering on one.** Measured against qwen3-vl-4b on the six handheld banding portraits: colour correct 5/6, three numbers exact, and **the leg wrong 5 out of 5** (it answered "right" for birds that all wear their band on the left). An earlier draft let a contradicting leg veto the match and that single rule took a run that should have identified four birds down to zero. Colour+number is unique across all twelve banded birds, so the leg is not needed. It is still recorded so a future model can be re-measured.
+
+Live result on the same six portraits: **4/6 resolved to the correct bird, 0 wrong.** The two misses are correct refusals — Henriella's pink band had no legible number (pink is shared with Henriessa), and Horstabird's band was not visible at all.
+
+**3. Nine of eleven named birds were invisible to the reel caption writer.** `daily_reel_runner._living_flock_roster` took the first 14 living birds *in file order* and stopped — which put the anonymous group entries ("Cackle Hatchery cohort (15)", the turkeys) ahead of the individually-named birds and cut Birdthazar, Henriella, Birdsilla, Birdimir, Ingebird, Henriessa, Horstabird, Henridotta and Adelbird entirely. Named birds now sort first, and the per-bird detail cap went 60 → 160 chars because a 60-char cut severed the discriminating clause mid-sentence. ⚠️ Do not fix a future recurrence by raising `limit` — that only moves the cliff as the flock grows.
+
+**4. `config/flock_bands.json` is now load-bearing.** Committed earlier the same day and read by nothing, it is now the offline fallback for `get_confirmed_bands()` when the farm-2026 checkout is unreadable. ⚠️ It spells the side `leg` where `flock-profiles.json` spells it `side` — normalise if you read both.
+
+**Prompt-length guard.** The rewritten descriptions are richer, which took the rendered block 3,244 → 6,031 chars — a real regression risk to gem scoring on a 4B model. `roster._lead()` now trims to leading **whole sentences** (240 chars); the block lands at **3,498**, under the 3,676 it was before any of today's changes. Every rewritten description is written to lead with the bird's single most discriminating feature so the trim loses nothing.
+
+**Honest limits, recorded because they are the useful part:** Henridotta and Adelbird are **not** reliably separable by plumage — both are dark, softly-scalloped birds, and their descriptions are flagged as such rather than given a fake tell. An adversarial review pass caught the first draft describing those two birds in near-identical words and claiming superlatives no single photograph supports; those were corrected before commit.
+
 ### v2.54.0 — S7 daily Reel is a true dawn-to-dusk day; backlog lane becomes a weekly gems Reel (Claude Opus 5) — 28-Jul-2026
 
 Boss: the S7 reel should be *a day*, dawn to dusk, posted at 21:00 — not noon. Good un-reacted frames should still fill it out, frames he reacted to should get better treatment, and the gems should also feed a weekly reel because no single day has enough of them. Plan: `docs/28-Jul-2026-s7-dawn-to-dusk-reel-plan.md`.
