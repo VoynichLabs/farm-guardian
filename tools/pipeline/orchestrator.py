@@ -921,21 +921,28 @@ def _load_configs():
     here = Path(__file__).parent
     cfg = json.loads((here / "config.json").read_text())
 
-    # If birds_preset_path is configured, use the LM Studio Birds preset as the
-    # single source of truth for both the prompt template and the response schema —
-    # NOT tools/pipeline/prompt.md or schema.json. Those two files are only the
-    # fallback read when the preset is missing.
-    # 16-Jul-2026 lesson: prompt.md/schema.json were edited for the Birdcatraz
-    # move and the pipeline was restarted, but the live preset (last touched
-    # 12-Jul) silently kept serving the STALE prompt for hours — editing the
-    # tracked files does NOT update the preset; someone has to push the sync
-    # the other direction. When you edit prompt.md/schema.json going forward,
-    # also copy the changes into ~/.lmstudio/config-presets/Birds.preset.json's
-    # `llm.prediction.systemPrompt` / `llm.prediction.structured.jsonSchema`
-    # fields (see git history around 16-Jul-2026 for the one-off sync script),
-    # then restart the daemon. Consider retiring the preset file and setting
-    # birds_preset_path="" so prompt.md/schema.json become the sole source of
-    # truth — this dual-file trap will bite again otherwise.
+    # ⚠️ THE PRESET PATH IS RETIRED (28-Jul-2026, v2.55.0). `birds_preset_path`
+    # is now "" in config.json, so `tools/pipeline/prompt.md` and
+    # `tools/pipeline/schema.json` — the files in git — are the SOLE source of
+    # truth for the prompt and the response schema.
+    #
+    # DO NOT re-point this at a preset. The dual-file trap bit twice:
+    #   16-Jul-2026 — prompt.md/schema.json edited for the Birdcatraz move, the
+    #     daemon restarted, and the live preset (last touched 12-Jul) silently
+    #     kept serving the stale prompt for hours.
+    #   28-Jul-2026 — an entire band-identification rework (new schema fields,
+    #     rewritten prompt) was shipped, committed, and the daemon restarted.
+    #     Every change was INERT: the preset dated 22-Jul kept being served, and
+    #     the only tell was that archived rows carried the old `vlm_prompt_hash`.
+    #     The 16-Jul comment predicted this exact failure and recommended
+    #     retiring the preset; that recommendation is now applied.
+    #
+    # The preset file is left on disk for manual experimentation in the LM
+    # Studio GUI. It is NOT read by the pipeline and is expected to drift.
+    #
+    # The branch below is kept only so a non-empty `birds_preset_path` in an old
+    # config still works. If you find yourself setting it, read the two
+    # incidents above first — you are about to make your edits invisible.
     preset_path_raw = cfg.get("birds_preset_path")
     if preset_path_raw:
         preset_path = Path(preset_path_raw).expanduser()

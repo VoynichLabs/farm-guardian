@@ -4,6 +4,16 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-07-28
 
+### v2.55.1 — the whole of v2.55.0 was INERT: the pipeline reads an LM Studio preset, not the tracked files (Claude Opus 5) — 28-Jul-2026
+
+**Everything in v2.55.0 was shipped, committed, and had no effect.** `orchestrator._load_configs()` reads the prompt and response schema from `~/.lmstudio/config-presets/Birds.preset.json` when `birds_preset_path` is set — **not** from `tools/pipeline/prompt.md` / `schema.json`. The live preset was dated 22-Jul, so after restarting the daemon the pipeline carried on serving the old prompt and the old 19-field schema. The only visible tell was that archived rows kept the old `vlm_prompt_hash` (`3ac7f35…` instead of `87f5449…`) and carried no `band_*` fields.
+
+**This is the second time this trap has fired.** The 16-Jul-2026 comment in `_load_configs` describes the identical failure (Birdcatraz prompt edits invisible for hours) and ends: *"Consider retiring the preset file and setting birds_preset_path='' so prompt.md/schema.json become the sole source of truth — this dual-file trap will bite again otherwise."* It bit again, twelve days later.
+
+**Fix: `birds_preset_path` is now `""`.** The git-tracked `prompt.md` and `schema.json` are the sole source of truth. Verified before switching that the live preset was **byte-identical** to the pre-change tracked files, so retiring it applies exactly the intended edits and nothing else. The preset file stays on disk for manual GUI experimentation and is expected to drift.
+
+⚠️ **Do not re-point `birds_preset_path` at a preset.** Both incidents are now written into the comment at the branch. If you edit the prompt or schema and see no behaviour change, check `vlm_prompt_hash` on a fresh archive row before assuming the model ignored you.
+
 ### v2.55.0 — The VLM observes the band, Python decides whose it is; every chick-down bird description replaced (Claude Opus 5) — 28-Jul-2026
 
 Boss, holding the birds: "I'm the one putting hands on birds and bands on birds. I'm counting on you to keep all of this straight." Plan: `docs/28-Jul-2026-band-based-bird-id-plan.md`.
