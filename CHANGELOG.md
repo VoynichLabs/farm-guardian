@@ -2,7 +2,40 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] - 2026-07-25
+## [Unreleased] - 2026-07-28
+
+### v2.54.0 — S7 daily Reel is a true dawn-to-dusk day; backlog lane becomes a weekly gems Reel (Claude Opus 5) — 28-Jul-2026
+
+Boss: the S7 reel should be *a day*, dawn to dusk, posted at 21:00 — not noon. Good un-reacted frames should still fill it out, frames he reacted to should get better treatment, and the gems should also feed a weekly reel because no single day has enough of them. Plan: `docs/28-Jul-2026-s7-dawn-to-dusk-reel-plan.md`.
+
+**Why the reel wasn't a day.** The lane fired at 12:00 on a *rolling 24-hour* window, so every reel was the back half of yesterday glued to the front half of today, sorted chronologically so it read as one continuous arc. **The 22-Jul retime to noon (v2.50.x) was aimed at exactly this straddle, but the hour was never the cause** — a rolling look-back at any hour splices two half-days. 21:00 *plus* a single-day window is what fixes it. ⚠️ **Do not restore the noon slot citing the 22-Jul entry**: reverting the hour without also reverting the window just reintroduces the straddle this change removes.
+
+**No solar math, deliberately.** `golden_windows.sunrise_minute()` exists and was considered. It is *wrong* here: geometric sunrise in late July Hampton is ~05:25, later than the earliest real frames (05:10), so it would clip genuine first-light material. Measured over 5 days, usable frames self-bound to ~05:10–20:15 and **zero** exist between 21:00 and 05:00 — the retention path only writes a file for `sharp` frames and night frames come back `soft`. Dawn-to-dusk therefore falls out of a plain calendar-day bound for free and tracks the seasons on its own.
+
+**Changed**
+- `tools/pipeline/ig_selection.py` — `select_s7_daily_reel_gems` now bounds to ONE local calendar day. Day boundaries are computed in Python via `zoneinfo` and passed as ISO bounds; SQLite's `date(ts,'localtime')` is deliberately **not** used because that modifier resolves to the host timezone and takes no named zone (it agrees with the farm only by coincidence). New `resolve_s7_reel_target_date()` anchors the run to an explicit target date with a pre-first-light fallback to D−1, so a run that slips past midnight builds yesterday instead of silently finding nothing — the graceful degradation the rolling window used to provide for free.
+- `tools/pipeline/ig_selection.py` — **fixed a real bug**: selection kept one representative per 15-minute bucket, so two reacted gems in the same bucket meant one was silently discarded. Measured against live data: **14 of 36 gems dropped on 25-Jul, 8 of 27 on 28-Jul.** Selection is now a union — every reacted gem survives unconditionally, un-reacted frames are bucketed as before, and a bucket that already contributed a gem contributes no filler. The frame cap is applied asymmetrically: filler is trimmed lowest-score-first, gems only if gems alone overflow (logged, never silent).
+- `tools/pipeline/reel_stitcher.py` — optional `per_frame_seconds`. When `None` (every pre-existing caller) behaviour is byte-identical; verified by regenerating the old filter-graph string for n=2/5/30/90 and asserting equality. When supplied it drives **all three** of the cumulative xfade offsets, each image input's own `-t`, and the silent audio length — changing only the offsets makes the crossfade read past the end of a 1.0s input that was meant to hold 1.8s and renders black. New `compute_reel_duration()` so the runner's fit logic and the stitcher's guard can't drift on the formula.
+- `tools/pipeline/reel_stitcher.py` — `_MAX_FRAMES=90` was a *duration* proxy ("90 × 1s − 89 × 0.15s ≈ 77s"), an equivalence variable holds break. Added `_MAX_REEL_SECONDS=77.0`, enforced as a hard error **only** for variable-duration callers; uniform callers get a warning and proceed, because `growth_timelapse` legitimately runs 1.2s/frame at up to 90 frames (~90.2s) and hard-failing it would have broken a working lane.
+- `tools/pipeline/daily_reel_runner.py` — reacted gems hold 1.8s vs 1.0s for filler. If the reel would exceed budget the gem hold is **tapered**, not trimmed: frames are never dropped, because the selector's 90-frame cap already guarantees the 1.0s baseline fits, so only the gem bonus can overrun. Verified on the 25-Jul worst case (68 frames, 36 reacted): 86.8s → tapers to a 1.52s hold → 76.7s, zero frames lost.
+- `tools/pipeline/daily_reel_runner.py` — deleted the frame-0 duplication hack, whose own comment described it as a workaround for the missing per-frame durations. The hold now applies to every gem, not just the opener.
+- `tools/pipeline/daily_reel_runner.py` — the S7 daily state/ledger key is now the covered day, not the UTC date. At 21:00 local (01:00–02:00 UTC) a UTC key would have labelled every reel with *tomorrow*.
+- **Lane converted, not added:** `S7_BACKLOG_REEL_LANE` → `S7_WEEKLY_GEMS_REEL_LANE` (`s7-weekly-gems`, Sundays 10:30). The backlog is finished — **1,746 gems consumed, 15 left**, under its own 20-frame minimum — and at ~11 reacted/day against 4×25/day of drain capacity it had degraded into an irregular gems reel firing every 1–2 days over near-fresh material. Converting it avoids a fifth S7 posting slot and *reduces* pressure on the shared 25-per-24h IG quota.
+- **The weekly lane is a window, not a queue.** Measured eligible arrival is **112/week** (28-day average; 119 in the last 7). An oldest-first drain at any cap below that silently re-grows the backlog — even the 90-frame maximum would lose ~22/week. It now selects the week's highlights from a sliding 7-day window, capped at 12 per local day so one 36-reaction day can't eat the week, top-scored to 60, then ordered chronologically. Surplus ages out instead of accumulating; unselected gems keep their Story eligibility because only *posted* frames are marked. The 15 undrained legacy gems (oldest 26-Apr) fall outside the window and will never post — accepted, the backlog is finished, not carried forward.
+- The consumption marker string stays `used-in-backlog-reel` despite the rename. **1,746 rows carry it; renaming would re-expose every one.**
+- `scripts/ig-s7-backlog-reel.py` → `scripts/ig-s7-weekly-gems-reel.py`; `deploy/ig-scheduled/` plist replaced. `S7_BACKLOG_REEL_LANE` and `select_s7_backlog_reel_gems` remain as aliases so a stale import can't crash at load.
+- `tools/pipeline/config.json` — `s7_daily_reel_window_hours` removed; added `s7_daily_reel_timezone`, `s7_daily_reel_late_run_fallback_hour`, `s7_daily_reel_gem_seconds`, and the four `s7_weekly_gems_*` keys. `s7_daily_reel_min_frames` 12 → 10.
+
+**Ops**
+- Both plists updated in `deploy/` **and** `~/Library/LaunchAgents/`, reloaded with `bootout` + `bootstrap` — **not** `kickstart -k`, which re-runs from launchd's cached plist and silently ignores a schedule edit. `launchctl print` confirms Hour 21 for the daily lane and Weekday 0 / 10:30 for the weekly.
+
+**Verified (local, real data — no mocks)**
+- Uniform filter graph byte-identical to the pre-change formula at n=2/5/30/90; duration formula matches the old inline expression.
+- Variable-duration render measured with `ffprobe`, not read from code: holds `[2.5,1.0,1.0,2.5,1.0,3.0]` → predicted 10.250s, measured 10.233s (half a frame at 30fps — quantization, not drift). Luma sampled across the reel including the 2.85s tail: **no black frames**, the exact failure the three-part change exists to prevent.
+- Untouched-lane regression: duo2's 0.4s/frame settings render 8 frames at exactly 1.800s.
+- End-to-end dry run: 56 frames, one local day (2026-07-28, 07:57 → 19:45), 27 reacted gems all present, 69.35s predicted and 69.350s measured, VLM caption synthesized, IG publish stubbed.
+- Late-run fallback: a simulated 00:30 run correctly targets 2026-07-28, not the empty new day.
+- The first weekly run may be light — today's final backlog run consumed this week's gems, leaving 12 against a 20 minimum. It refills from ~112/week arrival.
 
 ### v2.53.1 — duo2 time-lapse Reel is a full 24 hours again (Claude Opus 5) — 25-Jul-2026
 

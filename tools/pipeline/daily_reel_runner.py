@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import math
 import re
 import os
 import shutil
@@ -121,20 +122,28 @@ S7_DAILY_REEL_LANE = DailyReelLane(
     mention_user_id=MARK_DISCORD_USER_ID,
 )
 
-S7_BACKLOG_REEL_LANE = DailyReelLane(
-    lane_id="s7-backlog",
-    log_name="ig-s7-backlog-reel",
-    description="Auto-post one S7 backlog Reel per day, oldest date first.",
-    selector_name="select_s7_backlog_reel_gems",
-    state_subdir="s7-backlog",
-    output_filename_prefix="reel-s7-backlog",
+# 28-Jul-2026: was S7_BACKLOG_REEL_LANE, a 4x/day drain over an unbounded
+# pool of reacted gems. That backlog is finished (1,746 consumed, 15 left,
+# under its own minimum) and the lane had degraded into an irregular gems
+# reel firing every 1-2 days. Converted in place rather than adding a fifth
+# S7 posting slot: same pool, same consumption marker, weekly cadence.
+S7_WEEKLY_GEMS_REEL_LANE = DailyReelLane(
+    lane_id="s7-weekly-gems",
+    log_name="ig-s7-weekly-gems-reel",
+    description="Auto-post the week's best reacted S7 gems as a Sunday Reel.",
+    selector_name="select_s7_weekly_gems_reel_gems",
+    state_subdir="s7-weekly-gems",
+    output_filename_prefix="reel-s7-weekly-gems",
     discord_username="farm-reel-s7",
-    discord_title="S7 backlog time-lapse",
+    discord_title="S7 gems of the week",
     approval_required=False,
-    ledger_lane="s7-backlog-reel",
-    caption_fallback="A look back at the nesting box.",
+    ledger_lane="s7-weekly-gems-reel",
+    caption_fallback="The week's best from the nesting box.",
     mention_user_id=MARK_DISCORD_USER_ID,
 )
+
+# Old name kept resolvable so a stale import does not crash at load time.
+S7_BACKLOG_REEL_LANE = S7_WEEKLY_GEMS_REEL_LANE
 
 
 MBA_CAM_TIMELAPSE_LANE = DailyReelLane(
@@ -1121,12 +1130,91 @@ def _select_gems(
     return selector(db_path=db_path, cfg=scheduled_cfg)
 
 
+def _s7_daily_frame_holds(
+    gem_ids: list[int],
+    db_path: Path,
+    reels_cfg: dict,
+    scheduled_cfg: dict,
+    log: logging.Logger,
+) -> Optional[list[float]]:
+    """Per-frame hold times for the S7 daily Reel: reacted gems linger.
+
+    Boss reacting to a frame on Discord is the farm's only human quality
+    signal, so those frames get a longer beat than the un-reacted filler
+    around them instead of flying past at the same rate.
+
+    Returns None when nothing is reacted, so the lane falls back to the
+    stitcher's flat-rate path rather than passing a uniform list.
+
+    Budget: if the reel would exceed the stitcher's duration limit, the gem
+    hold is TAPERED toward the base rate rather than dropping frames.
+    Dropping is unreachable here — the selector caps at 90 frames and 90
+    frames at the 1.0s base is ~76.7s, inside budget — so the only way to
+    overrun is the gem bonus, and shrinking the bonus always fixes it
+    without losing a single frame Boss reacted to.
+    """
+    from tools.pipeline.ig_selection import partition_reacted_gem_ids
+    from tools.pipeline.reel_stitcher import _MAX_REEL_SECONDS, compute_reel_duration
+
+    base = float(reels_cfg.get("seconds_per_frame", 1.0))
+    crossfade = float(reels_cfg.get("crossfade_seconds", 0.15))
+    gem_hold = float(scheduled_cfg.get("s7_daily_reel_gem_seconds", 1.8))
+
+    reacted = partition_reacted_gem_ids(db_path, gem_ids)
+    if not reacted:
+        log.info("build: s7-daily has no reacted gems; flat %.2fs/frame", base)
+        return None
+    if gem_hold <= base:
+        log.info(
+            "build: s7-daily gem hold %.2fs is not longer than the base "
+            "%.2fs; using flat pacing", gem_hold, base,
+        )
+        return None
+
+    n, n_gems = len(gem_ids), len(reacted)
+    holds = [gem_hold if gid in reacted else base for gid in gem_ids]
+    total = compute_reel_duration(holds, crossfade)
+
+    if total > _MAX_REEL_SECONDS:
+        # Solve for the largest gem hold that still fits:
+        #   n*base + n_gems*(hold - base) - (n-1)*xfade <= budget
+        budget_for_bonus = (
+            _MAX_REEL_SECONDS - (n * base - (n - 1) * crossfade)
+        )
+        tapered = base + max(0.0, budget_for_bonus / n_gems)
+        # Round DOWN so float slop cannot push us back over the limit.
+        tapered = math.floor(tapered * 100) / 100
+        if tapered <= base:
+            log.warning(
+                "build: s7-daily %d frames (%d reacted) leave no room for a "
+                "gem hold within %.0fs; falling back to flat %.2fs/frame",
+                n, n_gems, _MAX_REEL_SECONDS, base,
+            )
+            return None
+        log.info(
+            "build: s7-daily would run %.1fs at a %.2fs gem hold; tapering to "
+            "%.2fs to fit the %.0fs budget (no frames dropped)",
+            total, gem_hold, tapered, _MAX_REEL_SECONDS,
+        )
+        gem_hold = tapered
+        holds = [gem_hold if gid in reacted else base for gid in gem_ids]
+        total = compute_reel_duration(holds, crossfade)
+
+    log.info(
+        "build: s7-daily pacing — %d frames, %d reacted gems at %.2fs, "
+        "%d filler at %.2fs, total %.1fs",
+        n, n_gems, gem_hold, n - n_gems, base, total,
+    )
+    return holds
+
+
 def _stitch_reel(
     lane: DailyReelLane,
     gem_ids: list[int],
     db_path: Path,
     reels_cfg: dict,
     log: logging.Logger,
+    per_frame_seconds: Optional[list[float]] = None,
 ) -> Path:
     from tools.pipeline.reel_stitcher import ReelStitcherError, stitch_gems_to_reel
 
@@ -1164,6 +1252,7 @@ def _stitch_reel(
             config=stitch_cfg,
             output_path=mp4_path,
             landscape=lane.landscape_mode,
+            per_frame_seconds=per_frame_seconds,
         )
     except ReelStitcherError:
         raise
@@ -1387,12 +1476,18 @@ def _build_publish_and_notify(
     reels_cfg = ig_cfg.get("reels") or {}
 
     _, posted_dir, _ = _state_dirs(reels_cfg, lane)
-    # Backlog lane runs up to 4x/day — use hour-granularity key so each slot
-    # gets its own state file and the "already posted" guard doesn't block
-    # subsequent runs within the same calendar day.
-    if lane.lane_id == "s7-backlog":
-        date_key = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H")
+    if lane.lane_id == S7_DAILY_REEL_LANE.lane_id:
+        # 28-Jul-2026: this lane moved to 21:00 local, which is 01:00-02:00
+        # UTC the NEXT day — a UTC key would label every reel with tomorrow's
+        # date and file the "already posted" guard under the wrong day. Key
+        # on the day the reel actually covers, which is also the day the
+        # selector resolved (including its late-run fallback), so the guard,
+        # the state file and the ledger all agree on which day this is.
+        from tools.pipeline.ig_selection import resolve_s7_reel_target_date
+        date_key = resolve_s7_reel_target_date(scheduled_cfg).isoformat()
     else:
+        # The former s7-backlog hour-granularity key is gone with the 4x/day
+        # cadence — the weekly gems lane runs once and wants a day key.
         date_key = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     posted_file = posted_dir / f"{date_key}.json"
     if posted_file.exists():
@@ -1418,25 +1513,24 @@ def _build_publish_and_notify(
     # pruning and saves a doomed subprocess (up to a 240 s timeout) on every
     # s7 build. If frame pruning is wanted again, reimplement it against the
     # local VLM in LM Studio rather than reviving the Codex dependency.
+    # 28-Jul-2026: the old pacing hook duplicated gem_ids[0] at the front of
+    # the stitch list to hold the opening frame one extra beat, because the
+    # stitcher had no per-frame duration support. It does now, so the
+    # duplicate is gone and the hold is expressed directly — and it applies
+    # to every reacted gem, not just the opener.
     stitch_ids = gem_ids
+    per_frame_seconds = None
     if lane.lane_id == S7_DAILY_REEL_LANE.lane_id:
-        # Pacing hook: hold the opening frame for one extra beat by
-        # duplicating it at the front of the STITCH list only. reel_stitcher
-        # applies a single seconds_per_frame to every list entry (no
-        # per-frame duration support), so repeating an id is the cheap way
-        # to give the reel a "hook" without an ffmpeg rewrite. gem_ids[0] is
-        # chronologically earliest (_select_gems preserves chronological
-        # order) and already representative. Only when
-        # there's enough material that losing one bucket's worth of
-        # distinct frames won't thin the time-lapse, and only with headroom
-        # under reel_stitcher's hard 90-frame cap (_MIN_FRAMES=2/
-        # _MAX_FRAMES=90) so the +1 can't push it over.
-        if 3 <= len(gem_ids) < 90:
-            stitch_ids = [gem_ids[0]] + gem_ids
+        per_frame_seconds = _s7_daily_frame_holds(
+            gem_ids, db_path, reels_cfg, scheduled_cfg, log,
+        )
 
     log.info("build: stitching %d frames for %s lane", len(stitch_ids), lane.lane_id)
     try:
-        mp4_path = _stitch_reel(lane, stitch_ids, db_path, reels_cfg, log)
+        mp4_path = _stitch_reel(
+            lane, stitch_ids, db_path, reels_cfg, log,
+            per_frame_seconds=per_frame_seconds,
+        )
     except Exception as exc:
         log.error("build: stitch failed: %s", exc)
         return 1
@@ -1466,8 +1560,11 @@ def _build_publish_and_notify(
 
     _append_ledger(ledger_path, lane, date_key, result, dry_run)
 
-    # Mark backlog gems so they leave the story queue and don't get re-selected
-    if lane.lane_id == "s7-backlog" and not dry_run:
+    # Mark posted gems so they leave the story queue and don't get re-selected
+    # by a later weekly reel. The marker string stays 'used-in-backlog-reel'
+    # even though the lane was renamed — 1,746 historical rows carry it and
+    # renaming it would re-expose every one of them.
+    if lane.lane_id == S7_WEEKLY_GEMS_REEL_LANE.lane_id and not dry_run:
         from tools.pipeline.ig_selection import mark_gems_used_in_backlog_reel
         mark_gems_used_in_backlog_reel(db_path, gem_ids)
 

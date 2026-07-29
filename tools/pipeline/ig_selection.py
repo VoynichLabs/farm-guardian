@@ -1,5 +1,5 @@
-# Author: Claude Sonnet 4.6; Claude Opus 4.8 (Bubba sub-agent) 14-June-2026 — golden-window two-window filter + seconds-granular bucketing for usb-cam/dominator-cam time-lapse lanes; Claude Opus 4.7 (Bubba sub-agent) 22-June-2026 — select_duo2_timelapse_gems wrapper
-# Date: 07-May-2026; 09-May-2026 — _score_raw_frame + select_timelapse_gems for vlm_bypass lanes; 10-May-2026 — daylight filter for coop-roof time-lapse lanes; 11-May-2026 — S7 backlog duplicate guard; 14-June-2026 — golden activity windows (sunrise->09:00, 19:30->20:30), denser in-window sampling
+# Author: Claude Sonnet 4.6; Claude Opus 4.8 (Bubba sub-agent) 14-June-2026 — golden-window two-window filter + seconds-granular bucketing for usb-cam/dominator-cam time-lapse lanes; Claude Opus 4.7 (Bubba sub-agent) 22-June-2026 — select_duo2_timelapse_gems wrapper; Claude Opus 5 28-Jul-2026 — S7 dawn-to-dusk single-day window + gem-survival union; s7-backlog drain converted to a 7-day weekly gems window
+# Date: 07-May-2026; 09-May-2026 — _score_raw_frame + select_timelapse_gems for vlm_bypass lanes; 10-May-2026 — daylight filter for coop-roof time-lapse lanes; 11-May-2026 — S7 backlog duplicate guard; 14-June-2026 — golden activity windows (sunrise->09:00, 19:30->20:30), denser in-window sampling; 28-Jul-2026 — S7 daily reel bounded to one local calendar day, every reacted gem guaranteed to survive bucketing
 # PURPOSE: Select Instagram-post-eligible gems from image_archive on
 #          wall-clock windows (day, 2-hour, week). Pure SELECT +
 #          scoring + diversity filtering; no posting, no I/O beyond
@@ -12,10 +12,10 @@
 #                select_best_story_gem(db_path, cfg)
 #            - Daily reel at 18:00 (Discord-approved before IG post):
 #                select_daily_reel_gems(db_path, cfg)
-#            - S7 daily time-lapse reel at 21:00:
+#            - S7 daily dawn-to-dusk reel at 21:00 (ONE local calendar day):
 #                select_s7_daily_reel_gems(db_path, cfg)
-#            - S7 backlog reel at 12:00 (one past date per day, oldest first):
-#                select_s7_backlog_reel_gems(db_path, date_str, cfg)
+#            - S7 weekly gems reel, Sundays 10:30 (7-day window, top-scored):
+#                select_s7_weekly_gems_reel_gems(db_path, cfg)
 #            - Weekly reel Sunday 19:00 (retired 29-Apr-2026):
 #                select_weekly_reel_gems(db_path, cfg)
 #            - Per-camera time-lapse reels (mba-cam/gwtc/usb-cam/dominator-cam):
@@ -62,7 +62,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -573,17 +573,79 @@ def select_daily_reel_gems(
     return ids
 
 
+def resolve_s7_reel_target_date(cfg: dict, now: Optional[datetime] = None) -> date:
+    """Resolve which calendar day the S7 daily Reel should cover.
+
+    The lane fires at 21:00 local and covers that same local day. But a
+    sleeping/powered-off Mini makes launchd fire late, and a run that slips
+    past midnight would otherwise ask for a day that has barely started,
+    find nothing, and lose the previous day's reel silently. The old rolling
+    24h window degraded gracefully here; a single-day window does not, so
+    the fallback is explicit: a run landing before first light is treated as
+    a late run for the *previous* day.
+
+    cfg keys:
+      s7_daily_reel_timezone (str, default "America/New_York")
+      s7_daily_reel_late_run_fallback_hour (int, default 5)
+    """
+    tz = _reel_timezone(cfg)
+    local_now = _ensure_timezone(now).astimezone(tz)
+    fallback_hour = int(cfg.get("s7_daily_reel_late_run_fallback_hour", 5))
+    if local_now.hour < fallback_hour:
+        return (local_now - timedelta(days=1)).date()
+    return local_now.date()
+
+
+def _reel_timezone(cfg: dict) -> ZoneInfo:
+    """Resolve the configured day-boundary timezone, falling back to the
+    farm's own zone. Deliberately NOT SQLite's 'localtime' modifier: that
+    resolves to whatever the host is set to and takes no named zone, so it
+    only agrees with the farm by coincidence."""
+    name = cfg.get("s7_daily_reel_timezone", "America/New_York")
+    try:
+        return ZoneInfo(name)
+    except ZoneInfoNotFoundError:
+        log.warning(
+            "select_s7_daily_reel: unknown timezone %r; falling back to "
+            "America/New_York", name,
+        )
+        return ZoneInfo("America/New_York")
+
+
+def _local_day_bounds_utc(target: date, tz: ZoneInfo) -> tuple[str, str]:
+    """[start, end) UTC ISO bounds covering one local calendar day.
+
+    Returned as strings because image_archive.ts is TEXT in UTC ISO-8601
+    with a '+00:00' offset, so a lexicographic comparison against a Python
+    isoformat() string is exact (all rows share the same offset suffix).
+    """
+    start_local = datetime.combine(target, time.min, tzinfo=tz)
+    end_local = start_local + timedelta(days=1)
+    return (
+        start_local.astimezone(timezone.utc).isoformat(),
+        end_local.astimezone(timezone.utc).isoformat(),
+    )
+
+
 def select_s7_daily_reel_gems(
     db_path: Path,
     cfg: dict,
     now: Optional[datetime] = None,
 ) -> list[int]:
-    """Return representative S7 frames for the daily time-lapse Reel.
+    """Return representative S7 frames for the daily dawn-to-dusk Reel.
 
     This lane is intentionally different from the mixed daily Reel:
-    source frames do not require individual Discord reactions by default.
-    The value is the fixed-angle S7 time-lapse effect, so selection favors
-    broad time coverage across the last 24h rather than only reacted gems.
+    source frames do NOT require individual Discord reactions. The value is
+    the fixed-angle S7 time-lapse effect across one day, so un-reacted
+    frames are what carry the reel; reactions only decide who gets favoured
+    treatment inside it.
+
+    Window (28-Jul-2026): ONE local calendar day, not a rolling 24 hours.
+    The rolling window made every reel the back half of yesterday glued to
+    the front half of today. "Dawn to dusk" needs no solar math — the
+    retention path only writes a file for `sharp` frames and night frames
+    come back `soft`, so first/last light bound the pool for free and track
+    the seasons on their own.
 
     Criteria:
       - camera_id = 's7-cam'
@@ -591,27 +653,38 @@ def select_s7_daily_reel_gems(
       - bird_count >= 1
       - has_concerns false
       - image_path populated
-      - ts >= now - s7_daily_reel_window_hours
+      - ts within the target local day
       - optional discord_reactions >= 1 when
-        s7_daily_reel_require_source_reactions is true
+        s7_daily_reel_require_source_reactions is true (default false)
 
-    Diversity: group by N-minute buckets, pick the highest-scoring frame
-    per bucket, cap at max frames, return oldest-first.
+    Selection is a union, not a plain bucket sweep:
+      1. EVERY reacted frame is taken unconditionally. Bucketing used to
+         keep one representative per bucket, so two gems in the same
+         15-minute bucket meant one was silently discarded — on a
+         36-reaction day that was near-certain.
+      2. Remaining frames are bucketed as before, one representative each.
+      3. A representative whose bucket already holds a gem is dropped, so a
+         gem is not sat next to a near-identical neighbour.
+
+    The max_frames cap is applied ASYMMETRICALLY: un-reacted filler is
+    trimmed lowest-score-first, and gems are only touched if the gems alone
+    overflow the cap (logged, never silent).
 
     cfg keys:
-      s7_daily_reel_window_hours (int, default 24)
+      s7_daily_reel_timezone (str, default "America/New_York")
+      s7_daily_reel_late_run_fallback_hour (int, default 5)
       s7_daily_reel_bucket_minutes (int, default 15)
       s7_daily_reel_max_frames (int, default 90)
-      s7_daily_reel_min_frames (int, default 12)
+      s7_daily_reel_min_frames (int, default 10)
       s7_daily_reel_require_source_reactions (bool, default false)
     """
-    window_h = int(cfg.get("s7_daily_reel_window_hours", 24))
     bucket_min = max(1, int(cfg.get("s7_daily_reel_bucket_minutes", 15)))
     max_frames = int(cfg.get("s7_daily_reel_max_frames", 90))
-    min_frames = int(cfg.get("s7_daily_reel_min_frames", 12))
+    min_frames = int(cfg.get("s7_daily_reel_min_frames", 10))
     require_reactions = bool(cfg.get("s7_daily_reel_require_source_reactions", False))
-    now = _ensure_timezone(now)
-    cutoff_iso = (now - timedelta(hours=window_h)).isoformat()
+
+    target = resolve_s7_reel_target_date(cfg, now)
+    start_iso, end_iso = _local_day_bounds_utc(target, _reel_timezone(cfg))
 
     reaction_clause = "AND discord_reactions >= 1" if require_reactions else ""
     with sqlite3.connect(str(db_path)) as c:
@@ -621,7 +694,7 @@ def select_s7_daily_reel_gems(
             SELECT id, camera_id, ts, share_worth, image_quality, bird_count,
                    discord_reactions
               FROM image_archive
-             WHERE ts >= ?
+             WHERE ts >= ? AND ts < ?
                AND camera_id = 's7-cam'
                AND image_quality = 'sharp'
                AND bird_count >= 1
@@ -630,82 +703,149 @@ def select_s7_daily_reel_gems(
                {reaction_clause}
              ORDER BY ts ASC
             """,
-            (cutoff_iso,),
+            (start_iso, end_iso),
         ).fetchall()
 
     if not rows:
-        log.info("select_s7_daily_reel: no candidates in last %dh", window_h)
+        log.info("select_s7_daily_reel: no candidates for %s", target.isoformat())
         return []
 
-    groups: dict[str, list[dict]] = {}
+    gems: list[dict] = []
+    filler_groups: dict[str, list[dict]] = {}
+    gem_buckets: set[str] = set()
     for row in rows:
         item = dict(row)
-        groups.setdefault(_bucket_key(item["ts"], bucket_min), []).append(item)
+        bucket = _bucket_key(item["ts"], bucket_min)
+        if (item.get("discord_reactions") or 0) >= 1:
+            gems.append(item)
+            gem_buckets.add(bucket)
+        else:
+            filler_groups.setdefault(bucket, []).append(item)
 
-    representatives = [max(group, key=_score_gem) for group in groups.values()]
-    representatives.sort(key=_score_gem, reverse=True)
-    representatives = representatives[:max_frames]
-    representatives.sort(key=lambda item: item["ts"])
+    # Step 3: a bucket that already contributed a gem contributes no filler.
+    filler = [
+        max(group, key=_score_gem)
+        for bucket, group in filler_groups.items()
+        if bucket not in gem_buckets
+    ]
 
-    if len(representatives) < min_frames:
+    # Asymmetric cap: filler yields first, gems only if they alone overflow.
+    if len(gems) > max_frames:
+        gems.sort(key=_score_gem, reverse=True)
+        log.warning(
+            "select_s7_daily_reel: %d reacted gems exceed max_frames=%d for %s; "
+            "dropping the %d lowest-scoring GEMS",
+            len(gems), max_frames, target.isoformat(), len(gems) - max_frames,
+        )
+        gems = gems[:max_frames]
+        filler = []
+    elif len(gems) + len(filler) > max_frames:
+        filler.sort(key=_score_gem, reverse=True)
+        filler = filler[: max_frames - len(gems)]
+
+    selected = gems + filler
+    selected.sort(key=lambda item: item["ts"])
+
+    if len(selected) < min_frames:
         log.info(
-            "select_s7_daily_reel: only %d bucketed S7 frames in last %dh "
-            "(need >=%d); quiet day",
-            len(representatives),
-            window_h,
-            min_frames,
+            "select_s7_daily_reel: only %d frames for %s (need >=%d); quiet day",
+            len(selected), target.isoformat(), min_frames,
         )
         return []
 
-    ids = [row["id"] for row in representatives]
+    ids = [row["id"] for row in selected]
     log.info(
-        "select_s7_daily_reel: picked %d frames from %d raw S7 candidates "
-        "in %d buckets (last %dh, reactions_required=%s)",
-        len(ids),
-        len(rows),
-        len(groups),
-        window_h,
+        "select_s7_daily_reel: picked %d frames for %s (%d reacted gems + %d "
+        "bucketed filler) from %d raw candidates, reactions_required=%s",
+        len(ids), target.isoformat(), len(gems), len(filler), len(rows),
         require_reactions,
     )
     return ids
 
 
-def select_s7_backlog_reel_gems(
+def partition_reacted_gem_ids(db_path: Path, gem_ids: list[int]) -> set[int]:
+    """Return the subset of gem_ids that carry >=1 Discord reaction.
+
+    Lets a caller give reacted frames different treatment (the S7 daily
+    Reel holds them on screen longer) without re-implementing the reaction
+    lookup or threading row dicts out of the selector.
+    """
+    if not gem_ids:
+        return set()
+    placeholders = ",".join("?" * len(gem_ids))
+    with sqlite3.connect(str(db_path)) as c:
+        rows = c.execute(
+            f"SELECT id FROM image_archive "
+            f"WHERE id IN ({placeholders}) AND discord_reactions >= 1",
+            gem_ids,
+        ).fetchall()
+    return {r[0] for r in rows}
+
+
+def select_s7_weekly_gems_reel_gems(
     db_path: Path,
     cfg: dict,
+    now: Optional[datetime] = None,
 ) -> list[int]:
-    """Return the next batch of s7-cam reacted portrait gems for the backlog drain.
+    """Return the week's best s7-cam reacted portrait gems for the Sunday Reel.
 
-    Pool-based (no date scope): pulls the oldest max_frames chronologically from
-    all unposted, Discord-reacted, portrait-orientation s7-cam gems.  Discord
-    reactions are the quality gate — Boss already voted on these frames.  VLM
-    share_worth is intentionally NOT used here because it is unreliable as a
-    ranking signal.
+    Successor to the s7-backlog drain (28-Jul-2026). The backlog it existed
+    to clear is finished — 1,746 gems consumed, 15 left, below its own
+    minimum — and it had degraded into an irregular gems reel firing every
+    1-2 days.
+
+    WINDOW, NOT A QUEUE. Measured eligible arrival is ~112 gems/week (28-day
+    average; 119 in the last 7 days). Any per-week cap below that drains
+    slower than gems arrive, so an oldest-first pool would silently re-grow
+    the exact backlog this lane just finished clearing — even at the
+    stitcher's 90-frame maximum it would still lose ~22/week. So this
+    selects the week's HIGHLIGHTS from a sliding 7-day window: surplus gems
+    age out of the window instead of queueing. They already appeared in that
+    day's daily Reel, and because only *posted* frames get marked they keep
+    their Story-queue eligibility.
+
+    Discord reactions are the quality gate — Boss already voted on these
+    frames. VLM share_worth is intentionally NOT used as a ranking signal
+    here because it is unreliable.
 
     Criteria:
       - camera_id = 's7-cam'
-      - width=1080, height=1920  (portrait frames only; pre-switch landscape excluded)
-      - discord_reactions >= 1   (Boss approved in Discord — the real quality gate)
+      - width=1080, height=1920  (portrait only; pre-switch landscape excluded)
+      - discord_reactions >= 1
       - has_concerns false
       - image_path populated
+      - ts within the last s7_weekly_gems_window_days
       - not already marked story-permanent-skip or used-in-backlog-reel
+        (marker string deliberately unchanged — 1,746 historical rows carry
+        it and renaming it would re-expose every one of them)
 
-    Ordering: chronological ASC (oldest first) so the reel has a time-lapse arc.
+    Selection: cap per local day first so one 36-reaction day cannot eat the
+    week, then take the top max_frames by reaction count, then sort
+    chronologically so the reel still reads as a week's arc.
 
     cfg keys (all under instagram.scheduled):
-      s7_backlog_reel_max_frames (int, default 25)
-      s7_backlog_reel_min_frames (int, default 20)
+      s7_weekly_gems_window_days (int, default 7)
+      s7_weekly_gems_max_frames (int, default 60)
+      s7_weekly_gems_max_per_day (int, default 12)
+      s7_weekly_gems_min_frames (int, default 20)
     """
-    max_frames = int(cfg.get("s7_backlog_reel_max_frames", 25))
-    min_frames = int(cfg.get("s7_backlog_reel_min_frames", 20))
+    window_days = int(cfg.get("s7_weekly_gems_window_days", 7))
+    max_frames = int(cfg.get("s7_weekly_gems_max_frames", 60))
+    max_per_day = int(cfg.get("s7_weekly_gems_max_per_day", 12))
+    min_frames = int(cfg.get("s7_weekly_gems_min_frames", 20))
+
+    tz = _reel_timezone(cfg)
+    cutoff_iso = (_ensure_timezone(now) - timedelta(days=window_days)).isoformat()
 
     with sqlite3.connect(str(db_path)) as c:
         c.row_factory = sqlite3.Row
         rows = c.execute(
             """
-            SELECT id, ts
+            SELECT id, ts, share_worth, image_quality, bird_count,
+                   discord_reactions
               FROM image_archive
              WHERE camera_id = 's7-cam'
+               AND ts >= ?
                AND width = 1080 AND height = 1920
                AND discord_reactions >= 1
                AND (has_concerns = 0 OR has_concerns IS NULL)
@@ -715,22 +855,52 @@ def select_s7_backlog_reel_gems(
                         AND ig_story_skip_reason NOT LIKE 'story-permanent-skip:%'
                         AND ig_story_skip_reason NOT LIKE 'used-in-backlog-reel:%'))
              ORDER BY ts ASC
-             LIMIT ?
             """,
-            (max_frames,),
+            (cutoff_iso,),
         ).fetchall()
 
-    if len(rows) < min_frames:
+    # Per-local-day cap, so a single busy day cannot crowd out the rest of
+    # the week. Day is resolved in the farm's timezone, not UTC, so the
+    # grouping matches how Boss actually experienced the week.
+    by_day: dict[str, list[dict]] = {}
+    for row in rows:
+        item = dict(row)
+        local_day = datetime.fromisoformat(
+            item["ts"].replace("Z", "+00:00")
+        ).astimezone(tz).date().isoformat()
+        by_day.setdefault(local_day, []).append(item)
+
+    kept: list[dict] = []
+    for day_rows in by_day.values():
+        day_rows.sort(key=_score_gem, reverse=True)
+        kept.extend(day_rows[:max_per_day])
+
+    kept.sort(key=_score_gem, reverse=True)
+    kept = kept[:max_frames]
+    kept.sort(key=lambda item: item["ts"])
+
+    if len(kept) < min_frames:
         log.info(
-            "select_s7_backlog_reel: only %d eligible portrait gems in pool (need >=%d); backlog empty or exhausted",
-            len(rows),
-            min_frames,
+            "select_s7_weekly_gems_reel: only %d eligible portrait gems in the "
+            "last %dd (need >=%d); quiet week",
+            len(kept), window_days, min_frames,
         )
         return []
 
-    ids = [r["id"] for r in rows]
-    log.info("select_s7_backlog_reel: picked %d portrait gems (oldest %s)", len(ids), rows[0]["ts"][:10])
+    ids = [r["id"] for r in kept]
+    log.info(
+        "select_s7_weekly_gems_reel: picked %d gems across %d days from %d "
+        "eligible in the last %dd (%s -> %s)",
+        len(ids), len(by_day), len(rows), window_days,
+        kept[0]["ts"][:10], kept[-1]["ts"][:10],
+    )
     return ids
+
+
+# Backwards-compatible alias. The lane was renamed s7-backlog ->
+# s7-weekly-gems on 28-Jul-2026; keep the old name resolvable so any
+# out-of-tree caller or ad-hoc script does not break on import.
+select_s7_backlog_reel_gems = select_s7_weekly_gems_reel_gems
 
 
 def select_timelapse_gems(

@@ -3,12 +3,12 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.farmguardian.ig-s7-backlog-reel</string>
+    <string>com.farmguardian.ig-s7-weekly-gems-reel</string>
 
     <key>ProgramArguments</key>
     <array>
         <string>/Users/macmini/Documents/GitHub/farm-guardian/venv/bin/python</string>
-        <string>/Users/macmini/Documents/GitHub/farm-guardian/scripts/ig-s7-backlog-reel.py</string>
+        <string>/Users/macmini/Documents/GitHub/farm-guardian/scripts/ig-s7-weekly-gems-reel.py</string>
     </array>
 
     <key>WorkingDirectory</key>
@@ -21,36 +21,24 @@
     </dict>
 
     <key>StandardOutPath</key>
-    <string>/tmp/ig-s7-backlog-reel.out.log</string>
+    <string>/tmp/ig-s7-weekly-gems-reel.out.log</string>
 
     <key>StandardErrorPath</key>
-    <string>/tmp/ig-s7-backlog-reel.err.log</string>
+    <string>/tmp/ig-s7-weekly-gems-reel.err.log</string>
 
+    <!-- Sundays 10:30 local. Was the s7-backlog drain at 09/13/17/20 daily;
+         that backlog is finished, so this is a weekly highlights reel now.
+         10:30 avoids stacking against 09:00 house-yard, 12:30 carousel,
+         18:00 mixed, 18:30 Nextdoor, Sun 20:00 digest and 21:00 s7 daily. -->
     <key>StartCalendarInterval</key>
     <array>
         <dict>
-            <key>Hour</key>
-            <integer>9</integer>
-            <key>Minute</key>
+            <key>Weekday</key>
             <integer>0</integer>
-        </dict>
-        <dict>
             <key>Hour</key>
-            <integer>13</integer>
+            <integer>10</integer>
             <key>Minute</key>
-            <integer>0</integer>
-        </dict>
-        <dict>
-            <key>Hour</key>
-            <integer>17</integer>
-            <key>Minute</key>
-            <integer>0</integer>
-        </dict>
-        <dict>
-            <key>Hour</key>
-            <integer>20</integer>
-            <key>Minute</key>
-            <integer>0</integer>
+            <integer>30</integer>
         </dict>
     </array>
 

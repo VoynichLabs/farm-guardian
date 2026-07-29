@@ -1,5 +1,5 @@
-# Author: Claude Opus 4.7 (1M context) / updated Claude Sonnet 4.6 01-May-2026; Claude Sonnet 4.6 09-May-2026 — landscape mode for time-lapse camera lanes
-# Date: 20-April-2026
+# Author: Claude Opus 4.7 (1M context) / updated Claude Sonnet 4.6 01-May-2026; Claude Sonnet 4.6 09-May-2026 — landscape mode for time-lapse camera lanes; Claude Opus 5 28-Jul-2026 — optional per-frame durations + duration guard
+# Date: 20-April-2026; 28-Jul-2026 — per_frame_seconds (variable hold per frame)
 # PURPOSE: Stitch N Guardian gem JPEGs into an MP4 suitable for
 #          posting to Instagram as a Reel. Two output modes:
 #
@@ -37,6 +37,13 @@
 #              the lower-res native crop."
 #            - Audio: anullsrc silent, exact-duration sized. Pure-video
 #              MP4s sometimes 400 at the IG container create step.
+#            - per_frame_seconds (28-Jul-2026, optional): give individual
+#              frames a longer hold. When None every existing caller gets
+#              byte-identical behaviour. When supplied it MUST drive all
+#              three of (a) the cumulative xfade offsets, (b) each image
+#              input's own -t, and (c) the silent audio track length.
+#              Changing only (a) makes the crossfade run off the end of a
+#              1.0s input that was meant to hold 1.8s -> black frames.
 #            - Failures raise ReelStitcherError with actionable
 #              messages. post_reel_to_ig catches; the pipeline never
 #              breaks on a stitch failure.
@@ -67,6 +74,15 @@ log = logging.getLogger("pipeline.reel_stitcher")
 # Instagram's 90s reel limit. All reacted gems come through; no bucketing.
 _MIN_FRAMES = 2
 _MAX_FRAMES = 90
+
+# _MAX_REEL_SECONDS: the frame cap above is really a DURATION proxy, and
+# that equivalence only holds while every frame is the same length. Once
+# per_frame_seconds is in play, 90 frames no longer implies ~77s, so the
+# real limit has to be checked directly. This is a hard backstop that
+# raises — callers that can trim intelligently (the S7 daily lane knows
+# which frames are reacted gems and which are droppable filler) must fit
+# the budget themselves before calling.
+_MAX_REEL_SECONDS = 77.0
 
 # Hard cap per frame after 9:16 crop (portrait mode). Any source larger
 # than this gets downscaled to fit. Keeps ffmpeg from encoding huge frames.
@@ -201,8 +217,27 @@ def _resize_frame(src: Path, dest: Path, target_w: int, target_h: int) -> None:
         raise ReelStitcherError(f"cv2.imwrite failed writing resize to {dest}")
 
 
+def compute_reel_duration(
+    per_frame_seconds: list[float], crossfade_seconds: float,
+) -> float:
+    """Total playing time of an xfade chain with the given frame holds.
+
+    Each of the N-1 crossfades overlaps two frames, so the overlap is
+    reclaimed once per transition. Lives here (rather than in the caller)
+    so the runner's trim-to-fit loop and the stitcher's own guard cannot
+    drift apart on the formula.
+    """
+    n = len(per_frame_seconds)
+    if n == 0:
+        return 0.0
+    return sum(per_frame_seconds) - (n - 1) * crossfade_seconds
+
+
 def _build_filter_complex(
-    n_frames: int, seconds_per_frame: float, crossfade_seconds: float,
+    n_frames: int,
+    seconds_per_frame: float,
+    crossfade_seconds: float,
+    per_frame_seconds: Optional[list[float]] = None,
 ) -> str:
     """Build the ffmpeg -filter_complex expression for an N-frame xfade
     chain.
@@ -211,17 +246,25 @@ def _build_filter_complex(
     For n_frames >= 3: N-1 chained xfades, each re-using the prior
                        chain's output label.
 
-    Offsets are i*spf − i*xfade for i in [1, N−1] — computed so that
-    frame i starts fading in at the moment frame i-1 has been visible
-    for seconds_per_frame and starts its crossfade.
+    Uniform case (per_frame_seconds None): offsets are i*spf − i*xfade for
+    i in [1, N−1] — frame i starts fading in at the moment frame i-1 has
+    been visible for seconds_per_frame and starts its crossfade.
+
+    Variable case: the same rule, but "how long the earlier frames have
+    been visible" is the running SUM of their individual holds rather than
+    i*spf. Offsets are therefore cumulative; they cannot be derived from
+    the index alone.
     """
     if n_frames < 2:
         # Defensive — caller enforces n_frames >= 2 upstream.
         return "[0:v]copy[v]"
+    holds = per_frame_seconds or [seconds_per_frame] * n_frames
     parts = []
     prev_out = "[0:v]"
+    elapsed = 0.0
     for i in range(1, n_frames):
-        offset = i * seconds_per_frame - i * crossfade_seconds
+        elapsed += holds[i - 1]
+        offset = elapsed - i * crossfade_seconds
         next_label = "[v]" if i == n_frames - 1 else f"[v{i:02d}]"
         parts.append(
             f"{prev_out}[{i}:v]xfade=transition=fade:"
@@ -237,6 +280,7 @@ def stitch_gems_to_reel(
     config: dict,
     output_path: Optional[Path] = None,
     landscape: bool = False,
+    per_frame_seconds: Optional[list[float]] = None,
 ) -> Path:
     """Stitch N Guardian gem JPEGs into an MP4 Reel. Returns the written
     MP4 path.
@@ -265,6 +309,13 @@ def stitch_gems_to_reel(
           fit within 1920×1080 with black bars, rather than center-cropping
           to 9:16. Use for time-lapse lanes on mba-cam, gwtc, usb-cam,
           and dominator-cam which capture 16:9 frames.
+      per_frame_seconds
+          Optional per-frame hold times, one per gem_id, in the same
+          order. None (the default, and what every pre-28-Jul-2026 caller
+          passes) keeps the flat seconds_per_frame behaviour exactly.
+          Supplied, it lets a lane hold chosen frames longer — the S7
+          daily Reel gives Discord-reacted gems a longer beat than the
+          un-reacted filler around them.
 
     Raises:
       ReelStitcherError on any step's failure (bad config, missing
@@ -290,6 +341,47 @@ def stitch_gems_to_reel(
             f"crossfade_seconds must be in [0, seconds_per_frame); "
             f"got {crossfade_seconds} with spf={seconds_per_frame}"
         )
+
+    # Resolve the per-frame hold list once; everything downstream (input
+    # -t, xfade offsets, audio length, duration guard) reads from this.
+    if per_frame_seconds is None:
+        holds = [seconds_per_frame] * n
+    else:
+        holds = [float(s) for s in per_frame_seconds]
+        if len(holds) != n:
+            raise ReelStitcherError(
+                f"per_frame_seconds has {len(holds)} entries but there are "
+                f"{n} gem_ids; they must correspond one-to-one"
+            )
+        # Every hold must exceed the crossfade, or that frame is fully
+        # consumed by its own transition and never actually shows.
+        if min(holds) <= crossfade_seconds:
+            raise ReelStitcherError(
+                f"every per_frame_seconds value must exceed crossfade_seconds="
+                f"{crossfade_seconds}; got minimum {min(holds)}"
+            )
+
+    total_duration = compute_reel_duration(holds, crossfade_seconds)
+    if total_duration > _MAX_REEL_SECONDS:
+        if per_frame_seconds is None:
+            # Uniform callers predate this guard and are governed by
+            # _MAX_FRAMES. growth_timelapse runs 1.2s/frame and can legally
+            # reach 90 frames (~90.2s), so hard-failing here would break a
+            # working lane rather than protect it. Warn and proceed —
+            # existing behaviour is unchanged by construction.
+            log.warning(
+                "reel_stitcher: %d frames at %.2fs run %.1fs, over the "
+                "%.0fs budget (IG's Reel limit is 90s). Proceeding — uniform "
+                "callers are capped by _MAX_FRAMES, not by duration.",
+                n, seconds_per_frame, total_duration, _MAX_REEL_SECONDS,
+            )
+        else:
+            raise ReelStitcherError(
+                f"reel would run {total_duration:.1f}s, over the "
+                f"{_MAX_REEL_SECONDS}s budget (Instagram's Reel limit is 90s). "
+                f"Trim frames before calling — the stitcher will not silently "
+                f"drop them, because only the caller knows which frames matter."
+            )
 
     # Resolve gem ids -> on-disk JPEGs (preserving caller-specified order).
     jpeg_sources: list[Path] = []
@@ -352,9 +444,8 @@ def stitch_gems_to_reel(
                     _resize_frame(p, p, target_w, target_h)
 
         # Assemble the MP4 with one ffmpeg call.
-        total_duration = n * seconds_per_frame - (n - 1) * crossfade_seconds
         filter_complex = _build_filter_complex(
-            n, seconds_per_frame, crossfade_seconds,
+            n, seconds_per_frame, crossfade_seconds, holds,
         )
 
         if output_path is None:
@@ -369,8 +460,11 @@ def stitch_gems_to_reel(
             output_path.parent.mkdir(parents=True, exist_ok=True)
 
         cmd = [_ffmpeg_path(), "-y"]
-        for p in cropped_paths:
-            cmd += ["-loop", "1", "-t", f"{seconds_per_frame}", "-i", str(p)]
+        # Each input's own -t must match its hold. If the offsets stretch
+        # but the inputs stay 1.0s, the xfade reads past the end of a clip
+        # that was supposed to hold longer and the render goes black there.
+        for p, hold in zip(cropped_paths, holds):
+            cmd += ["-loop", "1", "-t", f"{hold}", "-i", str(p)]
         audio_stream_idx = n  # audio is the Nth input (0-indexed after N images)
         cmd += [
             "-f", "lavfi",
