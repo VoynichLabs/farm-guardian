@@ -69,7 +69,11 @@ Which is why the leg is genuinely part of the ID and not a footnote — **orange
 12 birds banded. **8 of the 12 are uniquely identified by colour + leg alone — no number
 needed.** Only yellow-left and pink-left genuinely need the number to separate two birds.
 
-Two ornitharchs (Birdthazar, Birdsula-line names aside) still have no band at all.
+**10 of the 11 living ornitharchs are banded — only Birdthazar has none.** (The other two
+banded birds, Robirda and Bobirda, were bought in, hence their right-leg bands.) Worth
+noting the 22-Jul plan said "8 of the 11" six days ago; Henriella was confirmed on the
+23rd and Horstabird has since been added. The roster moves — which is the argument for
+Part 5's point about four copies of this table drifting apart.
 
 ---
 
@@ -132,6 +136,13 @@ each with an explicit "none / can't tell" answer. Then code checks the answer ag
 the real band list and **throws away anything impossible**, so "green #1" never reaches a
 caption. The caption text gets rebuilt from the verified fact rather than the model's
 prose.
+
+**Validate on colour + leg, not just colour + number** — this is where most of the value
+is. There are 8 band colours × 2 legs = 16 possible combinations and only 10 of them
+exist, so blue-right, green-right, pink-right, purple-right, red-right and yellow-right
+are all provably wrong reads. That matters because **39% of the model's claims already
+name a leg, against only 4% that name a number** — so checking the leg catches roughly
+ten times as many bad claims as checking the number would.
 
 This can only ever *remove* a false claim. It cannot invent an identification. It needs
 no database change (the readings ride along in the `vlm_json` blob we already store) and
@@ -214,10 +225,17 @@ Baseline recorded today, S7, 22-Jul onward, 17,617 frames:
 | skip / decent / strong | 91.9% / 6.1% / 2.0% |
 | average score | 21.9 (median 17, p90 49) |
 | frames scoring 80+ (the Discord gem bar) | 1.10% |
+| time per frame | 5,586 ms average (median 5,623, p90 6,149) |
 
 If those move meaningfully after the edit, the change is wrong even if band reading
 improved. Working in our favour: moving the matching into code lets the instructions get
 *shorter*, which may well help the scoring rather than hurt it.
+
+**Watch the timing row too.** Three new fields means the model writes more on every
+frame, and Guardian's night predator-alert check shares the same LM Studio with the
+pipeline, one call at a time. A slower pipeline call means the alert check waits longer
+for its turn — so a big jump in time-per-frame is a reason to stop, even if everything
+else improved.
 
 ---
 
@@ -234,9 +252,11 @@ improved. Working in our favour: moving the matching into code lets the instruct
    - **Positive:** rerun on the iPhone close-ups where we know the answer (IMG_7713 =
      Henridotta purple #12, Ingebird green #2, Henriessa pink #8). It should read them.
    - **Negative, at scale:** rerun over a few hundred stored distant S7 frames. Any
-     colour+number pair that doesn't exist is definitionally a false read, so this gives
-     a real before/after accuracy number for free — no human labelling needed.
-   - **Regression:** re-check the score table above. It must not move.
+     colour+leg or colour+number pair that doesn't exist is definitionally a false read,
+     so this gives a real before/after accuracy number for free — no human labelling
+     needed. Score it on colour+**leg** primarily (39% coverage), not colour+number (4%).
+   - **Regression:** re-check the score table above, **including time per frame**. Neither
+     must move.
 7. `CHANGELOG.md` top entry (proposed **v2.55.0**).
 8. Commit and push.
 
