@@ -172,6 +172,38 @@ The alert path is four gates, cheapest first — alert-cooldown pre-check → st
 
 Every 1–2 weeks an agent sees orange / red brooder frames on `usb-cam`, `mba-cam`, or `s7-cam` and reaches for a new WB algorithm. Boss has been through this loop 4–5 times. Stop. Read **`docs/16-Apr-2026-heat-lamp-orange-cast-investigation.md`** first. It covers: (a) the gray-world + orange-desat code that already exists in `tools/usb-cam-host/usb_cam_host.py` and the S7 `http_startup_gets` settings, (b) the real root cause (**sensor exposure clipping, not WB**), (c) pre-buried wrong theories, (d) the fix path that actually works (exposure control), (e) recovery recipes for S7 settings regression and MBA stale-code drift.
 
+## A Reolink that "died" — SUSPECT THE STOCK POWER ADAPTER FIRST
+
+**The power adapters Reolink ships are unreliable and have now failed twice on this farm** —
+once on another Reolink a few weeks before 30-Jul-2026, and again on `duo2` on 30-Jul-2026.
+Both times the camera was **fine**; both times a third-party adapter fixed it instantly and
+permanently. Before you diagnose anything else, swap the adapter.
+
+**The signature** (from the 30-Jul-2026 duo2 case):
+
+- The camera goes **completely absent from the network** — no ICMP, no ARP, all ports closed,
+  nothing on a full `/24` sweep, no fresh DHCP lease. It looks unambiguously dead.
+- It is also **invisible in the Reolink phone app**, because the app reaches it through
+  Reolink's cloud, so that adds no information.
+- **Repeated power cycling at the wall does nothing** — and this is the trap.
+- Frames were **pristine right up to the instant it stopped**: full-size, unique, every cycle,
+  no packet loss or soft frames beforehand. A degrading radio or a dying sensor does not look
+  like this. A power cut does.
+
+**⛔ Do NOT conclude "dead unit, start a warranty claim" from failed power cycles.** That
+inference is invalid and an agent made it on 30-Jul-2026, telling Boss he was out the money for
+the camera. **Cycling the outlet tests nothing when the break is downstream of it** — in the
+cord or the adapter — so every failed cycle reads as more confirmation while the test never
+actually runs. Absence from the network proves absence from the network; it does **not**
+distinguish a dead camera from an unpowered one. Confirm power independently (status LED, IR
+illuminators glowing after dark, or simply a known-good adapter) before calling anything dead.
+
+Note the failure can present as **two separate faults days apart** — duo2 lost its cloud/P2P
+path on 27-Jul while serving flawless local video until 05:04:26 on 30-Jul. Do not assume one
+progressive hardware failure; check the adapter.
+
+Full case: [`docs/30-Jul-2026-reolink-s7-offline-incident.md`](docs/30-Jul-2026-reolink-s7-offline-incident.md).
+
 ## Hardware Inventory — READ THIS BEFORE TOUCHING ANY CAMERA
 
 The single source of truth for what every camera *is*, what device hosts it, where its frames flow, and the device-not-location naming rule with worked examples lives in **`HARDWARE_INVENTORY.md`** at the repo root. Read it before adding, renaming, or moving any camera. The frontend devs and the next backend agent both depend on it.
