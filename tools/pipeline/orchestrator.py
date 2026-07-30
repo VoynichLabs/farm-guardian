@@ -392,6 +392,15 @@ def run_raw_cycle(camera_name: str, camera_cfg: dict, cfg: dict,
                     camera_name, exc)
         gate_metrics = {}
 
+    # Optional per-camera archive downscale (raw_max_long_edge_px). High-res
+    # cameras like duo2 (4608x1728, ~3.8MB/frame) fill the disk at ~33GB/day
+    # on a 10s cadence; shrinking the archived copy keeps the rolling raw
+    # window affordable. Gems/reels rendered from raw inherit the smaller
+    # size, which is still above the 1080p publish target. 0/absent = full res.
+    raw_edge = int(camera_cfg.get("raw_max_long_edge_px", 0) or 0)
+    if raw_edge > 0:
+        jpeg_bytes = _downscale_for_vlm(jpeg_bytes, raw_edge)
+
     try:
         sr = store_raw(db_path=db_path, archive_root=archive_root,
                        camera_id=camera_name, jpeg_bytes=jpeg_bytes,

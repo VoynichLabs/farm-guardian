@@ -1,190 +1,193 @@
 {
-  "guardian_db_path": "data/guardian.db",
-  "archive_root": "data/archive",
-  "birds_preset_path": "",
-  "lm_studio_base": "http://localhost:1234",
-  "vlm_model_id": "qwen/qwen3-vl-4b",
-  "vlm_load_context_length": 16384,
-  "vlm_input_long_edge_px": 768,
-  "vlm_max_tokens": 600,
-  "vlm_temperature": 0.2,
-  "vlm_timeout_seconds": 300,
-  "std_dev_floor": 5.0,
-  "exposure_p50_floor": 25.0,
-  "exposure_p50_ceiling": 230.0,
-  "exposure_std_floor": 15.0,
-  "motion_delta_threshold": 2.3,
-  "capture_retry_max": 3,
-  "downscale_decent_long_edge_px": 1920,
-  "downscale_decent_jpeg_quality": 85,
-  "retention_days_strong": 365,
-  "retention_days_decent": 7,
-  "retention_days_concerns": null,
-  "raw_retention_hours": 24,
-  "instagram": {
-    "enabled": false,
-    "auto_dry_run": false,
-    "min_hours_between_posts": 6,
-    "min_hours_per_camera": 12,
-    "farm_2026_repo_path": "/Users/macmini/GitHub/farm-2026",
-    "story_public_base_url": "https://guardian.markbarney.net",
-    "meta_env_file": "/Users/macmini/bubba-workspace/secrets/farm-guardian-meta.env",
-    "stories": {
-      "enabled": false,
-      "auto_dry_run": false,
-      "min_hours_between_stories": 2
-    },
-    "reels": {
-      "enabled": true,
-      "auto_dry_run": false,
-      "output_root": "data/reels",
-      "seconds_per_frame": 1.0,
-      "crossfade_seconds": 0.15,
-      "frames_per_reel_default": 6
-    },
-    "scheduled": {
-      "daily_carousel_max_items": 10,
-      "daily_carousel_min_items": 2,
-      "daily_carousel_bucket_minutes": 15,
-      "story_window_minutes": 120,
-      "weekly_reel_window_days": 7,
-      "weekly_reel_max_frames": 8,
-      "weekly_reel_bucket_hours": 6,
-      "daily_reel_window_hours": 24,
-      "daily_reel_max_frames": 90,
-      "daily_reel_min_frames": 6,
-      "s7_daily_reel_timezone": "America/New_York",
-      "s7_daily_reel_late_run_fallback_hour": 5,
-      "s7_daily_reel_bucket_minutes": 15,
-      "s7_daily_reel_max_frames": 90,
-      "s7_daily_reel_min_frames": 10,
-      "s7_daily_reel_require_source_reactions": false,
-      "s7_daily_reel_gem_seconds": 1.8,
-      "s7_weekly_gems_window_days": 7,
-      "s7_weekly_gems_max_frames": 60,
-      "s7_weekly_gems_max_per_day": 12,
-      "s7_weekly_gems_min_frames": 20,
-      "timelapse_reel_window_hours": 24,
-      "timelapse_reel_bucket_minutes": 5,
-      "timelapse_reel_max_frames": 90,
-      "timelapse_reel_min_frames": 6,
-      "timelapse_reel_daylight_only_cameras": [
-        "gwtc",
-        "usb-cam"
-      ],
-      "timelapse_reel_daylight_start_hour": 6,
-      "timelapse_reel_daylight_end_hour": 20,
-      "timelapse_reel_timezone": "America/New_York",
-      "timelapse_golden_windows": {
-        "enabled": true,
-        "cameras": [
-          "usb-cam",
-          "dominator-cam"
-        ],
-        "timezone": "America/New_York",
-        "latitude": 41.7558,
-        "longitude": -71.9789,
-        "windows": [
-          {
-            "start": "sunrise",
-            "end": "09:00"
-          },
-          {
-            "start": "19:30",
-            "end": "20:30"
-          }
-        ],
-        "sample_bucket_seconds": 30,
-        "max_frames": 90,
-        "min_frames": 6,
-        "per_camera": {}
-      }
-    }
+ "guardian_db_path": "data/guardian.db",
+ "archive_root": "data/archive",
+ "birds_preset_path": "",
+ "lm_studio_base": "http://localhost:1234",
+ "vlm_model_id": "qwen/qwen3-vl-4b",
+ "vlm_load_context_length": 16384,
+ "vlm_input_long_edge_px": 768,
+ "vlm_max_tokens": 600,
+ "vlm_temperature": 0.2,
+ "vlm_timeout_seconds": 300,
+ "std_dev_floor": 5.0,
+ "exposure_p50_floor": 25.0,
+ "exposure_p50_ceiling": 230.0,
+ "exposure_std_floor": 15.0,
+ "motion_delta_threshold": 2.3,
+ "capture_retry_max": 3,
+ "downscale_decent_long_edge_px": 1920,
+ "downscale_decent_jpeg_quality": 85,
+ "retention_days_strong": 365,
+ "retention_days_decent": 7,
+ "retention_days_concerns": null,
+ "raw_retention_hours": 24,
+ "instagram": {
+  "enabled": false,
+  "auto_dry_run": false,
+  "min_hours_between_posts": 6,
+  "min_hours_per_camera": 12,
+  "farm_2026_repo_path": "/Users/macmini/GitHub/farm-2026",
+  "story_public_base_url": "https://guardian.markbarney.net",
+  "meta_env_file": "/Users/macmini/bubba-workspace/secrets/farm-guardian-meta.env",
+  "stories": {
+   "enabled": false,
+   "auto_dry_run": false,
+   "min_hours_between_stories": 2
   },
-  "cameras": {
-    "house-yard": {
-      "cycle_seconds": 45,
-      "capture_method": "reolink_snapshot",
-      "reolink_base": "http://192.168.0.89",
-      "context": "Reolink E1 Outdoor Pro 4K PTZ camera (192.168.0.89); currently aimed at the yard, sky, and coop approach",
-      "burst_size": 1,
-      "motion_gate": false,
-      "vlm_bypass": true,
-      "enabled": true
-    },
-    "usb-cam": {
-      "cycle_seconds": 2,
-      "offpeak_cycle_seconds": 180,
-      "raw_retention_hours": 48,
-      "capture_method": "ip_webcam",
-      "ip_webcam_base": "http://192.168.0.69:8089",
-      "photo_path": "/photo.jpg",
-      "trigger_focus": false,
-      "context": "Cheap generic USB webcam (UVC, 1920x1080, lower image quality than the S7) mounted inside the CHICKEN COOP RUN (part of BIRDCATRAZ, the outdoor enclosed poultry area), watching the flock in natural daylight. Subjects: adult and adolescent chickens, mixed rare/exotic breeds \u2014 the whole flock is grown or nearly grown now. NO chicks in this view. Camera angle is fixed and may be partially obstructed by birds very close to the lens. Score conservatively \u2014 this is a budget sensor and a 7 here is a genuinely good shot for this camera.",
-      "burst_size": 1,
-      "vlm_bypass": true,
-      "enabled": true
-    },
-    "s7-cam": {
-      "cycle_seconds": 7,
-      "priority": 1,
-      "capture_method": "ip_webcam",
-      "ip_webcam_base": "http://192.168.0.249:8080",
-      "photo_path": "/photo.jpg",
-      "trigger_focus": true,
-      "focus_wait": 2.0,
-      "force_portrait": true,
-      "context": "Samsung Galaxy S7 running IP Webcam app, plugged into a USB wall brick for power (untethered from MBA 26-Apr-2026, v2.37.8). 26-Apr-2026 v2.37.10: switched FROM /photoaf.jpg TO /photo.jpg + explicit /focus + 2s wait. /photoaf.jpg's built-in AF was running concurrently with our /focus call and the two were interfering \u2014 frames came back rated 'soft' even with continuous-picture mode active. One AF cycle (explicit /focus, sleep 2s, fetch /photo.jpg) is more reliable than two. Continuous-picture AF + incandescent WB set at Guardian startup (v2.27.7). Sony IMX260 sensor, 1920x1080, f/1.7. Best-quality source in the fleet. Cadence dropped to 3s and priority=1 so when the VLM slot opens, s7 wins ties. MOVED 2026-07-16 to BIRDCATRAZ: the outdoor enclosed poultry area (a fenced compound containing the chicken coop and the turkey pen) where the whole flock now lives. The phone is aimed at the BIG WATER BOWL. Expect adolescent-to-adult chickens \u2014 mixed rare/exotic breeds, some bantams \u2014 drinking, gathering, and socializing at and around the water bowl in natural daylight; turkeys may wander through. Drinking and water-bowl social moments are the EXPECTED, desirable subject on this camera: a sharp, close bird drinking or facing the lens at the bowl is a legitimate gem, not clutter. These birds are grown or nearly grown \u2014 this is NOT a brooder and there are NO chicks. Judge by the size and plumage you actually see; angle may show backs and tops of heads as well as faces.",
-      "burst_size": 1,
-      "require_face": true,
-      "enabled": true,
-      "motion_gate": false,
-      "laplacian_floor": 60.0
-    },
-    "gwtc": {
-      "cycle_seconds": 20,
-      "raw_retention_hours": 48,
-      "capture_method": "reolink_snapshot",
-      "context": "Gateway laptop built-in webcam (1280x720, fixed focus, lower quality), mounted on the ROOF OF THE COOP pointing down for an overhead/approach view of the coop run and surrounding area. Subjects: adult chickens and older feathered chicks in the coop run, or the yard/approach area \u2014 whatever is below the camera. NO turkey poults, NO young bantam chicks. Angle is overhead so you may see bird backs and tops of heads rather than faces. Images may have compression artifacts (vertical stripes, smearing) from H.264 decode issues \u2014 tag those as blurred. Score conservatively for this low-resolution overhead camera.",
-      "burst_size": 3,
-      "burst_interval_seconds": 0.4,
-      "motion_gate": true,
-      "vlm_bypass": true,
-      "enabled": false
-    },
-    "mba-cam": {
-      "cycle_seconds": 10,
-      "raw_retention_hours": 48,
-      "capture_method": "ip_webcam",
-      "ip_webcam_base": "http://192.168.0.50:8089",
-      "photo_path": "/photo.jpg",
-      "trigger_focus": false,
-      "context": "MacBook Air 2013 FaceTime HD camera (1280x720), served at 192.168.0.50:8089 via usb-cam-host (com.farmguardian.usb-cam-host LaunchAgent on the MBA). MOVED 2026-06-21 from the brooder to the TURKEY PEN (part of BIRDCATRAZ, the outdoor enclosed poultry area): an outdoor wire-fenced enclosure in natural daylight. The MBA sits on a ledge inside the pen, looking across it and out toward the yard/garden beyond the fence. Subjects: the turkeys kept in this pen (often out of frame depending on where they roam), plus the yard visible through the fence. This is NOT the brooder and there are NO baby chicks here. Score conservatively for this low-resolution camera. ON/OFF SWITCH = this \"enabled\" flag (the orchestrator only spawns a raw-capture thread when enabled=true); the MBA LaunchAgent only serves the snapshot endpoint. Frame capture pulls /photo.jpg on the cycle_seconds cadence like usb-cam/dominator-cam. device_index=0 on MBA = FaceTime HD; the external USB CAMERA is now also plugged into this MBA (served separately once macOS enumerates its video).",
-      "burst_size": 1,
-      "vlm_bypass": true,
-      "enabled": true
-    },
-    "dominator-cam": {
-      "cycle_seconds": 10.0,
-      "offpeak_cycle_seconds": 180,
-      "raw_retention_hours": 48,
-      "capture_method": "ip_webcam",
-      "ip_webcam_base": "http://192.168.0.194:8089",
-      "photo_path": "/photo.jpg",
-      "trigger_focus": false,
-      "context": "MSI Dominator GT72 6QD (Windows 10, 192.168.0.194) built-in BisonCam NB Pro webcam. Opportunistic \u2014 only live when Boss double-clicks the desktop shortcut. Aim varies.",
-      "burst_size": 1,
-      "vlm_bypass": true,
-      "enabled": true
-    },
-    "duo2": {
-      "cycle_seconds": 10.0,
-      "capture_method": "reolink_snapshot",
-      "context": "Reolink Duo 2 WiFi (dual-lens 180 pano, fixed), lens 01, IP .155 (WiFi, DHCP — drifted from .14/.15 after 4-Jul-2026 ethernet→WiFi flip). Stationary complement to the E1 PTZ. Zone TBD - confirm mount/aim with Boss.",
-      "burst_size": 1,
-      "motion_gate": false,
-      "vlm_bypass": true,
-      "enabled": true
-    }
+  "reels": {
+   "enabled": true,
+   "auto_dry_run": false,
+   "output_root": "data/reels",
+   "seconds_per_frame": 1.0,
+   "crossfade_seconds": 0.15,
+   "frames_per_reel_default": 6
+  },
+  "scheduled": {
+   "daily_carousel_max_items": 10,
+   "daily_carousel_min_items": 2,
+   "daily_carousel_bucket_minutes": 15,
+   "story_window_minutes": 120,
+   "weekly_reel_window_days": 7,
+   "weekly_reel_max_frames": 8,
+   "weekly_reel_bucket_hours": 6,
+   "daily_reel_window_hours": 24,
+   "daily_reel_max_frames": 90,
+   "daily_reel_min_frames": 6,
+   "s7_daily_reel_timezone": "America/New_York",
+   "s7_daily_reel_late_run_fallback_hour": 5,
+   "s7_daily_reel_bucket_minutes": 15,
+   "s7_daily_reel_max_frames": 90,
+   "s7_daily_reel_min_frames": 10,
+   "s7_daily_reel_require_source_reactions": false,
+   "s7_daily_reel_gem_seconds": 1.8,
+   "s7_weekly_gems_window_days": 7,
+   "s7_weekly_gems_max_frames": 60,
+   "s7_weekly_gems_max_per_day": 12,
+   "s7_weekly_gems_min_frames": 20,
+   "timelapse_reel_window_hours": 24,
+   "timelapse_reel_bucket_minutes": 5,
+   "timelapse_reel_max_frames": 90,
+   "timelapse_reel_min_frames": 6,
+   "timelapse_reel_daylight_only_cameras": [
+    "gwtc",
+    "usb-cam"
+   ],
+   "timelapse_reel_daylight_start_hour": 6,
+   "timelapse_reel_daylight_end_hour": 20,
+   "timelapse_reel_timezone": "America/New_York",
+   "timelapse_golden_windows": {
+    "enabled": true,
+    "cameras": [
+     "usb-cam",
+     "dominator-cam"
+    ],
+    "timezone": "America/New_York",
+    "latitude": 41.7558,
+    "longitude": -71.9789,
+    "windows": [
+     {
+      "start": "sunrise",
+      "end": "09:00"
+     },
+     {
+      "start": "19:30",
+      "end": "20:30"
+     }
+    ],
+    "sample_bucket_seconds": 30,
+    "max_frames": 90,
+    "min_frames": 6,
+    "per_camera": {}
+   }
   }
+ },
+ "cameras": {
+  "house-yard": {
+   "cycle_seconds": 45,
+   "capture_method": "reolink_snapshot",
+   "reolink_base": "http://192.168.0.89",
+   "context": "Reolink E1 Outdoor Pro 4K PTZ camera (192.168.0.89); currently aimed at the yard, sky, and coop approach",
+   "burst_size": 1,
+   "motion_gate": false,
+   "vlm_bypass": true,
+   "enabled": true,
+   "raw_retention_hours": 48
+  },
+  "usb-cam": {
+   "cycle_seconds": 2,
+   "offpeak_cycle_seconds": 180,
+   "raw_retention_hours": 48,
+   "capture_method": "ip_webcam",
+   "ip_webcam_base": "http://192.168.0.69:8089",
+   "photo_path": "/photo.jpg",
+   "trigger_focus": false,
+   "context": "Cheap generic USB webcam (UVC, 1920x1080, lower image quality than the S7) mounted inside the CHICKEN COOP RUN (part of BIRDCATRAZ, the outdoor enclosed poultry area), watching the flock in natural daylight. Subjects: adult and adolescent chickens, mixed rare/exotic breeds \u2014 the whole flock is grown or nearly grown now. NO chicks in this view. Camera angle is fixed and may be partially obstructed by birds very close to the lens. Score conservatively \u2014 this is a budget sensor and a 7 here is a genuinely good shot for this camera.",
+   "burst_size": 1,
+   "vlm_bypass": true,
+   "enabled": true
+  },
+  "s7-cam": {
+   "cycle_seconds": 7,
+   "priority": 1,
+   "capture_method": "ip_webcam",
+   "ip_webcam_base": "http://192.168.0.249:8080",
+   "photo_path": "/photo.jpg",
+   "trigger_focus": true,
+   "focus_wait": 2.0,
+   "force_portrait": true,
+   "context": "Samsung Galaxy S7 running IP Webcam app, plugged into a USB wall brick for power (untethered from MBA 26-Apr-2026, v2.37.8). 26-Apr-2026 v2.37.10: switched FROM /photoaf.jpg TO /photo.jpg + explicit /focus + 2s wait. /photoaf.jpg's built-in AF was running concurrently with our /focus call and the two were interfering \u2014 frames came back rated 'soft' even with continuous-picture mode active. One AF cycle (explicit /focus, sleep 2s, fetch /photo.jpg) is more reliable than two. Continuous-picture AF + incandescent WB set at Guardian startup (v2.27.7). Sony IMX260 sensor, 1920x1080, f/1.7. Best-quality source in the fleet. Cadence dropped to 3s and priority=1 so when the VLM slot opens, s7 wins ties. MOVED 2026-07-16 to BIRDCATRAZ: the outdoor enclosed poultry area (a fenced compound containing the chicken coop and the turkey pen) where the whole flock now lives. The phone is aimed at the BIG WATER BOWL. Expect adolescent-to-adult chickens \u2014 mixed rare/exotic breeds, some bantams \u2014 drinking, gathering, and socializing at and around the water bowl in natural daylight; turkeys may wander through. Drinking and water-bowl social moments are the EXPECTED, desirable subject on this camera: a sharp, close bird drinking or facing the lens at the bowl is a legitimate gem, not clutter. These birds are grown or nearly grown \u2014 this is NOT a brooder and there are NO chicks. Judge by the size and plumage you actually see; angle may show backs and tops of heads as well as faces.",
+   "burst_size": 1,
+   "require_face": true,
+   "enabled": true,
+   "motion_gate": false,
+   "laplacian_floor": 60.0
+  },
+  "gwtc": {
+   "cycle_seconds": 20,
+   "raw_retention_hours": 48,
+   "capture_method": "reolink_snapshot",
+   "context": "Gateway laptop built-in webcam (1280x720, fixed focus, lower quality), mounted on the ROOF OF THE COOP pointing down for an overhead/approach view of the coop run and surrounding area. Subjects: adult chickens and older feathered chicks in the coop run, or the yard/approach area \u2014 whatever is below the camera. NO turkey poults, NO young bantam chicks. Angle is overhead so you may see bird backs and tops of heads rather than faces. Images may have compression artifacts (vertical stripes, smearing) from H.264 decode issues \u2014 tag those as blurred. Score conservatively for this low-resolution overhead camera.",
+   "burst_size": 3,
+   "burst_interval_seconds": 0.4,
+   "motion_gate": true,
+   "vlm_bypass": true,
+   "enabled": false
+  },
+  "mba-cam": {
+   "cycle_seconds": 10,
+   "raw_retention_hours": 48,
+   "capture_method": "ip_webcam",
+   "ip_webcam_base": "http://192.168.0.50:8089",
+   "photo_path": "/photo.jpg",
+   "trigger_focus": false,
+   "context": "MacBook Air 2013 FaceTime HD camera (1280x720), served at 192.168.0.50:8089 via usb-cam-host (com.farmguardian.usb-cam-host LaunchAgent on the MBA). MOVED 2026-06-21 from the brooder to the TURKEY PEN (part of BIRDCATRAZ, the outdoor enclosed poultry area): an outdoor wire-fenced enclosure in natural daylight. The MBA sits on a ledge inside the pen, looking across it and out toward the yard/garden beyond the fence. Subjects: the turkeys kept in this pen (often out of frame depending on where they roam), plus the yard visible through the fence. This is NOT the brooder and there are NO baby chicks here. Score conservatively for this low-resolution camera. ON/OFF SWITCH = this \"enabled\" flag (the orchestrator only spawns a raw-capture thread when enabled=true); the MBA LaunchAgent only serves the snapshot endpoint. Frame capture pulls /photo.jpg on the cycle_seconds cadence like usb-cam/dominator-cam. device_index=0 on MBA = FaceTime HD; the external USB CAMERA is now also plugged into this MBA (served separately once macOS enumerates its video).",
+   "burst_size": 1,
+   "vlm_bypass": true,
+   "enabled": true
+  },
+  "dominator-cam": {
+   "cycle_seconds": 10.0,
+   "offpeak_cycle_seconds": 180,
+   "raw_retention_hours": 48,
+   "capture_method": "ip_webcam",
+   "ip_webcam_base": "http://192.168.0.194:8089",
+   "photo_path": "/photo.jpg",
+   "trigger_focus": false,
+   "context": "MSI Dominator GT72 6QD (Windows 10, 192.168.0.194) built-in BisonCam NB Pro webcam. Opportunistic \u2014 only live when Boss double-clicks the desktop shortcut. Aim varies.",
+   "burst_size": 1,
+   "vlm_bypass": true,
+   "enabled": true
+  },
+  "duo2": {
+   "cycle_seconds": 10.0,
+   "capture_method": "reolink_snapshot",
+   "context": "Reolink Duo 2 WiFi (dual-lens 180 pano, fixed), lens 01, IP .155 (WiFi, DHCP \u2014 drifted from .14/.15 after 4-Jul-2026 ethernet\u2192WiFi flip). Stationary complement to the E1 PTZ. Zone TBD - confirm mount/aim with Boss.",
+   "burst_size": 1,
+   "motion_gate": false,
+   "vlm_bypass": true,
+   "enabled": true,
+   "raw_retention_hours": 48,
+   "raw_max_long_edge_px": 2304
+  }
+ }
 }

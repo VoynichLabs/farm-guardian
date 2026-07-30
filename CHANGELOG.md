@@ -2,7 +2,15 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] - 2026-07-28
+## [Unreleased] - 2026-07-30
+
+### v2.55.2 — duo2 raw archive was eating ~33GB/day; downscale-on-save + 48h retention (Claude Opus 5) — 30-Jul-2026
+
+duo2 (vlm_bypass, 10s cadence) archived full 4608×1728 dual-lens panoramas at ~3.8MB/frame — a rolling 24h window standing at ~45GB, ~20x every other camera, on a machine that was down to 25GB free. Nothing was broken: `sweep_raw` pruned on schedule; the data *rate* was the problem.
+
+- `run_raw_cycle` now honors a per-camera `raw_max_long_edge_px` (reuses `_downscale_for_vlm`, JPEG q85) applied before `store_raw`. 0/absent = full res, so all other cameras are untouched.
+- `tools/pipeline/config.json`: duo2 gets `raw_max_long_edge_px: 2304` + `raw_retention_hours: 48`; house-yard gets explicit `raw_retention_hours: 48` (was silently on the 24h default — Boss wants 48h of lookback for predator forensics).
+- Verified live: post-restart duo2 frames are 2304px / ~350KB (11x smaller). Standing duo2 window drops ~45GB→~6GB despite doubling retention; the existing full-res frames age out via sweep_raw within 48h.
 
 ### v2.55.1 — the whole of v2.55.0 was INERT: the pipeline reads an LM Studio preset, not the tracked files (Claude Opus 5) — 28-Jul-2026
 
