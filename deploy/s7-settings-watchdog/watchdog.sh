@@ -1,77 +1,67 @@
 #!/bin/bash
-# Author: Claude Sonnet 4.6 (orig); modified 2026-05-22 by Claude Opus 4.7 (1M context)
-# Date: 02-May-2026 (whitebalance push removed 2026-05-22, v2.40.16 — see below)
-# PURPOSE: S7 IP Webcam watchdog — two jobs in one script:
-#   1. Detect the "black screen" boot race condition (HTTP server starts before
-#      Android camera hardware is ready) and fix it via ADB on GWTC.
-#   2. Re-assert portrait/orientation/focus settings after any phone/app restart.
-#      (whitebalance=incandescent was dropped 2026-05-22: the S7 left the brooder
-#      heat lamp for the nesting box, so the warm-light compensation now
-#      cool/blue-shifts a neutral scene. The phone runs on default auto WB.)
-#      NOTE: the live LaunchAgent runs an INLINE copy of this logic (inlined to
-#      dodge the TCC block on ~/Documents reads from launchd); keep both in sync.
+# Author: Claude Opus 4.8 (Bubba)
+# Date: 01-August-2026 (rev3 — power source corrected to Qi; see POWER below)
+# PURPOSE: Farm Guardian S7 phone-cam (Galaxy S7 / IP Webcam app) liveness watchdog, run by
+#   launchd every 600s. Pulls a live frame; logs whether the feed is alive or stalled, and
+#   re-applies camera settings when it's alive.
 #
-# Root cause of black screen: IP Webcam auto-starts on boot and its HTTP server
-# begins accepting connections before the Android camera HAL finishes initialising.
-# Frames are empty/black until the app is stopped and restarted. The only
-# programmatic fix is ADB force-stop + relaunch.
-#
-# ADB path: SSH to GWTC (192.168.0.68) → run adb.exe from C:\farm-services\platform-tools\.
-# PREREQUISITE: S7 must have granted USB debugging authorisation to GWTC at
-# least once (phone shows "Allow USB debugging?" dialog when first connected).
-# Until that's done, ADB falls back gracefully — settings are still applied.
-#
-# Runs every 10 min via com.farmguardian.s7-settings-watchdog LaunchAgent.
-
+#   GROUND TRUTH (Boss-corrected 2026-06-25; POWER section rewritten 2026-08-01):
+#   - The S7 is a STANDALONE Wi-Fi camera running the IP Webcam app, reachable at
+#     192.168.0.249:8080.
+#   - POWER (changed 2026-08-01): the phone now charges on a **Qi WIRELESS PAD**, not the
+#     wall brick it used from April to July 2026. The phone got wet; afterwards its
+#     micro-USB port stopped working for BOTH power and data. Confirmed 2026-08-01 with a
+#     known-good DATA cable plugged DIRECTLY into the Mac mini: the phone does not
+#     enumerate on the USB bus at all — no Samsung vendor ID (1256 / 0x04E8) anywhere in
+#     `ioreg -rc IOUSBHostDevice`. Qi is the only charging path that works. Note Qi on an
+#     SM-G930F is ~5W, and this phone has a documented history of browning out on weak
+#     power, so keep the screen off/dim and treat power as the first suspect on any new
+#     stall. Diagnostic: tools/s7-charge-diagnose.sh.
+#   - It is NOT USB-tethered to any computer, and cannot be — see POWER. There is therefore
+#     NO adb path at all: adb-over-USB needs a working port, and adb-over-network is refused
+#     (5555 closed) because Android 8.0.0 predates wireless-debugging pairing and enabling
+#     `adb tcpip` would itself require one working USB session. GWTC (192.168.0.68) is
+#     PERMANENTLY DECOMMISSIONED (down since 2026-06-07) and must NOT be load-bearing in
+#     anything. The old ssh-GWTC + adb reopen branch was obsolete nonsense and is removed.
+#   - This watchdog therefore CANNOT self-heal a stall. Its job is DETECT + LOG. The durable,
+#     ONE-TIME fix for the recurring "app dies" problem is physical, on the phone (NOT settable
+#     over the IP Webcam HTTP /settings API — that only exposes focus/exposure/torch/etc., no
+#     wakelock or background). Set these once and they persist across restarts:
+#       (1) IP Webcam app -> Settings -> enable "Disable lock screen" / "Keep screen on".
+#       (2) Android Settings -> Battery -> App optimization -> IP Webcam -> "Unrestricted".
+#       (3) Samsung Settings -> Battery -> "Sleeping apps" / "Deep sleeping apps" -> REMOVE
+#           IP Webcam from both lists. Added 2026-08-01: this is Samsung's own app-freezer,
+#           separate from AOSP Doze, and it is the one that actually explains the observed
+#           stall — during the 2026-07-30 wedge the phone was ON THE CHARGER and still
+#           frozen, which rules Doze out (AOSP Doze does not engage while charging).
+#           Signature of this freeze: TCP 8080 still ACCEPTS instantly (kernel holds the
+#           listening socket) but no HTTP response ever comes back, and ICMP is dropped
+#           entirely, because the app's worker threads are frozen while the process lives.
+#     (Fix sourced from Horst's pydroid-ipcam + HA research, 2026-06-25. See provenance.)
+#   - File MUST stay outside ~/Documents (macOS TCC blocks launchd from reading scripts there).
+# SRP/DRY check: Pass — sole S7 liveness watchdog; detection-only, no dead recovery paths.
 set -u
 
-S7="http://192.168.0.249:8080"
-GWTC="192.168.0.68"
-ADB="C:\\farm-services\\platform-tools\\adb.exe"
-LOG="/tmp/s7-settings-watchdog.log"
-# Valid S7 frame is 200KB–1MB. Black/uninitialised frames are <1KB.
-MIN_FRAME_BYTES=10000
-# Seconds to wait after ADB restart for camera hardware to initialise.
-ADB_BOOT_WAIT=60
+S7="http://192.168.0.249:8080"          # S7 / IP Webcam app — .249 per config.json + HARDWARE_INVENTORY (was wrongly .250 in June rev2 → 2 weeks of false STALLs); DHCP-reserve on the router
 
-stamp() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+PHOTO="/photo.jpg"                       # immediate snapshot endpoint (verified live 2026-06-25)
+LOG=/tmp/s7-settings-watchdog.log
+stamp(){ date -u +%Y-%m-%dT%H:%M:%SZ; }
 
-apply_settings() {
-    /usr/bin/curl -sS -m 5 "$S7/settings/focusmode?set=continuous-picture"  > /dev/null 2>&1 && fm=1 || fm=0
-    /usr/bin/curl -sS -m 5 "$S7/settings/orientation?set=portrait"          > /dev/null 2>&1 && or=1 || or=0
-    /usr/bin/curl -sS -m 5 "$S7/settings/photo_rotation?set=90"             > /dev/null 2>&1 && pr=1 || pr=0
-    echo "$(stamp) settings applied: fm=$fm or=$or pr=$pr" >> "$LOG"
-}
+apply(){ fm=0; or=0; pr=0
+  /usr/bin/curl -sS -m 5 "$S7/settings/focusmode?set=continuous-picture" >/dev/null 2>&1 && fm=1
+  /usr/bin/curl -sS -m 5 "$S7/settings/orientation?set=portrait"         >/dev/null 2>&1 && or=1
+  /usr/bin/curl -sS -m 5 "$S7/settings/photo_rotation?set=90"            >/dev/null 2>&1 && pr=1
+  echo "$(stamp) settings fm=$fm or=$or pr=$pr" >> "$LOG"; }
 
-# --- Step 1: check if IP Webcam is serving a real frame ---
-frame_bytes=$(/usr/bin/curl -sS -m 15 "$S7/photoaf.jpg" -o /dev/null -w "%{size_download}" 2>/dev/null || echo 0)
-
-if [ "$frame_bytes" -gt "$MIN_FRAME_BYTES" ]; then
-    # Serving valid frames — just keep settings correct.
-    echo "$(stamp) frame_ok bytes=$frame_bytes" >> "$LOG"
-    apply_settings
-    exit 0
-fi
-
-# --- Step 2: black screen or server down — try ADB restart via GWTC ---
-echo "$(stamp) black_screen_detected bytes=$frame_bytes — attempting ADB restart via GWTC" >> "$LOG"
-
-adb_result=$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes \
-    markb@"$GWTC" \
-    "$ADB shell am force-stop com.pas.webcam 2>&1 && $ADB shell monkey -p com.pas.webcam -c android.intent.category.LAUNCHER 1 2>&1" \
-    2>&1)
-adb_rc=$?
-
-if [ $adb_rc -eq 0 ]; then
-    echo "$(stamp) adb restart ok — waiting ${ADB_BOOT_WAIT}s for camera hardware init" >> "$LOG"
-    sleep "$ADB_BOOT_WAIT"
-    # Verify it came back
-    frame_bytes_after=$(/usr/bin/curl -sS -m 15 "$S7/photoaf.jpg" -o /dev/null -w "%{size_download}" 2>/dev/null || echo 0)
-    echo "$(stamp) post_restart frame_bytes=$frame_bytes_after" >> "$LOG"
-    apply_settings
+# Liveness by BYTE COUNT — the stall mode returns HTTP 200 with ~0 bytes, so TCP-up / HTTP-200
+# are not honest tests. A real frame is tens-to-hundreds of KB+.
+bytes=$(/usr/bin/curl -sS -m 15 "$S7$PHOTO" -o /dev/null -w "%{size_download}" 2>/dev/null || echo 0)
+if [ "${bytes:-0}" -gt 10000 ]; then
+  echo "$(stamp) frame_ok url=$S7$PHOTO bytes=$bytes" >> "$LOG"
+  apply
 else
-    # ADB not available yet (phone not connected to GWTC USB, or auth not granted).
-    # Apply settings anyway — sometimes this alone wakes a stuck server.
-    echo "$(stamp) adb unavailable (rc=$adb_rc) — applying settings only. result: $adb_result" >> "$LOG"
-    apply_settings
+  # No auto-recovery exists: standalone Wi-Fi cam, no USB host, GWTC gone. A stall needs the
+  # app reopened on the phone, or its background/keep-awake config restored so it stops dying.
+  echo "$(stamp) STALL url=$S7$PHOTO bytes=$bytes — NO auto-recovery (no USB host; GWTC decommissioned); needs app reopen / background-config fix" >> "$LOG"
 fi
