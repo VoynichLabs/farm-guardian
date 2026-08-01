@@ -45,6 +45,30 @@
 > **If the built-in goes missing, re-seat the hub before theorising** — and check the clamshell
 > state before blaming the lid, which is a mistake that was made and published here first.
 >
+> **🔌 THE BUS-POWERED HUB CANNOT CARRY THREE CAMERAS — GET A POWERED HUB (01-Aug-2026).**
+> Roughly two hours after the dashcam joined, both hub-attached cameras failed within ~2
+> minutes of each other (`usb-webcam-1080p` ~18:23, `jieli-dashcam` ~18:25) while the Air's
+> **internal** FaceTime camera never missed a frame. That split — everything on the hub dies,
+> the internal camera is untouched — is the whole diagnosis.
+>
+> The two failed differently, which is what makes it power rather than software:
+> - **`jieli-dashcam` fell off the USB bus entirely** — absent from `SPUSBDataType` and
+>   `SPCameraDataType`. It does **not** come back on its own; it needs a replug.
+> - **`usb-webcam-1080p` stayed enumerated but degraded to 640x480** instead of 1920x1080 —
+>   a starved device failing to negotiate its high-bandwidth mode. A service restart brought
+>   it straight back to full 1920x1080, so **the camera hardware is fine**.
+>
+> The dashcam alone requests the hub's entire budget (`Current Required: 500 mA` against
+> `Current Available: 500 mA`), before the other two draw anything.
+>
+> **Fix: an externally powered USB hub** — one with its own DC power brick, not merely a
+> "USB 3.0" hub. USB 2.0 speed is plenty for these cameras; the power is the point. Until
+> then, expect the hub cameras to drop while the internal one stays up. If only one external
+> camera can be kept, **keep the dashcam** — much better picture than the USB webcam.
+>
+> Do NOT diagnose this as a code or naming fault. The camera services behaved correctly
+> throughout: each refused to substitute a different camera and served 503 instead.
+
 > Plan: [`docs/01-Aug-2026-camera-rename-and-dashcam-plan.md`](docs/01-Aug-2026-camera-rename-and-dashcam-plan.md). CHANGELOG v2.57.0.
 
 > ### ⚠️ Corrections applied 2026-07-22 — read these before the tables below
