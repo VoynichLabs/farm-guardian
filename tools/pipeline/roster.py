@@ -33,9 +33,12 @@ from typing import Optional
 
 log = logging.getLogger("pipeline.roster")
 
-FLOCK_PROFILES_PATH = (
-    Path.home() / "Documents" / "GitHub" / "farm-2026" / "content" / "flock-profiles.json"
-)
+# Resolved from tools/pipeline/config.json, never hardcoded (01-Aug-2026).
+# This was `~/Documents/GitHub/farm-2026`, which is not a git checkout on this
+# machine, so the roster silently read nothing — see git_helper.farm_2026_root().
+from tools.pipeline.git_helper import farm_2026_root  # noqa: E402
+
+FLOCK_PROFILES_PATH = farm_2026_root() / "content" / "flock-profiles.json"
 
 # Re-read the file at most this often. The roster changes rarely (a rename,
 # a new hatch) — no need to stat+parse JSON on every VLM call.

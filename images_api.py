@@ -19,6 +19,15 @@
 #          approach. Files are written by ig_poster.post_gem_to_story before
 #          the container-create call and are served through the Cloudflare
 #          tunnel at guardian.markbarney.net.
+#
+#          01-Aug-2026: Added GET /api/v1/images/reel-assets/{filename} — the
+#          same treatment for the video lane. Reels were being committed into
+#          the farm-2026 git repo purely to obtain a .mp4-terminated public URL
+#          for Meta to fetch once; that had accumulated 346 files / 3.9 GB of
+#          write-once video in git history that no page ever served. Reels now
+#          stream from data/reel-assets/ and are swept after 48h by
+#          ig_poster._sweep_expired_assets. See
+#          farm-2026/docs/01-Aug-2026-reel-hosting-remediation-plan.md.
 # SRP/DRY check: Pass — single responsibility is the /api/v1/images/* HTTP
 #                surface. SQL lives in database.py; thumbnailing in
 #                images_thumb.py; auth in images_auth.py.
@@ -35,7 +44,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 
 from database import GuardianDB
 import images_thumb
@@ -59,6 +68,7 @@ _VALID_ORDERS = {"newest", "oldest", "random"}
 _VALID_IMAGE_SIZES = {"thumb", "1920", "full"}
 _SIZE_PX = {"thumb": 480, "1920": 1920, "full": 0}
 _VALID_STORY_ASSET_EXTENSIONS = {".jpg", ".jpeg", ".png"}
+_VALID_REEL_ASSET_EXTENSIONS = {".mp4"}
 
 _PUBLIC_CACHE_LIST = "public, max-age=60, s-maxage=300"
 _PUBLIC_CACHE_IMAGE = "public, max-age=86400, immutable"
@@ -184,6 +194,12 @@ def build_images_router(db: GuardianDB, config: dict) -> APIRouter:
         story_assets_dir
         if story_assets_dir.is_absolute()
         else data_root / story_assets_dir
+    )
+    reel_assets_dir = Path(images_cfg.get("reel_assets_dir", "reel-assets"))
+    reel_assets_root = (
+        reel_assets_dir
+        if reel_assets_dir.is_absolute()
+        else data_root / reel_assets_dir
     )
     images_thumb.configure(data_root)
 
@@ -379,6 +395,50 @@ def build_images_router(db: GuardianDB, config: dict) -> APIRouter:
         return Response(
             content=asset_path.read_bytes(),
             media_type=_story_asset_media_type(asset_path),
+            headers={"Cache-Control": _PUBLIC_CACHE_IMAGE},
+        )
+
+    @router.get("/reel-assets/{filename}")
+    async def get_reel_asset(filename: str, request: Request):
+        """Serve IG/FB Reel MP4s from the Mac Mini via extension URLs.
+
+        Same contract as /story-assets, for the video lane: Meta's media
+        fetcher requires the URL itself to end in .mp4, which is the entire
+        reason reels used to be committed into the farm-2026 repo and served
+        off raw.githubusercontent.com. Serving them here instead keeps ~1 GB
+        a month of write-once video out of git (01-Aug-2026).
+
+        FileResponse — not Response(read_bytes()) — on purpose: reels run
+        5–33 MB and Meta's video fetcher issues ranged GETs during ingest.
+        Starlette's FileResponse streams and honours Range; a plain Response
+        would load the whole clip into memory and answer 200 to every range.
+        """
+        rid = _req_id(request)
+
+        def _miss():
+            # NEVER let a 404 be cached on this path. Cloudflare fronts this
+            # hostname and caches 404s for 4h (verified 01-Aug-2026:
+            # cf-cache-status: HIT, cache-control: max-age=14400 on a missing
+            # reel URL). If Meta's fetcher ever hit a reel URL a moment before
+            # the file landed, the edge would keep serving that 404 back to it
+            # long after the file existed, and the reel would fail to ingest
+            # with nothing wrong on the origin. Unique timestamped filenames
+            # make the race unlikely; no-store makes it impossible.
+            resp = _error("not_found", "reel asset not found", 404, rid)
+            resp.headers["Cache-Control"] = _PRIVATE_CACHE
+            return resp
+
+        requested = Path(filename)
+        if requested.name != filename or requested.suffix.lower() not in _VALID_REEL_ASSET_EXTENSIONS:
+            return _miss()
+
+        asset_path = reel_assets_root / filename
+        if not asset_path.is_file():
+            return _miss()
+
+        return FileResponse(
+            asset_path,
+            media_type="video/mp4",
             headers={"Cache-Control": _PUBLIC_CACHE_IMAGE},
         )
 

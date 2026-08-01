@@ -33,6 +33,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -47,6 +48,40 @@ log = logging.getLogger("pipeline.git_helper")
 # accidentally commit a stray .DS_Store, .txt sidecar, or arbitrary
 # binary. Stored lowercase; comparison is case-insensitive.
 _ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".mp4"}
+
+# Fallback if config is unreadable. Kept only so an import-time constant in a
+# caller can't explode; every real caller should get the config value.
+_FARM_2026_FALLBACK = Path.home() / "GitHub" / "farm-2026"
+_PIPELINE_CONFIG_FILE = Path(__file__).resolve().parent / "config.json"
+
+
+def farm_2026_root() -> Path:
+    """Resolve the farm-2026 checkout from tools/pipeline/config.json.
+
+    THE single place that answers "where is farm-2026?". Added 01-Aug-2026
+    after three modules (bird_photo_ingest, roster, daily_reel_runner) were
+    found hardcoding `~/Documents/GitHub/farm-2026` — a path that is NOT a git
+    checkout on this machine. They had been silently writing yard-diary frames
+    and diary notes into a dead directory since ~30-Jul-2026, so /yard went
+    stale and the timelapse stockpile grew a hole. orchestrator.py and
+    daily_reel_runner's tick already read `instagram.farm_2026_repo_path`
+    correctly; this makes that the only way anyone gets the path.
+    """
+    try:
+        cfg = json.loads(_PIPELINE_CONFIG_FILE.read_text(encoding="utf-8"))
+        value = (cfg.get("instagram") or {}).get("farm_2026_repo_path", "")
+        if value:
+            return Path(value).expanduser()
+        log.warning(
+            "instagram.farm_2026_repo_path missing from %s; falling back to %s",
+            _PIPELINE_CONFIG_FILE, _FARM_2026_FALLBACK,
+        )
+    except Exception as exc:
+        log.warning(
+            "could not read farm_2026_repo_path from %s (%s); falling back to %s",
+            _PIPELINE_CONFIG_FILE, exc, _FARM_2026_FALLBACK,
+        )
+    return _FARM_2026_FALLBACK
 
 
 class GitHelperError(RuntimeError):

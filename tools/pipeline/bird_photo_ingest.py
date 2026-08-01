@@ -71,6 +71,7 @@ from tools.pipeline.git_helper import (  # noqa: E402
     _git,
     _push_with_rebase_retry,
     commit_image_to_farm_2026,
+    farm_2026_root,
 )
 from tools.pipeline.roster import get_all_names  # noqa: E402
 from tools.pipeline.vlm_enricher import (  # noqa: E402
@@ -82,7 +83,10 @@ from tools.pipeline.vlm_enricher import (  # noqa: E402
 log = logging.getLogger("pipeline.bird_photo_ingest")
 
 # --- paths ------------------------------------------------------------------
-FARM_2026_ROOT = Path.home() / "Documents" / "GitHub" / "farm-2026"
+# Resolved from tools/pipeline/config.json, never hardcoded (01-Aug-2026).
+# This was `~/Documents/GitHub/farm-2026`, which is not a git checkout on this
+# machine — see git_helper.farm_2026_root() for the full story.
+FARM_2026_ROOT = farm_2026_root()
 FLOCK_PROFILES_PATH = FARM_2026_ROOT / "content" / "flock-profiles.json"
 _PIPE_DIR = Path(__file__).resolve().parent
 

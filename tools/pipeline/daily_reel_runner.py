@@ -50,6 +50,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tools.pipeline.caption_brand import BRAND_RULES, brand_violations  # noqa: E402
+from tools.pipeline.git_helper import farm_2026_root  # noqa: E402
 
 MARK_DISCORD_USER_ID = "293569238386606080"
 
@@ -621,7 +622,12 @@ def _build_reel_caption(
     return build_caption(journal_body=journal, hashtags=tags)
 
 
-FARM_DIARY_DIR = Path.home() / "Documents" / "GitHub" / "farm-2026" / "content" / "diary"
+# Both resolved from tools/pipeline/config.json, never hardcoded (01-Aug-2026).
+# These were `~/Documents/GitHub/farm-2026`, which is not a git checkout on this
+# machine — so captions were reading an empty diary and an absent roster, and
+# losing bird names for exactly the reason the comment below worried about.
+# See git_helper.farm_2026_root().
+FARM_DIARY_DIR = farm_2026_root() / "content" / "diary"
 
 # The flock roster — the living birds' names, breeds and personalities. This is
 # the durable source of NAMES for captions; the diary is not. As of 23-Jul-2026
@@ -629,9 +635,7 @@ FARM_DIARY_DIR = Path.home() / "Documents" / "GitHub" / "farm-2026" / "content" 
 # bird in recent captions came from it, so when it ages out the captions would
 # have lost names entirely. This file is actively maintained (last touched
 # 22-Jul-2026) and carries 35 birds.
-FLOCK_PROFILES_PATH = (
-    Path.home() / "Documents" / "GitHub" / "farm-2026" / "content" / "flock-profiles.json"
-)
+FLOCK_PROFILES_PATH = farm_2026_root() / "content" / "flock-profiles.json"
 
 
 # Diary entries older than this are treated as stale and never injected into

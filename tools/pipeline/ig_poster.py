@@ -1,5 +1,17 @@
-# Author: Claude Opus 4.7 (1M context); Claude Fable 5 (16-Jul-2026 — scene-mapped photo subdir + Birdcatraz scene/hashtag buckets, v2.46.0; build_caption's default sign_off now rotates day-of-year instead of one hardcoded literal, D11, v2.48.0)
-# Date: 20-April-2026 (Phase 4 core + Phase 6 predicate/hashtags 20-Apr-2026; Phase 2 stories 20-Apr-2026; FB crosspost hooks 20-Apr-2026; Birdcatraz scene routing 16-Jul-2026; sign-off rotation 16-Jul-2026)
+# Author: Claude Opus 4.7 (1M context); Claude Fable 5 (16-Jul-2026 — scene-mapped photo subdir + Birdcatraz scene/hashtag buckets, v2.46.0; build_caption's default sign_off now rotates day-of-year instead of one hardcoded literal, D11, v2.48.0); Claude Opus 5 (01-Aug-2026 — reel lane off git onto tunnel-hosted assets + TTL sweep)
+# Date: 20-April-2026 (Phase 4 core + Phase 6 predicate/hashtags 20-Apr-2026; Phase 2 stories 20-Apr-2026; FB crosspost hooks 20-Apr-2026; Birdcatraz scene routing 16-Jul-2026; sign-off rotation 16-Jul-2026; reel asset hosting 01-Aug-2026)
+#
+#          01-Aug-2026 — REELS NO LONGER TOUCH GIT. post_reel_to_ig used to
+#          call commit_image_to_farm_2026(), committing every MP4 into the
+#          farm-2026 repo purely to obtain a .mp4-terminated public URL for
+#          Meta to fetch once. That banked 346 clips / 3.9 GB of write-once
+#          video in git history — 79% of public/photos/, none of it ever
+#          served to a visitor. Reels now copy to data/reel-assets/ and post
+#          the guardian.markbarney.net/api/v1/images/reel-assets/<name>.mp4
+#          URL, exactly like the Story lane has done since 04-May-2026.
+#          _sweep_expired_assets reaps both asset dirs after 48h (nothing
+#          had ever swept story-assets/, which had reached 919 MB).
+#          Plan: farm-2026/docs/01-Aug-2026-reel-hosting-remediation-plan.md
 # PURPOSE: Post curated gems to Instagram @pawel_and_pawleen via Meta
 #          Graph API. Parallels gem_poster.py (which posts to Discord)
 #          but with a multi-step container+publish flow required by
@@ -76,6 +88,12 @@ _IG_CAPTION_MAX_CHARS = 2200
 _IG_HASHTAG_MAX_COUNT = 30
 _STORY_PUBLIC_BASE_URL = "https://guardian.markbarney.net"
 _STORY_ASSET_DIRNAME = "story-assets"
+_REEL_ASSET_DIRNAME = "reel-assets"
+# How long a locally-hosted story/reel asset survives after publish. Meta
+# fetches the URL once during container ingest and serves its own CDN copy
+# afterwards, so anything past this window is dead weight. Generous enough to
+# allow a same-day retry; short enough that the directory reaches steady state.
+_ASSET_TTL_HOURS = 48
 _PIPELINE_CONFIG_FILE = Path(__file__).resolve().parent / "config.json"
 
 
@@ -966,6 +984,68 @@ def _publish_story_asset(prepared_image: Path, db_path: Path, filename: str) -> 
     return asset_path, _story_asset_url(filename)
 
 
+def _reel_asset_root(db_path: Path) -> Path:
+    """Reel MP4s live beside the Story assets under data/."""
+    return db_path.parent / _REEL_ASSET_DIRNAME
+
+
+def _reel_asset_url(filename: str) -> str:
+    return f"{_story_public_base_url()}/api/v1/images/reel-assets/{filename}"
+
+
+def _publish_reel_asset(reel_mp4: Path, db_path: Path, filename: str) -> tuple[Path, str]:
+    """Copy a rendered reel MP4 into the local public asset store.
+
+    Returns (asset_path, public_url). Replaces the previous
+    commit_image_to_farm_2026() call for the reel lane (01-Aug-2026): the MP4
+    exists only so Meta can fetch it once during container ingest, and
+    committing it to git was banking ~1 GB a month of write-once video that no
+    page on farm.markbarney.net has ever served. Same pattern the Story lane
+    has used since 04-May-2026.
+    """
+    requested = Path(filename)
+    if requested.name != filename or requested.suffix.lower() != ".mp4":
+        raise ValueError(f"invalid reel asset filename: {filename!r}")
+
+    asset_root = _reel_asset_root(db_path)
+    asset_root.mkdir(parents=True, exist_ok=True)
+    asset_path = asset_root / filename
+    shutil.copy2(reel_mp4, asset_path)
+    return asset_path, _reel_asset_url(filename)
+
+
+def _sweep_expired_assets(db_path: Path, max_age_hours: int = _ASSET_TTL_HOURS) -> int:
+    """Delete locally-hosted Story/Reel assets older than max_age_hours.
+
+    These files are pure transport: Meta fetches each one during container
+    ingest (30–60s for a reel) and serves its own CDN copy forever after. Once
+    the post is live the local file is dead weight.
+
+    Nothing swept these before, which is why data/story-assets/ had grown to
+    919 MB / 1653 files by 01-Aug-2026. The TTL is generous on purpose — a
+    failed post can be retried within the window — but the whole point is that
+    the directory reaches a steady state instead of growing forever.
+
+    Best-effort: returns the number of files removed and never raises, because
+    a housekeeping failure must not take down a publish that already succeeded.
+    """
+    cutoff = datetime.now(timezone.utc).timestamp() - (max_age_hours * 3600)
+    removed = 0
+    for root in (_story_asset_root(db_path), _reel_asset_root(db_path)):
+        if not root.is_dir():
+            continue
+        for path in root.iterdir():
+            try:
+                if path.is_file() and path.stat().st_mtime < cutoff:
+                    path.unlink()
+                    removed += 1
+            except OSError as exc:
+                log.warning("asset sweep: could not remove %s: %s", path, exc)
+    if removed:
+        log.info("asset sweep: removed %d expired story/reel asset(s)", removed)
+    return removed
+
+
 def _create_story_container(
     ig_id: str,
     image_url: str,
@@ -1330,7 +1410,7 @@ def post_reel_to_ig(
     reel_mp4_path: Optional[Path],
     caption: str,
     db_path: Path,
-    farm_2026_repo_path: Path,
+    farm_2026_repo_path: Optional[Path] = None,
     associated_gem_ids: Optional[list[int]] = None,
     dry_run: bool = False,
 ) -> dict:
@@ -1341,6 +1421,13 @@ def post_reel_to_ig(
           Path to the MP4 produced by reel_stitcher.stitch_gems_to_reel.
           Required on live runs; optional on dry-run (a synthetic URL
           is predicted in that case).
+      farm_2026_repo_path
+          UNUSED since 01-Aug-2026. The reel lane no longer commits the MP4
+          into farm-2026 — it hosts it off the Mini through the Cloudflare
+          tunnel instead (see _publish_reel_asset). Kept as an optional
+          parameter so the four existing call sites keep working unchanged;
+          drop it from the signature and from those callers in one sweep
+          whenever this file is next touched for other reasons.
       caption
           Full caption (journal body + hashtags + sign-off). Same
           2200-char limit as feed posts.
@@ -1393,10 +1480,9 @@ def post_reel_to_ig(
                 f"caption is {len(caption)} chars; IG max is {_IG_CAPTION_MAX_CHARS}"
             )
 
-        # Predict the URL subdir + filename regardless of dry-vs-live so
-        # dry-run can return a realistic raw_url.
-        ym = datetime.now(timezone.utc).strftime("%Y-%m")
-        subdir = f"reels/{ym}"
+        # Resolve the asset filename regardless of dry-vs-live so dry-run can
+        # return a realistic URL. (The old reels/YYYY-MM git subdir is gone —
+        # assets are flat under data/reel-assets/ and swept after 48h.)
         if reel_mp4_path is None:
             # Dry-run without a real MP4 — synthesize a filename. Operator
             # won't see this file; the URL exists purely for audit.
@@ -1407,12 +1493,9 @@ def post_reel_to_ig(
             stamped_name = reel_mp4_path.name
 
         if dry_run:
-            result["raw_url"] = (
-                f"https://raw.githubusercontent.com/VoynichLabs/farm-2026/main/"
-                f"public/photos/{subdir}/{stamped_name}"
-            )
+            result["raw_url"] = _reel_asset_url(stamped_name)
             log.info(
-                "ig_poster REEL DRY RUN: would commit %s -> %s and post reel",
+                "ig_poster REEL DRY RUN: would host %s -> %s and post reel",
                 reel_mp4_path or "(synthetic)", result["raw_url"],
             )
             return result
@@ -1429,16 +1512,16 @@ def post_reel_to_ig(
         # a 0-byte or corrupt file without burning a Graph API call.
         _ffprobe_sanity(reel_mp4_path)
 
-        # Commit the MP4 to farm-2026 + push. Reuses the same helper
-        # as photos/stories; its extension whitelist now includes .mp4.
-        committed_path, raw_url = commit_image_to_farm_2026(
-            local_image=reel_mp4_path,
-            subdir=subdir,
-            repo_path=farm_2026_repo_path,
-            commit_message=(
-                f"public/photos/{subdir}: reel from gems "
-                f"{gem_ids[:3]}{'...' if len(gem_ids) > 3 else ''} (ig auto)"
-            ),
+        # Host the MP4 off the Mini through the Cloudflare tunnel. It is NOT
+        # committed to farm-2026 (01-Aug-2026): the file exists only so Meta
+        # can fetch it once during ingest, and git was archiving it forever —
+        # 346 clips / 3.9 GB that no page on the site ever served. Same pattern
+        # the Story lane has used since 04-May-2026. Swept after
+        # _ASSET_TTL_HOURS by _sweep_expired_assets below.
+        asset_path, raw_url = _publish_reel_asset(
+            reel_mp4=reel_mp4_path,
+            db_path=db_path,
+            filename=stamped_name,
         )
         result["raw_url"] = raw_url
 
@@ -1500,6 +1583,12 @@ def post_reel_to_ig(
             "reel", video_url=raw_url, caption=caption,
         )
         result["fb_post_id"] = fb.get("fb_post_id")
+
+        # Housekeeping, only after BOTH platforms have ingested: sweep any
+        # story/reel asset past its TTL. Deliberately not deleting THIS reel
+        # immediately — FB's fetch above is the last consumer, but a 48h
+        # window costs nothing and leaves room to retry a failed publish.
+        _sweep_expired_assets(db_path)
 
     except IGPosterError:
         raise

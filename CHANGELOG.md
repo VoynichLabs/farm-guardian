@@ -2,6 +2,25 @@
 
 All notable changes to Farm Guardian are documented here. Follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased] - 2026-08-01
+
+### v2.56.0 — Reels off git onto tunnel-hosted assets; asset TTL sweep; stale-path bugs (Claude Opus 5) — 01-Aug-2026
+
+**What:** `post_reel_to_ig` no longer commits the MP4 into farm-2026. Reels are hosted from `data/reel-assets/` and served through the Cloudflare tunnel, the same way Story assets have been since 04-May-2026.
+
+**Why:** A reel MP4 exists so Meta can fetch it **once** at container ingest; afterwards Meta serves its own CDN copy and the file is dead weight. Committing them had banked **346 clips / 3.9 GB** in farm-2026's git history — 79% of its `public/photos/` and ~1 GB/month of growth — for media no page on that site has ever linked to. Same class of problem as v2.55.2's duo2 archive, one repo over.
+
+**How:**
+- `images_api.py` — `GET /api/v1/images/reel-assets/{filename}`, mirroring the story-asset route. Two deliberate differences: **`FileResponse`** so 5–33 MB clips stream and honour ranged GETs (Meta's video fetcher issues them; a plain `Response` would buffer the whole clip and answer 200 to every range), and **`Cache-Control: no-store` on 404s** — Cloudflare fronts this hostname and caches 404s for 4 h (verified: `cf-cache-status: HIT`, `max-age=14400`), so a request that raced the file write could otherwise keep a reel URL dead at the edge long after the origin was fine.
+- `ig_poster.py` — `_reel_asset_root` / `_reel_asset_url` / `_publish_reel_asset` replace the `commit_image_to_farm_2026` call in the reel lane. `farm_2026_repo_path` becomes an unused optional param so the four existing call sites keep working; drop it in a later sweep.
+- `ig_poster._sweep_expired_assets` — new 48 h TTL reaper covering **both** asset dirs, called after the FB cross-post (i.e. once both platforms have ingested). Nothing had ever swept `data/story-assets/`: it had grown to **919 MB / 1653 files**. First run took it to 28 MB / 40 files.
+
+**Fixed — three modules were reading a path that isn't a git checkout.** `bird_photo_ingest.py`, `roster.py`, and `daily_reel_runner.py` hardcoded `~/Documents/GitHub/farm-2026`. That directory exists but has no `.git`, so the reel captioner was reading an **absent roster and an empty diary** — the direct cause of captions losing bird names, which `daily_reel_runner`'s own comment worried about without diagnosing. All three now call the new `git_helper.farm_2026_root()`, which reads `instagram.farm_2026_repo_path` from `tools/pipeline/config.json` the way `orchestrator.py` always did. One resolver, one config key.
+
+**Fixed — the deployed yard-diary capture script had drifted from the repo.** `~/bin/yard-diary-capture.py` (what launchd actually runs) still pointed at `~/Documents/GitHub/...` for both `MASTERS_DIR` and `SITE_REPO`, while `scripts/yard-diary-capture.py` here was already correct. Frames and 4K masters had been landing in dead directories since ~30-Jul, so farm-2026's `/yard` went three days stale and the year-end timelapse stockpile grew a hole. Repo version redeployed to `~/bin/`; 5 orphaned frames + masters recovered. **2026-07-30 is unrecoverable** — those three frames were written to neither location.
+
+**Verified live:** endpoint returns 200 / 9,131,959 bytes through the tunnel for a real clip, ranged GET honoured, traversal and wrong-extension probes 404, missing-file 404 now `cf-cache-status: BYPASS`. Sweep confirmed to remove >48 h files and keep fresh ones.
+
 ## [Unreleased] - 2026-07-30
 
 ### v2.55.2 — duo2 raw archive was eating ~33GB/day; downscale-on-save + 48h retention (Claude Opus 5) — 30-Jul-2026
