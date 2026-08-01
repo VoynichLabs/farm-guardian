@@ -29,8 +29,9 @@ log = logging.getLogger("pipeline.gem_poster")
 _USERNAME_BY_CAMERA = {
     "s7-cam": "S7 Birdcatraz",
     "house-yard": "Yard",
-    "mba-cam": "Turkey Pen",
-    "usb-cam": "Coop Run",
+    "macbook-air-facetime": "Turkey Pen",
+    "usb-webcam-1080p": "Coop Run",
+    "jieli-dashcam": "Yard Wide",
     "gwtc": "Coop",
     "iphone": "Boss's iPhone",
 }
@@ -43,7 +44,14 @@ _USERNAME_BY_CAMERA = {
 # time-lapse-only material; vlm_bypass=true in config means the VLM
 # never runs for them, but this frozenset is the belt-and-suspenders
 # block. The two levers (vlm_bypass + this set) must stay in sync.
-_GEM_POST_DISABLED_CAMERAS = frozenset({"mba-cam", "gwtc", "usb-cam", "dominator-cam"})
+# 01-Aug-2026: cameras renamed to say what they are (usb-cam ->
+# usb-webcam-1080p, mba-cam -> macbook-air-facetime) and jieli-dashcam
+# added — the dashcam is a wide establishing shot of the whole yard in
+# which birds are specks, so it is time-lapse material, never a gem.
+_GEM_POST_DISABLED_CAMERAS = frozenset({
+    "macbook-air-facetime", "gwtc", "usb-webcam-1080p", "dominator-cam",
+    "jieli-dashcam",
+})
 
 # Minimum overall_score for a Discord gem post. v2.45.0 (12-Jul-2026, per
 # Boss): the score moved to a 0-100 scale computed in orchestrator from four
@@ -74,7 +82,7 @@ _REJECT_COMPOSITIONS_NON_S7 = frozenset({"cluttered", "empty"})
 # Cameras not in this dict are NOT gated on subject size.
 # s7-cam is intentionally absent (Boss said don't touch it).
 _LARGEST_SUBJECT_PCT_MIN = {
-    "mba-cam": 15,
+    "macbook-air-facetime": 15,
     "gwtc":    25,
 }
 

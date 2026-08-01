@@ -1093,7 +1093,7 @@ def select_timelapse_gems(
 
 
 def select_mba_cam_timelapse_gems(db_path: Path, cfg: dict) -> list[int]:
-    return select_timelapse_gems("mba-cam", db_path, cfg)
+    return select_timelapse_gems("macbook-air-facetime", db_path, cfg)
 
 
 def select_gwtc_timelapse_gems(db_path: Path, cfg: dict) -> list[int]:
@@ -1101,7 +1101,7 @@ def select_gwtc_timelapse_gems(db_path: Path, cfg: dict) -> list[int]:
 
 
 def select_usb_cam_timelapse_gems(db_path: Path, cfg: dict) -> list[int]:
-    return select_timelapse_gems("usb-cam", db_path, cfg)
+    return select_timelapse_gems("usb-webcam-1080p", db_path, cfg)
 
 
 def select_dominator_cam_timelapse_gems(db_path: Path, cfg: dict) -> list[int]:

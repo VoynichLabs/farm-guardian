@@ -235,7 +235,7 @@ def _run_vlm(image_bytes: bytes) -> Optional[dict]:
     # context as soft prompt guidance (we only consume count/composition/
     # caption from the result, so the exact context is not load-bearing).
     cameras = cfg.get("cameras", {})
-    camera_name = "usb-cam" if "usb-cam" in cameras else next(iter(cameras), "usb-cam")
+    camera_name = "usb-webcam-1080p" if "usb-webcam-1080p" in cameras else next(iter(cameras), "usb-webcam-1080p")
     cam_ctx = cameras.get(camera_name, {}).get("context", "")
 
     lm_base = cfg.get("lm_studio_base", "http://localhost:1234")

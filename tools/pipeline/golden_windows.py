@@ -252,7 +252,7 @@ if __name__ == "__main__":
 
     gw = {
         "enabled": True,
-        "cameras": ["usb-cam", "dominator-cam"],
+        "cameras": ["usb-webcam-1080p", "dominator-cam"],
         "timezone": TZ,
         "latitude": FARM_LAT,
         "longitude": FARM_LON,
@@ -274,6 +274,6 @@ if __name__ == "__main__":
     assert is_dt_in_golden_windows(t_evening, gw) is True
     assert is_dt_in_golden_windows(t_predawn, gw) is False
     # camera gating
-    assert camera_uses_golden_windows("usb-cam", gw) is True
+    assert camera_uses_golden_windows("usb-webcam-1080p", gw) is True
     assert camera_uses_golden_windows("s7-cam", gw) is False
     print("golden_windows self-test: ALL PASS")

@@ -206,7 +206,7 @@ def _calibrate_static_floor_pecking_score(camera_name: str, metadata: dict) -> b
     those cases aligned with the prompt rubric before storage/posting.
     Returns True when metadata was changed.
     """
-    if camera_name not in {"usb-cam", "gwtc"}:
+    if camera_name not in {"usb-webcam-1080p", "gwtc"}:
         return False
     if metadata.get("scene") not in {"brooder", "coop"}:
         return False

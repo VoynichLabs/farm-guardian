@@ -63,15 +63,15 @@ def run_synthetic_cases() -> int:
                          should_post(_meta(image_quality="sharp", bird_face_visible=True,
                                            activity="foraging", composition="portrait",
                                            caption_draft="Birdadette, solid-black, posing front-and-center."),
-                                     "strong", "mba-cam"), False)
+                                     "strong", "macbook-air-facetime"), False)
 
     # Universal rejects.
     fails += not _expect("share_worth=skip rejects",
-                         should_post(_meta(share_worth="skip"), "strong", "mba-cam"), False)
+                         should_post(_meta(share_worth="skip"), "strong", "macbook-air-facetime"), False)
     fails += not _expect("bird_count=0 rejects",
-                         should_post(_meta(bird_count=0), "strong", "mba-cam"), False)
+                         should_post(_meta(bird_count=0), "strong", "macbook-air-facetime"), False)
     fails += not _expect("blurred rejects",
-                         should_post(_meta(image_quality="blurred"), "strong", "mba-cam"), False)
+                         should_post(_meta(image_quality="blurred"), "strong", "macbook-air-facetime"), False)
 
     # v2.45.0 tier + score gate on the 0-100 scale (12-Jul-2026, per Boss).
     # v2.45.2 (13-Jul-2026, per Boss): floor lowered 80 -> 70. tier must be
@@ -103,9 +103,9 @@ def run_synthetic_cases() -> int:
 
     # v2.37.2 activity gate (non-s7).
     fails += not _expect("mba-cam huddling rejects",
-                         should_post(_meta(activity="huddling"), "strong", "mba-cam"), False)
+                         should_post(_meta(activity="huddling"), "strong", "macbook-air-facetime"), False)
     fails += not _expect("mba-cam sleeping rejects",
-                         should_post(_meta(activity="sleeping"), "strong", "mba-cam"), False)
+                         should_post(_meta(activity="sleeping"), "strong", "macbook-air-facetime"), False)
     fails += not _expect("gwtc sleeping rejects",
                          should_post(_meta(activity="sleeping"), "strong", "gwtc"), False)
     fails += not _expect("s7 huddling STILL accepts (opted out of v2.37.2)",
@@ -113,9 +113,9 @@ def run_synthetic_cases() -> int:
 
     # Composition gate.
     fails += not _expect("mba-cam cluttered rejects",
-                         should_post(_meta(composition="cluttered"), "strong", "mba-cam"), False)
+                         should_post(_meta(composition="cluttered"), "strong", "macbook-air-facetime"), False)
     fails += not _expect("mba-cam empty rejects",
-                         should_post(_meta(composition="empty", bird_count=1), "strong", "mba-cam"), False)
+                         should_post(_meta(composition="empty", bird_count=1), "strong", "macbook-air-facetime"), False)
 
     # Subject-with-crowd rescue (Boss's 23-Apr-2026 counter-example):
     # a chick poses close to the lens with others in the background.
@@ -134,27 +134,27 @@ def run_synthetic_cases() -> int:
                                      "strong", "test-cam"), True)
     fails += not _expect("mba-cam group bc=10 HUDDLING rejects (the old bad pattern)",
                          should_post(_meta(composition="group", bird_count=10, activity="huddling"),
-                                     "strong", "mba-cam"), False)
+                                     "strong", "macbook-air-facetime"), False)
 
     # Caption hygiene.
     fails += not _expect("generic 'A group of fluffy chicks...' rejects",
                          should_post(_meta(caption_draft="A group of fluffy chicks huddle together."),
-                                     "strong", "mba-cam"), False)
+                                     "strong", "macbook-air-facetime"), False)
     fails += not _expect("generic 'A group of small fluffy chicks...' rejects",
                          should_post(_meta(caption_draft="A group of small fluffy chicks huddling together in a brooder near a red feeder."),
-                                     "strong", "mba-cam"), False)
+                                     "strong", "macbook-air-facetime"), False)
     fails += not _expect("generic 'Cute baby birds.' rejects",
                          should_post(_meta(caption_draft="Cute baby birds."),
-                                     "strong", "mba-cam"), False)
+                                     "strong", "macbook-air-facetime"), False)
     fails += not _expect("generic 'Chicks in the brooder.' rejects",
                          should_post(_meta(caption_draft="Chicks in the brooder."),
-                                     "strong", "mba-cam"), False)
+                                     "strong", "macbook-air-facetime"), False)
     fails += not _expect("generic 'Baby chicks under the heat lamp.' rejects",
                          should_post(_meta(caption_draft="Baby chicks under the heat lamp."),
-                                     "strong", "mba-cam"), False)
+                                     "strong", "macbook-air-facetime"), False)
     fails += not _expect("non-ASCII caption rejects",
                          should_post(_meta(caption_draft="A chick under the heat lamp 籠 bedding"),
-                                     "strong", "mba-cam"), False)
+                                     "strong", "macbook-air-facetime"), False)
     fails += not _expect("specific single-chick caption passes (not overly aggressive)",
                          should_post(_meta(caption_draft="A small chick with orange markings pecking at the feeder."),
                                      "strong", "test-cam"), True)
@@ -175,7 +175,7 @@ def run_synthetic_cases() -> int:
                          should_post(_meta(image_quality="soft"), "strong", "test-cam"), True)
     fails += not _expect("mba-cam soft no face no crowd rejects",
                          should_post(_meta(image_quality="soft", bird_face_visible=False, bird_count=1),
-                                     "strong", "mba-cam"), False)
+                                     "strong", "macbook-air-facetime"), False)
 
     print(f"synthetic: {fails} failure(s)")
     return fails
@@ -189,7 +189,7 @@ def replay_archived_frames() -> None:
     print("=== archived-frame replay (informational) ===")
     repo_root = Path(__file__).resolve().parents[2]
     gem_dir = repo_root / "data" / "gems" / "2026-04"
-    for cam in ("mba-cam", "gwtc"):
+    for cam in ("macbook-air-facetime", "gwtc"):
         cam_dir = gem_dir / cam
         if not cam_dir.exists():
             print(f"  {cam}: no archive dir")

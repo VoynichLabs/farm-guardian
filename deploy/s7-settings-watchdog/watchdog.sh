@@ -17,6 +17,13 @@
 #     SM-G930F is ~5W, and this phone has a documented history of browning out on weak
 #     power, so keep the screen off/dim and treat power as the first suspect on any new
 #     stall. Diagnostic: tools/s7-charge-diagnose.sh.
+#   - PORT IS SETTLED — DO NOT RE-TEST. Every theory is closed: known-good data cable,
+#     plugged direct into the mini (no hub), port physically cleaned with a toothpick, and
+#     a forced restart (Vol Down + Power — the sealed-battery equivalent of a battery pull,
+#     which rebuilds charge-controller state from scratch). The USB bus was polled every 2s
+#     for 12 min straight through that reboot and the Samsung VID never appeared once. Note
+#     the deeper firmware remedies (Odin reflash, recovery sideload) all REQUIRE working USB
+#     and are therefore foreclosed by the very fault they'd be fixing.
 #   - It is NOT USB-tethered to any computer, and cannot be — see POWER. There is therefore
 #     NO adb path at all: adb-over-USB needs a working port, and adb-over-network is refused
 #     (5555 closed) because Android 8.0.0 predates wireless-debugging pairing and enabling

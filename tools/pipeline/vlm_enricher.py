@@ -389,7 +389,7 @@ if __name__ == "__main__":
     prompt_template = prompt_path.read_text()
 
     image_path = sys.argv[1]
-    camera_name = sys.argv[2] if len(sys.argv) > 2 else "usb-cam"
+    camera_name = sys.argv[2] if len(sys.argv) > 2 else "usb-webcam-1080p"
     cam_cfg = cfg["cameras"][camera_name]
     image_bytes = Path(image_path).read_bytes()
 

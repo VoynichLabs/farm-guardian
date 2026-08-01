@@ -70,7 +70,8 @@
    "timelapse_reel_min_frames": 6,
    "timelapse_reel_daylight_only_cameras": [
     "gwtc",
-    "usb-cam"
+    "usb-webcam-1080p",
+    "jieli-dashcam"
    ],
    "timelapse_reel_daylight_start_hour": 6,
    "timelapse_reel_daylight_end_hour": 20,
@@ -78,7 +79,7 @@
    "timelapse_golden_windows": {
     "enabled": true,
     "cameras": [
-     "usb-cam",
+     "usb-webcam-1080p",
      "dominator-cam"
     ],
     "timezone": "America/New_York",
@@ -113,15 +114,15 @@
    "enabled": true,
    "raw_retention_hours": 48
   },
-  "usb-cam": {
+  "usb-webcam-1080p": {
    "cycle_seconds": 2,
    "offpeak_cycle_seconds": 180,
    "raw_retention_hours": 48,
    "capture_method": "ip_webcam",
-   "ip_webcam_base": "http://192.168.0.69:8089",
+   "ip_webcam_base": "http://192.168.0.50:8090",
    "photo_path": "/photo.jpg",
    "trigger_focus": false,
-   "context": "Cheap generic USB webcam (UVC, 1920x1080, lower image quality than the S7) mounted inside the CHICKEN COOP RUN (part of BIRDCATRAZ, the outdoor enclosed poultry area), watching the flock in natural daylight. Subjects: adult and adolescent chickens, mixed rare/exotic breeds \u2014 the whole flock is grown or nearly grown now. NO chicks in this view. Camera angle is fixed and may be partially obstructed by birds very close to the lens. Score conservatively \u2014 this is a budget sensor and a 7 here is a genuinely good shot for this camera.",
+   "context": "Cheap generic USB webcam (UVC, 1920x1080, lower image quality than the S7) mounted inside the CHICKEN COOP RUN (part of BIRDCATRAZ, the outdoor enclosed poultry area), watching the flock in natural daylight. Subjects: adult and adolescent chickens, mixed rare/exotic breeds — the whole flock is grown or nearly grown now. NO chicks in this view. Camera angle is fixed and may be partially obstructed by birds very close to the lens. Score conservatively — this is a budget sensor and a 7 here is a genuinely good shot for this camera. Served on port 8090 of the MacBook Air (192.168.0.50) by its own usb-cam-host instance.",
    "burst_size": 1,
    "vlm_bypass": true,
    "enabled": true
@@ -135,7 +136,7 @@
    "trigger_focus": true,
    "focus_wait": 2.0,
    "force_portrait": true,
-   "context": "Samsung Galaxy S7 running IP Webcam app, plugged into a USB wall brick for power (untethered from MBA 26-Apr-2026, v2.37.8). 26-Apr-2026 v2.37.10: switched FROM /photoaf.jpg TO /photo.jpg + explicit /focus + 2s wait. /photoaf.jpg's built-in AF was running concurrently with our /focus call and the two were interfering \u2014 frames came back rated 'soft' even with continuous-picture mode active. One AF cycle (explicit /focus, sleep 2s, fetch /photo.jpg) is more reliable than two. Continuous-picture AF + incandescent WB set at Guardian startup (v2.27.7). Sony IMX260 sensor, 1920x1080, f/1.7. Best-quality source in the fleet. Cadence dropped to 3s and priority=1 so when the VLM slot opens, s7 wins ties. MOVED 2026-07-16 to BIRDCATRAZ: the outdoor enclosed poultry area (a fenced compound containing the chicken coop and the turkey pen) where the whole flock now lives. The phone is aimed at the BIG WATER BOWL. Expect adolescent-to-adult chickens \u2014 mixed rare/exotic breeds, some bantams \u2014 drinking, gathering, and socializing at and around the water bowl in natural daylight; turkeys may wander through. Drinking and water-bowl social moments are the EXPECTED, desirable subject on this camera: a sharp, close bird drinking or facing the lens at the bowl is a legitimate gem, not clutter. These birds are grown or nearly grown \u2014 this is NOT a brooder and there are NO chicks. Judge by the size and plumage you actually see; angle may show backs and tops of heads as well as faces.",
+   "context": "Samsung Galaxy S7 running IP Webcam app, plugged into a USB wall brick for power (untethered from MBA 26-Apr-2026, v2.37.8). 26-Apr-2026 v2.37.10: switched FROM /photoaf.jpg TO /photo.jpg + explicit /focus + 2s wait. /photoaf.jpg's built-in AF was running concurrently with our /focus call and the two were interfering — frames came back rated 'soft' even with continuous-picture mode active. One AF cycle (explicit /focus, sleep 2s, fetch /photo.jpg) is more reliable than two. Continuous-picture AF + incandescent WB set at Guardian startup (v2.27.7). Sony IMX260 sensor, 1920x1080, f/1.7. Best-quality source in the fleet. Cadence dropped to 3s and priority=1 so when the VLM slot opens, s7 wins ties. MOVED 2026-07-16 to BIRDCATRAZ: the outdoor enclosed poultry area (a fenced compound containing the chicken coop and the turkey pen) where the whole flock now lives. The phone is aimed at the BIG WATER BOWL. Expect adolescent-to-adult chickens — mixed rare/exotic breeds, some bantams — drinking, gathering, and socializing at and around the water bowl in natural daylight; turkeys may wander through. Drinking and water-bowl social moments are the EXPECTED, desirable subject on this camera: a sharp, close bird drinking or facing the lens at the bowl is a legitimate gem, not clutter. These birds are grown or nearly grown — this is NOT a brooder and there are NO chicks. Judge by the size and plumage you actually see; angle may show backs and tops of heads as well as faces.",
    "burst_size": 1,
    "require_face": true,
    "enabled": true,
@@ -146,21 +147,33 @@
    "cycle_seconds": 20,
    "raw_retention_hours": 48,
    "capture_method": "reolink_snapshot",
-   "context": "Gateway laptop built-in webcam (1280x720, fixed focus, lower quality), mounted on the ROOF OF THE COOP pointing down for an overhead/approach view of the coop run and surrounding area. Subjects: adult chickens and older feathered chicks in the coop run, or the yard/approach area \u2014 whatever is below the camera. NO turkey poults, NO young bantam chicks. Angle is overhead so you may see bird backs and tops of heads rather than faces. Images may have compression artifacts (vertical stripes, smearing) from H.264 decode issues \u2014 tag those as blurred. Score conservatively for this low-resolution overhead camera.",
+   "context": "Gateway laptop built-in webcam (1280x720, fixed focus, lower quality), mounted on the ROOF OF THE COOP pointing down for an overhead/approach view of the coop run and surrounding area. Subjects: adult chickens and older feathered chicks in the coop run, or the yard/approach area — whatever is below the camera. NO turkey poults, NO young bantam chicks. Angle is overhead so you may see bird backs and tops of heads rather than faces. Images may have compression artifacts (vertical stripes, smearing) from H.264 decode issues — tag those as blurred. Score conservatively for this low-resolution overhead camera.",
    "burst_size": 3,
    "burst_interval_seconds": 0.4,
    "motion_gate": true,
    "vlm_bypass": true,
    "enabled": false
   },
-  "mba-cam": {
+  "macbook-air-facetime": {
    "cycle_seconds": 10,
    "raw_retention_hours": 48,
    "capture_method": "ip_webcam",
    "ip_webcam_base": "http://192.168.0.50:8089",
    "photo_path": "/photo.jpg",
    "trigger_focus": false,
-   "context": "MacBook Air 2013 FaceTime HD camera (1280x720), served at 192.168.0.50:8089 via usb-cam-host (com.farmguardian.usb-cam-host LaunchAgent on the MBA). MOVED 2026-06-21 from the brooder to the TURKEY PEN (part of BIRDCATRAZ, the outdoor enclosed poultry area): an outdoor wire-fenced enclosure in natural daylight. The MBA sits on a ledge inside the pen, looking across it and out toward the yard/garden beyond the fence. Subjects: the turkeys kept in this pen (often out of frame depending on where they roam), plus the yard visible through the fence. This is NOT the brooder and there are NO baby chicks here. Score conservatively for this low-resolution camera. ON/OFF SWITCH = this \"enabled\" flag (the orchestrator only spawns a raw-capture thread when enabled=true); the MBA LaunchAgent only serves the snapshot endpoint. Frame capture pulls /photo.jpg on the cycle_seconds cadence like usb-cam/dominator-cam. device_index=0 on MBA = FaceTime HD; the external USB CAMERA is now also plugged into this MBA (served separately once macOS enumerates its video).",
+   "context": "MacBook Air 2013 built-in FaceTime HD camera (1280x720), served on port 8089 of 192.168.0.50 by its own usb-cam-host instance (LaunchAgent com.farmguardian.cam-macbook-air-facetime). MOVED 2026-06-21 from the brooder to the TURKEY PEN (part of BIRDCATRAZ, the outdoor enclosed poultry area): an outdoor wire-fenced enclosure in natural daylight. The MacBook Air sits on a ledge inside the pen; the built-in camera looks across the pen through wire mesh toward the grass beyond, so much of the frame is fence and bedding. Subjects: the turkeys kept in this pen, often out of frame. This is NOT the brooder and there are NO baby chicks here. Lowest picture quality of the three cameras on this host — score conservatively. NOTE: this camera disappears from the system entirely when the laptop's lid is shut, and the service then serves nothing rather than substituting another camera.",
+   "burst_size": 1,
+   "vlm_bypass": true,
+   "enabled": true
+  },
+  "jieli-dashcam": {
+   "cycle_seconds": 30,
+   "raw_retention_hours": 48,
+   "capture_method": "ip_webcam",
+   "ip_webcam_base": "http://192.168.0.50:8091",
+   "photo_path": "/photo.jpg",
+   "trigger_focus": false,
+   "context": "Car dashboard camera (Jieli Technology 'USB PHY 2.0', 1280x720, wide-angle) running in PC-camera mode, plugged into the MacBook Air's USB hub and served on port 8091. Points ACROSS THE OPEN YARD from the poultry area toward the house: sloping lawn, electric poultry netting, sunflowers along the near edge, the driveway and a white pickup truck, the house with its raised deck, and the tree line beyond. This is the WIDE ESTABLISHING VIEW of the property, not a close-up bird camera — birds appear small or not at all. Intended for a yard time-lapse across the seasons. Best picture quality of the three cameras on this host.",
    "burst_size": 1,
    "vlm_bypass": true,
    "enabled": true
@@ -173,7 +186,7 @@
    "ip_webcam_base": "http://192.168.0.194:8089",
    "photo_path": "/photo.jpg",
    "trigger_focus": false,
-   "context": "MSI Dominator GT72 6QD (Windows 10, 192.168.0.194) built-in BisonCam NB Pro webcam. Opportunistic \u2014 only live when Boss double-clicks the desktop shortcut. Aim varies.",
+   "context": "MSI Dominator GT72 6QD (Windows 10, 192.168.0.194) built-in BisonCam NB Pro webcam. Opportunistic — only live when Boss double-clicks the desktop shortcut. Aim varies.",
    "burst_size": 1,
    "vlm_bypass": true,
    "enabled": true
@@ -181,7 +194,7 @@
   "duo2": {
    "cycle_seconds": 10.0,
    "capture_method": "reolink_snapshot",
-   "context": "Reolink Duo 2 WiFi (dual-lens 180 pano, fixed), lens 01, IP .155 (WiFi, DHCP \u2014 drifted from .14/.15 after 4-Jul-2026 ethernet\u2192WiFi flip). Stationary complement to the E1 PTZ. Zone TBD - confirm mount/aim with Boss.",
+   "context": "Reolink Duo 2 WiFi (dual-lens 180 pano, fixed), lens 01, IP .155 (WiFi, DHCP — drifted from .14/.15 after 4-Jul-2026 ethernet→WiFi flip). Stationary complement to the E1 PTZ. Zone TBD - confirm mount/aim with Boss.",
    "burst_size": 1,
    "motion_gate": false,
    "vlm_bypass": true,

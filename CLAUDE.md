@@ -470,13 +470,32 @@ ssh -i ~/.ssh/id_ed25519 markb@192.168.0.50 'c -p "Granular task description her
 |---|---|---|---|---|
 | 1 | `house-yard` | Reolink E1 Outdoor Pro, HTTP snapshot `192.168.0.88` | **ON** | live |
 | 2 | `s7-cam` | Galaxy S7 IP Webcam, HTTP snapshot `192.168.0.249:8080` | off | live |
-| 3 | `usb-cam` | `usb-cam-host` on **GWTC**, `192.168.0.69:8089` (moved off the MBA 23-Jul-2026) | off | live, 1920x1080 |
+| 3 | `usb-webcam-1080p` | `usb-cam-host` on the **MacBook Air**, `192.168.0.50:8090` (was `usb-cam` on GWTC until 01-Aug-2026) | off | live, 1920x1080 |
 | 4 | `gwtc` | Gateway laptop MediaMTX `rtsp://192.168.0.69:8554/gwtc` | off | **disabled in both configs** |
-| 5 | `mba-cam` | MacBook Air `192.168.0.50:8089` — the built-in **FaceTime HD @ 1280x720**, freed when the USB cam moved to GWTC | off | live, **enabled in both** as of 23-Jul-2026. ⚠️ archive rows labelled `mba-cam` between 21-Jul 13:31Z and 23-Jul 12:55Z are actually USB-camera footage — see HARDWARE_INVENTORY.md |
+| 5 | `macbook-air-facetime` | MacBook Air `192.168.0.50:8089` — the built-in **FaceTime HD @ 1280x720** (was `mba-cam`) | off | live, enabled in both. **Disappears entirely when the laptop lid is shut** — the service then 503s rather than substituting another camera, which is correct. ⚠️ archive rows from 21-Jul 13:31Z to 23-Jul 12:55Z are actually USB-camera footage — see HARDWARE_INVENTORY.md |
+| 5b | `jieli-dashcam` | MacBook Air `192.168.0.50:8091` — car dashcam in PC-camera mode, Jieli "USB PHY 2.0", 1280x720 wide-angle | off | **NEW 01-Aug-2026.** Wide establishing view of the yard; best picture quality on that host. Time-lapse material, never a gem |
 | 6 | `dominator-cam` | `192.168.0.194:8089` | off | enabled |
 | 7 | `duo2` | Reolink Duo 2 WiFi, `rtsp://…@192.168.0.155:554` | **ON** | live |
 
 ✅ **The old usb-cam/mba-cam config divergence is FIXED (23-Jul-2026).** Both files now agree: `usb-cam` → `192.168.0.69:8089` (GWTC), `mba-cam` → the MacBook Air, both enabled.
+
+**🔴 CAMERAS RENAMED 01-Aug-2026 — `usb-cam` and `mba-cam` DO NOT EXIST.** They are now
+`usb-webcam-1080p` (the generic 1920x1080 USB webcam) and `macbook-air-facetime` (the Air's
+built-in 1280x720), and a third camera `jieli-dashcam` was added. All three sit on one USB hub
+on the MacBook Air, each served by its own `usb-cam-host` instance on ports 8089 / 8090 / 8091
+(LaunchAgents `com.farmguardian.cam-<name>`). 44,525 archive rows were migrated to the new ids.
+
+**⚠️ DO NOT identify a camera by its position in a device list, and DO NOT use resolution as
+proof of identity.** ffmpeg and OpenCV number the same cameras *differently on the same machine
+at the same moment* — measured quiescent on the Air, ffmpeg said `[0] FaceTime [1] USB PHY
+[2] USB CAMERA` while OpenCV saw `[0] USB PHY [1] USB CAMERA [2] FaceTime`. The old
+`USB_CAM_DEVICE_NAME_CONTAINS` looked the name up in ffmpeg's list and handed that number to
+OpenCV, so binding to "FaceTime" would have served the **turkey-run camera** under the MacBook
+Air's name. Position also moved twice in one afternoon as cameras were plugged in. And the
+dashcam and FaceTime are both 1280x720, so the old resolution tell is dead. `usb_cam_host.py`
+now proves identity before serving and **serves nothing rather than guessing**. To check a
+camera, pull `/photo.jpg` and look at it. Plan:
+[`docs/01-Aug-2026-camera-rename-and-dashcam-plan.md`](docs/01-Aug-2026-camera-rename-and-dashcam-plan.md), CHANGELOG v2.57.0.
 
 **⚠️ A camera name is the DEVICE, and `PREFER_EXTERNAL` can silently break that.** If a USB camera is plugged into a host that also has a built-in camera, `usb-cam-host` defaults to serving the *external* one — so the host's endpoint changes identity while every config, archive row and reel keeps the old label. This actually happened: `mba-cam` frames from **21-Jul 13:31Z to 23-Jul 12:55Z** are the USB camera in the turkey pen, not the MacBook Air's FaceTime HD, and a reel got built from them before anyone noticed. **Resolution is the tell** — the 2013 FaceTime HD cannot exceed 1280x720, the USB camera is 1920x1080. After ANY physical camera move, run `curl http://<host>:8089/health` and check `resolved_device_name` + `resolution` before trusting a label.
 

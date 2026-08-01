@@ -80,8 +80,8 @@ window.chrome = window.chrome || { runtime: {} };
 LIVE_CAMERAS = (
     "s7-cam",
     "gwtc",
-    "mba-cam",
-    "usb-cam",
+    "macbook-air-facetime",
+    "usb-webcam-1080p",
     "house-yard",
     "iphone-cam",
 )

@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>OPENCV_AVFOUNDATION_SKIP_AUTH</key>
+		<string>0</string>
+		<key>PYTHONUNBUFFERED</key>
+		<string>1</string>
+		<key>USB_CAM_AUTO_WB</key>
+		<string>false</string>
+		<key>USB_CAM_DEVICE_NAME_CONTAINS</key>
+		<string>FaceTime</string>
+		<key>USB_CAM_HEIGHT</key>
+		<string>720</string>
+		<key>USB_CAM_HIGHLIGHT_STRENGTH</key>
+		<string>0.0</string>
+		<key>USB_CAM_JPEG_QUALITY</key>
+		<string>95</string>
+		<key>USB_CAM_ORANGE_DESAT</key>
+		<string>0.75</string>
+		<key>USB_CAM_PORT</key>
+		<string>8089</string>
+		<key>USB_CAM_PREFER_EXTERNAL</key>
+		<string>false</string>
+		<key>USB_CAM_SHARPEN_AMOUNT</key>
+		<string>0.0</string>
+		<key>USB_CAM_START_DELAY</key>
+		<string>0</string>
+		<key>USB_CAM_WARMUP</key>
+		<string>15</string>
+		<key>USB_CAM_WB_STRENGTH</key>
+		<string>0.0</string>
+		<key>USB_CAM_WIDTH</key>
+		<string>1280</string>
+	</dict>
+	<key>KeepAlive</key>
+	<true/>
+	<key>Label</key>
+	<string>com.farmguardian.cam-macbook-air-facetime</string>
+	<key>ProcessType</key>
+	<string>Background</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/Users/markb/.local/farm-services/usb-cam-host/venv/bin/python</string>
+		<string>/Users/markb/.local/farm-services/usb-cam-host/usb_cam_host.py</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>StandardErrorPath</key>
+	<string>/Users/markb/.local/farm-services/usb-cam-host/macbook-air-facetime.log</string>
+	<key>StandardOutPath</key>
+	<string>/Users/markb/.local/farm-services/usb-cam-host/macbook-air-facetime.log</string>
+	<key>WorkingDirectory</key>
+	<string>/Users/markb/.local/farm-services/usb-cam-host</string>
+</dict>
+</plist>

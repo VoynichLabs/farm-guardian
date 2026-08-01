@@ -345,7 +345,7 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     cfg_path = Path(__file__).parent / "config.json"
     cfg = json.loads(cfg_path.read_text())
-    cam = sys.argv[1] if len(sys.argv) > 1 else "usb-cam"
+    cam = sys.argv[1] if len(sys.argv) > 1 else "usb-webcam-1080p"
     out = Path(sys.argv[2]) if len(sys.argv) > 2 else Path(f"/tmp/{cam}-capture.jpg")
     data = capture_camera(cam, cfg["cameras"][cam], cfg)
     out.write_bytes(data)

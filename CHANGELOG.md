@@ -4,6 +4,42 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.57.0 — Cameras renamed to what they are; dashcam added; camera identity now proven, not assumed (Claude Opus 5) — 01-Aug-2026
+
+**What:** Three changes that belong together.
+
+1. **Renamed** `usb-cam` → **`usb-webcam-1080p`** and `mba-cam` → **`macbook-air-facetime`**, across both config files, 13 Python modules, the deploy artifacts, the docs, and 44,525 archive rows (23,078 + 21,447; `data/guardian.db` backed up via the SQLite backup API first, since Guardian writes to it live in WAL mode).
+2. **Added `jieli-dashcam`** — a car dashcam in PC-camera mode (Jieli Technology "USB PHY 2.0", VID `0x1224`/PID `0x2825`, 1280x720 wide-angle) as a first-class camera in both configs, at 30 s cadence, daylight-only, gem-posting disabled. It is a wide establishing shot of the whole yard in which birds are specks — time-lapse material, never a gem.
+3. **`usb_cam_host.py` now proves which camera it opened** instead of trusting a device number, and the MacBook Air runs **three** instances (ports 8089 / 8090 / 8091, LaunchAgents `com.farmguardian.cam-<name>`) rather than one.
+
+**Why (3) — this is the load-bearing part.** ffmpeg and OpenCV number AVFoundation devices **differently on the same machine at the same instant**. Measured quiescent on the Air with nothing holding a camera:
+
+```
+ffmpeg: [0] FaceTime HD   [1] USB PHY 2.0   [2] USB CAMERA
+cv2:    [0] USB PHY 2.0   [1] USB CAMERA    [2] FaceTime HD
+```
+
+`_resolve_device_index_by_name()` looked a name up in ffmpeg's list and handed that index straight to `cv2.VideoCapture()`. So `USB_CAM_DEVICE_NAME_CONTAINS=FaceTime` would have opened the **turkey-run camera** and published it as the MacBook Air's own — precisely the 21–23 Jul 2026 mislabel (8,682 rows), reached through the mechanism written to prevent it. `PREFER_EXTERNAL` shared the same flawed lookup. Device position also shifted **twice in one afternoon** as cameras were plugged in, and each shift silently re-aimed a pinned index at a different camera.
+
+**And the old safety net is gone:** resolution used to identify these cameras (FaceTime caps at 1280x720, the USB webcam is 1920x1080). The dashcam is *also* 1280x720, so that test no longer discriminates.
+
+**How:** `_resolve_verified_device_index()` replaces trust with evidence, cheapest test first:
+
+- **Unique-resolution test.** Ask each attached camera which modes it supports — ffmpeg reports these when handed an impossible `1x1` size, and does so *even while another process holds the camera*. If exactly one camera can produce a given size, the index that delivers it is that camera. Identifies `usb-webcam-1080p` (only 1920x1080) and usually `jieli-dashcam` (only 352x288).
+- **Picture test**, when that doesn't settle it. Capture a reference frame from the device **by name** (ffmpeg addresses AVFoundation by name, which is the guarantee cv2 can't give), then compare each candidate index against it on a 32x18 contrast-normalised grayscale grid. Needed for `macbook-air-facetime`, whose modes `{1280x720, 640x480, 320x240}` are a strict subset of both USB cameras' — it has no unique resolution at all. Measured margins are wide: 0.6 for the true match vs 37.0 and 45.2 for the others.
+- **Fails closed.** If neither test settles it, the grabber serves **nothing** and retries. Serving the wrong camera under a name is the failure being prevented; a 503 is the correct answer.
+
+**Two things measured the hard way, recorded so nobody re-derives them:**
+
+- **A negative resolution test does not work.** "The target is the one camera that *lacks* this mode" was tried and produced a wrong answer on the first run: asked for 800x600, a camera that advertises 800x600 came back through cv2 as 800x450. Not-the-size-I-asked-for ≠ doesn't-support-it. Exact-size matching is only *mostly* dependable either — the dashcam answered a 352x288 request with 352x288 on one run and 352x198 on the next — which is why the picture test exists as a second, independent method.
+- **Do not wrap the program in `/bin/sh` in the LaunchAgent.** Staggering startup with `sh -c "sleep N; exec python …"` made macOS attribute camera permission to the shell, and every capture was refused (`OpenCV: not authorized to capture video`). The delay moved into the app as `USB_CAM_START_DELAY` (0/25/50 s) so launchd invokes python directly. Staggering matters because proving identity needs a moment of exclusive access, which a sibling instance scanning the device list will block.
+
+**Verified live, by eye rather than by number** — resolution can no longer identify these cameras, so each port was pulled and the image looked at: `:8090` shows the coop run, `:8091` shows the yard with the truck and the house. Guardian serves both (`/api/cameras/<name>/frame` → HTTP 200, 327 KB and 494 KB), the pipeline is writing rows under the new ids, and the four touched pipeline self-tests pass. `macbook-air-facetime` is correctly 503 at the time of writing: the Air's lid is shut, which removes the built-in camera from the device list entirely.
+
+**Not done, deliberately:** the 21–23 Jul mislabelled rows were **not** rewritten. They are documented as wrong in three places and rewriting them would hide the mistake. GWTC's `usb-cam-host` was left running rather than disabled — its USB ports are being cleaned, and if they come back the service picks the camera up on its own.
+
+**Plan:** [`docs/01-Aug-2026-camera-rename-and-dashcam-plan.md`](docs/01-Aug-2026-camera-rename-and-dashcam-plan.md). **Docs:** `HARDWARE_INVENTORY.md` (new top block, naming rule), `CLAUDE.md` (roster + identity warning).
+
 ### v2.56.0 — Reels off git onto tunnel-hosted assets; asset TTL sweep; stale-path bugs (Claude Opus 5) — 01-Aug-2026
 
 **What:** `post_reel_to_ig` no longer commits the MP4 into farm-2026. Reels are hosted from `data/reel-assets/` and served through the Cloudflare tunnel, the same way Story assets have been since 04-May-2026.

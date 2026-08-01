@@ -1,5 +1,43 @@
 # Hardware Inventory — Farm Guardian Cameras
 
+> ### 🔴 CAMERAS RENAMED + DASHCAM ADDED — 01-Aug-2026 — THIS SUPERSEDES EVERY NAME BELOW
+>
+> **`usb-cam` and `mba-cam` no longer exist.** Every camera is now named for what it
+> actually is. Old names survive below only inside historical incident write-ups; do not
+> use them in config, code, or queries.
+>
+> | Old name | New name | What it actually is |
+> |---|---|---|
+> | `mba-cam` | **`macbook-air-facetime`** | MacBook Air 2013 built-in FaceTime HD, 1280x720. Port **8089** on `192.168.0.50` |
+> | `usb-cam` | **`usb-webcam-1080p`** | Generic USB webcam, 1920x1080, VID `0x32e6` / PID `0x9221`, serial `240725172848`. No brand or model — the manufacturer string is literally "USB CAMERA". Port **8090** on `192.168.0.50` |
+> | — new — | **`jieli-dashcam`** | Car dashcam in PC-camera mode. Jieli Technology "USB PHY 2.0", VID `0x1224` / PID `0x2825`, 1280x720 wide-angle. Port **8091** on `192.168.0.50`. **Best picture of the three** |
+>
+> **All three cameras are on the MacBook Air**, on one VIA Labs USB hub, each served by its
+> own `usb-cam-host` instance (LaunchAgents `com.farmguardian.cam-<name>`). The old single
+> `com.farmguardian.usb-cam-host` plist there is suffixed `.replaced-01aug2026`.
+> Archive rows were migrated: 23,078 `usb-cam` and 21,447 `mba-cam` rows now carry the new ids.
+>
+> **⚠️ The device-position trap, and why binding by name was not enough.** ffmpeg and OpenCV
+> number the same cameras **differently on the same machine at the same moment** — measured
+> quiescent on the Air: ffmpeg `[0] FaceTime [1] USB PHY [2] USB CAMERA`, OpenCV
+> `[0] USB PHY [1] USB CAMERA [2] FaceTime`. The old name-binding looked a name up in
+> ffmpeg's list and handed that number to OpenCV, so `NAME_CONTAINS=FaceTime` would have
+> opened the **turkey-run camera** — the 21-23 Jul mislabel all over again. Position also
+> shifted twice in one afternoon as cameras were plugged in.
+>
+> **Resolution is no longer a valid identity check.** The dashcam and FaceTime are both
+> 1280x720. The old "any mba-cam row at 1920x1080 is mislabelled" test below still holds for
+> historical rows but cannot identify a camera today. `usb_cam_host.py` now proves identity
+> before serving (unique-resolution test, then a picture comparison against a frame captured
+> by device name) and **serves nothing rather than guessing**. To check a camera yourself,
+> pull `/photo.jpg` and look at it.
+>
+> **The Air's lid.** Shutting the laptop lid removes `macbook-air-facetime` from the system
+> entirely — it vanishes from the device list, and its service correctly 503s. That is not a
+> fault. The two USB cameras are unaffected.
+>
+> Plan: [`docs/01-Aug-2026-camera-rename-and-dashcam-plan.md`](docs/01-Aug-2026-camera-rename-and-dashcam-plan.md). CHANGELOG v2.57.0.
+
 > ### ⚠️ Corrections applied 2026-07-22 — read these before the tables below
 >
 > The per-camera detail below is still the best hardware reference we have, but these specific facts were re-verified against the live config files, `launchctl`, and LM Studio on 2026-07-22 and **override anything the tables say**:
@@ -83,7 +121,7 @@ gwtc ───────── ffmpeg dshow → MediaMTX :8554/gwtc (Gateway l
 
 ## Naming Rules (NON-NEGOTIABLE — mirrored in Bubba auto-memory `feedback_camera_naming.md`)
 
-1. **Camera names are device-only.** `mba-cam`, `s7-cam`, `usb-cam`, `gwtc`. The grandfathered exception is `house-yard` (predates the rule). **Never** `brooder-cam`, `nestbox`, `coop-cam`, `incubator-cam`, or any other "where it is today" string.
+1. **Camera names are device-only, and descriptive.** `macbook-air-facetime`, `usb-webcam-1080p`, `jieli-dashcam`, `s7-cam`, `gwtc`. As of 01-Aug-2026 a name should say what the device *is*, not just which box it lives on — `mba-cam` and `usb-cam` were renamed because neither told you anything useful when three cameras ended up on one laptop. The grandfathered exception is `house-yard` (predates the rule). **Never** `brooder-cam`, `nestbox`, `coop-cam`, `incubator-cam`, or any other "where it is today" string.
 2. **The rule applies to every layer.** The `name` field in `config.json`, RTSP paths, MediaMTX `paths:` declarations, ffmpeg push URLs, LaunchAgent labels, Shawl service names, log filenames, dashboard labels, the frontend `lib/cameras.ts` entries (`label`, `shortLabel`, `device`), MDX roster tables, thumbnail captions, stage overlays — **every string a user or future agent can see**. The 13-Apr-2026 incident that hit hardest: `lib/cameras.ts` had `shortLabel: "Brooder"` for `usb-cam`, `"S7 brooder"` for `s7-cam`, `"MBA brooder"` for `mba-cam`, `"Nestbox"` for `gwtc` — three thumbnails all said "brooder," frontend devs found them indistinguishable. Fix was to drop any `location` field entirely and label by hardware (`"USB"`, `"MBA"`, `"S7"`, `"GWTC"`, `"Reolink"`).
 3. **The rule applies to publish paths too.** As of 2026-04-13 evening, the Gateway laptop's MediaMTX path was renamed `nestbox` → `gwtc` to match the device name (CHANGELOG v2.24.1). The MacBook Air's path was always `mba-cam`. If anyone adds a new ffmpeg → MediaMTX node, the path **must** equal the camera's `name` in `config.json`.
 4. **"Where it's pointed today" is field-note material, not config material.** Put it in a `content/field-notes/*.mdx` entry, a CHANGELOG line, or a photo caption if needed. Don't put it in any struct that drives UI, routing, services, or file names. The rightmost column of this file ("Currently aimed at") is allowed precisely because it's in a doc that's read by humans once, not parsed by machines repeatedly.

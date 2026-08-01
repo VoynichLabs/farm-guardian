@@ -106,7 +106,7 @@ def _setup_logging() -> None:
 # Map gem_poster webhook username -> camera_id. Covers the cameras that
 # gem_poster's _USERNAME_BY_CAMERA renames; other cameras fall through
 # to their raw camera name.
-_KNOWN_CAMERAS = {"s7-cam", "house-yard", "mba-cam", "usb-cam", "gwtc", "iphone-cam"}
+_KNOWN_CAMERAS = {"s7-cam", "house-yard", "macbook-air-facetime", "usb-webcam-1080p", "gwtc", "iphone-cam"}
 _BLOCKED_DROP_AUTHORS = {"archive"}
 
 # Retired webhook usernames -> camera_id. v2.46.0 (16-Jul-2026) renamed the
@@ -119,8 +119,8 @@ _BLOCKED_DROP_AUTHORS = {"archive"}
 # --backfill path scans all history, so old names never fully age out.
 _LEGACY_USERNAME_BY_CAMERA = {
     "S7 Brooder": "s7-cam",
-    "Brooder Overhead": "mba-cam",
-    "Brooder Floor": "usb-cam",
+    "Brooder Overhead": "macbook-air-facetime",
+    "Brooder Floor": "usb-webcam-1080p",
 }
 
 

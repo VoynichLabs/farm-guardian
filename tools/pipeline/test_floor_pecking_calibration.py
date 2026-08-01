@@ -84,7 +84,7 @@ def run_synthetic_cases() -> int:
         ),
     )
     before = portrait.copy()
-    changed = _calibrate_static_floor_pecking_score("usb-cam", portrait)
+    changed = _calibrate_static_floor_pecking_score("usb-webcam-1080p", portrait)
     fails += _expect("clean close portrait is not calibrated", not changed)
     fails += _expect("clean close portrait metadata stays unchanged", portrait == before)
 

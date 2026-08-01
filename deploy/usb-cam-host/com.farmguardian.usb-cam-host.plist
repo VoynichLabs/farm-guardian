@@ -13,7 +13,12 @@
   Tailor per-host:
     - ProgramArguments: point at the Python venv and the repo checkout on that box
     - USB_CAM_PORT: keep 8089 unless it collides
-    - USB_CAM_DEVICE_INDEX: verify per-host — do NOT assume 0=built-in, 1=USB.
+    - USB_CAM_DEVICE_INDEX: SINGLE-CAMERA HOSTS ONLY. On a macOS host with more
+      than one camera this is unsafe at any value — ffmpeg and OpenCV number
+      devices differently and plugging anything in reshuffles the order, so a
+      pinned index serves the wrong camera under the right name. Use
+      USB_CAM_DEVICE_NAME_CONTAINS and one instance per camera instead; see
+      deploy/macbook-air/com.farmguardian.cam-*.plist and CHANGELOG v2.57.0.
         On MacBook Air (192.168.0.50): index 0 = external USB webcam (enumerates
         first), index 1 = built-in FaceTime HD. To verify on any host:
         python3 -c "import cv2; [print(i, cv2.VideoCapture(i).isOpened()) for i in range(4)]"

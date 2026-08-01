@@ -31,7 +31,7 @@ ET = ZoneInfo(TZ)
 
 GW = {
     "enabled": True,
-    "cameras": ["usb-cam", "dominator-cam"],
+    "cameras": ["usb-webcam-1080p", "dominator-cam"],
     "timezone": TZ,
     "latitude": FARM_LAT,
     "longitude": FARM_LON,
@@ -66,7 +66,7 @@ def main():
     check("minute_in_window zero-width matches nothing", not minute_in_window(540, 540, 540))
 
     # 3. Window membership at boundaries (the boss's spec).
-    gwc = camera_golden_cfg("usb-cam", GW)
+    gwc = camera_golden_cfg("usb-webcam-1080p", GW)
     cases = {
         (4, 30): False,   # pre-dawn
         (6, 0): True,     # morning
@@ -88,11 +88,11 @@ def main():
     check("05:20 ET after sunrise -> in", is_dt_in_golden_windows(datetime(2026, 6, 14, 5, 20, tzinfo=ET), gwc))
 
     # 5. Camera gating.
-    check("usb-cam opted in", camera_uses_golden_windows("usb-cam", GW))
+    check("usb-cam opted in", camera_uses_golden_windows("usb-webcam-1080p", GW))
     check("dominator-cam opted in", camera_uses_golden_windows("dominator-cam", GW))
     check("s7-cam NOT affected", not camera_uses_golden_windows("s7-cam", GW))
     check("house-yard NOT affected", not camera_uses_golden_windows("house-yard", GW))
-    check("disabled block -> nobody opted in", not camera_uses_golden_windows("usb-cam", {**GW, "enabled": False}))
+    check("disabled block -> nobody opted in", not camera_uses_golden_windows("usb-webcam-1080p", {**GW, "enabled": False}))
 
     # 6. UTC-naive input is treated as UTC, not crashed.
     check("naive UTC 10:00Z == 06:00 ET in-window", is_dt_in_golden_windows(datetime(2026, 6, 14, 10, 0), gwc))

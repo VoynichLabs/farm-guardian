@@ -1,5 +1,26 @@
 # usb-cam-host — macOS install
 
+> ### ⚠️ READ FIRST (01-Aug-2026) — this guide sets up ONE camera per host
+>
+> On a macOS host with **more than one camera**, do NOT follow the
+> `USB_CAM_DEVICE_INDEX` steps below. Device position is not a stable identity:
+> ffmpeg and OpenCV number the same cameras differently on the same machine at the
+> same moment, and plugging anything in reshuffles the order. Pinning an index there
+> serves the wrong camera under the right name — which is exactly what happened on
+> 21–23 Jul 2026 (8,682 mislabelled rows).
+>
+> **For a multi-camera macOS host, copy the MacBook Air setup instead:** one service
+> instance per camera, each bound with `USB_CAM_DEVICE_NAME_CONTAINS`, each on its own
+> port, staggered with `USB_CAM_START_DELAY`. Working examples:
+> `deploy/macbook-air/com.farmguardian.cam-*.plist`. The service proves which camera it
+> opened before serving anything, and serves nothing rather than guessing.
+>
+> Also: invoke python **directly** in `ProgramArguments`. Wrapping it in
+> `/bin/sh -c "sleep N; exec python …"` makes macOS attribute camera permission to the
+> shell and every capture is refused. That is what `USB_CAM_START_DELAY` exists for.
+>
+> Background: CHANGELOG v2.57.0, `docs/01-Aug-2026-camera-rename-and-dashcam-plan.md`.
+
 Install steps for any macOS host that will be the physical home of the generic USB webcam (Mac Mini "Bubba", MacBook Air 2013, or any future macOS box). Canonical plan: `docs/14-Apr-2026-portable-usb-cam-host-plan.md`.
 
 ## 1. Runtime location — NOT under `~/Documents/`

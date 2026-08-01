@@ -40,11 +40,11 @@
       "force_portrait": true
     },
     {
-      "name": "usb-cam",
+      "name": "usb-webcam-1080p",
       "type": "fixed",
       "source": "snapshot",
       "snapshot_method": "http_url",
-      "http_base_url": "http://192.168.0.69:8089",
+      "http_base_url": "http://192.168.0.50:8090",
       "http_photo_path": "/photo.jpg",
       "http_trigger_focus": false,
       "snapshot_interval": 5.0,
@@ -64,11 +64,23 @@
       "enabled": false
     },
     {
-      "name": "mba-cam",
+      "name": "macbook-air-facetime",
       "type": "fixed",
       "source": "snapshot",
       "snapshot_method": "http_url",
-      "http_base_url": "http://Marks-MacBook-Air.local:8089",
+      "http_base_url": "http://192.168.0.50:8089",
+      "http_photo_path": "/photo.jpg",
+      "http_trigger_focus": false,
+      "snapshot_interval": 5.0,
+      "detection_enabled": false,
+      "enabled": true
+    },
+    {
+      "name": "jieli-dashcam",
+      "type": "fixed",
+      "source": "snapshot",
+      "snapshot_method": "http_url",
+      "http_base_url": "http://192.168.0.50:8091",
       "http_photo_path": "/photo.jpg",
       "http_trigger_focus": false,
       "snapshot_interval": 5.0,

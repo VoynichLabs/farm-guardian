@@ -1,4 +1,31 @@
 # Author: Claude Sonnet 4.6
+# Date: 01-August-2026 (Claude Opus 5 — BUG FIX: name-based camera binding on
+#        macOS opened the WRONG CAMERA. _resolve_device_index_by_name() reads
+#        ffmpeg's AVFoundation device list and hands that index to
+#        cv2.VideoCapture(), but the two backends number devices differently.
+#        Measured on the MacBook Air, quiescent, three cameras attached:
+#          ffmpeg [0] FaceTime HD  [1] USB PHY 2.0  [2] USB CAMERA
+#          cv2    [0] USB PHY 2.0  [1] USB CAMERA   [2] FaceTime HD
+#        So USB_CAM_DEVICE_NAME_CONTAINS=FaceTime would have served the
+#        turkey-run camera as the MacBook Air's own — the 21-23 Jul 2026
+#        mislabel, reached through the mechanism meant to prevent it.
+#        PREFER_EXTERNAL had the same flaw (same lookup). Ordering also
+#        shifted twice in one afternoon as cameras were plugged in, and
+#        resolution no longer disambiguates (dashcam and FaceTime are both
+#        1280x720).
+#        Fix: _resolve_verified_device_index() proves identity instead of
+#        trusting a number — it asks each attached camera which resolutions it
+#        supports (via ffmpeg, which answers even while another process holds
+#        the device), picks one that separates the target from every other
+#        camera present, then opens candidate cv2 indices and keeps the one
+#        that answers correctly. Handles the FaceTime case, whose mode list is
+#        a strict subset of both USB cameras', by identifying it through the
+#        one mode it LACKS.
+#        Windows/DirectShow path deliberately untouched — CAP_DSHOW already
+#        makes the dshow index authoritative there.
+#        SRP/DRY check: Pass — reused _list_avfoundation_video_devices(),
+#        _find_ffmpeg() and the existing _open() branch; no new module, no new
+#        dependency, no change to the env-var surface.)
 # Date: 25-July-2026 (Claude Opus 5 — BUG FIX in _apply_highlight_rolloff(). The
 #        curve was NON-MONOTONIC and effectively inverted: with the shipped
 #        defaults (knee 0.75, strength 0.6) it mapped input 191 -> 255 and input
@@ -162,6 +189,16 @@ GRAB_INTERVAL_S = float(os.environ.get("USB_CAM_GRAB_INTERVAL", "0.5"))
 # return 503 instead of serving something stale. 5 s is comfortable at
 # 2 Hz — normal latest-frame age is ~0.25 s.
 MAX_FRAME_AGE_S = float(os.environ.get("USB_CAM_MAX_FRAME_AGE", "5.0"))
+
+# Seconds to wait before this instance touches a camera. Only meaningful when
+# several copies of this service run on one machine (the MacBook Air runs
+# three, one per camera). Proving which camera we have needs a moment of
+# exclusive access, and a sibling scanning the device list at the same instant
+# blocks that. Staggering the starts avoids the collision. This lives in the
+# app rather than a shell wrapper in the LaunchAgent because wrapping the
+# program in /bin/sh changes which process macOS holds responsible for camera
+# permission, and the service then gets refused access to the camera outright.
+START_DELAY_S = float(os.environ.get("USB_CAM_START_DELAY", "0"))
 
 # Grabber reconnect backoff when open() fails or reads fail persistently.
 RECONNECT_BACKOFF_S = float(os.environ.get("USB_CAM_RECONNECT_BACKOFF", "3.0"))
@@ -421,6 +458,299 @@ def _resolve_device_index_by_name(needle: str) -> Optional[tuple[int, str]]:
     return None
 
 
+# ---------------------------------------------------------------------------
+# Identity verification (darwin) — proving which camera we actually opened
+# ---------------------------------------------------------------------------
+#
+# WHY THIS EXISTS (01-Aug-2026). ffmpeg and OpenCV number AVFoundation devices
+# DIFFERENTLY on the same machine at the same instant. Measured on the MacBook
+# Air with three cameras attached and nothing else holding a device:
+#     ffmpeg: [0] FaceTime HD  [1] USB PHY 2.0  [2] USB CAMERA
+#     cv2:    [0] USB PHY 2.0  [1] USB CAMERA   [2] FaceTime HD
+# _resolve_device_index_by_name() looks a name up in ffmpeg's list and hands
+# that number straight to cv2.VideoCapture(). So binding to "FaceTime" would
+# have opened the turkey-run camera and published it under the wrong name —
+# the exact 21-23 Jul 2026 mislabel, arrived at through the mechanism meant to
+# prevent it. Position also moved twice in one afternoon as cameras were
+# plugged in, and resolution can no longer break the tie: the dashcam and the
+# built-in FaceTime are both 1280x720.
+#
+# The fix is to never trust a device NUMBER. Ask each camera which resolutions
+# it supports, find one that tells our target apart from every other camera
+# present, then open candidate cv2 indices and keep the one that answers
+# correctly. Two properties make this cheap and deterministic:
+#   * ffmpeg reports a device's supported modes when handed an impossible
+#     size, and does so even while another process holds that camera.
+#   * A camera asked for a size it does not support returns a different size,
+#     so "target lacks this mode, every other camera has it" identifies by
+#     elimination when no positively-unique mode exists (the FaceTime case:
+#     its modes are a subset of both USB cameras').
+
+# Matches an ffmpeg supported-mode line, e.g. "  1280x720@[30.0 30.0]fps".
+_AVF_MODE_LINE_RE = None  # lazily compiled
+
+# How far past the known device count to probe cv2 indices. cv2 and ffmpeg
+# disagree on ordering, so the target can sit anywhere; a small margin covers
+# virtual devices cv2 exposes but ffmpeg's list filtered out.
+_PROBE_INDEX_MARGIN = 2
+
+
+def _supported_modes_for_device(name: str) -> set:
+    """Return {(width, height), ...} that the named AVFoundation device
+    supports. Asks ffmpeg for an impossible 1x1 capture; ffmpeg refuses and
+    prints the real mode list to stderr. Works even when another process
+    already holds the camera, which matters because three copies of this
+    service run side by side on the MacBook Air. Empty set on any failure —
+    callers treat that as "cannot verify" and fall back."""
+    if sys.platform != "darwin":
+        return set()
+    global _AVF_MODE_LINE_RE
+    if _AVF_MODE_LINE_RE is None:
+        import re
+        _AVF_MODE_LINE_RE = re.compile(r"(\d+)x(\d+)@\[")
+    import subprocess
+    ffmpeg = _find_ffmpeg()
+    if ffmpeg is None:
+        return set()
+    try:
+        proc = subprocess.run(
+            [ffmpeg, "-hide_banner", "-f", "avfoundation",
+             "-video_size", "1x1", "-i", name, "-frames:v", "1", "-f", "null", "-"],
+            capture_output=True, text=True, timeout=15.0,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+        log.warning("mode probe failed for %r: %s", name, exc)
+        return set()
+    modes = set()
+    for line in proc.stderr.splitlines():
+        m = _AVF_MODE_LINE_RE.search(line)
+        if m:
+            modes.add((int(m.group(1)), int(m.group(2))))
+    return modes
+
+
+def _unique_mode_for(target_modes: set, other_modes: list):
+    """Return a resolution that ONLY the target camera supports, or None.
+
+    Positive tests only. An earlier version also tried the negative form
+    ("the target is the one camera that LACKS this mode") and it was wrong in
+    practice: asked for 800x600, a camera that advertises 800x600 came back
+    through cv2 as 800x450, so "didn't return the size I asked for" does not
+    mean "doesn't support it". Cameras that have no unique mode are found by
+    elimination instead — see _resolve_verified_device_index()."""
+    if not target_modes:
+        return None
+    union_of_others = set().union(*other_modes) if other_modes else set()
+    for mode in sorted(target_modes, reverse=True):
+        if mode not in union_of_others:
+            return mode
+    return None
+
+
+def _probe_index_delivering_mode(mode, max_index: int):
+    """Walk cv2 indices and return the first that genuinely delivers `mode`.
+    A camera that does not support the size negotiates something else, so an
+    exact match is proof of identity when the mode is unique to one camera.
+    None when nothing delivers it (camera absent or held exclusively)."""
+    want_w, want_h = mode
+    for idx in range(max_index):
+        cap = cv2.VideoCapture(idx)
+        if not cap.isOpened():
+            cap.release()
+            continue
+        try:
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, want_w)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, want_h)
+            ok, frame = cap.read()
+            if not ok or frame is None:
+                continue
+            got = (frame.shape[1], frame.shape[0])
+            log.info("grabber: cv2 index %d answered %dx%d (wanted %dx%d)",
+                     idx, got[0], got[1], want_w, want_h)
+            if got == (want_w, want_h):
+                return idx
+        finally:
+            cap.release()
+    return None
+
+
+# Signature grid is deliberately tiny: we are matching "is this the same
+# scene", not comparing images. Coarse enough that exposure drift and a
+# second's worth of movement between the two captures don't matter.
+_SIGNATURE_GRID = (32, 18)
+# Minimum gap (0-255 scale) between the best and second-best match before we
+# trust the answer. Different scenes score tens apart; same scene scores a
+# few. 8 sits well clear of both.
+_SIGNATURE_MIN_MARGIN = 8.0
+
+
+def _frame_signature(frame):
+    """Reduce a frame to a small grayscale grid for scene comparison.
+    Contrast-normalised so the two captures being at different exposures
+    doesn't swamp the comparison. None if the frame is unusable."""
+    if frame is None or getattr(frame, "size", 0) == 0:
+        return None
+    try:
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        small = cv2.resize(gray, _SIGNATURE_GRID,
+                           interpolation=cv2.INTER_AREA).astype("float32")
+    except cv2.error:
+        return None
+    spread = float(small.std())
+    if spread < 1e-3:            # flat frame (lens cap, black frame) — useless
+        return None
+    return (small - float(small.mean())) / spread * 32.0 + 128.0
+
+
+def _reference_signature_by_name(name: str):
+    """Capture one frame from the NAMED device via ffmpeg and return its
+    signature. ffmpeg addresses AVFoundation devices by name, so this frame is
+    guaranteed to come from the camera we mean — that guarantee is the whole
+    point, since cv2 can only be addressed by an index we do not trust.
+    None on any failure."""
+    if sys.platform != "darwin":
+        return None
+    import subprocess, tempfile
+    ffmpeg = _find_ffmpeg()
+    if ffmpeg is None:
+        return None
+    path = os.path.join(tempfile.gettempdir(),
+                        "farm-camref-%d.jpg" % os.getpid())
+    try:
+        # 640x480 @30fps is advertised by every camera on the farm, so this
+        # avoids the mode negotiation that made size-matching unreliable.
+        subprocess.run(
+            [ffmpeg, "-hide_banner", "-loglevel", "error",
+             "-f", "avfoundation", "-framerate", "30",
+             "-video_size", "640x480", "-i", name,
+             "-frames:v", "1", "-y", path],
+            capture_output=True, text=True, timeout=15.0,
+        )
+        if not os.path.exists(path):
+            return None
+        return _frame_signature(cv2.imread(path))
+    except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+        log.warning("reference capture failed for %r: %s", name, exc)
+        return None
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
+def _resolve_verified_device_index(needle: str):
+    """Find the cv2 index that genuinely opens the camera whose name contains
+    `needle`, by testing candidates rather than trusting ffmpeg's numbering.
+    Returns (index, name) on a proven hit, None when the camera is absent or
+    identity could not be established. Darwin-only.
+
+    Each instance stops at its own camera, so the three services on the
+    MacBook Air probe only as far as they need and do not fight over the
+    hardware."""
+    if sys.platform != "darwin" or not needle:
+        return None
+    devices = _list_avfoundation_video_devices()
+    if not devices:
+        return None
+    needle_lc = needle.lower()
+    target_name = next((n for _, n in devices if needle_lc in n.lower()), None)
+    if target_name is None:
+        return None
+
+    other_names = [n for _, n in devices if n != target_name]
+    if not other_names:
+        # Sole camera on the box — nothing to be confused with. Fall through
+        # to plain name resolution rather than burning probes.
+        return _resolve_device_index_by_name(needle)
+
+    modes = {name: _supported_modes_for_device(name) for _, name in devices}
+    max_index = len(devices) + _PROBE_INDEX_MARGIN
+
+    # Preferred route: a resolution only this camera can produce.
+    unique = _unique_mode_for(modes.get(target_name, set()),
+                              [modes[n] for n in other_names if modes.get(n)])
+    if unique is not None:
+        log.info("grabber: verifying %r via its unique mode %dx%d",
+                 target_name, unique[0], unique[1])
+        idx = _probe_index_delivering_mode(unique, max_index)
+        if idx is not None:
+            return idx, target_name
+        # Not fatal, and not a reason to guess. Size negotiation is only
+        # mostly dependable — the dashcam was measured answering a 352x288
+        # request with 352x288 on one run and 352x198 on the next — so fall
+        # through to the picture test rather than trusting a bare index.
+        log.info(
+            "grabber: nothing delivered the unique mode for %r (camera busy, "
+            "or it negotiated a different size) — trying the picture test.",
+            target_name,
+        )
+
+    # Fallback route: this camera has no unique resolution — true of the
+    # MacBook Air's built-in FaceTime, whose modes {1280x720, 640x480,
+    # 320x240} are a strict subset of both USB cameras'. Compare the actual
+    # PICTURE against a reference frame captured by device NAME.
+    #
+    # This is the "just look at it" test, done in code. It is here because the
+    # resolution-only approach was measured to be unstable: the dashcam
+    # answered a 352x288 request with 352x288 on one run and 352x198 on the
+    # next, so an exact-size match is not dependable as identity. Two cameras
+    # aimed at the same scene from the same spot would defeat this, which is
+    # why the margin between best and runner-up is logged.
+    log.info("grabber: identifying %r by picture", target_name)
+    reference = _reference_signature_by_name(target_name)
+    if reference is None:
+        log.warning(
+            "grabber: could not capture a reference frame for %r — serving "
+            "nothing and retrying rather than guessing an index. Publishing "
+            "the wrong camera under this name is the failure this exists to "
+            "prevent.", target_name,
+        )
+        return None
+
+    scored = []
+    for idx in range(max_index):
+        cap = cv2.VideoCapture(idx)
+        if not cap.isOpened():
+            cap.release()
+            continue
+        try:
+            for _ in range(5):          # let auto-exposure settle
+                cap.read()
+            ok, frame = cap.read()
+            if not ok or frame is None:
+                continue
+            signature = _frame_signature(frame)
+            if signature is None:
+                continue
+            difference = float(np.mean(np.abs(signature - reference)))
+            scored.append((difference, idx))
+            log.info("grabber: cv2 index %d differs from the %r reference by "
+                     "%.1f", idx, target_name, difference)
+        finally:
+            cap.release()
+
+    if not scored:
+        log.warning("grabber: no cv2 index produced a frame for %r; retrying.",
+                    target_name)
+        return None
+    scored.sort()
+    best_difference, best_index = scored[0]
+    runner_up = scored[1][0] if len(scored) > 1 else None
+    if runner_up is not None and runner_up - best_difference < _SIGNATURE_MIN_MARGIN:
+        log.warning(
+            "grabber: cameras look too alike to tell apart for %r (best %.1f "
+            "vs next %.1f) — serving nothing and retrying. Two cameras aimed "
+            "at the same scene would need distinguishing by hand.",
+            target_name, best_difference, runner_up,
+        )
+        return None
+    log.info("grabber: %r identified by picture -> cv2 index %d (difference "
+             "%.1f, next best %s)", target_name, best_index, best_difference,
+             "n/a" if runner_up is None else "%.1f" % runner_up)
+    return best_index, target_name
+
+
 # Substrings (case-insensitive) that mark a camera as built-in or virtual, so
 # the prefer-external auto-selector skips them and lands on the real USB
 # webcam. "capture screen" is already filtered in _list_avfoundation_video_
@@ -560,6 +890,12 @@ def _grabber_loop() -> None:
     reconnects on persistent read failures. Exits when `_grabber_stop` is set."""
     global _latest, _grabber_opened_at, _grabber_total_grabs, _grabber_total_failures
 
+    if START_DELAY_S > 0:
+        log.info("grabber: holding off %.0fs before claiming a camera so "
+                 "sibling instances can identify theirs first", START_DELAY_S)
+        if _grabber_stop.wait(START_DELAY_S):
+            return
+
     cap: Optional[cv2.VideoCapture] = None
     consecutive_failures = 0
     sequence = 0
@@ -594,7 +930,10 @@ def _grabber_loop() -> None:
                 # ignores it).
                 c = cv2.VideoCapture(idx, cv2.CAP_DSHOW)
             else:
-                hit = _resolve_device_index_by_name(DEVICE_NAME_CONTAINS)
+                # macOS: prove which camera we get rather than trusting
+                # ffmpeg's device numbering, which does NOT match cv2's. See
+                # the identity-verification block above for the measurements.
+                hit = _resolve_verified_device_index(DEVICE_NAME_CONTAINS)
                 if hit is None:
                     log.info(
                         "grabber: no AVFoundation video device matches "

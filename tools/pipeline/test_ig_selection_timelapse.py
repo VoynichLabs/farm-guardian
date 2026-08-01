@@ -51,8 +51,8 @@ def _make_db(path: Path) -> None:
                 # 20:00 EDT — exclusive end.
                 (4, "gwtc", "2026-05-11T00:00:00+00:00", "evening.jpg", 70.0),
                 # Non-daylight camera keeps all hours unless explicitly configured.
-                (5, "mba-cam", "2026-05-10T05:00:00+00:00", "mba-night.jpg", 60.0),
-                (6, "mba-cam", "2026-05-10T17:00:00+00:00", "mba-day.jpg", 50.0),
+                (5, "macbook-air-facetime", "2026-05-10T05:00:00+00:00", "mba-night.jpg", 60.0),
+                (6, "macbook-air-facetime", "2026-05-10T17:00:00+00:00", "mba-day.jpg", 50.0),
             ],
         )
 
@@ -81,7 +81,7 @@ def test_non_daylight_camera_keeps_all_hours_by_default(tmp_path: Path) -> None:
     _make_db(db_path)
 
     ids = select_timelapse_gems(
-        "mba-cam",
+        "macbook-air-facetime",
         db_path,
         {
             "timelapse_reel_window_hours": 48,

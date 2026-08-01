@@ -43,7 +43,7 @@
       "force_portrait": true
     },
     {
-      "name": "usb-cam",
+      "name": "usb-webcam-1080p",
       "type": "fixed",
       "source": "snapshot",
       "snapshot_method": "http_url",
@@ -55,7 +55,7 @@
     },
     {
       "_comment": "MacBook Air built-in FaceTime HD webcam (2013, 720p). Re-enabled 16-Apr-2026 v2.27.8 after the S7 came back and was USB-tethered to the MBA — figured if we're using the MBA anyway, might as well have it serve its camera too. Same HTTP-snapshot architecture as usb-cam: the MBA runs usb-cam-host on :8089 serving /photo.jpg. Use the mDNS hostname rather than an IP — the MBA is DHCP and drifts.",
-      "name": "mba-cam",
+      "name": "macbook-air-facetime",
       "type": "fixed",
       "source": "snapshot",
       "snapshot_method": "http_url",
@@ -78,7 +78,7 @@
       "detection_enabled": false
     },
     {
-      "name": "mba-cam",
+      "name": "macbook-air-facetime",
       "ip": "192.168.0.WWW",
       "port": 8554,
       "username": "",
