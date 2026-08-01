@@ -40,6 +40,14 @@ cv2:    [0] USB PHY 2.0   [1] USB CAMERA    [2] FaceTime HD
 
 **Plan:** [`docs/01-Aug-2026-camera-rename-and-dashcam-plan.md`](docs/01-Aug-2026-camera-rename-and-dashcam-plan.md). **Docs:** `HARDWARE_INVENTORY.md` (new top block, naming rule), `CLAUDE.md` (roster + identity warning).
 
+**⚠️ Commit provenance — this release is NOT in a commit that mentions it.** A second agent
+session was working this repo at the same time and committed with a blanket `git add`, so
+everything above landed inside its S7-titled commits: **`fe3676d`** carries the bulk (11 files —
+both configs, `usb_cam_host.py`, the new plists, the docs), with fragments in `bfe6be9` and
+`2bebfe2`. Nothing was lost and nothing was left uncommitted, but `git log` will not lead you
+here — search the diffs, not the messages. Two agents editing this repo concurrently is
+explicitly called out as unsafe in `CLAUDE.md`; this is what it looks like in practice.
+
 ### v2.56.0 — Reels off git onto tunnel-hosted assets; asset TTL sweep; stale-path bugs (Claude Opus 5) — 01-Aug-2026
 
 **What:** `post_reel_to_ig` no longer commits the MP4 into farm-2026. Reels are hosted from `data/reel-assets/` and served through the Cloudflare tunnel, the same way Story assets have been since 04-May-2026.
