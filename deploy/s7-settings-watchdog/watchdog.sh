@@ -29,14 +29,22 @@
 #     wakelock or background). Set these once and they persist across restarts:
 #       (1) IP Webcam app -> Settings -> enable "Disable lock screen" / "Keep screen on".
 #       (2) Android Settings -> Battery -> App optimization -> IP Webcam -> "Unrestricted".
-#       (3) Samsung Settings -> Battery -> "Sleeping apps" / "Deep sleeping apps" -> REMOVE
-#           IP Webcam from both lists. Added 2026-08-01: this is Samsung's own app-freezer,
-#           separate from AOSP Doze, and it is the one that actually explains the observed
-#           stall — during the 2026-07-30 wedge the phone was ON THE CHARGER and still
-#           frozen, which rules Doze out (AOSP Doze does not engage while charging).
-#           Signature of this freeze: TCP 8080 still ACCEPTS instantly (kernel holds the
-#           listening socket) but no HTTP response ever comes back, and ICMP is dropped
-#           entirely, because the app's worker threads are frozen while the process lives.
+#       (3) Samsung's own app-freezer must be told to leave IP Webcam alone. ⚠ USE THE
+#           ANDROID 8 MENU NAMES. This phone is SM-G930F on Android 8.0.0 / Samsung
+#           Experience 9.0 — its LAST firmware, it never went further. The "Sleeping apps"
+#           / "Deep sleeping apps" lists everyone writes about are One UI (Android 9+) and
+#           DO NOT EXIST here. On this phone the equivalents are:
+#             a. Settings -> Device maintenance -> Battery -> "Unmonitored apps"
+#                (may be behind the ⋮ menu) -> Add apps -> IP Webcam.
+#             b. Settings -> Apps -> ⋮ -> Special access -> "Optimize battery usage"
+#                -> set the dropdown to "All apps" -> toggle IP Webcam OFF.
+#             c. Settings -> Device maintenance -> Battery -> Power mode: NOT a
+#                power-saving mode.
+#           This freezer, not Doze, is what explains the observed stall: during the
+#           2026-07-30 wedge the phone was ON THE CHARGER and still frozen, and AOSP Doze
+#           does not engage while charging. Signature: TCP 8080 still ACCEPTS instantly
+#           (kernel holds the listening socket) but no HTTP response ever comes back, and
+#           ICMP is dropped entirely — the process lives while its threads are frozen.
 #     (Fix sourced from Horst's pydroid-ipcam + HA research, 2026-06-25. See provenance.)
 #   - File MUST stay outside ~/Documents (macOS TCC blocks launchd from reading scripts there).
 # SRP/DRY check: Pass — sole S7 liveness watchdog; detection-only, no dead recovery paths.
