@@ -32,9 +32,18 @@
 > by device name) and **serves nothing rather than guessing**. To check a camera yourself,
 > pull `/photo.jpg` and look at it.
 >
-> **The Air's lid.** Shutting the laptop lid removes `macbook-air-facetime` from the system
-> entirely — it vanishes from the device list, and its service correctly 503s. That is not a
-> fault. The two USB cameras are unaffected.
+> **⚠️ The built-in camera can vanish from the system while everything looks fine.** On
+> 01-Aug-2026 `FaceTime HD Camera` disappeared from both the AVFoundation device list and
+> `system_profiler SPCameraDataType` for ~50 minutes, with the **lid open**
+> (`ioreg -r -k AppleClamshellState` → `No`) and the camera daemons running. Its service
+> correctly served 503 throughout rather than substituting another camera. **Re-seating the
+> external USB hub brought it straight back.** The built-in FaceTime is an internal USB device
+> on the same controller as that hub, so re-seating forces a root-hub re-enumeration that
+> bounces it too — the same mechanism documented for GWTC's WiFi NIC. Two candidate triggers,
+> not separated: an ffmpeg process killed mid-open on that camera minutes earlier, or the bus
+> being loaded by a third camera (the dashcam alone requests the hub's entire 500 mA).
+> **If the built-in goes missing, re-seat the hub before theorising** — and check the clamshell
+> state before blaming the lid, which is a mistake that was made and published here first.
 >
 > Plan: [`docs/01-Aug-2026-camera-rename-and-dashcam-plan.md`](docs/01-Aug-2026-camera-rename-and-dashcam-plan.md). CHANGELOG v2.57.0.
 
