@@ -473,7 +473,7 @@ ssh -i ~/.ssh/id_ed25519 markb@192.168.0.50 'c -p "Granular task description her
 | 3 | `usb-webcam-1080p` | `usb-cam-host` on the **MacBook Air**, `192.168.0.50:8090` (was `usb-cam` on GWTC until 01-Aug-2026) | off | live, 1920x1080 |
 | 4 | `gwtc` | Gateway laptop MediaMTX `rtsp://192.168.0.69:8554/gwtc` | off | **disabled in both configs** |
 | 5 | `macbook-air-facetime` | MacBook Air `192.168.0.50:8089` — the built-in **FaceTime HD @ 1280x720** (was `mba-cam`) | off | live, enabled in both. **Can disappear from the system entirely with the lid still open** (verified 01-Aug-2026 via `ioreg -r -k AppleClamshellState`) — re-seating the USB hub restores it, since the built-in sits on the same USB controller. The service 503s rather than substituting another camera, which is correct. ⚠️ archive rows from 21-Jul 13:31Z to 23-Jul 12:55Z are actually USB-camera footage — see HARDWARE_INVENTORY.md |
-| 5b | `jieli-dashcam` | MacBook Air `192.168.0.50:8091` — car dashcam in PC-camera mode, Jieli "USB PHY 2.0", 1280x720 wide-angle | off | **NEW 01-Aug-2026.** Wide establishing view of the yard; best picture quality on that host. Time-lapse material, never a gem |
+| 5b | `jieli-dashcam` | MacBook Air `192.168.0.50:8091` — car dashcam in PC-camera mode, Jieli "USB PHY 2.0", 1280x720 wide-angle | off | **NEW 01-Aug-2026.** Best picture quality on that host. Time-lapse material, never a gem. **Re-aimed frequently by Boss — never record what it points at, in config, docs, or code.** Bus-power casualty: cannot share the MacBook Air's 500 mA hub with `usb-webcam-1080p` until a powered hub is fitted |
 | 6 | `dominator-cam` | `192.168.0.194:8089` | off | enabled |
 | 7 | `duo2` | Reolink Duo 2 WiFi, `rtsp://…@192.168.0.155:554` | **ON** | live |
 

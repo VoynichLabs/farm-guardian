@@ -10,7 +10,7 @@
 > |---|---|---|
 > | `mba-cam` | **`macbook-air-facetime`** | MacBook Air 2013 built-in FaceTime HD, 1280x720. Port **8089** on `192.168.0.50` |
 > | `usb-cam` | **`usb-webcam-1080p`** | Generic USB webcam, 1920x1080, VID `0x32e6` / PID `0x9221`, serial `240725172848`. No brand or model — the manufacturer string is literally "USB CAMERA". Port **8090** on `192.168.0.50` |
-> | — new — | **`jieli-dashcam`** | Car dashcam in PC-camera mode. Jieli Technology "USB PHY 2.0", VID `0x1224` / PID `0x2825`, 1280x720 wide-angle. Port **8091** on `192.168.0.50`. **Best picture of the three** |
+> | — new — | **`jieli-dashcam`** | Car dashcam in PC-camera mode. Jieli Technology "USB PHY 2.0", VID `0x1224` / PID `0x2825`, 1280x720 wide-angle. Port **8091** on `192.168.0.50`. **Best picture of the three.** **Aim changes often — do not describe what it is pointed at anywhere** |
 >
 > **All three cameras are on the MacBook Air**, on one VIA Labs USB hub, each served by its
 > own `usb-cam-host` instance (LaunchAgents `com.farmguardian.cam-<name>`). The old single

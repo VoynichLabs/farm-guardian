@@ -31,7 +31,7 @@ _USERNAME_BY_CAMERA = {
     "house-yard": "Yard",
     "macbook-air-facetime": "Turkey Pen",
     "usb-webcam-1080p": "Coop Run",
-    "jieli-dashcam": "Yard Wide",
+    "jieli-dashcam": "Dashcam",
     "gwtc": "Coop",
     "iphone": "Boss's iPhone",
 }
@@ -46,8 +46,9 @@ _USERNAME_BY_CAMERA = {
 # block. The two levers (vlm_bypass + this set) must stay in sync.
 # 01-Aug-2026: cameras renamed to say what they are (usb-cam ->
 # usb-webcam-1080p, mba-cam -> macbook-air-facetime) and jieli-dashcam
-# added — the dashcam is a wide establishing shot of the whole yard in
-# which birds are specks, so it is time-lapse material, never a gem.
+# added — the dashcam is a wide-angle camera that gets re-aimed constantly and
+# in which subjects are usually small, so it is time-lapse material,
+# never a gem. Do not record what it points at — that changes.
 _GEM_POST_DISABLED_CAMERAS = frozenset({
     "macbook-air-facetime", "gwtc", "usb-webcam-1080p", "dominator-cam",
     "jieli-dashcam",
