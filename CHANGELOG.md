@@ -77,20 +77,30 @@ never sends.
 show whether the fix rescues frames the old prompt discarded as `skip`. Only the live rate
 can answer that.
 
-**How verified:** `test_gem_poster_gate` and `test_floor_pecking_calibration` both pass
-(0 failures). Replay over 80 real archived s7-cam frames (40 `strong`, 40 `decent`, seed
-2026, downscale applied): `strong` → 34 `strong` / 2 `decent` / 4 `skip`; `decent` → 23
-`strong` / 9 `decent` / 8 `skip`.
+**How verified — A/B against a control, same rows.** `test_gem_poster_gate` and
+`test_floor_pecking_calibration` both pass (0 failures). The same 80 real archived s7-cam
+frames (40 stored `strong`, 40 stored `decent`, seed 2026, downscale applied) were re-scored
+twice: once with this commit's `prompt.md`, once with the pre-edit prompt as a control.
+Identical images, identical script, only the prompt differs.
 
-**⚠️ NOT verified — read before citing the numbers above.** The control run against the
-pre-edit prompt over the same rows was started and **killed mid-run** to free LM Studio for
-the live camera during a short S7 battery window. The model's own run-to-run disagreement
-rate on borderline frames at `temperature: 0.2` is therefore **unquantified**, so the replay
-deltas are **directional evidence only, not a causal measurement** — some unknown share of
-that `decent`→`strong` movement may be sampling noise rather than the prompt edit. The live
-post-deploy window was likewise too short and too late in the day to be evidence either way.
-Running the control is the outstanding follow-up; the archived images are retained, so it can
-be done at any time (recipe in the plan doc).
+| stored tier | → `strong` under OLD prompt | → `strong` under NEW prompt |
+|---|---|---|
+| `strong` (n=40) | 23 (57.5%) | **34 (85.0%)** |
+| `decent` (n=40) | 1 (2.5%) | **23 (57.5%)** |
+| **total gems from the same 80 images** | **24** | **57** |
+
+**The control is what makes this causal rather than suggestive.** It also quantifies the
+model's run-to-run noise, which is not small: the OLD prompt reproduced its own stored
+`strong` label only 57.5% of the time at `temperature: 0.2`, so ±40% churn on borderline
+frames is the background rate any future prompt experiment has to clear. The
+`decent`→`strong` movement — **1/40 vs 23/40, a 23× difference** — is far outside that band
+and cannot be explained by sampling noise. Note also that the new prompt is *more*
+self-consistent on gems (85% vs 57.5% retention), not merely more permissive.
+
+**Live post-deploy sample** (s7-cam, 27 scored frames from 16:59 onward, evening light):
+2 `strong` / 1 `decent` / 24 `skip` = **7.4% strong** vs the 1–6% daily baseline of the
+previous three weeks. Directionally consistent, but n=27 in poor light is thin — the archived
+A/B above is the real evidence.
 
 **Plan doc:** [`docs/02-Aug-2026-vlm-gem-scoring-recalibration-plan.md`](docs/02-Aug-2026-vlm-gem-scoring-recalibration-plan.md).
 

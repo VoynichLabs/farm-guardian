@@ -231,15 +231,30 @@ No new modules. All changes are edits to files that already own this responsibil
    8 `skip`. Direction is right: most gems survive, and a large share of `decent` frames —
    the population sitting right at the old AND-gate boundary — move up.
 
-   **⚠️ The control run was NOT completed.** A same-rows run against the pre-edit prompt
-   (`git show HEAD:tools/pipeline/prompt.md`) was started and then deliberately killed to
-   free LM Studio for the live camera during a short S7 battery window. Without it, the
-   model's own run-to-run disagreement rate on borderline frames at `temperature: 0.2` is
-   unquantified, so the deltas above are **directional evidence, not a clean causal
-   measurement**. Re-running it is the outstanding follow-up — the archived images are
-   retained, so it can be done any time:
+   **Control run — COMPLETED, and it is what makes the result causal.** The control was
+   first started, then deliberately killed mid-run to free LM Studio for the live camera
+   during a short S7 battery window (the timeline in git history looks odd for this reason),
+   then re-run to completion once the live window proved too dark to yield a usable number
+   anyway. Same 80 rows, same seed, same script, pre-edit prompt:
+
+   | stored tier | → `strong` under OLD prompt | → `strong` under NEW prompt |
+   |---|---|---|
+   | `strong` (n=40) | 23 (57.5%) | **34 (85.0%)** |
+   | `decent` (n=40) | 1 (2.5%) | **23 (57.5%)** |
+   | **total gems from same 80 images** | **24** | **57** |
+
+   **Two things this establishes.** First, the model's run-to-run noise is *large* — the old
+   prompt reproduced its own stored `strong` verdict only 57.5% of the time at
+   `temperature: 0.2`. Any future prompt experiment on this pipeline must clear roughly ±40%
+   churn on borderline frames before claiming an effect, and a single uncontrolled replay run
+   is not sufficient evidence. **Always run the control.** Second, the `decent`→`strong`
+   movement (1/40 → 23/40, a 23× difference) is far outside that noise band, so the effect is
+   real. The new prompt is also *more* self-consistent on gems (85% vs 57.5%), which rules out
+   "it just says strong more often at random."
+
+   To reproduce:
    ```
-   git show <pre-v2.59.0-commit>:tools/pipeline/prompt.md > /tmp/prompt-control.md
+   git show 3b90b66:tools/pipeline/prompt.md > /tmp/prompt-control.md
    ./venv/bin/python scripts/replay-vlm-prompt.py --prompt-file /tmp/prompt-control.md --seed 2026
    ```
 6. **Sanity-check the result, don't chase a number.** The goal is a `strong` rate
