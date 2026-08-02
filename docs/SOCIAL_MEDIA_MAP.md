@@ -8,6 +8,24 @@ This is the current, live map of how cute photos of the flock get from camera fr
 
 ---
 
+
+> **`jieli-dashcam` daily time-lapse Reel — added 02-Aug-2026.** LaunchAgent
+> `com.farmguardian.ig-jieli-dashcam-timelapse-reel`, **daily 21:30 local**, auto-posts
+> (no approval gate), Discord notice mentioning Mark. Landscape 16:9, fast pacing
+> (0.4 s/frame), daylight-only frames, plain selection — **deliberately not golden
+> windows**, which assume a fixed view this camera does not have.
+>
+> **The 21:30 slot is deliberate, not arbitrary.** Instagram's 25-per-rolling-24h cap is
+> shared, and the hourly reacted-gem story lane routinely consumes 13–20 of it (measured
+> 02-Aug: 19 of 22 used). Running last means this new lane is what gets skipped when the
+> quota is exhausted, rather than an established one. It skips cleanly — logs, posts nothing.
+>
+> **Known and deferred:** this is the only time-lapse lane whose camera is not stationary.
+> Boss re-aims it often, so a day in which it moved yields a reel that cuts between unrelated
+> scenes. Fix, if it becomes a nuisance: build from the longest stationary run of the day.
+> See `docs/02-Aug-2026-dashcam-daily-reel-plan.md`.
+
+
 ## The one-paragraph version
 
 **Three fixed daily camera reels (v2.50.0, 22-Jul-2026):** exactly one reel per camera per day — `house-yard` 09:00, `duo2` 15:00, `s7-cam` 21:00. They are never combined and there is no camera-of-the-day rotation (that lane was created and killed on 22-Jul; its plist is suffixed `.disabled-22jul2026`). These time-lapse reels are **not** reaction-gated — they select sharp, safe frames from their own camera and post automatically, then send a Discord notice mentioning Mark. The separate *mixed* reel at 18:00 draws on reacted gems across cameras.

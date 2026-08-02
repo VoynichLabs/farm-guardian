@@ -1116,6 +1116,14 @@ def select_duo2_timelapse_gems(db_path: Path, cfg: dict) -> list[int]:
     return select_timelapse_gems("duo2", db_path, cfg)
 
 
+def select_jieli_dashcam_timelapse_gems(db_path: Path, cfg: dict) -> list[int]:
+    # Plain daylight-only selection, deliberately NOT golden-windows. Golden
+    # windows narrow to sunrise/sunset light on the assumption of a fixed view,
+    # and this camera gets re-aimed often — see
+    # docs/02-Aug-2026-dashcam-daily-reel-plan.md.
+    return select_timelapse_gems("jieli-dashcam", db_path, cfg)
+
+
 def mark_gems_used_in_backlog_reel(
     db_path: Path,
     gem_ids: list[int],

@@ -263,6 +263,37 @@ DUO2_TIMELAPSE_LANE = DailyReelLane(
 
 # D10 (16-Jul-2026): rotation pool for the consolidated "camera of the day"
 # timelapse lane (farm-2026's 16-Jul-2026-birdcatraz-era-refresh-plan.md,
+JIELI_DASHCAM_TIMELAPSE_LANE = DailyReelLane(
+    lane_id="jieli-dashcam-timelapse",
+    log_name="ig-jieli-dashcam-timelapse-reel",
+    description="Auto-post daily dashcam time-lapse Reel.",
+    selector_name="select_jieli_dashcam_timelapse_gems",
+    state_subdir="jieli-dashcam-timelapse",
+    output_filename_prefix="reel-jieli-dashcam-timelapse",
+    discord_username="farm-reel-dashcam",
+    discord_title="Dashcam daily time-lapse",
+    approval_required=False,
+    ledger_lane="jieli-dashcam-timelapse-reel",
+    caption_fallback="A day at the farm.",
+    mention_user_id=MARK_DISCORD_USER_ID,
+    # 1280x720 sensor — 16:9, same as the duo2 and house-yard lanes.
+    landscape_mode=True,
+    discord_preview_scale="960:540",
+    # Fast pacing, matching the other outdoor time-lapse lanes.
+    seconds_per_frame=0.4,
+)
+
+# KNOWN AND DELIBERATELY DEFERRED (02-Aug-2026): unlike every other lane here,
+# this camera is NOT stationary — Boss re-aims it often. A day in which it moves
+# produces a reel that jump-cuts between unrelated scenes. Shipped anyway because
+# nobody has yet measured how often that happens during daylight, and a visibly
+# bad reel is a cheaper way to find out than tuning scene-change detection blind.
+# If it becomes a nuisance the fix is to build from the longest stationary run of
+# the day rather than the whole day. Do NOT quietly add golden windows here as a
+# workaround — those assume a fixed view, which is the same wrong assumption.
+# See docs/02-Aug-2026-dashcam-daily-reel-plan.md.
+
+
 # Part D10). The six lanes ending in _TIMELAPSE_LANE defined above are:
 # MBA_CAM, GWTC, USB_CAM, DOMINATOR_CAM, HOUSE_YARD_CAM, DUO2. Pool
 # selection, camera by camera:
@@ -291,6 +322,7 @@ CAMERA_OF_THE_DAY_POOL: tuple[DailyReelLane, ...] = (
     USB_CAM_TIMELAPSE_LANE,
     DOMINATOR_CAM_TIMELAPSE_LANE,
     DUO2_TIMELAPSE_LANE,
+    JIELI_DASHCAM_TIMELAPSE_LANE,
 )
 
 

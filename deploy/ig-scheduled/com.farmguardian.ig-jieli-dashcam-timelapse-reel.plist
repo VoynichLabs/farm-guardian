@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATH</key>
+		<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+	</dict>
+	<key>Label</key>
+	<string>com.farmguardian.ig-jieli-dashcam-timelapse-reel</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/Users/macmini/GitHub/farm-guardian/venv/bin/python</string>
+		<string>/Users/macmini/GitHub/farm-guardian/scripts/ig-jieli-dashcam-timelapse-reel.py</string>
+	</array>
+	<key>RunAtLoad</key>
+	<false/>
+	<key>StandardErrorPath</key>
+	<string>/tmp/ig-jieli-dashcam-timelapse-reel.err.log</string>
+	<key>StandardOutPath</key>
+	<string>/tmp/ig-jieli-dashcam-timelapse-reel.out.log</string>
+	<key>StartCalendarInterval</key>
+	<dict>
+		<key>Hour</key>
+		<integer>21</integer>
+		<key>Minute</key>
+		<integer>30</integer>
+	</dict>
+	<key>ThrottleInterval</key>
+	<integer>60</integer>
+	<key>WorkingDirectory</key>
+	<string>/Users/macmini/GitHub/farm-guardian</string>
+</dict>
+</plist>
