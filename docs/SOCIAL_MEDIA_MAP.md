@@ -15,10 +15,13 @@ This is the current, live map of how cute photos of the flock get from camera fr
 > (0.4 s/frame), daylight-only frames, plain selection — **deliberately not golden
 > windows**, which assume a fixed view this camera does not have.
 >
-> **The 21:30 slot is deliberate, not arbitrary.** Instagram's 25-per-rolling-24h cap is
-> shared, and the hourly reacted-gem story lane routinely consumes 13–20 of it (measured
-> 02-Aug: 19 of 22 used). Running last means this new lane is what gets skipped when the
-> quota is exhausted, rather than an established one. It skips cleanly — logs, posts nothing.
+> **⚠️ REELS TAKE PRIORITY OVER GEMS (Boss, 02-Aug-2026).** Reels are the highest-value
+> thing this account posts and reacted-gem stories are not allowed to crowd them out.
+> Instagram's 25-per-rolling-24h cap is shared, and the gem lane had been taking 19 of 22
+> slots by midday. The gem lane's ceiling (`tools/social/config.json :: publisher_daily_cap`)
+> is therefore held at **18**, permanently reserving **7** slots for the six daily non-gem
+> publishes plus the Sunday weekly. **Do not raise that cap** — it re-creates the problem.
+> Gems are not lost: their queue has no time window and drains on later ticks.
 >
 > **Known and deferred:** this is the only time-lapse lane whose camera is not stationary.
 > Boss re-aims it often, so a day in which it moved yields a reel that cuts between unrelated

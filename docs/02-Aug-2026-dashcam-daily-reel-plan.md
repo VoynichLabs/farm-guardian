@@ -13,10 +13,13 @@ doesn't. Adding it is cheap — the lane machinery already exists and six camera
   day, plenty of room" was wrong: it came from a table that only records reels. The real
   counter says **22 of 25 used**, and **19 of those 22 are reacted-gem stories** — the
   hourly lane driven by Discord reactions. Recent days: 7, 22, 15.
-- **So the new lane runs LAST, at 21:30**, after S7 at 21:00. On a heavy-reaction day
-  something has to be skipped, and it should be the brand-new lane rather than an
-  established one. The lane already skips cleanly when no slots remain — it logs and
-  posts nothing. The 24h look-back still covers the whole day.
+- **Reels take priority over gems** (Boss, 02-Aug-2026) — reels are the most valuable
+  thing this account posts, so reacted-gem stories must not crowd them out. The gem
+  lane's own ceiling was lowered from 22 to 18, which permanently reserves 7 slots for
+  the six daily non-gem publishes plus the Sunday weekly. Gems aren't lost when that
+  bites; their queue has no time window and drains later.
+- **The lane runs at 21:30**, an end-of-day slot after the 20:00 daylight window closes,
+  so one run covers the whole day.
 - **No time slot collision.** Existing: 09:00 house-yard, 12:30 carousel, 15:00 duo2,
   18:00 mixed, 21:00 S7, 23:30 stats.
 - **The work is small.** Each camera's reel is a ~30-line file plus a settings block

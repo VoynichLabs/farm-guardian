@@ -3,13 +3,15 @@
 # Date: 02-August-2026
 # PURPOSE: LaunchAgent entry point for the jieli-dashcam time-lapse Reel. Runs
 #          daily at 21:30 local via
-#          com.farmguardian.ig-jieli-dashcam-timelapse-reel.plist. The slot is
-#          deliberately LAST among the reel lanes: Instagram caps the account at
-#          25 publishes per rolling 24h and the hourly reacted-gem story lane
-#          routinely eats 13-20 of them, so on a busy day something gets skipped.
-#          Running after S7 (21:00) means the thing skipped is this new lane
-#          rather than an established one. The 24h look-back still covers the
-#          whole day; capture is daylight-only (06:00-20:00) regardless. Selects raw-tier
+#          com.farmguardian.ig-jieli-dashcam-timelapse-reel.plist — an end-of-day
+#          slot, after the 20:00 daylight capture window closes, so one run covers
+#          the whole day. The 24h look-back covers it either way; capture is
+#          daylight-only (06:00-20:00).
+#          Quota: REELS TAKE PRIORITY OVER GEMS (Boss, 02-Aug-2026). The gem lane
+#          is capped below Instagram's real limit (tools/social/config.json ::
+#          publisher_daily_cap) precisely so reel lanes always have slots. This
+#          lane is not expected to be starved; if it ever logs "no slots free",
+#          that cap has been raised and should be put back. Selects raw-tier
 #          jieli-dashcam frames from the last 24h by sharpness, stitches them into
 #          a 16:9 MP4 (the dashcam shoots 1280x720), auto-posts to IG/FB, then
 #          sends a Discord notice mentioning Mark. All lane mechanics live in

@@ -274,7 +274,16 @@ def _post_archive_one(dry_run: bool, ledger_path: Path) -> Optional[dict]:
 def run_tick(dry_run: bool = False) -> dict:
     """One decision cycle. Returns a summary dict. Never raises."""
     cfg = _load_config()
-    # publisher_daily_cap reserves slots for reel lanes; falls back to ig_rolling_24h_quota
+    # publisher_daily_cap is the GEM lane's ceiling, deliberately BELOW the real
+    # Instagram cap (ig_rolling_24h_quota) so the difference is reserved for reels.
+    # REELS TAKE PRIORITY OVER GEMS — Boss, 02-Aug-2026. Reels are the highest-value
+    # thing this account posts; reacted gems are not allowed to crowd them out.
+    # There are six non-gem publishes a day (house-yard 09:00, carousel 12:30,
+    # duo2 15:00, mixed 18:00, s7 21:00, dashcam 21:30) plus a weekly S7 gems reel
+    # on Sundays, so the reserve is 7. Raising this cap re-creates the problem:
+    # on 02-Aug the gem lane had taken 19 of 22 slots by midday, leaving reels
+    # three. Gems are NOT lost when this cap bites — the queue has no time window
+    # and drains on later ticks as old publishes age out of the rolling 24h.
     quota = int(cfg.get("publisher_daily_cap", cfg["ig_rolling_24h_quota"]))
     reserve_floor = int(cfg["archive_reserve_floor"])
     archive_fallback_enabled = bool(cfg.get("archive_fallback_enabled", True))

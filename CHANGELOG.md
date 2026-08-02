@@ -4,6 +4,50 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.58.0 — Reels take priority over gems; dashcam daily Reel lane (Claude Opus 5) — 02-Aug-2026
+
+**What:** Two changes. A seventh per-camera Reel lane for `jieli-dashcam` (daily 21:30,
+landscape 16:9, 0.4 s/frame, auto-post + Discord notice), and a quota reallocation that puts
+**Reels ahead of reacted-gem Stories**.
+
+**Why the reallocation:** Instagram's 25-publishes-per-rolling-24h cap is shared across every
+lane. Measured 02-Aug: the hourly gem lane had consumed **19 of 22** used slots by midday,
+leaving three for every Reel on the schedule. Per Boss, Reels are the most valuable thing this
+account posts and must not be crowded out by gems.
+
+**How:** `publisher_daily_cap` (the gem lane's own ceiling, already designed to sit below the
+real cap) lowered **22 → 18**, permanently reserving **7** slots for the six daily non-gem
+publishes — house-yard 09:00, carousel 12:30, duo2 15:00, mixed 18:00, s7 21:00, dashcam 21:30 —
+plus the Sunday weekly S7 gems Reel. **Gems are not lost when the cap bites:** their queue has
+no time window (`select_all_unposted_story_gems`), so it drains on later ticks as old publishes
+age out. A reaction remains a commitment to publish, just not necessarily within the hour.
+**Do not raise `publisher_daily_cap` back up** — that re-creates the exact starvation this fixes;
+the reasoning is now inline in `publisher.py` rather than left as a bare number.
+
+**The dashcam lane** follows the existing pattern exactly (selector, `DailyReelLane`, ~30-line
+shim, plist). Verified by dry run against real frames: 682 available, 71 selected into 5-minute
+buckets, stitched to a 17.9 s 1920x1080 MP4, caption synthesised, nothing published. **It has
+not posted yet and should not for a few more days** — per Boss, the camera has only been up
+hours and a reel wants a full day's material. It is a standing lane, not a one-off.
+
+**Deliberately NOT on `timelapse_golden_windows`.** Those narrow selection to sunrise/sunset
+bands, which assumes a fixed frame worth catching at a given light — wrong for a camera that
+gets re-aimed. Plain daylight-only instead.
+
+**KNOWN AND DEFERRED:** this is the only time-lapse lane whose camera is not stationary, so a
+day in which it was re-aimed yields a Reel that cuts between unrelated scenes. Boss expects it
+to settle into a fixed location. If it becomes a nuisance before then, the fix is to build from
+the longest stationary run of the day rather than the whole day. Recorded in the lane definition
+and script header so it reads as a decision, not a bug.
+
+**Corrections to earlier claims made this session:** quota headroom was reported as "2–6 a day,
+plenty of room" — wrong, that came from `ig_posted_captions`, which records only Reels, not gem
+Stories; the authority is `ledger.count_last_24h`. And the 21:30 slot was first justified as
+"runs last so it yields to the gem lane" — backwards once Reels take priority; it is simply an
+end-of-day slot now.
+
+**Plan:** [`docs/02-Aug-2026-dashcam-daily-reel-plan.md`](docs/02-Aug-2026-dashcam-daily-reel-plan.md). **Docs:** `docs/SOCIAL_MEDIA_MAP.md`, `CLAUDE.md`.
+
 ### v2.57.0 — Cameras renamed to what they are; dashcam added; camera identity now proven, not assumed (Claude Opus 5) — 01-Aug-2026
 
 **What:** Three changes that belong together.
