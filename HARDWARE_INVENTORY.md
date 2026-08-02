@@ -59,7 +59,17 @@
 >   it straight back to full 1920x1080, so **the camera hardware is fine**.
 >
 > The dashcam alone requests the hub's entire budget (`Current Required: 500 mA` against
-> `Current Available: 500 mA`), before the other two draw anything.
+> `Current Available: 500 mA`), before the other two draw anything. With the USB webcam's
+> 100 mA on top, demand is **600 mA against a 500 mA supply** — over budget on the spec
+> sheet, not just in theory.
+>
+> **Demonstrated in both directions (02-Aug-2026), which settles it.** On 01-Aug the
+> dashcam was the one that dropped off. Overnight the dashcam was restored to PC mode
+> first — and by morning the **USB webcam** was the casualty instead, this time losing its
+> camera interface entirely: still listed in `SPUSBDataType` as a USB device, but absent
+> from `SPCameraDataType`, so nothing can open it as a camera. **A service restart did NOT
+> recover it** (unlike the milder 640x480 degradation the day before). Whichever of the two
+> comes up second loses. They cannot coexist on a 500 mA bus-powered hub.
 >
 > **Fix: an externally powered USB hub** — one with its own DC power brick, not merely a
 > "USB 3.0" hub. USB 2.0 speed is plenty for these cameras; the power is the point. Until
