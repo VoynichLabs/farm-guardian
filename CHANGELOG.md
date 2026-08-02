@@ -4,6 +4,96 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.59.0 — `share_worth` close-and-looking gate reverted to a weighted criterion; stale 80-vs-70 text synced (Claude Sonnet 5 / Claude Opus 5) — 02-Aug-2026
+
+**What:** Three changes to how the VLM judges bird frames, plus one doc note. (1) The
+`share_worth` **"HARD PREREQUISITE — close-and-looking rule"** in `tools/pipeline/prompt.md`
+is gone; close-plus-eye-contact is now **strong-trigger 5**, one of five OR'd ways to earn
+`strong`, rather than an AND-gate that overrode the other four. (2) Every stale `80` in the
+prompt and in `gem_poster.should_post`'s docstring now reads `70`, matching the
+`_MIN_OVERALL_SCORE = 70` that has actually been enforced since v2.45.2. (3) A new
+verification-only harness, `scripts/replay-vlm-prompt.py`. (4) A CLAUDE.md note on S7 Qi-pad
+charging.
+
+**Why — the gem rate collapsed on a specific day and never recovered.** `git show c8e24af`
+(12-Jul-2026, v2.45.0) added the hard prerequisite. Measured from `image_archive` for
+`s7-cam`, the `strong`-tag rate by day:
+
+| Period | `strong` rate |
+|---|---|
+| 03–12 Jul (before) | 20–42% |
+| 13 Jul (day after) | 4.4% |
+| 13 Jul – 02 Aug (3 weeks) | mostly 1–6%, one day 0.06% |
+
+The pre-12-Jul prompt already gated `strong` on sharpness, face-visibility, and ten skip
+triggers — it just let any ONE of four positive signals qualify. The rewrite made "close AND
+looking, same bird" a precondition and explicitly instructed the model that "sharpness,
+exposure, lighting, composition, plumage rarity, and bird count DO NOT MATTER" when it fails.
+That is the mechanism behind the collapse. **Skip-trigger 10 (prominent bird rump-to-camera,
+only distant birds facing the lens) is retained** as an ordinary skip trigger — it is a fair
+reason to skip on its own; it just no longer zeroes out every other signal when it does not
+apply.
+
+**Why the 80→70 sync matters and is not cosmetic.** v2.45.0 wrote "A frame only reaches
+Discord at **80+**" into the prompt; v2.45.2 lowered the real gate to 70 the next day and
+never updated the text. `_compute_overall_score` recomputes `overall_score` from four axes,
+but two of them — `expression_score` (0–30) and `detail_score` (0–25), **55 of the 100
+points** — are scored by the model directly, against a bar the prompt told it was 10 points
+higher than reality. 19 of 459 `strong` frames in the last 14 days still landed under the
+real 70 floor and were silently rejected.
+
+**Speed — investigated, measured, and deliberately NOT changed.** Real per-call latency from
+`image_archive.vlm_inference_ms` (9,062 calls, 7 days, s7-cam): mean **5.66 s**, p5 4.6 s,
+p95 6.4 s. A ~11%-shorter candidate prompt (trimmed breed-speculation block + de-duplicated
+`overall_score` rubric) was measured head-to-head, 10 calls per arm on one archived frame:
+current median **6.30 s**, trimmed median **6.53 s** — no win, inside the noise. **The trim
+was discarded and `prompt.md` keeps its full text.** The bottleneck is decode (~600 output
+tokens incl. the free-text caption), not prefill, so prompt prose length is the wrong lever;
+`vlm_max_tokens` or the schema's field count would be the right one, untested and out of
+scope here. Two optimizations already live and untouched: 768 px input downscale
+(`_downscale_for_vlm`) and the 4-stage pre-VLM gate, which rejects ~15% of captures before
+they cost a VLM call.
+
+**Explicitly NOT changed, having been verified sound:** leg-band handling (reworked
+v2.55.0/v2.55.1 after the measured 440-sightings/0-IDs/5-phantom-bands incident — the model
+reports raw observations, `roster.resolve_band` decides identity, captions are scrubbed);
+`vlm_load_context_length` 16384 (memory headroom for a real context-exceeded incident, not a
+latency lever); the single-in-flight `_VLM_LOCK` / `parallel: 1`; and the model choice.
+
+**New harness — `scripts/replay-vlm-prompt.py`.** Loads a candidate prompt file from disk
+(never the live `prompt.md`), re-runs the production `vlm_enricher.enrich()` against real
+archived s7-cam JPEGs, and prints the new tier beside the stored one. Never writes to
+`image_archive`. **⚠️ It MUST apply `_downscale_for_vlm` before calling `enrich()`, and now
+does** — the first version of this script did not, fed the model full-resolution 1080×1920
+originals, and produced entirely spurious `sharp`→`soft` flips and `overall_score=0` rows
+that looked like a catastrophic prompt regression. Three frames were pulled apart by hand to
+find it. Any future replay harness that skips the downscale is testing an input production
+never sends.
+
+**Known verification limitation (retention, not laziness):** `skip`-tier rows never get an
+`image_path` at all (37,652 `skip` rows since 13-Jul, **0** with a stored file) and
+`decent`-tier images are swept after 7 days, so a retrospective replay can only ask "do
+`strong` frames survive" and "do recent `decent` frames move up". It structurally cannot
+show whether the fix rescues frames the old prompt discarded as `skip`. Only the live rate
+can answer that.
+
+**How verified:** `test_gem_poster_gate` and `test_floor_pecking_calibration` both pass
+(0 failures). Replay over 80 real archived s7-cam frames (40 `strong`, 40 `decent`, seed
+2026, downscale applied): `strong` → 34 `strong` / 2 `decent` / 4 `skip`; `decent` → 23
+`strong` / 9 `decent` / 8 `skip`.
+
+**⚠️ NOT verified — read before citing the numbers above.** The control run against the
+pre-edit prompt over the same rows was started and **killed mid-run** to free LM Studio for
+the live camera during a short S7 battery window. The model's own run-to-run disagreement
+rate on borderline frames at `temperature: 0.2` is therefore **unquantified**, so the replay
+deltas are **directional evidence only, not a causal measurement** — some unknown share of
+that `decent`→`strong` movement may be sampling noise rather than the prompt edit. The live
+post-deploy window was likewise too short and too late in the day to be evidence either way.
+Running the control is the outstanding follow-up; the archived images are retained, so it can
+be done at any time (recipe in the plan doc).
+
+**Plan doc:** [`docs/02-Aug-2026-vlm-gem-scoring-recalibration-plan.md`](docs/02-Aug-2026-vlm-gem-scoring-recalibration-plan.md).
+
 ### v2.58.0 — Reels take priority over gems; dashcam daily Reel lane (Claude Opus 5) — 02-Aug-2026
 
 **What:** Two changes. A seventh per-camera Reel lane for `jieli-dashcam` (daily 21:30,

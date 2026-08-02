@@ -1,4 +1,4 @@
-# Author: Claude Opus 4.7 (1M context); Claude Sonnet 4.6 (09-May-2026 — gwtc/usb-cam/dominator-cam disabled); Claude Fable 5 (02-Jul-2026 — tier+score gate restored, trim_caption added, v2.44.5); Claude Opus 4.8 (Bubba) (12-Jul-2026 — score floor 7→80 for the 0-100 component scale, v2.45.0; 13-Jul-2026 — floor 80→70, v2.45.2); Claude Fable 5 (16-Jul-2026 — brooder-era Discord usernames retired for the Birdcatraz move, v2.46.0)
+# Author: Claude Opus 4.7 (1M context); Claude Sonnet 4.6 (09-May-2026 — gwtc/usb-cam/dominator-cam disabled); Claude Fable 5 (02-Jul-2026 — tier+score gate restored, trim_caption added, v2.44.5); Claude Opus 4.8 (Bubba) (12-Jul-2026 — score floor 7→80 for the 0-100 component scale, v2.45.0; 13-Jul-2026 — floor 80→70, v2.45.2); Claude Fable 5 (16-Jul-2026 — brooder-era Discord usernames retired for the Birdcatraz move, v2.46.0); Claude Sonnet 5 (02-Aug-2026 — should_post docstring's stale "overall_score < 80" corrected to match the v2.45.2 constant, v2.59.0)
 # Date: 23-April-2026
 # PURPOSE: Post strong-tier frames to the #farm-2026 Discord channel as they
 #          land. Called from orchestrator.run_cycle whenever store returns
@@ -165,7 +165,7 @@ def should_post(vlm_metadata: dict, tier: str, camera_id: Optional[str] = None) 
     Universal rules (all cameras):
       - share_worth == 'skip'  → reject
       - tier != 'strong'       → reject  (v2.44.5; tier is store's share_worth)
-      - overall_score < 80 or missing → reject  (v2.45.0; fail closed)
+      - overall_score < 70 or missing → reject  (v2.45.0 set 80; v2.45.2 lowered to 70; fail closed)
       - bird_count < 1         → reject
       - image_quality 'blurred'→ reject
 
