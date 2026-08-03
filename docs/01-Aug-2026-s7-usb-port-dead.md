@@ -1,13 +1,52 @@
 # S7 phone-cam — micro-USB port is dead (01-Aug-2026)
 
-**Status: OPEN on the port question again — see the correction immediately below. OPEN on
-what to do about the phone.**
+**Status: CLOSED — the port is hardware-dead, settled by the wall-brick test (see "FINAL"
+below). OPEN on what to do about the phone.**
 
 Read this before touching anything to do with `s7-cam` power, ADB, or phone recovery.
 
 ---
 
-## ⚠️ CORRECTION (later on 01-Aug-2026) — read before the rest of this doc
+## ✅ FINAL (end of 01-Aug-2026) — the wall-brick test settles it
+
+**Boss tested the phone against a plain wall charger, with two different cables. Zero
+reaction. No charging icon, no warning, nothing.**
+
+That is the conclusive result, and it is worth understanding *why* it outranks everything
+else tried:
+
+A dumb wall brick shorts D+/D- together and **asks the phone to negotiate nothing**. There is
+no USB handshake, no enumeration, no driver, no Android involvement — it simply puts 5 V on
+VBUS. Insertion detection on that path is hardware, which is exactly why a **completely
+powered-off** phone still shows a charging animation when you plug it in. No setting inside
+Android can suppress it.
+
+So zero reaction means **5 V is not reaching the charging circuit at all**. That is a broken
+connection, not a refused one. The software theory required the phone to be *deciding* not to
+charge; a phone that is deciding still senses the insertion.
+
+This also resolves the ambiguity flagged in the correction below. Of the two readings that
+both fit the "warnings stopped" observation, the wall-brick result supports the first: the
+port has gone from a detectable short to an **open circuit**. It stopped complaining because
+it got worse, not better.
+
+**Everything is now closed: cable (×3 including two here), hub chain, lint, cold boot,
+firmware, and now charger negotiation. The port is hardware-dead.**
+
+One remaining long shot, worth the two minutes but no longer likely: corrosion can leave an
+**insulating oxide film on the contact surfaces** as well as conductive residue between pins,
+and an oxide film is exactly what produces an open circuit. A 99 % isopropyl clean is the
+only thing that could lift it — procedure in `01-Aug-2026-s7-factory-reset-runbook.md`. If
+that doesn't do it, nothing in software will.
+
+**A factory reset will not restore charging.** It's still defensible for the *other* problem
+(the recurring app-freeze wedge), but it should not be undertaken expecting the port back —
+and the FRP precautions in the runbook still apply, doubly so now that the phone can never be
+rescued over USB.
+
+---
+
+## ⚠️ CORRECTION (earlier on 01-Aug-2026) — superseded by FINAL above, kept for reasoning
 
 After this was written, Boss confirmed the phone had **displayed Samsung's moisture warning
 many times**, and that **clearing it did not hold — it returned immediately.** That was not
