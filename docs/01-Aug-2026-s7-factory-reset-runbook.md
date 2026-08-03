@@ -43,6 +43,69 @@ definitely have to."
 
 ---
 
+## Testing the "bugged moisture sensor" theory (raised 01-Aug-2026)
+
+The theory: Samsung's moisture detection has latched and is refusing to charge even though
+the port is dry. This is a real and very common Samsung fault, so it deserves a real test
+rather than a hand-wave. Two things to know before spending effort on it.
+
+**It is mostly a USB-C-era fault.** The famous "Moisture detected" lockout — and the
+"clear USBSettings cache" fix that circulates for it — belongs to the S8/S9/S10/S20
+generation, which detect water on the USB-C CC lines. This is a micro-USB SM-G930F. It does
+have a MUIC that can flag a water/short fault, so the theory isn't impossible, just not the
+same mechanism the online fixes were written for.
+
+**The strongest counter-evidence is that the reset has effectively already been done.** A
+latched moisture flag is kernel/MUIC driver state, and that state is rebuilt from scratch on
+a cold boot. On 01-Aug a forced restart (Vol Down + Power — the sealed-battery equivalent of
+a battery pull) was performed while the USB bus was polled every 2 s for 12 minutes straight
+through it. The Samsung VID never appeared. A latched flag does not survive that.
+
+Also note that a moisture lockout blocks *charging* while leaving USB **data** working —
+users on affected phones routinely still transfer files while charging is refused. Here there
+is no enumeration at all. That points at the connection rather than a refusal, though it is
+suggestive rather than absolutely conclusive on its own.
+
+### The question that settles it
+
+**Did the phone ever display a "Moisture detected" warning, or a water-drop icon in the
+status bar?** That notification *is* the feature announcing itself. If it never appeared,
+the moisture lockout was almost certainly never engaged and this theory is dead. If it did
+appear, the theory gets much stronger and is worth pushing on.
+
+### The good news: the planned factory reset already tests this
+
+**A factory reset is a strict superset of every software-level moisture-sensor reset.** It
+clears app data and settings wholesale, including `USBSettings`. So there is no need to
+choose between the two approaches — the reset that's already planned covers the software half
+of this theory automatically. If a bugged software flag is the cause, the reset resolves it.
+
+### Two extra things worth trying, since they're free
+
+Both are a couple of minutes and there's no downside to doing them before the wipe:
+
+1. **Clear the USB settings app.** Settings → Apps → ⋮ → **Show system apps** → find
+   **USBSettings** (or **USB Settings**) → Storage → **Clear cache**, then **Clear data**.
+   Reboot, then re-test with the cable. This is the canonical fix for the USB-C version of
+   the bug and costs nothing to try here.
+2. **Boot into safe mode** (hold Power, then long-press the "Power off" option until "Safe
+   mode" appears) and test the cable there. Safe mode disables third-party apps; if it
+   charges in safe mode, something installed is interfering rather than the hardware.
+
+**After either, re-test from the Mini** — this reports whether the phone appears on the USB
+bus at all:
+
+```bash
+bash ~/GitHub/farm-guardian/tools/s7-charge-diagnose.sh
+```
+
+If a Samsung device shows up on the bus, the theory was right and everything in
+`01-Aug-2026-s7-usb-port-dead.md` needs revisiting. If it still shows nothing after a
+factory reset — which wipes every software flag there is — then software has been eliminated
+by exhaustion and the port is hardware-dead.
+
+---
+
 ## Rebuild, in order
 
 ### 1. Setup wizard
