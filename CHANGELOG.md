@@ -4,6 +4,74 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.60.0 — Weekly + monthly daylight time-lapse Reels for house-yard and duo2 (Claude Sonnet 5 Extra) — 03-Aug-2026
+
+**What:** Four new auto-publishing Reel lanes — `house-yard-weekly`, `house-yard-monthly`,
+`duo2-weekly`, `duo2-monthly` — daylight-hours-only time-lapses over 7 and ~30 days for the
+two Reolink cameras. Plan: `docs/03-Aug-2026-multi-day-timelapse-reels-plan.md`.
+
+**Why:** Boss wanted a longer-horizon time-lapse than the existing 24h daily reels. The daily
+lanes' source (`image_tier='raw'`) is swept after `raw_retention_hours` (48h for both cameras)
+— there is no way to select a week or month of history from it, and widening that retention
+window would balloon disk usage (duo2 alone runs ~6MB/frame) for material almost none of which
+would ever be used.
+
+**How — a new permanent, low-cadence tier, not a wider retention window:**
+- `store.py`: `store_raw()` refactored onto a shared `_store_bypass_frame`/`_insert_bypass_row`
+  internal; new `store_keyframe()` writes `image_tier='keyframe'` rows with `retained_until`
+  left `NULL`. These are retained **forever by construction** — `retention.sweep()` only acts
+  on rows with `retained_until IS NOT NULL`, and `retention.sweep_raw()` only acts on
+  `image_tier='raw'`; a `keyframe` row matches neither, so no new retention code was needed.
+- `orchestrator.py`: `run_raw_cycle()` gained a keyframe-promotion hook (`_due_keyframe_slot` /
+  `_promote_keyframe_if_due`) that, for cameras listed in the new `keyframe_capture` config
+  block (`house-yard`, `duo2`), promotes the frame the cycle *already captured* into the
+  permanent tier when the clock is within 5 minutes of one of `keyframe_capture.local_times`
+  (default `07:00`/`12:00`/`16:00` local). Zero new camera traffic — both cameras are already
+  captured continuously by this loop; this only decides whether to also keep a copy forever.
+  Idempotency is a DB query (a keyframe row already inside that slot's window), not a state
+  file, so it survives a daemon restart correctly.
+- `golden_windows.py`: new `is_daylight()` — a plain sunrise→sunset predicate reusing the
+  existing solar-math primitives. Deliberately **not** `timelapse_golden_windows` (that feature
+  is two narrow dawn/dusk activity windows and excludes midday — the opposite of what "daylight
+  hours" means here).
+- `ig_selection.py`: new `select_multiday_timelapse_gems(camera_id, db_path, cfg, since_days)` +
+  four one-line wrappers. Unlike the daily-lane selectors, this does no scoring/bucketing —
+  capture is already sparse (~3/day) and daylight-filtered, so it's a plain filter + a
+  defensive cap at `reel_stitcher._MAX_FRAMES` (90), logged, never silently truncated.
+- `daily_reel_runner.py`: four new `DailyReelLane`s, same shape as the existing per-camera
+  timelapse lanes (`landscape_mode`, auto-publish, Discord notice mentioning Mark). Weekly
+  runs at 1.8s/frame (~12-18 frames typically, ~25-35s reel); monthly runs at 0.8s/frame (up to
+  90 frames, ~55-70s reel) — tune after watching the first real posts.
+- Four thin script shims (`scripts/ig-{house-yard,duo2}-{weekly,monthly}-reel.py`) and four
+  LaunchAgents: weekly Sundays 11:00/11:15 (clear of the existing Sun 10:30 s7-weekly-gems and
+  Sun 20:00 digest); monthly 1st-of-month 08:00/08:15 (clear of the 09:00 house-yard daily reel).
+
+**House-yard's historical seed, and its known limitation:** `scripts/backfill-yard-diary-
+keyframes.py` (one-time, idempotent, safe to re-run) registered the 310 existing
+`data/yard-diary/*.jpg` files (3/day since 17-Apr-2026) as `image_tier='keyframe'` rows,
+**in place — no file copy** (`image_path` points at the existing yard-diary file;
+`resolve_gem_image_path` already resolves it correctly since that directory sits under `data/`
+alongside `guardian.db`). This gives house-yard's monthly reel a near-immediate seed instead of
+a 30-day wait. **Known limitation, accepted deliberately (Boss's call):** house-yard is a PTZ
+camera and `yard-diary-capture.py` has no preset-lock, so its framing has drifted over the
+archive's life (verified: an 18-Apr noon frame and a 1-Aug noon frame show completely different
+pan angles). The first posted reels may show that jump if the selected window spans a re-aim.
+Locking house-yard to a fixed preset before each capture would fix this for good — deliberately
+deferred, not part of this change. **duo2 has no equivalent backlog** — it starts accruing from
+zero; its weekly lane needs ~7 days and its monthly lane needs ~30 days before either can post
+for the first time. Both lanes were verified (dry-run) to skip cleanly with no error in the
+meantime.
+
+**Verified before shipping:** backfill ran against the live DB (310 inserted, idempotent on
+re-run); all four selectors ran against the live DB (house-yard: 18 weekly / 87 monthly frames
+picked; duo2: 0/0 as expected); both house-yard lanes built real MP4s end-to-end via
+`--dry-run` (29.8s / 56.7s, correct resolution and frame counts) with no Discord/IG network
+calls; `retention.sweep()`/`sweep_raw()` confirmed (dry-run, against a scratch DB) to leave a
+`keyframe` row untouched; the pipeline daemon was restarted to pick up the orchestrator hook.
+**Also fixed in passing:** a stale comment in `daily_reel_runner.py`'s `CAMERA_OF_THE_DAY_POOL`
+notes claimed house-yard "has never had a plist, never posted to IG" — false; there's a live
+`com.farmguardian.ig-house-yard-cam-timelapse-reel.plist` on the daily 09:00 schedule.
+
 ### v2.59.0 — `share_worth` close-and-looking gate reverted to a weighted criterion; stale 80-vs-70 text synced (Claude Sonnet 5 / Claude Opus 5) — 02-Aug-2026
 
 **What:** Three changes to how the VLM judges bird frames, plus one doc note. (1) The

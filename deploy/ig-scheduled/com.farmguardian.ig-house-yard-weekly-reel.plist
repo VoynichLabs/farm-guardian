@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATH</key>
+		<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+	</dict>
+	<key>Label</key>
+	<string>com.farmguardian.ig-house-yard-weekly-reel</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/Users/macmini/GitHub/farm-guardian/venv/bin/python</string>
+		<string>/Users/macmini/GitHub/farm-guardian/scripts/ig-house-yard-weekly-reel.py</string>
+	</array>
+	<key>RunAtLoad</key>
+	<false/>
+	<key>StandardErrorPath</key>
+	<string>/tmp/ig-house-yard-weekly-reel.err.log</string>
+	<key>StandardOutPath</key>
+	<string>/tmp/ig-house-yard-weekly-reel.out.log</string>
+	<!-- Sundays 11:00 local — clear of the existing Sun 10:30 s7-weekly-gems
+	     and Sun 20:00 digest. See docs/03-Aug-2026-multi-day-timelapse-reels-plan.md. -->
+	<key>StartCalendarInterval</key>
+	<array>
+		<dict>
+			<key>Weekday</key>
+			<integer>0</integer>
+			<key>Hour</key>
+			<integer>11</integer>
+			<key>Minute</key>
+			<integer>0</integer>
+		</dict>
+	</array>
+	<key>ThrottleInterval</key>
+	<integer>60</integer>
+	<key>WorkingDirectory</key>
+	<string>/Users/macmini/GitHub/farm-guardian</string>
+</dict>
+</plist>

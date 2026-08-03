@@ -1,5 +1,5 @@
-# Author: Claude Opus 4.6 (1M context), Claude Opus 4.7 (1M context) — IG columns 20-Apr-2026, story columns 20-Apr-2026 (Phase 2); Claude Sonnet 4.6 (edits 27-April-2026 — store_raw() for vlm_bypass cameras, v2.37.13; 04-May-2026 — sqlite timeout=30 to fix DB lock errors, v2.40.2); Claude Fable 5 (edits 16-July-2026 — reel_permalink/reel_posted_at columns + ig_posted_captions ledger table, v2.47.0)
-# Date: 13-April-2026 (last touched 16-July-2026)
+# Author: Claude Opus 4.6 (1M context), Claude Opus 4.7 (1M context) — IG columns 20-Apr-2026, story columns 20-Apr-2026 (Phase 2); Claude Sonnet 4.6 (edits 27-April-2026 — store_raw() for vlm_bypass cameras, v2.37.13; 04-May-2026 — sqlite timeout=30 to fix DB lock errors, v2.40.2); Claude Fable 5 (edits 16-July-2026 — reel_permalink/reel_posted_at columns + ig_posted_captions ledger table, v2.47.0); Claude Sonnet 5 Extra (edits 03-Aug-2026 — store_raw refactored onto shared _store_bypass_frame; new store_keyframe() for the permanent multi-day time-lapse tier, v2.60.0)
+# Date: 13-April-2026 (last touched 03-Aug-2026)
 # PURPOSE: Persist a captured + enriched image. Writes JPEG to disk per tier
 #          (full-res for share_worth=strong, downscaled for decent, discard
 #          for skip), writes a sidecar .json next to the JPEG, and inserts a
@@ -19,11 +19,21 @@
 #
 #          The INSERT path here leaves all IG columns NULL — Instagram
 #          metadata is post-hoc and lives outside the capture cycle.
+#
+#          03-Aug-2026: store_raw() and the new store_keyframe() now share
+#          one INSERT body (_store_bypass_frame) parameterized on
+#          image_tier. store_keyframe() is the permanent, low-cadence
+#          (~3/day) archive that feeds the weekly/monthly time-lapse Reels
+#          — see docs/03-Aug-2026-multi-day-timelapse-reels-plan.md. Its
+#          rows are retained forever by construction (retained_until left
+#          NULL, tier != 'raw'), so neither existing retention sweep
+#          touches them — no new retention code was needed.
 # SRP/DRY check: Pass — single responsibility is durable storage of one
 #                enriched image. No capture, no VLM, no scheduling, no
 #                Instagram network I/O (that lives in ig_poster.py). The
 #                IG / story columns are schema only; the writes happen
-#                elsewhere.
+#                elsewhere. store_raw/store_keyframe reuse one INSERT body
+#                rather than duplicating the 20-column statement twice.
 
 from __future__ import annotations
 
@@ -382,6 +392,108 @@ def store(
     }
 
 
+def _insert_bypass_row(
+    conn: sqlite3.Connection,
+    camera_id: str,
+    ts_iso: str,
+    image_path_rel: str,
+    tier: str,
+    sha256_hex: str,
+    width: Optional[int],
+    height: Optional[int],
+    nbytes: int,
+    gate_metrics: Optional[dict] = None,
+) -> int:
+    """Insert one un-enriched image_archive row (vlm_* columns NULL, no
+    sidecar JSON, no gems/ hardlink, no concerns logic, retained_until
+    always NULL) and return its row id.
+
+    Pure DB write, no file I/O — deliberately factored out of
+    _store_bypass_frame so a caller that already has bytes on disk under
+    a path of its own choosing (scripts/backfill-yard-diary-keyframes.py,
+    03-Aug-2026 — registers the pre-existing data/yard-diary/*.jpg files
+    in place rather than copying them into the standard archive layout)
+    can share this exact INSERT instead of restating the 20-column
+    statement a third time.
+    """
+    gate_metrics = gate_metrics or {}
+    cursor = conn.execute("""
+        INSERT INTO image_archive (
+            camera_id, ts, image_path, image_tier, sha256,
+            width, height, bytes,
+            std_dev, laplacian_var, exposure_p50,
+            vlm_model, vlm_inference_ms, vlm_prompt_hash, vlm_json,
+            scene, bird_count, activity, lighting, composition,
+            image_quality, share_worth, any_special_chick, apparent_age_days,
+            has_concerns, individuals_visible_csv, retained_until
+        ) VALUES (?, ?, ?, ?, ?,
+                  ?, ?, ?,
+                  ?, ?, ?,
+                  ?, ?, ?, ?,
+                  ?, ?, ?, ?, ?,
+                  ?, ?, ?, ?,
+                  ?, ?, ?)
+    """, (
+        camera_id, ts_iso, image_path_rel, tier, sha256_hex,
+        width, height, nbytes,
+        gate_metrics.get("std_dev"), gate_metrics.get("laplacian_var"), gate_metrics.get("exposure_p50"),
+        None, None, None, "{}",
+        None, None, None, None, None,
+        None, None, 0, None,
+        0, "", None,
+    ))
+    return cursor.lastrowid
+
+
+def _store_bypass_frame(
+    db_path: Path,
+    archive_root: Path,
+    camera_id: str,
+    jpeg_bytes: bytes,
+    tier: str,
+    gate_metrics: Optional[dict] = None,
+) -> dict:
+    """Shared body for store_raw()/store_keyframe(): persist one
+    un-enriched capture to disk under
+    archive_root/YYYY-MM/<camera_id>/<tier>/<ts>.jpg and insert the
+    matching image_archive row via _insert_bypass_row(). Both public
+    wrappers exist so callers pick a tier by name rather than passing a
+    bare string around the codebase; retained_until is always left NULL
+    here — each tier's retention is governed entirely by image_tier value
+    (see each wrapper's docstring for which sweep, if any, applies).
+    """
+    gate_metrics = gate_metrics or {}
+    now = datetime.now(timezone.utc)
+    ts_iso = now.isoformat(timespec="seconds")
+    ym = now.strftime("%Y-%m")
+    ts_compact = now.strftime("%Y-%m-%dT%H-%M-%S")
+
+    sub = archive_root / ym / camera_id / tier
+    sub.mkdir(parents=True, exist_ok=True)
+    fname = f"{ts_compact}.jpg"
+    jpath = sub / fname
+    jpath.write_bytes(jpeg_bytes)
+
+    width, height = _image_dims(jpeg_bytes)
+    sha = hashlib.sha256(jpeg_bytes).hexdigest()
+    image_path_rel = str(jpath.relative_to(archive_root.parent)) if archive_root.parent in jpath.parents else str(jpath)
+
+    with _DB_LOCK, sqlite3.connect(str(db_path), timeout=30) as c:
+        row_id = _insert_bypass_row(
+            c, camera_id, ts_iso, image_path_rel, tier, sha,
+            width, height, len(jpeg_bytes), gate_metrics,
+        )
+        c.commit()
+
+    return {
+        "row_id": row_id,
+        "tier": tier,
+        "image_path": image_path_rel,
+        "width": width, "height": height,
+        "stored_bytes": len(jpeg_bytes),
+    }
+
+
 def store_raw(
     db_path: Path,
     archive_root: Path,
@@ -400,55 +512,36 @@ def store_raw(
     retention.sweep_raw() on a rolling hour window, not the per-row
     retained_until column, so we leave retained_until NULL here.
     """
-    gate_metrics = gate_metrics or {}
-    now = datetime.now(timezone.utc)
-    ts_iso = now.isoformat(timespec="seconds")
-    ym = now.strftime("%Y-%m")
-    ts_compact = now.strftime("%Y-%m-%dT%H-%M-%S")
+    return _store_bypass_frame(
+        db_path, archive_root, camera_id, jpeg_bytes, tier="raw",
+        gate_metrics=gate_metrics,
+    )
 
-    sub = archive_root / ym / camera_id / "raw"
-    sub.mkdir(parents=True, exist_ok=True)
-    fname = f"{ts_compact}.jpg"
-    jpath = sub / fname
-    jpath.write_bytes(jpeg_bytes)
 
-    width, height = _image_dims(jpeg_bytes)
-    sha = hashlib.sha256(jpeg_bytes).hexdigest()
-    image_path_rel = str(jpath.relative_to(archive_root.parent)) if archive_root.parent in jpath.parents else str(jpath)
+def store_keyframe(
+    db_path: Path,
+    archive_root: Path,
+    camera_id: str,
+    jpeg_bytes: bytes,
+    gate_metrics: Optional[dict] = None,
+) -> dict:
+    """Persist a permanent multi-day time-lapse keyframe to disk + DB.
 
-    with _DB_LOCK, sqlite3.connect(str(db_path), timeout=30) as c:
-        cursor = c.execute("""
-            INSERT INTO image_archive (
-                camera_id, ts, image_path, image_tier, sha256,
-                width, height, bytes,
-                std_dev, laplacian_var, exposure_p50,
-                vlm_model, vlm_inference_ms, vlm_prompt_hash, vlm_json,
-                scene, bird_count, activity, lighting, composition,
-                image_quality, share_worth, any_special_chick, apparent_age_days,
-                has_concerns, individuals_visible_csv, retained_until
-            ) VALUES (?, ?, ?, ?, ?,
-                      ?, ?, ?,
-                      ?, ?, ?,
-                      ?, ?, ?, ?,
-                      ?, ?, ?, ?, ?,
-                      ?, ?, ?, ?,
-                      ?, ?, ?)
-        """, (
-            camera_id, ts_iso, image_path_rel, "raw", sha,
-            width, height, len(jpeg_bytes),
-            gate_metrics.get("std_dev"), gate_metrics.get("laplacian_var"), gate_metrics.get("exposure_p50"),
-            None, None, None, "{}",
-            None, None, None, None, None,
-            None, None, 0, None,
-            0, "", None,
-        ))
-        row_id = cursor.lastrowid
-        c.commit()
+    Writes to archive_root/YYYY-MM/<camera_id>/keyframe/<ts>.jpg and
+    inserts an image_archive row with image_tier='keyframe'. This is the
+    low-cadence (~3/day, see orchestrator.py's keyframe-promotion hook)
+    archive that feeds the weekly/monthly time-lapse Reels — see
+    docs/03-Aug-2026-multi-day-timelapse-reels-plan.md.
 
-    return {
-        "row_id": row_id,
-        "tier": "raw",
-        "image_path": image_path_rel,
-        "width": width, "height": height,
-        "stored_bytes": len(jpeg_bytes),
-    }
+    retained_until is left NULL, same as store_raw — but unlike 'raw'
+    rows, 'keyframe' rows are retained FOREVER by construction with zero
+    new retention code: retention.sweep() only acts on rows where
+    retained_until IS NOT NULL, and retention.sweep_raw() only acts on
+    image_tier='raw'. A 'keyframe' row matches neither. Do not add a sweep
+    path for this tier without updating both this docstring and the plan
+    doc above.
+    """
+    return _store_bypass_frame(
+        db_path, archive_root, camera_id, jpeg_bytes, tier="keyframe",
+        gate_metrics=gate_metrics,
+    )

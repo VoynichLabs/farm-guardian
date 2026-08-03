@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATH</key>
+		<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+	</dict>
+	<key>Label</key>
+	<string>com.farmguardian.ig-duo2-monthly-reel</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/Users/macmini/GitHub/farm-guardian/venv/bin/python</string>
+		<string>/Users/macmini/GitHub/farm-guardian/scripts/ig-duo2-monthly-reel.py</string>
+	</array>
+	<key>RunAtLoad</key>
+	<false/>
+	<key>StandardErrorPath</key>
+	<string>/tmp/ig-duo2-monthly-reel.err.log</string>
+	<key>StandardOutPath</key>
+	<string>/tmp/ig-duo2-monthly-reel.out.log</string>
+	<!-- 1st of the month, 08:15 local — 15 min after house-yard-monthly.
+	     See docs/03-Aug-2026-multi-day-timelapse-reels-plan.md. duo2 needs
+	     ~30 days of keyframe_capture to accrue before this can post for
+	     the first time; it will skip cleanly until then. -->
+	<key>StartCalendarInterval</key>
+	<array>
+		<dict>
+			<key>Day</key>
+			<integer>1</integer>
+			<key>Hour</key>
+			<integer>8</integer>
+			<key>Minute</key>
+			<integer>15</integer>
+		</dict>
+	</array>
+	<key>ThrottleInterval</key>
+	<integer>60</integer>
+	<key>WorkingDirectory</key>
+	<string>/Users/macmini/GitHub/farm-guardian</string>
+</dict>
+</plist>

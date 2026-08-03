@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATH</key>
+		<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+	</dict>
+	<key>Label</key>
+	<string>com.farmguardian.ig-duo2-weekly-reel</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/Users/macmini/GitHub/farm-guardian/venv/bin/python</string>
+		<string>/Users/macmini/GitHub/farm-guardian/scripts/ig-duo2-weekly-reel.py</string>
+	</array>
+	<key>RunAtLoad</key>
+	<false/>
+	<key>StandardErrorPath</key>
+	<string>/tmp/ig-duo2-weekly-reel.err.log</string>
+	<key>StandardOutPath</key>
+	<string>/tmp/ig-duo2-weekly-reel.out.log</string>
+	<!-- Sundays 11:15 local — 15 min after house-yard-weekly so the two
+	     don't hit ffmpeg/Discord/IG at the same moment. See
+	     docs/03-Aug-2026-multi-day-timelapse-reels-plan.md. duo2 has no
+	     keyframe backlog yet (unlike house-yard's yard-diary seed), so
+	     this lane will skip cleanly (no error, no post) with "not enough
+	     frames" until ~7 days of keyframe_capture have accrued. -->
+	<key>StartCalendarInterval</key>
+	<array>
+		<dict>
+			<key>Weekday</key>
+			<integer>0</integer>
+			<key>Hour</key>
+			<integer>11</integer>
+			<key>Minute</key>
+			<integer>15</integer>
+		</dict>
+	</array>
+	<key>ThrottleInterval</key>
+	<integer>60</integer>
+	<key>WorkingDirectory</key>
+	<string>/Users/macmini/GitHub/farm-guardian</string>
+</dict>
+</plist>

@@ -1,5 +1,5 @@
-# Author: Claude Sonnet 4.6; Claude Opus 4.7 (22-June-2026 — duo2 timelapse lane); Claude Fable 5 (16-Jul-2026 — mba-cam lane relabeled brooder→turkey pen, v2.46.0; Codex captions for vlm_bypass lanes + posted-caption dedup + tag rotation from ledger + chicks bucket retired, v2.47.0; D8 codex_reel_curator wired into the s7-daily lane + opener pacing hook, D10 CAMERA_OF_THE_DAY_POOL/pick_camera_of_the_day rotation, v2.48.0); Claude Opus 4.8 (22-Jul-2026 — per-lane seconds_per_frame override so the two Reolink time-lapse lanes play fast without speeding up the s7/mixed lanes, v2.50.1); Claude Fable 5 (23-Jul-2026 — Codex subscription lapsed: all caption synthesis moved to the local VLM, timelapse lanes no longer short-circuit to a literal, BRAND_RULES extracted to caption_brand.py, s7 Codex frame-curation removed, v2.51.5); Claude Opus 5 (28-Jul-2026 — S7 daily lane rebuilt dawn-to-dusk: per-frame gem holds via _s7_daily_frame_holds, frame-0 duplication hack deleted, covered-day state key, s7-backlog lane converted to S7_WEEKLY_GEMS_REEL_LANE, v2.54.0)
-# Date: 09-May-2026 (updated 09-May-2026 — landscape mode + LM Studio caption synthesis + 4 timelapse lanes; 10-May-2026 — GWTC approval gate; 22-June-2026 — DUO2_TIMELAPSE_LANE; 16-Jul-2026 — D8/D10; 22-Jul-2026 — per-lane pacing override; 28-Jul-2026 — per-frame durations for reacted gems + weekly gems lane)
+# Author: Claude Sonnet 4.6; Claude Opus 4.7 (22-June-2026 — duo2 timelapse lane); Claude Fable 5 (16-Jul-2026 — mba-cam lane relabeled brooder→turkey pen, v2.46.0; Codex captions for vlm_bypass lanes + posted-caption dedup + tag rotation from ledger + chicks bucket retired, v2.47.0; D8 codex_reel_curator wired into the s7-daily lane + opener pacing hook, D10 CAMERA_OF_THE_DAY_POOL/pick_camera_of_the_day rotation, v2.48.0); Claude Opus 4.8 (22-Jul-2026 — per-lane seconds_per_frame override so the two Reolink time-lapse lanes play fast without speeding up the s7/mixed lanes, v2.50.1); Claude Fable 5 (23-Jul-2026 — Codex subscription lapsed: all caption synthesis moved to the local VLM, timelapse lanes no longer short-circuit to a literal, BRAND_RULES extracted to caption_brand.py, s7 Codex frame-curation removed, v2.51.5); Claude Opus 5 (28-Jul-2026 — S7 daily lane rebuilt dawn-to-dusk: per-frame gem holds via _s7_daily_frame_holds, frame-0 duplication hack deleted, covered-day state key, s7-backlog lane converted to S7_WEEKLY_GEMS_REEL_LANE, v2.54.0); Claude Sonnet 5 Extra (03-Aug-2026 — 4 new lanes: house-yard/duo2 weekly + monthly daylight time-lapse Reels, v2.60.0)
+# Date: 09-May-2026 (updated 09-May-2026 — landscape mode + LM Studio caption synthesis + 4 timelapse lanes; 10-May-2026 — GWTC approval gate; 22-June-2026 — DUO2_TIMELAPSE_LANE; 16-Jul-2026 — D8/D10; 22-Jul-2026 — per-lane pacing override; 28-Jul-2026 — per-frame durations for reacted gems + weekly gems lane; 03-Aug-2026 — weekly/monthly multi-day lanes)
 # PURPOSE: Shared runner for scheduled Instagram Reel lanes. The
 #          existing mixed-camera daily Reel uses the approval-gated
 #          flow: build MP4, upload a Discord preview, wait for a human
@@ -294,6 +294,99 @@ JIELI_DASHCAM_TIMELAPSE_LANE = DailyReelLane(
 # See docs/02-Aug-2026-dashcam-daily-reel-plan.md.
 
 
+# 03-Aug-2026 (Claude Sonnet 5 Extra): four new lanes, one per camera per
+# cadence, for the house-yard/duo2 weekly + monthly daylight time-lapse
+# Reels. See docs/03-Aug-2026-multi-day-timelapse-reels-plan.md. These are
+# NOT part of CAMERA_OF_THE_DAY_POOL below — that pool rotates DAILY lanes
+# to thin an evening stack; these run on their own independent weekly/
+# monthly cadence and are a genuinely new content surface, not a
+# consolidation of existing ones. Their selectors
+# (select_house_yard_weekly_timelapse_gems etc., ig_selection.py) draw
+# from the permanent image_tier='keyframe' archive, NOT the 24h/48h raw
+# tier the daily lanes above use — a week or month of raw frames simply
+# doesn't exist by the time these run.
+#
+# Pacing: at the stitcher's 90-frame cap, a WEEKLY reel gets ~12-13
+# frames/day (the daylight window is far denser than the ~3/day capture
+# cadence produces, so in practice these run closer to ~21 frames — see
+# the plan doc's frame-math section) and a MONTHLY reel gets ~3 frames/day
+# (~90 total, right at the cap). seconds_per_frame is slower for the
+# weekly lane (more frames, want each day's arc to read) and faster for
+# the monthly lane (fewer frames, needs the higher rate to still fill a
+# reel worth watching) — tune both after watching the first real posts.
+HOUSE_YARD_WEEKLY_TIMELAPSE_LANE = DailyReelLane(
+    lane_id="house-yard-weekly-timelapse",
+    log_name="ig-house-yard-weekly-reel",
+    description="Auto-post the weekly house-yard daylight time-lapse Reel (7 days).",
+    selector_name="select_house_yard_weekly_timelapse_gems",
+    state_subdir="house-yard-weekly-timelapse",
+    output_filename_prefix="reel-house-yard-weekly-timelapse",
+    discord_username="farm-reel-house-yard",
+    discord_title="House-yard weekly time-lapse",
+    approval_required=False,
+    ledger_lane="house-yard-weekly-timelapse-reel",
+    caption_fallback="A week in the yard.",
+    mention_user_id=MARK_DISCORD_USER_ID,
+    landscape_mode=True,
+    discord_preview_scale="960:540",
+    seconds_per_frame=1.8,
+)
+
+HOUSE_YARD_MONTHLY_TIMELAPSE_LANE = DailyReelLane(
+    lane_id="house-yard-monthly-timelapse",
+    log_name="ig-house-yard-monthly-reel",
+    description="Auto-post the monthly house-yard daylight time-lapse Reel (~30 days).",
+    selector_name="select_house_yard_monthly_timelapse_gems",
+    state_subdir="house-yard-monthly-timelapse",
+    output_filename_prefix="reel-house-yard-monthly-timelapse",
+    discord_username="farm-reel-house-yard",
+    discord_title="House-yard monthly time-lapse",
+    approval_required=False,
+    ledger_lane="house-yard-monthly-timelapse-reel",
+    caption_fallback="A month in the yard.",
+    mention_user_id=MARK_DISCORD_USER_ID,
+    landscape_mode=True,
+    discord_preview_scale="960:540",
+    seconds_per_frame=0.8,
+)
+
+DUO2_WEEKLY_TIMELAPSE_LANE = DailyReelLane(
+    lane_id="duo2-weekly-timelapse",
+    log_name="ig-duo2-weekly-reel",
+    description="Auto-post the weekly duo2 daylight panoramic time-lapse Reel (7 days).",
+    selector_name="select_duo2_weekly_timelapse_gems",
+    state_subdir="duo2-weekly-timelapse",
+    output_filename_prefix="reel-duo2-weekly-timelapse",
+    discord_username="farm-reel-duo2",
+    discord_title="Duo2 weekly time-lapse",
+    approval_required=False,
+    ledger_lane="duo2-weekly-timelapse-reel",
+    caption_fallback="A week across the farm.",
+    mention_user_id=MARK_DISCORD_USER_ID,
+    landscape_mode=True,
+    discord_preview_scale="960:540",
+    seconds_per_frame=1.8,
+)
+
+DUO2_MONTHLY_TIMELAPSE_LANE = DailyReelLane(
+    lane_id="duo2-monthly-timelapse",
+    log_name="ig-duo2-monthly-reel",
+    description="Auto-post the monthly duo2 daylight panoramic time-lapse Reel (~30 days).",
+    selector_name="select_duo2_monthly_timelapse_gems",
+    state_subdir="duo2-monthly-timelapse",
+    output_filename_prefix="reel-duo2-monthly-timelapse",
+    discord_username="farm-reel-duo2",
+    discord_title="Duo2 monthly time-lapse",
+    approval_required=False,
+    ledger_lane="duo2-monthly-timelapse-reel",
+    caption_fallback="A month across the farm.",
+    mention_user_id=MARK_DISCORD_USER_ID,
+    landscape_mode=True,
+    discord_preview_scale="960:540",
+    seconds_per_frame=0.8,
+)
+
+
 # Part D10). The six lanes ending in _TIMELAPSE_LANE defined above are:
 # MBA_CAM, GWTC, USB_CAM, DOMINATOR_CAM, HOUSE_YARD_CAM, DUO2. Pool
 # selection, camera by camera:
@@ -309,14 +402,16 @@ JIELI_DASHCAM_TIMELAPSE_LANE = DailyReelLane(
 #     today (confirmed live), so a gwtc timelapse would find zero frames
 #     every single time it's picked — a dead rotation slot, not a
 #     consolidation win.
-#   - HOUSE_YARD_CAM: EXCLUDED. Unlike the other four, this lane has never
-#     had a plist (checked both deploy/ig-scheduled/ and the live
-#     ~/Library/LaunchAgents/) — it has never posted to IG. The lanes this
-#     rotation consolidates are the ones already stacking in the evening
-#     window; house-yard isn't part of that stack, so folding it in here
-#     would be a new content surface riding in on a consolidation change,
-#     not a reduction of one. Left out deliberately — see
-#     followups_for_main_session if Boss wants it added to the pool later.
+#   - HOUSE_YARD_CAM: EXCLUDED. CORRECTED 03-Aug-2026 — this comment used to
+#     claim the lane "has never had a plist, never posted to IG"; that was
+#     stale even at the time this pool was built. There IS a live
+#     com.farmguardian.ig-house-yard-cam-timelapse-reel.plist and it's on
+#     CLAUDE.md's daily 09:00 schedule. The real reason it's excluded here
+#     still holds though: the lanes this rotation consolidates are the ones
+#     stacking in the EVENING window (20:30/21:15/21:20); house-yard posts
+#     at 09:00, so it was never part of that stack and folding it in here
+#     would just be scope creep on a consolidation change, not a reduction
+#     of one.
 CAMERA_OF_THE_DAY_POOL: tuple[DailyReelLane, ...] = (
     MBA_CAM_TIMELAPSE_LANE,
     USB_CAM_TIMELAPSE_LANE,

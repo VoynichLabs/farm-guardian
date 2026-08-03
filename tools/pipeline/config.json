@@ -21,6 +21,19 @@
  "retention_days_decent": 7,
  "retention_days_concerns": null,
  "raw_retention_hours": 24,
+ "keyframe_capture": {
+  "cameras": [
+   "house-yard",
+   "duo2"
+  ],
+  "local_times": [
+   "07:00",
+   "12:00",
+   "16:00"
+  ],
+  "timezone": "America/New_York",
+  "tolerance_minutes": 5
+ },
  "instagram": {
   "enabled": false,
   "auto_dry_run": false,
@@ -99,6 +112,11 @@
     "max_frames": 90,
     "min_frames": 6,
     "per_camera": {}
+   },
+   "multiday_timelapse": {
+    "timezone": "America/New_York",
+    "latitude": 41.7558,
+    "longitude": -71.9789
    }
   }
  },

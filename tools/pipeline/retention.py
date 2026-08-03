@@ -1,9 +1,23 @@
-# Author: Claude Opus 4.6 (1M context); Claude Sonnet 4.6 (edits 27-April-2026 — sweep_raw() for vlm_bypass cameras, v2.37.13; 04-May-2026 — sqlite timeout=30 to fix DB lock errors, v2.40.2)
-# Date: 13-April-2026 (last touched 04-May-2026)
+# Author: Claude Opus 4.6 (1M context); Claude Sonnet 4.6 (edits 27-April-2026 — sweep_raw() for vlm_bypass cameras, v2.37.13; 04-May-2026 — sqlite timeout=30 to fix DB lock errors, v2.40.2); Claude Sonnet 5 Extra (edits 03-Aug-2026 — comment-only: documented that image_tier='keyframe' rows are immune to both sweeps by construction, v2.60.0)
+# Date: 13-April-2026 (last touched 03-Aug-2026)
 # PURPOSE: Daily retention sweep for the image archive. Deletes JPEGs whose
 #          retained_until has passed, sets image_path to NULL on those rows,
 #          and leaves metadata rows intact forever. Never touches rows with
 #          has_concerns=1 or retained_until IS NULL.
+#
+#          03-Aug-2026: image_tier='keyframe' rows (store.store_keyframe(),
+#          the permanent low-cadence archive behind the weekly/monthly
+#          time-lapse Reels — docs/03-Aug-2026-multi-day-timelapse-reels-plan.md)
+#          are retained forever BY CONSTRUCTION, not by a rule enforced
+#          here: sweep() below only matches retained_until IS NOT NULL,
+#          and sweep_raw() only matches image_tier='raw'. A 'keyframe' row
+#          is inserted with retained_until=NULL and a different tier, so
+#          it matches neither query and neither function needs to know
+#          this tier exists. If a future change ever needs to expire
+#          keyframes, it must be a THIRD sweep — do not broaden either
+#          existing WHERE clause to catch them, or you also start pruning
+#          rows (raw, or the daily-sweep tiers) that were never meant to
+#          be swept together.
 # SRP/DRY check: Pass — single responsibility is pruning expired JPEGs.
 
 from __future__ import annotations

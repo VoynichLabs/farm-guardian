@@ -1,5 +1,5 @@
-# Author: Claude Sonnet 4.6; Claude Opus 4.8 (Bubba sub-agent) 14-June-2026 — golden-window two-window filter + seconds-granular bucketing for usb-cam/dominator-cam time-lapse lanes; Claude Opus 4.7 (Bubba sub-agent) 22-June-2026 — select_duo2_timelapse_gems wrapper; Claude Opus 5 28-Jul-2026 — S7 dawn-to-dusk single-day window + gem-survival union; s7-backlog drain converted to a 7-day weekly gems window
-# Date: 07-May-2026; 09-May-2026 — _score_raw_frame + select_timelapse_gems for vlm_bypass lanes; 10-May-2026 — daylight filter for coop-roof time-lapse lanes; 11-May-2026 — S7 backlog duplicate guard; 14-June-2026 — golden activity windows (sunrise->09:00, 19:30->20:30), denser in-window sampling; 28-Jul-2026 — S7 daily reel bounded to one local calendar day, every reacted gem guaranteed to survive bucketing
+# Author: Claude Sonnet 4.6; Claude Opus 4.8 (Bubba sub-agent) 14-June-2026 — golden-window two-window filter + seconds-granular bucketing for usb-cam/dominator-cam time-lapse lanes; Claude Opus 4.7 (Bubba sub-agent) 22-June-2026 — select_duo2_timelapse_gems wrapper; Claude Opus 5 28-Jul-2026 — S7 dawn-to-dusk single-day window + gem-survival union; s7-backlog drain converted to a 7-day weekly gems window; Claude Sonnet 5 Extra 03-Aug-2026 — select_multiday_timelapse_gems + house-yard/duo2 weekly+monthly wrappers, v2.60.0
+# Date: 07-May-2026; 09-May-2026 — _score_raw_frame + select_timelapse_gems for vlm_bypass lanes; 10-May-2026 — daylight filter for coop-roof time-lapse lanes; 11-May-2026 — S7 backlog duplicate guard; 14-June-2026 — golden activity windows (sunrise->09:00, 19:30->20:30), denser in-window sampling; 28-Jul-2026 — S7 daily reel bounded to one local calendar day, every reacted gem guaranteed to survive bucketing; 03-Aug-2026 — multi-day (weekly/monthly) keyframe-tier selectors for house-yard/duo2
 # PURPOSE: Select Instagram-post-eligible gems from image_archive on
 #          wall-clock windows (day, 2-hour, week). Pure SELECT +
 #          scoring + diversity filtering; no posting, no I/O beyond
@@ -24,6 +24,13 @@
 #                select_gwtc_timelapse_gems(db_path, cfg)     ← wrapper
 #                select_usb_cam_timelapse_gems(db_path, cfg)  ← wrapper
 #                select_dominator_cam_timelapse_gems(db_path, cfg) ← wrapper
+#            - house-yard/duo2 weekly + monthly daylight time-lapse reels
+#              (03-Aug-2026, permanent keyframe tier, NOT the 24h raw tier):
+#                select_multiday_timelapse_gems(camera_id, db_path, cfg, since_days)
+#                select_house_yard_weekly_timelapse_gems(db_path, cfg)   ← wrapper
+#                select_house_yard_monthly_timelapse_gems(db_path, cfg)  ← wrapper
+#                select_duo2_weekly_timelapse_gems(db_path, cfg)         ← wrapper
+#                select_duo2_monthly_timelapse_gems(db_path, cfg)        ← wrapper
 #
 #          Each helper returns the id(s) the caller should post, or
 #          an empty result when the window has nothing worth posting.
@@ -74,9 +81,16 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from tools.pipeline.golden_windows import (
     camera_golden_cfg,
     camera_uses_golden_windows,
+    is_daylight,
     is_dt_in_golden_windows,
     minute_in_window,
 )
+
+# _MAX_FRAMES: reel_stitcher's own Reel-length cap, imported (not restated)
+# so select_multiday_timelapse_gems's defensive trim always agrees with what
+# the stitcher will actually accept. Same convention growth_timelapse.py
+# uses for the same reason.
+from tools.pipeline.reel_stitcher import _MAX_FRAMES
 
 log = logging.getLogger("pipeline.ig_selection")
 
@@ -1122,6 +1136,128 @@ def select_jieli_dashcam_timelapse_gems(db_path: Path, cfg: dict) -> list[int]:
     # and this camera gets re-aimed often — see
     # docs/02-Aug-2026-dashcam-daily-reel-plan.md.
     return select_timelapse_gems("jieli-dashcam", db_path, cfg)
+
+
+def select_multiday_timelapse_gems(
+    camera_id: str,
+    db_path: Path,
+    cfg: dict,
+    since_days: int,
+    now: Optional[datetime] = None,
+) -> list[int]:
+    """Return permanent keyframe-tier frames for a weekly/monthly daylight
+    time-lapse Reel — house-yard and duo2, added 03-Aug-2026. See
+    docs/03-Aug-2026-multi-day-timelapse-reels-plan.md.
+
+    Source is image_tier='keyframe' (store.store_keyframe(), populated by
+    orchestrator.py's keyframe-promotion hook at ~3 frames/day/camera),
+    NOT image_tier='raw' — the raw tier is swept after
+    cameras.<id>.raw_retention_hours (48h today) and cannot hold a week or
+    month of history. Because that capture is already sparse and
+    daylight-relevant by design, this selector does no scoring or bucketing
+    the way select_timelapse_gems / growth_timelapse.select_growth_frames
+    do for their dense per-minute sources — it is a plain filter + cap.
+
+    Daylight filter is golden_windows.is_daylight() (plain sunrise->sunset),
+    deliberately NOT the two-narrow-activity-window golden-windows feature
+    used by usb-cam/dominator-cam — that would drop everything except two
+    slivers around dawn and dusk, the opposite of "daylight hours".
+
+    cfg keys (all under instagram.scheduled.multiday_timelapse, all
+    optional — defaults are the farm's own coordinates, matching
+    golden_windows.py's defaults):
+      timezone   (str, default "America/New_York")
+      latitude   (float, default 41.7558)
+      longitude  (float, default -71.9789)
+
+    Returns oldest-first. If daylight-filtered rows exceed
+    reel_stitcher._MAX_FRAMES, the OLDEST excess is dropped (kept: the most
+    recent _MAX_FRAMES) — logged as a warning, never a silent truncation.
+    Returns [] if nothing qualifies.
+    """
+    mt_cfg = cfg.get("multiday_timelapse") or {}
+    tz_name = str(mt_cfg.get("timezone", "America/New_York"))
+    latitude = float(mt_cfg.get("latitude", 41.7558))
+    longitude = float(mt_cfg.get("longitude", -71.9789))
+
+    now = _ensure_timezone(now)
+    cutoff_iso = (now - timedelta(days=since_days)).isoformat()
+
+    with sqlite3.connect(str(db_path)) as c:
+        c.row_factory = sqlite3.Row
+        rows = c.execute(
+            """
+            SELECT id, ts FROM image_archive
+             WHERE camera_id = ?
+               AND image_tier = 'keyframe'
+               AND image_path IS NOT NULL
+               AND ts >= ?
+             ORDER BY ts ASC
+            """,
+            (camera_id, cutoff_iso),
+        ).fetchall()
+
+    if not rows:
+        log.info(
+            "select_multiday_timelapse: no keyframes for %s in last %dd",
+            camera_id, since_days,
+        )
+        return []
+
+    daylight_rows: list[sqlite3.Row] = []
+    for row in rows:
+        try:
+            in_daylight = is_daylight(
+                _parse_archive_ts(row["ts"]), latitude, longitude, tz_name,
+            )
+        except (ValueError, ZoneInfoNotFoundError) as exc:
+            log.warning(
+                "select_multiday_timelapse: daylight calc failed for %s (%s); "
+                "keeping row unfiltered", camera_id, exc,
+            )
+            in_daylight = True
+        if in_daylight:
+            daylight_rows.append(row)
+
+    if not daylight_rows:
+        log.info(
+            "select_multiday_timelapse: %d keyframes for %s in last %dd, "
+            "none in daylight", len(rows), camera_id, since_days,
+        )
+        return []
+
+    if len(daylight_rows) > _MAX_FRAMES:
+        log.warning(
+            "select_multiday_timelapse: %d daylight keyframes for %s over "
+            "%dd exceeds the %d-frame Reel cap; dropping the oldest %d, "
+            "keeping the most recent %d",
+            len(daylight_rows), camera_id, since_days, _MAX_FRAMES,
+            len(daylight_rows) - _MAX_FRAMES, _MAX_FRAMES,
+        )
+        daylight_rows = daylight_rows[-_MAX_FRAMES:]
+
+    ids = [r["id"] for r in daylight_rows]
+    log.info(
+        "select_multiday_timelapse: picked %d/%d daylight keyframes for %s "
+        "(last %dd)", len(ids), len(rows), camera_id, since_days,
+    )
+    return ids
+
+
+def select_house_yard_weekly_timelapse_gems(db_path: Path, cfg: dict) -> list[int]:
+    return select_multiday_timelapse_gems("house-yard", db_path, cfg, since_days=7)
+
+
+def select_house_yard_monthly_timelapse_gems(db_path: Path, cfg: dict) -> list[int]:
+    return select_multiday_timelapse_gems("house-yard", db_path, cfg, since_days=30)
+
+
+def select_duo2_weekly_timelapse_gems(db_path: Path, cfg: dict) -> list[int]:
+    return select_multiday_timelapse_gems("duo2", db_path, cfg, since_days=7)
+
+
+def select_duo2_monthly_timelapse_gems(db_path: Path, cfg: dict) -> list[int]:
+    return select_multiday_timelapse_gems("duo2", db_path, cfg, since_days=30)
 
 
 def mark_gems_used_in_backlog_reel(

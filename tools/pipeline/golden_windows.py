@@ -1,5 +1,5 @@
-# Author: Claude Opus 4.8 (Bubba sub-agent)
-# Date: 14-June-2026
+# Author: Claude Opus 4.8 (Bubba sub-agent); Claude Sonnet 5 Extra (edits 03-Aug-2026 — added is_daylight(), a plain sunrise->sunset predicate for the weekly/monthly time-lapse Reels, v2.60.0)
+# Date: 14-June-2026 (last touched 03-Aug-2026)
 # PURPOSE: Shared "golden window" helper for the farm time-lapse pipeline. Defines
 #          the two daily activity windows the Boss cares about (morning
 #          sunrise->09:00, evening 19:30->20:30) and answers a single question for
@@ -11,11 +11,20 @@
 #          sunrise equation) for the farm lat/long so the morning window tracks the
 #          season — no hardcoded morning hour. astral is not installed in the venv,
 #          so this is a dependency-light stdlib-only implementation (math + zoneinfo).
+#
+#          03-Aug-2026: added is_daylight() — a plain (sunrise, sunset) window,
+#          NOT the two-narrow-activity-window golden-window feature above. Used
+#          by ig_selection.select_multiday_timelapse_gems for the house-yard/
+#          duo2 weekly+monthly Reels, which want the whole daylight span rather
+#          than dawn/dusk slivers. Reuses sunrise_minute/sunset_minute/
+#          minute_in_window rather than restating the solar math a third time.
 # SRP/DRY check: Pass — single responsibility is "local-time window membership +
 #                solar sunrise/sunset minute". The minute-granular window primitive
 #                (minute_in_window) and the sunrise calc live here ONCE and are
 #                imported by both ig_selection (selection) and orchestrator
 #                (capture). No duplication of the solar math or the window logic.
+#                is_daylight() is a third consumer of the same two primitives
+#                rather than a parallel solar calculation.
 
 from __future__ import annotations
 
@@ -209,6 +218,39 @@ def is_dt_in_golden_windows(dt_aware: datetime, gw_cfg: dict) -> bool:
     )
 
 
+def is_daylight(
+    dt_aware: datetime, latitude: float, longitude: float, tz_name: str,
+) -> bool:
+    """True when the tz-aware datetime falls between sunrise and sunset
+    (dynamic, per the NOAA calc above) at the given location.
+
+    This is deliberately NOT is_dt_in_golden_windows(): the golden-window
+    feature models two narrow daily ACTIVITY windows (morning sunrise->09:00,
+    evening 19:30->20:30) and excludes everything else, including midday —
+    the opposite of "daylight hours". This function is the plain single
+    (sunrise, sunset) window, added 03-Aug-2026 for the multi-day
+    house-yard/duo2 time-lapse Reels (docs/03-Aug-2026-multi-day-timelapse-
+    reels-plan.md), which want the whole daylight span, not two slivers of
+    it. Reuses the exact same sunrise/sunset primitives as the rest of this
+    module rather than a fixed local-hour band, so the window tracks the
+    season the way the golden-window feature already does.
+
+    Fails open (returns True) when sunrise/sunset are undefined for the
+    date/location (polar day or night) — matches the fail-open convention
+    used elsewhere in this module and in ig_selection's daylight filters,
+    since a mis-set lat/long should never silently zero out a reel.
+    """
+    if dt_aware.tzinfo is None:
+        dt_aware = dt_aware.replace(tzinfo=timezone.utc)
+    local = dt_aware.astimezone(ZoneInfo(tz_name))
+    minute = local.hour * 60 + local.minute
+    sr = sunrise_minute(local.date(), latitude, longitude, tz_name)
+    ss = sunset_minute(local.date(), latitude, longitude, tz_name)
+    if sr is None or ss is None:
+        return True
+    return minute_in_window(minute, sr, ss)
+
+
 def camera_uses_golden_windows(camera_id: str, gw_cfg: Optional[dict]) -> bool:
     """Whether golden-window filtering/capture applies to this camera.
 
@@ -276,4 +318,15 @@ if __name__ == "__main__":
     # camera gating
     assert camera_uses_golden_windows("usb-webcam-1080p", gw) is True
     assert camera_uses_golden_windows("s7-cam", gw) is False
+
+    # is_daylight: the plain sunrise->sunset span, distinct from the two
+    # narrow golden windows above — midday must read as daylight here,
+    # where is_dt_in_golden_windows(t_midday, gw) is False.
+    t_noon = datetime(2026, 6, 14, 12, 0, tzinfo=ZoneInfo(TZ))
+    t_midnight = datetime(2026, 6, 14, 0, 30, tzinfo=ZoneInfo(TZ))
+    assert is_daylight(t_morning, FARM_LAT, FARM_LON, TZ) is True
+    assert is_daylight(t_noon, FARM_LAT, FARM_LON, TZ) is True
+    assert is_daylight(t_evening, FARM_LAT, FARM_LON, TZ) is True
+    assert is_daylight(t_predawn, FARM_LAT, FARM_LON, TZ) is False
+    assert is_daylight(t_midnight, FARM_LAT, FARM_LON, TZ) is False
     print("golden_windows self-test: ALL PASS")

@@ -1,5 +1,5 @@
-# Author: Claude Opus 4.7 (1M context); Claude Sonnet 4.6 (edits 27-April-2026 — vlm_bypass mode: run_raw_cycle, dedicated raw threads, raw retention sweep, v2.37.13; 28-April-2026 — sharpness gate wired in, v2.37.14; 04-May-2026 — Birds preset as prompt/schema source, v2.40.0); GPT-5.5 Codex (edits 08-May-2026 — static floor-pecking score calibration); Claude Opus 4.8 (1M context) (edits 03-June-2026 — VLM input downscale via _downscale_for_vlm + vlm_input_long_edge_px config, to cut per-frame latency, v2.40.17); Claude Opus 4.8 (Bubba sub-agent) (edits 14-June-2026 — golden-window raw capture: per-iteration thick/sparse cadence for usb-cam/dominator-cam via offpeak_cycle_seconds + timelapse_golden_windows); Claude Sonnet 4.6 (edits 27-June-2026 — run_raw_cycle quality gates + laplacian storage, v2.44.1); Claude Fable 5 (edits 02-July-2026 — Discord caption trim via gem_poster.trim_caption, v2.44.5); Claude Opus 4.8 (Bubba) (edits 12-July-2026 — _compute_overall_score 0-100 weighted-component scoring, floor-pecking cap + caption rescaled, v2.45.0; 13-July-2026 — dominance recalibrated (full at ~50% coverage) so real gems clear the 80 gate + BIRD SELFIE ping 95->90, v2.45.1); Claude Fable 5 (edits 16-July-2026 — IG-hook hashtag rotation fed from posted-caption ledger, v2.47.0)
-# Date: 17-April-2026
+# Author: Claude Opus 4.7 (1M context); Claude Sonnet 4.6 (edits 27-April-2026 — vlm_bypass mode: run_raw_cycle, dedicated raw threads, raw retention sweep, v2.37.13; 28-April-2026 — sharpness gate wired in, v2.37.14; 04-May-2026 — Birds preset as prompt/schema source, v2.40.0); GPT-5.5 Codex (edits 08-May-2026 — static floor-pecking score calibration); Claude Opus 4.8 (1M context) (edits 03-June-2026 — VLM input downscale via _downscale_for_vlm + vlm_input_long_edge_px config, to cut per-frame latency, v2.40.17); Claude Opus 4.8 (Bubba sub-agent) (edits 14-June-2026 — golden-window raw capture: per-iteration thick/sparse cadence for usb-cam/dominator-cam via offpeak_cycle_seconds + timelapse_golden_windows); Claude Sonnet 4.6 (edits 27-June-2026 — run_raw_cycle quality gates + laplacian storage, v2.44.1); Claude Fable 5 (edits 02-July-2026 — Discord caption trim via gem_poster.trim_caption, v2.44.5); Claude Opus 4.8 (Bubba) (edits 12-July-2026 — _compute_overall_score 0-100 weighted-component scoring, floor-pecking cap + caption rescaled, v2.45.0; 13-July-2026 — dominance recalibrated (full at ~50% coverage) so real gems clear the 80 gate + BIRD SELFIE ping 95->90, v2.45.1); Claude Fable 5 (edits 16-July-2026 — IG-hook hashtag rotation fed from posted-caption ledger, v2.47.0); Claude Sonnet 5 Extra (edits 03-Aug-2026 — keyframe-promotion hook in run_raw_cycle for the permanent weekly/monthly time-lapse archive, v2.60.0)
+# Date: 17-April-2026 (last touched 03-Aug-2026)
 # PURPOSE: Main entry point for the multi-cam image pipeline. Schedules per-
 #          camera capture cycles at their configured cadences, runs each
 #          frame through a four-stage pre-VLM filter (trivial std-dev gate,
@@ -21,13 +21,29 @@
 #          because chicks move continuously and we want the VLM on every
 #          frame.
 #
+#          03-Aug-2026: run_raw_cycle() now also promotes a frame into the
+#          PERMANENT keyframe tier (store.store_keyframe) when the cycle
+#          lands near one of a camera's configured keyframe_capture
+#          local_times. This is the capture side of the house-yard/duo2
+#          weekly+monthly time-lapse Reels — see
+#          docs/03-Aug-2026-multi-day-timelapse-reels-plan.md. It reuses
+#          the frame this cycle already captured (house-yard and duo2 are
+#          both captured continuously regardless), so it adds zero new
+#          camera traffic — it's a promotion, not a new capture path.
+#          Opt-in per camera via keyframe_capture.cameras in config.json;
+#          cameras not listed are entirely unaffected.
+#
 #          Modes:
 #            --once                : run every enabled camera once, exit
 #            --once --camera NAME  : run one camera once, exit
 #            --daemon              : run forever on per-camera cadences
 #            --retention-only      : run the retention sweep and exit
 # SRP/DRY check: Pass — single responsibility is scheduling + gluing the
-#                other pipeline modules together.
+#                other pipeline modules together. The keyframe-promotion
+#                hook reuses store.store_keyframe (Task 1) rather than
+#                inventing a second insert path, and reuses the frame
+#                run_raw_cycle already captured rather than opening a
+#                second connection to the camera.
 
 from __future__ import annotations
 
@@ -35,11 +51,13 @@ import argparse
 import json
 import logging
 import signal
+import sqlite3
 import sys
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import cv2
 import numpy as np
@@ -51,7 +69,7 @@ if __package__ in (None, ""):
     from tools.pipeline.capture import capture_camera, CaptureError
     from tools.pipeline.quality_gate import passes_trivial_gate, passes_exposure_gate, passes_sharpness_gate, MotionGate
     from tools.pipeline.vlm_enricher import enrich, ensure_model_loaded, ModelNotLoaded, EnricherError, ValidationFailed
-    from tools.pipeline.store import ensure_schema, store, store_raw
+    from tools.pipeline.store import ensure_schema, store, store_raw, store_keyframe
     from tools.pipeline.retention import sweep as retention_sweep, sweep_raw as retention_sweep_raw
     from tools.pipeline.golden_windows import camera_uses_golden_windows, camera_golden_cfg, is_dt_in_golden_windows
     from tools.pipeline.gem_poster import post_gem, should_post, load_dotenv, trim_caption
@@ -73,7 +91,7 @@ else:
     from .capture import capture_camera, CaptureError
     from .quality_gate import passes_trivial_gate, passes_exposure_gate, passes_sharpness_gate, MotionGate
     from .vlm_enricher import enrich, ensure_model_loaded, ModelNotLoaded, EnricherError, ValidationFailed
-    from .store import ensure_schema, store, store_raw
+    from .store import ensure_schema, store, store_raw, store_keyframe
     from .retention import sweep as retention_sweep, sweep_raw as retention_sweep_raw
     from .golden_windows import camera_uses_golden_windows, camera_golden_cfg, is_dt_in_golden_windows
     from .gem_poster import post_gem, should_post, load_dotenv, trim_caption
@@ -413,7 +431,92 @@ def run_raw_cycle(camera_name: str, camera_cfg: dict, cfg: dict,
     result.update(status="ok", tier=sr["tier"], image_path=sr["image_path"],
                   stored_bytes=sr["stored_bytes"],
                   width=sr["width"], height=sr["height"])
+
+    _promote_keyframe_if_due(camera_name, cfg, db_path, archive_root,
+                             jpeg_bytes, gate_metrics)
     return result
+
+
+def _due_keyframe_slot(
+    camera_name: str, cfg: dict, now_utc: datetime,
+) -> tuple[str, datetime] | None:
+    """Return (slot_label, slot_dt_utc) if `now_utc` falls within
+    tolerance of one of this camera's configured keyframe_capture
+    local_times, else None.
+
+    Opt-in per camera via keyframe_capture.cameras — a camera absent from
+    that list (i.e. every camera except house-yard/duo2 today) always
+    returns None here, so this function is a no-op for the other five
+    vlm_bypass cameras without needing its own enabled flag.
+    """
+    kf_cfg = cfg.get("keyframe_capture") or {}
+    if camera_name not in (kf_cfg.get("cameras") or []):
+        return None
+    tz_name = kf_cfg.get("timezone", "America/New_York")
+    tolerance_min = float(kf_cfg.get("tolerance_minutes", 5))
+    local_times = kf_cfg.get("local_times") or ["07:00", "12:00", "16:00"]
+
+    local_now = now_utc.astimezone(ZoneInfo(tz_name))
+    for slot in local_times:
+        try:
+            hh, mm = (int(p) for p in str(slot).split(":", 1))
+        except (ValueError, AttributeError):
+            log.warning("keyframe_capture: unparseable local_time %r; skipping", slot)
+            continue
+        slot_local = local_now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+        if abs((local_now - slot_local).total_seconds()) <= tolerance_min * 60:
+            return str(slot), slot_local.astimezone(timezone.utc)
+    return None
+
+
+def _promote_keyframe_if_due(
+    camera_name: str, cfg: dict, db_path: Path, archive_root: Path,
+    jpeg_bytes: bytes, gate_metrics: dict,
+) -> None:
+    """Best-effort: if now is within tolerance of one of this camera's
+    configured keyframe slots AND no keyframe row exists yet for that
+    slot today, promote the frame this cycle already captured into the
+    permanent keyframe tier (store.store_keyframe). Never raises — a
+    failure here must never affect the raw-tier result the caller
+    (run_raw_cycle) already committed to returning.
+
+    Idempotency is a DB query (a keyframe row already inside this slot's
+    tolerance window), not a state file — consistent with the rest of
+    this pipeline, and correct across a daemon restart with no extra
+    bookkeeping to reload.
+
+    See docs/03-Aug-2026-multi-day-timelapse-reels-plan.md.
+    """
+    try:
+        due = _due_keyframe_slot(camera_name, cfg, datetime.now(timezone.utc))
+        if due is None:
+            return
+        slot_label, slot_utc = due
+        kf_cfg = cfg.get("keyframe_capture") or {}
+        tolerance_min = float(kf_cfg.get("tolerance_minutes", 5))
+        window_start = (slot_utc - timedelta(minutes=tolerance_min)).isoformat(timespec="seconds")
+        window_end = (slot_utc + timedelta(minutes=tolerance_min)).isoformat(timespec="seconds")
+
+        with sqlite3.connect(str(db_path), timeout=30) as c:
+            existing = c.execute(
+                """SELECT 1 FROM image_archive
+                   WHERE camera_id = ? AND image_tier = 'keyframe'
+                     AND ts BETWEEN ? AND ? LIMIT 1""",
+                (camera_name, window_start, window_end),
+            ).fetchone()
+        if existing:
+            return
+
+        store_keyframe(db_path=db_path, archive_root=archive_root,
+                       camera_id=camera_name, jpeg_bytes=jpeg_bytes,
+                       gate_metrics=gate_metrics)
+        log.info("%s: promoted raw frame to permanent keyframe (slot=%s)",
+                 camera_name, slot_label)
+    except Exception:
+        log.exception(
+            "%s: keyframe promotion failed — raw store already succeeded "
+            "this cycle, continuing", camera_name,
+        )
 
 
 def run_cycle(camera_name: str, camera_cfg: dict, cfg: dict, schema: dict,
