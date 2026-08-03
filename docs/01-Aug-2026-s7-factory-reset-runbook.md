@@ -106,6 +106,46 @@ So the useful split is **not** "bugged sensor vs. dead port." It is:
 | The sensor is genuinely bugged | A factory reset / USBSettings clear stops the warnings **and** charging returns |
 | The sensor is correctly reading corrosion residue | The warning returns immediately after any reset, forever — and **software cannot fix it, but cleaning can** |
 
+### UPDATE — since the Qi recharge: no more moisture warnings, and still nothing on the port
+
+Boss reports that since the phone was recharged on the Qi pad, **the moisture message has
+stopped appearing entirely** — but the port still does nothing. No charge, no data, no
+warning.
+
+**Be careful with this one: it fits both competing theories equally well, and it is not the
+software confirmation it first looks like.**
+
+*Reading A — port is physically open.* The moisture detector fires only when it can sense
+the pins. Earlier it was firing constantly, which means the port was electrically alive
+enough to detect a fault. Total silence now — no insertion event, no charge, no data, no
+warning — is what you get when the phone can't see anything on the connector at all. That's
+the picture of corrosion progressing from a *short* (detectable, warns) to an *open* circuit
+(nothing to detect). The warnings stopping would be a symptom of getting worse, not better.
+
+*Reading B — firmware has latched the port off.* Once Samsung's firmware decides a connector
+is unsafe, it can disable the USB path outright. A phone in that state would also go quiet on
+every channel, including the warnings, because it isn't energising the port to check any
+more. That is a coherent software fault and it explains the same observations.
+
+**Both readings are live. This does not decide it.** What it does do is remove the moisture
+warning as a usable signal going forward — it's gone either way.
+
+### ⭐ The cheap test that actually separates them: a dumb wall charger
+
+**This has not been tried since the port was cleaned and dried.** A plain wall brick and a
+computer port are electrically different: a dumb charger shorts D+/D- together and asks for
+no negotiation at all, while a Mac port requires the phone to negotiate a USB connection.
+
+| Result | Meaning |
+|---|---|
+| Charges from a wall brick but not the Mac | The port conducts. Detection/negotiation is the problem → **software, Boss's theory** |
+| Any reaction at all — charging icon, moisture warning, battery LED | The port is sensing something. Not fully open. |
+| Absolutely no reaction to a wall brick | Nothing is reaching the phone → **the connection itself** |
+
+Even a phone with a flat battery shows *something* on insertion. Zero reaction to a dumb
+charger is about as close to conclusive as this gets without opening the phone. Try a second
+cable too while you're at it.
+
 ### ⭐ The untried fix this points to: isopropyl alcohol
 
 Boss cleaned the port **with a toothpick**. That removes lint and packed debris — it does
