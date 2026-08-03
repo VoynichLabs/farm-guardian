@@ -1,8 +1,47 @@
 # S7 phone-cam — micro-USB port is dead (01-Aug-2026)
 
-**Status: closed on the port question, OPEN on what to do about the phone.**
+**Status: OPEN on the port question again — see the correction immediately below. OPEN on
+what to do about the phone.**
 
 Read this before touching anything to do with `s7-cam` power, ADB, or phone recovery.
+
+---
+
+## ⚠️ CORRECTION (later on 01-Aug-2026) — read before the rest of this doc
+
+After this was written, Boss confirmed the phone had **displayed Samsung's moisture warning
+many times**, and that **clearing it did not hold — it returned immediately.** That was not
+known when the conclusions below were drawn, and it revises two of them:
+
+1. **The moisture-detection system on this phone is live and was engaged.** The reasoning
+   below leaned on it being a USB-C-generation feature. That was wrong for this handset.
+2. **Zero USB enumeration is no longer strong evidence on its own.** When the MUIC judges the
+   connector wet it can disable the **entire connector, data included**. The claim below that
+   a moisture block "leaves the USB data path enumerating normally" is true of many USB-C
+   cases but was stated too firmly. A persistently-engaged lockout could produce exactly the
+   silence observed.
+3. **The forced-restart test proves less than claimed below.** A cold boot clears a *stale*
+   latch. It does nothing about a detector that keeps re-triggering — and the warnings did
+   keep coming back.
+
+**What has NOT changed:** the port does not work, and no software remedy has restored it.
+
+**The most likely explanation now** is not a bugged sensor but a *correct* one. Moisture
+detectors sense conductivity across the port pins, and **corrosion residue is conductive and
+electrically indistinguishable from water**. A port that got soaked, dried, and kept a
+corrosion film will trip the detector forever — correctly by its own logic — because the
+conductive path never leaves. That one story explains the soaking, the repeated warnings, the
+clearing that wouldn't stick, the refusal to charge, and the absent enumeration, all at once.
+
+**This makes the fix chemical, not electronic.** The port was cleaned with a toothpick, which
+removes lint but does nothing to a corrosion film. **A 99 % isopropyl alcohol clean has not
+been tried and is the single most promising remaining action.** Full procedure in
+`01-Aug-2026-s7-factory-reset-runbook.md`.
+
+Treat everything below as accurate on the *observations* and overconfident in the
+*conclusion*. The measurements stand; "dead, stop testing" does not.
+
+---
 
 ---
 

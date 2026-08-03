@@ -66,12 +66,63 @@ users on affected phones routinely still transfer files while charging is refuse
 is no enumeration at all. That points at the connection rather than a refusal, though it is
 suggestive rather than absolutely conclusive on its own.
 
-### The question that settles it
+### ANSWERED 01-Aug-2026: the warning fired, repeatedly
 
-**Did the phone ever display a "Moisture detected" warning, or a water-drop icon in the
-status bar?** That notification *is* the feature announcing itself. If it never appeared,
-the moisture lockout was almost certainly never engaged and this theory is dead. If it did
-appear, the theory gets much stronger and is worth pushing on.
+Boss confirms the phone **showed the moisture warning many times**, and that **clearing it
+did not hold — it came straight back.** That is real evidence and it changes the picture in
+two ways.
+
+**It corrects the first qualifier above.** The moisture-detection system on this micro-USB
+S7 is clearly live and engaged. Treating it as a USB-C-only feature was wrong.
+
+**It also weakens the zero-enumeration argument.** When Samsung's MUIC decides the connector
+is wet, it can shut down the **whole connector** — data included — to stop current crossing
+wet pins. So a persistently-engaged moisture lockout is a plausible explanation for the phone
+never appearing on the USB bus. The earlier claim that a moisture block "leaves data
+enumerating" holds for many USB-C cases but should not have been stated as firmly as it was.
+
+**And it blunts the cold-boot argument.** A reboot clears a *stale* latch. It does nothing
+about a detector that is actively re-triggering. Since the warning kept returning after being
+cleared, the reboot test cannot tell those two apart.
+
+### But recurrence points at a real fault, not a bug
+
+Here is the part that matters most, and it cuts against the "just bugged" reading:
+
+**A moisture sensor that keeps re-firing after being cleared is usually detecting something
+real.** These detectors work by sensing conductivity across the port pins. **Corrosion
+residue is conductive, and electrically it is indistinguishable from water.** A port that
+got wet, dried, and left a corrosion film behind will trip the moisture detector forever —
+correctly, by the detector's own logic — because the conductive path never goes away.
+
+That single story explains every observation at once: the soaking, the repeated warnings,
+the clearing that wouldn't stick, the refusal to charge, and the total absence of USB
+enumeration.
+
+So the useful split is **not** "bugged sensor vs. dead port." It is:
+
+| If… | Then… |
+|---|---|
+| The sensor is genuinely bugged | A factory reset / USBSettings clear stops the warnings **and** charging returns |
+| The sensor is correctly reading corrosion residue | The warning returns immediately after any reset, forever — and **software cannot fix it, but cleaning can** |
+
+### ⭐ The untried fix this points to: isopropyl alcohol
+
+Boss cleaned the port **with a toothpick**. That removes lint and packed debris — it does
+nothing to a corrosion film bonded to the pins. If the detector is reading a real conductive
+path, **solvent is the fix, not mechanical scraping.**
+
+1. **Power the phone off completely.** Do not skip this.
+2. Use **99 % isopropyl alcohol** (not rubbing alcohol at 70 %, which is mostly water and
+   defeats the purpose). Put a little on a soft brush or a lint-free swab that fits.
+3. Work it into the port, gently, to dissolve and lift the residue. Isopropyl displaces water
+   and carries dissolved salts out with it as it evaporates.
+4. **Let it dry for several hours** — longer than feels necessary. Warm dry air is fine;
+   no hot air guns, no rice.
+5. Power on and test the cable again.
+
+This is cheap, it's the one physical remedy that actually targets corrosion, and it has not
+been tried. If the moisture warning stops coming back after this, that's the answer.
 
 ### The good news: the planned factory reset already tests this
 
