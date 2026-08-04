@@ -204,6 +204,53 @@ progressive hardware failure; check the adapter.
 
 Full case: [`docs/30-Jul-2026-reolink-s7-offline-incident.md`](docs/30-Jul-2026-reolink-s7-offline-incident.md).
 
+## A MacBook Air camera is offline — 30-SECOND TRIAGE, DO THIS BEFORE ANYTHING ELSE
+
+The three cameras on the MacBook Air (`macbook-air-facetime` :8089, `usb-webcam-1080p` :8090,
+`jieli-dashcam` :8091) drop out regularly. **There are two completely different causes and
+one field tells them apart.** Getting this wrong costs either a pointless drive to the farm
+or an 11-hour outage. Ask the health endpoint:
+
+```bash
+for p in 8089 8090 8091; do echo "== :$p"; curl -s --max-time 5 http://192.168.0.50:$p/health; echo; done
+```
+
+| `acquire_stalled_s` | Means | Do |
+|---|---|---|
+| **climbing** (non-zero, rising) | Camera is **present and fine**; the service process is wedged | **Nothing.** It exits and restarts itself at 300s. `launchctl kickstart -k gui/$(id -u)/com.farmguardian.cam-<name>` if you're impatient. **Do not go to the farm.** |
+| **`0.0`** while the camera is missing | Camera is genuinely **off the USB bus** | Hands-on. Replug. No software can fix this and a restart will not help. |
+
+**⛔ Do NOT diagnose a wedged service as dead hardware.** On 04-Aug-2026 `macbook-air-facetime`
+was down 11 hours. Only the first 8h35m was the camera being absent — for the last **2h42m**
+it was present and working while the service couldn't take it. A fresh process on the same
+machine read full 1280x720 from it at the same moment. The old log line said *"device is not
+currently plugged in"* the whole time, which was flatly untrue and is exactly what sends
+someone out to check cables. That message is fixed and the self-restart (v2.61.0) exists so
+this can't cost 11 hours again.
+
+**⛔ Do NOT "fix" a service that restarts itself.** That is the feature. If one restarts every
+~5 minutes the fault is NOT in-process — that's the hub, go look at hardware. And do not
+remove the `os._exit(1)`: `sys.exit` there would unwind only the grabber thread and leave the
+web server up serving a camera-less 503 forever, which is the exact silent failure it fixes.
+
+**⛔ The root cause of these dropouts is a POWER problem and cannot be fixed in code.** The
+bus-powered USB hub on the Air supplies 500 mA; the dashcam alone wants 500 mA and the USB
+webcam another 100. Whichever camera comes up second loses. Three cameras have been lost to
+it in four days (dashcam 01-Aug, USB webcam 02-Aug, and on 04-Aug the **built-in** FaceTime,
+which is on the same USB controller and no longer gets a pass). **An externally powered hub
+is the fix, was expected to arrive 04-Aug-2026, and any recurrence should start by checking
+whether it was actually fitted.** Do not add retries, thresholds, or config options to work
+around it. Full evidence in `HARDWARE_INVENTORY.md`; self-heal detail in
+[`docs/04-Aug-2026-camera-host-stall-self-heal-plan.md`](docs/04-Aug-2026-camera-host-stall-self-heal-plan.md) and CHANGELOG v2.61.0.
+
+**Two traps specific to these three cameras:** the dashcam always needs a physical replug
+after it loses power (it does not come back on its own), and **resolution cannot tell the
+dashcam and the built-in apart** — both are 1280x720. To check which camera you're looking
+at, pull `/photo.jpg` and *look at it*. :8089 is the run, :8091 is the wide garden view.
+
+**Open item (04-Aug-2026):** confirm no spurious self-restarts overnight — check
+`acquire_stalled_s` and that the three services haven't been cycling.
+
 ## Hardware Inventory — READ THIS BEFORE TOUCHING ANY CAMERA
 
 The single source of truth for what every camera *is*, what device hosts it, where its frames flow, and the device-not-location naming rule with worked examples lives in **`HARDWARE_INVENTORY.md`** at the repo root. Read it before adding, renaming, or moving any camera. The frontend devs and the next backend agent both depend on it.
