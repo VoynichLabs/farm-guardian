@@ -71,10 +71,44 @@
 > recover it** (unlike the milder 640x480 degradation the day before). Whichever of the two
 > comes up second loses. They cannot coexist on a 500 mA bus-powered hub.
 >
+> **Third casualty in four days, and this time it was the BUILT-IN (04-Aug-2026).** The
+> blast radius is wider than 01-Aug and 02-Aug had observed: it is no longer only the two
+> hub cameras. Sequence, from the service logs and `log show`:
+>
+> 1. **03:40 and 04:04** — repeated `kIOUSBPipeStalled` / `transaction timed out` from
+>    `VDCAssistant` against `guid:0x1423000012242825`, which is the **dashcam**
+>    (`SPCameraDataType` → `USB PHY 2.0 #2`). The hub device in distress, as usual.
+> 2. **~04:10** — the dashcam goes unavailable in AVFoundation.
+> 3. **04:12:17** — the **built-in FaceTime** starts failing reads, five consecutive, and
+>    then vanishes from the AVFoundation list too. Two minutes later, in that order.
+>
+> This is the mechanism already recorded above — the built-in sits on the same USB
+> controller as the hub, which is why re-seating the hub revives it — but 01-Aug only ever
+> saw it recover *after* a physical re-seat and never caught the hub camera dragging it down
+> live. It does. **Do not treat a built-in FaceTime dropout as unrelated to the hub.**
+>
+> **A fourth severity, distinct from the three above: the service process wedges.** The
+> dashcam recovered on its own. FaceTime's service did not, for **11 hours** — its grabber
+> stayed alive and kept probing every ~4s, logging `no cv2 index produced a frame`, while a
+> **fresh** process on the same box opened both cv2 indices and read 1280x720 from each
+> without trouble. So the camera was fine and cv2 was fine; the long-running process's
+> AVFoundation state was poisoned when the device was yanked out from under it, permanently.
+> `launchctl kickstart -k gui/$(id -u)/com.farmguardian.cam-macbook-air-facetime` cleared it
+> in under 45s — identified by picture → cv2 index 1, margin 27.1 vs 12.8, 0 failures.
+>
+> Severity ladder, for telling these apart later:
+> 1. Degraded resolution (640x480), service restart fixes it.
+> 2. Off the camera list, still on the USB bus — restart does **not** fix it, needs a replug.
+> 3. Off the USB bus entirely — needs a replug.
+> 4. **Device is healthy, the service process is wedged** — a fresh process proves the
+>    hardware is fine; restart the one service. Check this before touching anything physical.
+>
 > **Fix: an externally powered USB hub** — one with its own DC power brick, not merely a
-> "USB 3.0" hub. USB 2.0 speed is plenty for these cameras; the power is the point. Until
-> then, expect the hub cameras to drop while the internal one stays up. If only one external
-> camera can be kept, **keep the dashcam** — much better picture than the USB webcam.
+> "USB 3.0" hub. USB 2.0 speed is plenty for these cameras; the power is the point. **This
+> was identified on 01-Aug, re-confirmed on 02-Aug, and has still not been fitted; 04-Aug is
+> the third camera lost to it.** Until it is fitted, expect this to keep happening, and
+> expect the internal camera to be at risk too — it no longer gets a pass. If only one
+> external camera can be kept, **keep the dashcam** — much better picture than the USB webcam.
 >
 > Do NOT diagnose this as a code or naming fault. The camera services behaved correctly
 > throughout: each refused to substitute a different camera and served 503 instead.
