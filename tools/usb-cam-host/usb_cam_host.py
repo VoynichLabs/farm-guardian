@@ -1,4 +1,36 @@
 # Author: Claude Sonnet 4.6
+# Date: 04-August-2026 (Claude Opus 5 — SELF-HEAL: a process that cannot acquire
+#        a camera that IS PRESENT now exits so launchd (KeepAlive) replaces it.
+#        04-Aug-2026: macbook-air-facetime was down 11h. Two distinct halves —
+#        04:12-12:47 the camera was genuinely absent (correct behaviour, nothing
+#        to fix), then 12:47-15:29 it was BACK AND OPENABLE and this process
+#        still could not take it. Proven by a fresh process on the same machine
+#        reading full 1280x720 from both cv2 indices while the running one
+#        logged "no cv2 index produced a frame" for the 13,179th time.
+#        Root cause of the in-process rot is NOT established — the process was
+#        restarted before it could be captured — and this fix deliberately does
+#        not depend on knowing it. What it fixes is the unbounded shape: _open()
+#        returning None just slept 3s and retried in the same process forever.
+#        READ_FAILURE_THRESHOLD did not cover it (that is reads on an ALREADY-
+#        OPEN camera). The plists already set KeepAlive; we simply never asked.
+#        Three changes: (1) _resolve_verified_device_index() records whether the
+#        camera was in the device list at all, so "absent" and "present but
+#        unacquirable" stop being one indistinguishable case — the old log line
+#        said "device is not currently plugged in" for 2h42m about a camera that
+#        was plugged in and working; (2) the grabber exits non-zero after
+#        ACQUIRE_STALL_S (default 300s) of failing to take a VISIBLE camera, and
+#        never when it is genuinely absent — restarting across that 8h35m would
+#        have been pure noise; (3) /health reports acquire_stalled_s so the stall
+#        is visible from the Mini before it becomes an outage.
+#        Identity verification is untouched: it behaved correctly throughout,
+#        refusing to publish a camera it could not prove was FaceTime.
+#        Does not prevent dropouts — the powered USB hub does that. It stops one
+#        costing 11 hours instead of 5 minutes.
+#        Plan: docs/04-Aug-2026-camera-host-stall-self-heal-plan.md
+#        SRP/DRY check: Pass — no new module, no new dependency, one existing
+#        loop gains a ceiling; reused the existing resolver, _grabber_stop and
+#        the /health surface. Windows/DirectShow and raw-index paths cannot tell
+#        the two cases apart, so they never trigger the exit — unchanged.)
 # Date: 01-August-2026 (Claude Opus 5 — BUG FIX: name-based camera binding on
 #        macOS opened the WRONG CAMERA. _resolve_device_index_by_name() reads
 #        ffmpeg's AVFoundation device list and hands that index to
@@ -203,6 +235,20 @@ START_DELAY_S = float(os.environ.get("USB_CAM_START_DELAY", "0"))
 # Grabber reconnect backoff when open() fails or reads fail persistently.
 RECONNECT_BACKOFF_S = float(os.environ.get("USB_CAM_RECONNECT_BACKOFF", "3.0"))
 READ_FAILURE_THRESHOLD = int(os.environ.get("USB_CAM_READ_FAILURE_THRESHOLD", "5"))
+
+# How long to keep failing to acquire a camera that IS present before deciding
+# this process is the problem and exiting so launchd (KeepAlive) replaces it.
+# 0 disables. See the 04-Aug-2026 outage in the header: the camera came back at
+# 12:47 and this process could not take it for 2h42m, while a FRESH process on
+# the same machine opened it immediately. READ_FAILURE_THRESHOLD above does not
+# cover this — it only handles reads failing on an ALREADY-OPEN camera.
+#
+# 300s sits well clear of normal transients: a successful identification takes
+# ~20-25s (ffmpeg reference capture plus index probes) and sibling-instance
+# START_DELAY staggering is seconds, so genuine contention resolves inside one
+# cycle. This applies ONLY when the camera is visible in the device list —
+# see _target_device_visible.
+ACQUIRE_STALL_S = float(os.environ.get("USB_CAM_ACQUIRE_STALL_S", "300"))
 
 # Gray-world white balance — removes the brooder heat-lamp's orange cast.
 # AUTO_WB=true enables; STRENGTH 0.0–1.0 blends between identity (0.0) and
@@ -648,6 +694,8 @@ def _resolve_verified_device_index(needle: str):
     Each instance stops at its own camera, so the three services on the
     MacBook Air probe only as far as they need and do not fight over the
     hardware."""
+    global _target_device_visible
+    _target_device_visible = False
     if sys.platform != "darwin" or not needle:
         return None
     devices = _list_avfoundation_video_devices()
@@ -657,6 +705,10 @@ def _resolve_verified_device_index(needle: str):
     target_name = next((n for _, n in devices if needle_lc in n.lower()), None)
     if target_name is None:
         return None
+    # Past this point the camera IS present. Every remaining `return None` below
+    # means "present but I could not acquire or identify it", which is the
+    # restart-worthy condition the grabber loop watches for.
+    _target_device_visible = True
 
     other_names = [n for _, n in devices if n != target_name]
     if not other_names:
@@ -869,6 +921,21 @@ _grabber_opened_at: Optional[float] = None  # when cap last successfully opened
 _grabber_total_grabs = 0
 _grabber_total_failures = 0
 
+# True when the macOS resolver last ran and found the target camera IN the
+# AVFoundation device list. It is what separates the two halves of the 04-Aug
+# outage: "camera is not there" (wait, forever, nothing else to do) from
+# "camera is there and I still cannot take it" (this process is the problem).
+# Conflating them is why the log said "device is not currently plugged in" for
+# 2h42m about a camera that was plugged in and working.
+#
+# False on the Windows/DirectShow and raw-index paths: neither can distinguish
+# the two cases, so neither ever triggers the stall exit. That is deliberate.
+# Written and read only by the single grabber thread, plus an unsynchronised
+# read in /health where a stale bool is harmless — no lock.
+_target_device_visible = False
+# When the current acquire-stall started (monotonic), or None when not stalled.
+_acquire_stall_since: Optional[float] = None
+
 # The (index, name) the grabber actually bound to on its last _open(). Surfaced
 # in /health so an operator can see WHICH camera is being served — e.g. spot a
 # built-in FaceTime being served when a real USB webcam was expected. name is
@@ -889,6 +956,7 @@ def _grabber_loop() -> None:
     ~GRAB_INTERVAL_S cadence, publishes the latest to `_latest`. Auto-
     reconnects on persistent read failures. Exits when `_grabber_stop` is set."""
     global _latest, _grabber_opened_at, _grabber_total_grabs, _grabber_total_failures
+    global _acquire_stall_since
 
     if START_DELAY_S > 0:
         log.info("grabber: holding off %.0fs before claiming a camera so "
@@ -1013,7 +1081,39 @@ def _grabber_loop() -> None:
             if cap is None:
                 cap = _open()
                 if cap is None:
-                    if DEVICE_NAME_CONTAINS:
+                    if _target_device_visible:
+                        # The camera IS in the device list and we still could not
+                        # take it. Retrying forever in this process is what cost
+                        # 2h42m on 04-Aug-2026, so give up eventually and let
+                        # launchd hand us a clean one.
+                        if _acquire_stall_since is None:
+                            _acquire_stall_since = time.monotonic()
+                        stalled_s = time.monotonic() - _acquire_stall_since
+                        log.warning(
+                            "grabber: %r IS present in the device list but "
+                            "could not be acquired (stalled %.0fs) — retrying "
+                            "in %.1fs. This is NOT an unplugged camera.",
+                            DEVICE_NAME_CONTAINS, stalled_s, RECONNECT_BACKOFF_S,
+                        )
+                        if 0 < ACQUIRE_STALL_S <= stalled_s:
+                            log.error(
+                                "grabber: could not acquire %r for %.0fs while "
+                                "it was present — this process is the problem, "
+                                "exiting so launchd starts a clean one. A fresh "
+                                "process opens a camera this one cannot; see "
+                                "docs/04-Aug-2026-camera-host-stall-self-heal-"
+                                "plan.md. If this repeats every ~%.0fs the fault "
+                                "is NOT in-process — check the USB hub.",
+                                DEVICE_NAME_CONTAINS, stalled_s, ACQUIRE_STALL_S,
+                            )
+                            logging.shutdown()
+                            # os._exit, not sys.exit: this is a worker thread and
+                            # SystemExit would only unwind the thread, leaving the
+                            # web server up and serving a camera-less 503 forever
+                            # — the exact silent failure being fixed.
+                            os._exit(1)
+                    elif DEVICE_NAME_CONTAINS:
+                        _acquire_stall_since = None
                         log.info(
                             "grabber: device matching %r not currently "
                             "available — retrying in %.1fs (this is normal "
@@ -1021,6 +1121,7 @@ def _grabber_loop() -> None:
                             DEVICE_NAME_CONTAINS, RECONNECT_BACKOFF_S,
                         )
                     else:
+                        _acquire_stall_since = None
                         log.warning(
                             "grabber: open failed (device=%d). Retrying in %.1fs. "
                             "Likely: camera unplugged, TCC/Camera permission not "
@@ -1031,6 +1132,7 @@ def _grabber_loop() -> None:
                     continue
                 _grabber_opened_at = time.monotonic()
                 consecutive_failures = 0
+                _acquire_stall_since = None
                 log.info("grabber: camera opened successfully")
 
             ok, frame = cap.read()
@@ -1244,6 +1346,13 @@ async def health():
         resolved = _resolved_device
     resolved_index = resolved[0] if resolved else None
     resolved_name = resolved[1] if resolved else None
+    # Seconds we have been failing to acquire a camera that IS present, 0 when
+    # healthy. Non-zero and climbing means this process is wedged and will
+    # restart itself at ACQUIRE_STALL_S — visible from the Mini without SSH.
+    stall_since = _acquire_stall_since
+    acquire_stalled_s = (
+        round(time.monotonic() - stall_since, 1) if stall_since is not None else 0.0
+    )
 
     if latest is None:
         return JSONResponse(
@@ -1258,6 +1367,7 @@ async def health():
                 "grabber_alive": grabber_alive,
                 "camera_open": opened_at is not None,
                 "error": "no frame grabbed yet",
+                "acquire_stalled_s": acquire_stalled_s,
                 "total_grabs": _grabber_total_grabs,
                 "total_failures": _grabber_total_failures,
             },
@@ -1279,6 +1389,7 @@ async def health():
             "camera_open": opened_at is not None,
             "latest_frame_age_ms": int(age * 1000),
             "latest_frame_sequence": latest.sequence,
+            "acquire_stalled_s": acquire_stalled_s,
             "total_grabs": _grabber_total_grabs,
             "total_failures": _grabber_total_failures,
             "grab_interval_s": GRAB_INTERVAL_S,

@@ -102,6 +102,13 @@
 > 3. Off the USB bus entirely — needs a replug.
 > 4. **Device is healthy, the service process is wedged** — a fresh process proves the
 >    hardware is fine; restart the one service. Check this before touching anything physical.
+>    **Handled automatically since v2.61.0 (04-Aug-2026).** A host that cannot take a camera
+>    it can *see* now exits after 5 minutes and launchd starts a clean one. `/health` reports
+>    `acquire_stalled_s` — `0.0` is healthy; climbing means it is wedged and about to restart
+>    itself. It does **not** exit when the camera is genuinely absent (severities 2 and 3
+>    above), because a restart cannot help there. So: **`acquire_stalled_s` climbing = software,
+>    stays `0.0` while the camera is missing = hardware, go and replug.** If a host restarts
+>    every ~5 minutes, the fault is not in-process — that is the hub, not the service.
 >
 > **Fix: an externally powered USB hub** — one with its own DC power brick, not merely a
 > "USB 3.0" hub. USB 2.0 speed is plenty for these cameras; the power is the point. **This

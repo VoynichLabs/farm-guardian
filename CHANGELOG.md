@@ -4,6 +4,69 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.61.0 — A camera host that can't take a camera it can SEE now restarts itself (Claude Opus 5) — 04-Aug-2026
+
+**What:** `tools/usb-cam-host/usb_cam_host.py` now exits (non-zero) when it has failed to
+acquire a camera that **is present in the device list** for `USB_CAM_ACQUIRE_STALL_S`
+(default 300s), so launchd's existing `KeepAlive` replaces it with a fresh process. It never
+exits when the camera is genuinely absent. `/health` gains `acquire_stalled_s`. Plan:
+`docs/04-Aug-2026-camera-host-stall-self-heal-plan.md`.
+
+**Why:** On 04-Aug `macbook-air-facetime` was down 11 hours, and only the second half of that
+was a fault. 04:12→12:47 the camera was genuinely gone from the system and the service was
+right to sit and wait. Then at 12:46:56 the dashcam was replugged by hand, which
+re-enumerated the USB bus and returned the built-in camera 8 seconds later — and for the next
+**2h42m** the service could not take a camera that was present and working. Proof: a fresh
+process on the same machine opened both cv2 indices and read full 1280x720 from each while
+the running one logged `no cv2 index produced a frame` for the 13,179th time.
+
+The gap was a missing ceiling. `_open()` returning `None` logged, slept 3s and retried **in
+the same process, forever**. The existing `READ_FAILURE_THRESHOLD` does not cover it — that
+handles reads failing on an already-open camera. The plists have always set `KeepAlive`, so
+macOS would have provided a clean process instantly; the service simply never asked, because
+it had no way to conclude that it was itself the problem.
+
+Two things kept it invisible: `/health` answered normally throughout (grabber thread alive,
+busy logging), and the log said *"device is not currently plugged in"* — untrue for 2h42m,
+and exactly the line that sends someone out to check cables instead of restarting a service.
+
+**How:**
+- `_resolve_verified_device_index()` records `_target_device_visible` — the camera was found
+  in the AVFoundation list, so every subsequent failure means "present but unacquirable"
+  rather than "absent". The code always knew the difference and discarded it.
+- Grabber loop: stall timer, gated on that flag. Visible + unacquirable past the threshold →
+  `log.error` naming the likely cause, then `os._exit(1)` (not `sys.exit` — this is a worker
+  thread, and `SystemExit` would unwind only the thread, leaving the web server up serving a
+  camera-less 503 forever, i.e. the exact silent failure being fixed). Absent → unchanged,
+  retry indefinitely; restarting across that 8h35m window would have been pure noise.
+- Windows/DirectShow and raw-index paths can't distinguish the two cases, so they never
+  trigger the exit. Deliberate, and they are otherwise untouched.
+
+**Root cause NOT established.** Why that particular process rotted — leaked capture sessions,
+a poisoned CoreMediaIO connection after the device was yanked mid-read — is unknown; the
+process was restarted before the evidence could be captured. This fix deliberately does not
+depend on knowing. Ruled out along the way: contention is *not* it — a second process opens
+the built-in concurrently with the running service without trouble (measured).
+
+**Identity verification untouched.** It behaved correctly throughout, refusing to publish a
+camera it could not prove was FaceTime. That is its job and it did it.
+
+**Verified on the live MacBook Air, both directions:**
+- Absent camera does **not** restart-loop — a scratch instance on a non-existent name stayed
+  alive past 5× the threshold with `acquire_stalled_s: 0.0`. This is the regression that
+  would have made things worse, so it was tested first. Confirmed again in production:
+  `usb-webcam-1080p` (physically off the bus since 02-Aug) reports `acquire_stalled_s: 0.0`
+  and sits quietly.
+- Stall path exits — driven into the exact 04-Aug state (device visible, identification
+  yields nothing), the shipped loop logged the stall each second and exited `rc=1` at the
+  threshold.
+- All three services redeployed and restarted: `macbook-air-facetime` and `jieli-dashcam`
+  both `ok:true`, 0 failures, each identified by picture and **confirmed by eye** to be
+  serving the right scene (resolution cannot tell those two apart).
+
+**This does not prevent dropouts — the powered USB hub does that.** It stops one costing 11
+hours instead of 5 minutes.
+
 ### v2.60.0 — Weekly + monthly daylight time-lapse Reels for house-yard and duo2 (Claude Sonnet 5 Extra) — 03-Aug-2026
 
 **What:** Four new auto-publishing Reel lanes — `house-yard-weekly`, `house-yard-monthly`,

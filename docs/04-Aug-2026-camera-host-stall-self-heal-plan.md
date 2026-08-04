@@ -118,6 +118,30 @@ fresh process still refuses to publish a camera it can't prove.
 4. Confirm the other two services are undisturbed throughout.
 5. Leave all three running overnight; confirm no spurious exits.
 
+## Results — implemented and deployed 04-Aug-2026 (v2.61.0)
+
+All five verification steps run against the live MacBook Air. Deployed file backed up to
+`usb_cam_host.py.bak-20260804` on the Air.
+
+| # | Test | Result |
+|---|---|---|
+| 1 | Absent camera must NOT restart-loop | **PASS** — scratch instance on a non-existent name, threshold 15s: alive past 75s (5×), `acquire_stalled_s: 0.0`, 23 "not currently available" logs, 0 stall logs. |
+| 2 | Stall path exits | **PASS** — driven into the exact 04-Aug state (device visible, identification yields nothing): stall logged each second, `rc=1` at the 20s threshold. |
+| 3 | Right camera served | **PASS** — both identified by picture (FaceTime → cv2 index 1, margin 13.1 vs 25.8) and confirmed **by eye**: 8089 is the run, 8091 is the wide garden view. Not swapped. |
+| 4 | Other services undisturbed | **PASS** — all three redeployed and restarted; `macbook-air-facetime` and `jieli-dashcam` both `ok:true`, 0 failures. |
+| 5 | No spurious exits overnight | **Outstanding** — check `acquire_stalled_s` and restart counts tomorrow. |
+
+**Live confirmation of the dangerous case:** `usb-webcam-1080p` (physically off the USB bus
+since 02-Aug) reports `acquire_stalled_s: 0.0` and sits quietly retrying. That is the 8h35m
+scenario in production, behaving correctly — no restart loop.
+
+**Ruled out along the way:** contention is not the mechanism. A second process opens the
+built-in camera concurrently with the running service without trouble, measured. So the
+04-Aug fault was in-process state, not another process holding the device.
+
+**Not established:** why that process rotted. The evidence was destroyed by the restart. The
+fix does not depend on it; if it recurs there will be a second data point.
+
 ## Docs / changelog
 
 - `CHANGELOG.md` — new top entry, minor version (behaviour change: a service that can't
