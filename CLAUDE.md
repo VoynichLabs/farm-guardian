@@ -248,8 +248,110 @@ after it loses power (it does not come back on its own), and **resolution cannot
 dashcam and the built-in apart** — both are 1280x720. To check which camera you're looking
 at, pull `/photo.jpg` and *look at it*. :8089 is the run, :8091 is the wide garden view.
 
-**Open item (04-Aug-2026):** confirm no spurious self-restarts overnight — check
-`acquire_stalled_s` and that the three services haven't been cycling.
+**⛔ Restart the Air's camera services ONE AT A TIME, never together.** On 04-Aug-2026 all
+three restarted during the powered-hub swap and **all three resolved to the same cv2 index** —
+every one of them served the built-in FaceTime camera for 23 minutes under three different
+names. The v2.57.0 identity gate only checks the *relative* margin between the best and
+second-best candidate; when a sibling already holds the other index there is no second
+candidate, the check is skipped, and a scene mismatch of **37.1** gets accepted (a true match
+scores **0.4**). That hole is **not yet fixed** — see
+[`docs/04-Aug-2026-camera-identity-collision-incident-and-fix-plan.md`](docs/04-Aug-2026-camera-identity-collision-incident-and-fix-plan.md).
+
+**To check for a collision, compare BYTES, not framing** — these cameras overlook overlapping
+ground, so similar-looking frames prove nothing. Fetch `/photo.jpg` from every endpoint
+**concurrently** and hash them; any two matching means two services on one camera. And do not
+trust `/health`'s `resolved_device_name` — it is recorded once at startup and never re-checked
+(it reported `USB CAMERA #4` for a camera that had physically left the machine).
+
+**🟡 05-Aug-2026 06:30 EDT — recovered from an overnight outage; TWO cameras still down.**
+Guardian itself was never at fault (`http://localhost:6530/` returned 200 throughout — the
+dashboard looked empty only because its feeds were).
+
+Overnight, `house-yard` and `duo2` both went off the LAN at the *same instant*
+(2026-08-05T07:00Z / 03:00 EDT) and the MacBook Air went off at ~20:27 EDT 04-Aug. Boss
+restored power/network. Recovery notes:
+
+- `house-yard`, `s7-cam`, `macbook-air-facetime` came back on their own once the LAN returned.
+- **`duo2` did NOT.** Its RTSP port 554 was open again but Guardian kept logging
+  `snapshot returned None` (2,370 consecutive). **A `launchctl kickstart -k` of
+  `com.farmguardian.guardian` fixed it instantly.** The HTTP-snapshot cameras self-heal after a
+  network outage; the RTSP path (`CameraCapture`) holds a stale connection and needs the
+  restart. Reach for this first when one RTSP camera is dead while the snapshot cameras are fine.
+
+**Resolved same morning. Final state: `house-yard`, `duo2`, `macbook-air-facetime`,
+`jieli-dashcam` all live.** Boss moved both USB cameras onto the MacBook Air's powered hub.
+
+### ⚠️ `usb-webcam-1080p` IS INTERMITTENT — its video function drops out and does not self-recover
+
+**It is NOT dead — an earlier note in this file called it a dead camera and that was an
+overclaim, corrected by Boss 05-Aug-2026.** It served a clean 1920x1080 daylight frame on GWTC on
+04-Aug and works some of the time. What it does is lose its **video** function and not get it
+back, while the rest of the device keeps working. Currently `enabled: true`, pointed at GWTC.
+Symptoms seen across two machines and two operating systems:
+
+- **On GWTC (Windows):** enumerated as a camera, `camera_open: true`, grabs incrementing, and
+  **every frame pure black** — `min=0 max=0 std=0` across 1920x1080, in full daylight. Survived
+  `restart-usbcam.ps1` (counters reset 28557 → 242, frames still black).
+- **On the MacBook Air (macOS):** present on the USB bus and drawing its requested 100 mA, and
+  its **microphone enumerates fine in the AVFoundation *audio* list** — but its video interface
+  never appears in the video list at all.
+
+USB descriptor, power negotiation and audio all work; only video drops. Since it does work
+sometimes, suspect the **cable/connector or a video function that hangs until a full power
+cycle** before condemning the sensor. A `usb-cam-host` restart is NOT a power cycle and has been
+measured not to clear it — unplug and replug the camera itself.
+
+**⛔ An `enabled: true/false` mismatch between the two config files CANNOT cause black frames,
+and is not worth investigating.** The black pixels were pulled straight off
+`http://<host>:8089/photo.jpg` — the `usb-cam-host` process. That process reads **neither**
+config file. Those flags only decide whether Guardian and the pipeline *consume* an endpoint;
+they cannot change what the camera host serves. Black at that URL means black coming off the
+camera, full stop. Diagnose at `/photo.jpg`, never through Guardian's view.
+
+**⚠️ Do NOT re-diagnose this as the USB power problem.** It is powered and it enumerates.
+Boss fitted the powered hub and it works — measured on the Air with both cameras attached
+simultaneously, each allocated 500 mA and the dashcam drawing its full 500 mA, which was
+impossible on the old bus-powered hub. **The power problem is FIXED; this camera is separately
+broken, and the power fault was masking it.**
+
+**Note on reading `system_profiler SPUSBDataType` here — a trap I fell into.** A single physical
+USB 3 hub shows up as *two* logical hubs (a 5 Gb/s branch and a 480 Mb/s branch, same
+`Location ID` prefix). The 2.0 branch reports `Current Available (mA): 500` because 500 mA is the
+**USB 2.0 per-port spec ceiling**, not because the hub is bus-powered — a self-powered hub reports
+the same number. Do not read "500" on the 2.0 branch as evidence of a bus-powered hub and do not
+tell Boss to move cameras to "the powered hub" on that basis. Judge power by whether each device's
+`Current Required` is actually being satisfied.
+
+**Note `restart-usbcam.ps1` on GWTC needs `-ExecutionPolicy Bypass`** — without it PowerShell
+refuses to run the script at all:
+`ssh markb@192.168.0.69 'powershell -NoProfile -ExecutionPolicy Bypass -File C:\farm-services\restart-usbcam.ps1'`
+
+**🔴 OPEN — RESTORE THE HELD DASHCAM REEL LANE (after 2026-08-05T01:30Z).**
+`com.farmguardian.ig-jieli-dashcam-timelapse-reel` is booted out and its plist parked as
+`.HELD-restore-after-05Aug2026-0130Z`, because its 24h × sharpness selection would have pulled
+the 04-Aug mislabeled frames into an Instagram post. Only that one night is affected. Restore:
+
+```bash
+mv ~/Library/LaunchAgents/com.farmguardian.ig-jieli-dashcam-timelapse-reel.plist.HELD-restore-after-05Aug2026-0130Z ~/Library/LaunchAgents/com.farmguardian.ig-jieli-dashcam-timelapse-reel.plist && launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.farmguardian.ig-jieli-dashcam-timelapse-reel.plist
+```
+
+**✅ CLOSED 05-Aug-2026 — the v2.61.0 self-heal is NOT cycling.** `macbook-air-facetime` opened
+its camera exactly **once** on 05-Aug and `jieli-dashcam` 20 times across its whole log life, with
+`acquire_stalled_s: 0.0` on both. (Don't be alarmed by a raw `grep -c` of
+`camera opened successfully` — that counts the entire log history, not today. Date-filter it.)
+
+**🔜 GWTC RETIREMENT — A RASPBERRY PI ON ETHERNET IS COMING (Boss, 05-Aug-2026).** That fixes the
+right problem: GWTC's flakiness is its Realtek USB WiFi at ~34% signal, and Ethernet removes it.
+**But `usb_cam_host.py` has NO Linux camera-identity path.** Name resolution is implemented for
+macOS (`_resolve_verified_device_index`, picture test) and Windows (DirectShow), and every one of
+those functions returns early on `sys.platform != "darwin"` / `!= "win32"`. On a Pi the service
+falls back to raw `USB_CAM_DEVICE_INDEX` — identifying a camera **by position**, which is exactly
+what this repo says must never be trusted and what caused the 04-Aug collision. Capture itself is
+fine (OpenCV picks V4L2 automatically); it is only *identity* that is missing. **Add a V4L2
+name-resolution path before putting more than one camera on the Pi.** On Linux this is easier than
+either existing platform — `/sys/class/video4linux/video*/name` maps a device node to a camera name
+directly, and udev `by-id` symlinks carry the USB serial, which is a far stronger identity key than
+any picture test.
 
 ## Hardware Inventory — READ THIS BEFORE TOUCHING ANY CAMERA
 
@@ -517,7 +619,7 @@ ssh -i ~/.ssh/id_ed25519 markb@192.168.0.50 'c -p "Granular task description her
 |---|---|---|---|---|
 | 1 | `house-yard` | Reolink E1 Outdoor Pro, HTTP snapshot `192.168.0.88` | **ON** | live |
 | 2 | `s7-cam` | Galaxy S7 IP Webcam, HTTP snapshot `192.168.0.249:8080` | off | live |
-| 3 | `usb-webcam-1080p` | `usb-cam-host` on the **MacBook Air**, `192.168.0.50:8090` (was `usb-cam` on GWTC until 01-Aug-2026) | off | live, 1920x1080 |
+| 3 | `usb-webcam-1080p` | `usb-cam-host` on **GWTC**, `192.168.0.69:8089` | off | **⚠️ INTERMITTENT** — works sometimes, then loses its video function and doesn't self-recover (pure-black frames on GWTC; video interface absent on the Air while its mic enumerated). Enabled and under test 05-Aug-2026. **Not dead** — an earlier "dead camera" call here was an overclaim |
 | 4 | `gwtc` | Gateway laptop MediaMTX `rtsp://192.168.0.69:8554/gwtc` | off | **disabled in both configs** |
 | 5 | `macbook-air-facetime` | MacBook Air `192.168.0.50:8089` — the built-in **FaceTime HD @ 1280x720** (was `mba-cam`) | off | live, enabled in both. **Can disappear from the system entirely with the lid still open** (verified 01-Aug-2026 via `ioreg -r -k AppleClamshellState`) — re-seating the USB hub restores it, since the built-in sits on the same USB controller. The service 503s rather than substituting another camera, which is correct. ⚠️ archive rows from 21-Jul 13:31Z to 23-Jul 12:55Z are actually USB-camera footage — see HARDWARE_INVENTORY.md |
 | 5b | `jieli-dashcam` | MacBook Air `192.168.0.50:8091` — car dashcam in PC-camera mode, Jieli "USB PHY 2.0", 1280x720 wide-angle | off | **NEW 01-Aug-2026.** Best picture quality on that host. Time-lapse material, never a gem. **Re-aimed frequently by Boss — never record what it points at, in config, docs, or code.** Bus-power casualty: cannot share the MacBook Air's 500 mA hub with `usb-webcam-1080p` until a powered hub is fitted |
@@ -558,7 +660,7 @@ camera, pull `/photo.jpg` and look at it. Plan:
   - **Screen: black BY DESIGN — do not try to "fix" it.** GWTC is a **touchscreen** laptop (panel `NV116WHM-T16`, the T = touch), and the chickens kept touching it, so Boss deliberately disabled the screen at the hardware level. Evidence that it is intentional and not failed: Windows still enumerates the panel and reports it active/full-power/brightness 90, but the display stays dark, and there is **no active HID touch-screen device** in `Get-PnpDevice` (the digitizer was disabled). It runs headless perfectly — SSH, the camera host, and the watchdogs are all up regardless of the screen. **Do not diagnose this as a dead backlight or replace the panel.** (Two earlier writeups got this wrong: first "brightness pinned low", then "fried backlight" — both incorrect. The brightness value *does* take in software; the panel is simply disabled on purpose.) If a future need ever requires the screen back, the thing to re-enable is the touch digitizer + display, and the anti-chicken concern comes back with it. A `farmcam-screen-on` scheduled task was created on the wrong "brightness" theory and then removed 23-Jul-2026 as pointless; `deploy/gwtc/screen-on.ps1` + `register-screen-task.ps1` remain in the repo as dead artifacts only.
   - **Fix needs hands on the laptop:** the camera is absent at the hardware/driver level. Check for a function-key camera toggle or physical shutter first (the MSI Dominator has exactly this trap — see `HARDWARE_INVENTORY.md`), then Device Manager, then whether OBS grabbed or replaced the device. Nothing on the Mini can restore a camera that Windows cannot enumerate. Streams via ffmpeg → MediaMTX at `rtsp://192.168.0.69:8554/gwtc` (**IP moved from `.68` to `.69`**; DHCP is not pinned, so it can hop again — rediscover with the port-8554 sweep in the Network section). 1280x720, 15fps, H.264. Services auto-start via Shawl, with the `farmcam-watchdog` Shawl service handling post-reboot recovery. Detection disabled. In the chicken coop.
 - **Camera 5 (mba-cam):** MacBook Air built-in webcam via the same `usb-cam-host` service on `192.168.0.50:8089`. `enabled: false` for Guardian, `enabled: true` for the pipeline — so it still captures raw frames (~2 GB/day) that no publishing lane currently consumes. Detection disabled. **KEEP IT CAPTURING — Boss wants to re-enable the turkey-pen reel lane (`com.farmguardian.ig-mba-cam-timelapse-reel.plist.disabled`) at some point (23-Jul-2026), and the stockpile is what that lane will draw on.** Do not "reclaim disk" by turning this capture off; the ~2 GB/day and the per-cycle `ConnectTimeout` noise when the Air sleeps are both expected and accepted.
-- **Camera 6 (dominator-cam):** USB camera on the MSI "Dominator" laptop at `192.168.0.194:8089`, auto-starting via AtLogOn scheduled tasks (2026-06-12 rework). Detection disabled. Its dedicated reel lane is disabled.
+- **Camera 6 (dominator-cam):** USB camera on the MSI "Dominator" laptop at `192.168.0.194:8089`, auto-starting via AtLogOn scheduled tasks (2026-06-12 rework). Detection disabled. Its dedicated reel lane is disabled. **⚠️ It shows as offline BY DESIGN — the laptop is indoors at the moment and Boss has deliberately turned the camera off (confirmed 05-Aug-2026). This is not a fault. Do not "recover" it, do not walk to it, and do not list it as a broken camera in any status report.**
 - **Camera 7 (duo2):** Reolink Duo 2 WiFi, dual-lens, RTSP at `192.168.0.155:554` with credentials embedded in the config URL. **Detection enabled.** Feeds the 15:00 daily time-lapse reel and is the largest archive consumer (~50 GB rolling raw window at ~5.9 MB/frame — bounded by design, not a leak).
 - **Network:** All devices on same local WiFi network. Reolink IPs are DHCP and have drifted before (`config.json` says `.88`/`.155`; other docs have claimed `.89`/`.156`) — verify against the router or Guardian's API before believing any hardcoded address.
 

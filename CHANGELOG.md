@@ -4,6 +4,114 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.61.2 — Powered hub confirmed working; `usb-webcam-1080p` flagged intermittent (Claude Opus 5) — 05-Aug-2026
+
+> **Corrected by Boss the same day.** This entry originally retired `usb-webcam-1080p` as a dead
+> camera. That was an overclaim: it works some of the time (it served a clean 1920x1080 daylight
+> frame on GWTC on 04-Aug). It is **intermittent** — its video function drops out and does not
+> self-recover — and is back to `enabled: true` on GWTC under test. Suspect cable/connector or a
+> video function that hangs until a full power cycle before condemning the sensor; a
+> `usb-cam-host` restart is not a power cycle. Also corrected: **`dominator-cam` is off by
+> deliberate choice** (the laptop is indoors), not down — it must not be reported as a fault.
+>
+> Boss's proposed mechanism — an `enabled` mismatch between the two config files causing the
+> black frames — is ruled out on evidence: the black pixels were pulled directly from
+> `usb-cam-host`'s own `/photo.jpg`, and that process reads neither config file. Those flags only
+> gate consumption by Guardian and the pipeline. Recorded in `CLAUDE.md` so it isn't re-tried.
+
+**What:** `usb-webcam-1080p` briefly set `enabled: false` in **both** `config.json` and
+`tools/pipeline/config.json`, then **re-enabled** the same day per the correction above; both Mac
+Mini agents reloaded. The held
+`com.farmguardian.ig-jieli-dashcam-timelapse-reel` lane was restored. Roster and triage notes
+updated in `CLAUDE.md` and `HARDWARE_INVENTORY.md`.
+
+**Why — the camera is broken, not the power.** Its video function fails on two machines running
+two operating systems: on GWTC it enumerated and served **pure black** (`min=0 max=0 std=0` at
+1920x1080, in daylight, surviving a full grabber restart); on the MacBook Air it sits on the USB
+bus drawing its requested 100 mA with its **microphone enumerating normally in the AVFoundation
+audio list**, while its video interface never appears at all. Descriptor, power and audio all
+fine, video dead, on both OSes → the unit. **Replace it; do not re-enable.**
+
+**The powered hub works — measured, not assumed.** On the Air both cameras were attached at once,
+each allocated 500 mA, with the dashcam drawing its full 500 mA. That is impossible on the old
+bus-powered hub, where 500 (dashcam) + 100 (webcam) exceeded a shared 500 mA budget and whichever
+came up second lost. The USB power problem that cost three cameras in four days is closed. It had
+been masking this camera's separate hardware failure.
+
+**Correction worth keeping:** an earlier reading of `system_profiler SPUSBDataType` in this
+session wrongly concluded the cameras were on a bus-powered hub, from `Current Available (mA):
+500` on the hub's 2.0 branch. Boss corrected it. One physical USB 3 hub presents as two logical
+hubs, and **500 mA is the USB 2.0 per-port spec ceiling** — a self-powered hub reports the same
+number. Judge power by whether each device's `Current Required` is being satisfied, never by that
+figure alone. Recorded in `CLAUDE.md` so it isn't repeated.
+
+**Overnight outage recovery, also worth keeping:** `house-yard` and `duo2` both left the LAN at
+the same instant (07:00Z) and the Air went at ~00:27Z. After power/network was restored, the
+HTTP-snapshot cameras self-healed but **`duo2` did not** — its RTSP port was open again while
+Guardian logged 2,370 consecutive `snapshot returned None`. A `launchctl kickstart -k` of
+`com.farmguardian.guardian` fixed it instantly: the RTSP path holds a stale connection across a
+network outage where the snapshot path does not. Reach for that first when one RTSP camera is
+dead and the snapshot cameras are fine.
+
+**Live at close:** `house-yard`, `duo2`, `macbook-air-facetime`, `jieli-dashcam`. `s7-cam` cycles
+with its Qi charging window; `dominator-cam` is a separate laptop and remains down.
+
+### v2.61.1 — Powered hubs in; `usb-webcam-1080p` moved to GWTC; three services caught serving one camera (Claude Opus 5) — 04-Aug-2026
+
+**What:** Config-and-operations change, no code yet. `usb-webcam-1080p` repointed from
+`192.168.0.50:8090` to `192.168.0.69:8089` in **both** `config.json` and
+`tools/pipeline/config.json`, the Air's
+now-stale plist parked as `.moved-to-gwtc-04aug2026`, and both Mac Mini agents reloaded.
+Contamination window, the byte-comparison check and the unfixed code hole are recorded in
+`HARDWARE_INVENTORY.md` and `CLAUDE.md`. Plan:
+`docs/04-Aug-2026-camera-identity-collision-incident-and-fix-plan.md`.
+
+**Why:** Boss fitted the powered USB hubs. The 1080p USB webcam left the MacBook Air in the
+reshuffle and is now on GWTC — **proven, not assumed**: GWTC reports
+`USB\VID_32E6&PID_9221\240725172848` and that serial is the one already recorded for this
+camera in `HARDWARE_INVENTORY.md`. Nothing consumed that endpoint until now, so a healthy
+1920x1080 camera was serving into the void while the config still pointed at a dead port.
+
+**The thing worth remembering:** all three `usb-cam-host` services on the Air restarted during
+the swap and **all three resolved to the same cv2 index**, so `macbook-air-facetime`,
+`usb-webcam-1080p` and `jieli-dashcam` were every one of them serving the **built-in FaceTime
+camera** from 23:30:10Z to 23:52:51Z. 642 + 46 archive rows carry the wrong camera id. Nothing
+escaped — zero reactions, zero Discord posts, zero IG posts, zero reels; the 21:30 dashcam reel
+had not yet run. Rows are raw-tier and sweep themselves by 2026-08-06 ~23:53Z.
+
+Framing could not catch this, because these cameras overlook overlapping ground — the proof was
+**byte-identical JPEGs** returned by concurrent `/photo.jpg` fetches, which two physically
+distinct cameras cannot produce. That is now the documented check.
+
+**Root cause (identified, NOT yet fixed — awaiting Boss's pick of fix option):**
+`_resolve_verified_device_index()` guards only the *relative* margin between the best and
+second-best candidate. When a sibling process already holds the other cv2 index, that index
+fails `isOpened()`, only one candidate is scored, `runner_up is None`, and the guard is skipped
+outright — so scene mismatches of **37.1** and **32.6** were accepted as identity. A true match
+measured **0.4** in the same log. The signal was enormous and simply never checked. The v2.61.0
+stall self-heal is unrelated and did not apply: `acquire_stalled_s` stayed `0.0` throughout,
+because these services were not stalled — they were confidently serving the wrong camera.
+
+**Containment (done, verified):** stopped the impossible service, restarted the remaining two
+**serially** so each resolved uncontended (`jieli-dashcam` → index 0 at difference 0.4;
+`macbook-air-facetime` → index 1), then confirmed over three rounds that no two endpoints ever
+return matching bytes (`mean|diff| = 52.5`). Until the code fix lands, **restart the Air's
+camera services one at a time.**
+
+**⚠️ One edit beyond the documented move procedure — flagged for review.** The move procedure is
+"change one URL in each file". This also rewrote `usb-webcam-1080p`'s VLM `context` in
+`tools/pipeline/config.json`, because the old text ("mounted inside the CHICKEN COOP RUN…")
+became actively false the moment the camera changed hosts, and that string drives `share_worth`
+and `caption_draft` every cycle. **The replacement wording is inferred from a single frame** and
+describes open grass inside electric poultry netting with woods behind. If the aim is not
+settled after the hub swap, re-word it. Previous text is in git history.
+
+**Also checked:** the Mac Mini's new hubs (VIA Labs, GenesysLogic) are on the bus but **no
+camera is** — `ioreg` shows only mouse, keyboard, SSD enclosure and a USB sound device, and
+`SPCameraDataType` is empty. Per the repo's own triage rule that is hands-on, not software, so
+nothing was started there. GWTC dropped off the LAN mid-session and its WiFi watchdog restored
+it unaided within the documented 3-minute window, camera frame sequence unbroken throughout.
+
 ### v2.61.0 — A camera host that can't take a camera it can SEE now restarts itself (Claude Opus 5) — 04-Aug-2026
 
 **What:** `tools/usb-cam-host/usb_cam_host.py` now exits (non-zero) when it has failed to

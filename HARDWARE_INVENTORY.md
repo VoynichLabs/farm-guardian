@@ -1,5 +1,57 @@
 # Hardware Inventory — Farm Guardian Cameras
 
+> ### 🔴 04-Aug-2026 — POWERED HUBS FITTED; `usb-webcam-1080p` MOVED TO GWTC; 23-MINUTE MISLABEL WINDOW
+>
+> Boss fitted the powered USB hubs. In the reshuffle the 1080p USB webcam left the MacBook Air.
+>
+> **`usb-webcam-1080p` now lives on GWTC — `http://192.168.0.69:8089`, 1920x1080.** Identity is
+> **proven, not assumed**: GWTC reports `USB\VID_32E6&PID_9221\240725172848`, and that serial
+> `240725172848` is the exact one recorded for this camera in the table below. Same physical
+> unit, new host. Both config files were repointed and both Mac Mini agents reloaded; the Air's
+> plist is parked at `com.farmguardian.cam-usb-webcam-1080p.plist.moved-to-gwtc-04aug2026`.
+> The GWTC service is the `usb-cam-host` **scheduled task with a boot trigger** (plus
+> `usb-cam-watchdog` on a repeating timer), so it survives a reboot.
+>
+> **⚠️ MISLABEL WINDOW — `2026-08-04T23:30:10Z` → `23:52:51Z` (19:30–19:53 local).** All three
+> `usb-cam-host` services on the Air restarted during the hub swap and **all three resolved to
+> the same cv2 index**, so every one of them served the **built-in FaceTime camera**:
+>
+> | camera_id | rows in window | what the frames actually are |
+> |---|---|---|
+> | `usb-webcam-1080p` | 642 | FaceTime footage |
+> | `jieli-dashcam` | 46 | FaceTime footage |
+> | `macbook-air-facetime` | 147 | correct |
+>
+> **Nothing escaped** — across the window both affected ids have `discord_reactions = 0`, no
+> `discord_message_id`, no `ig_posted_at`, no `ig_story_posted_at`, no `reel_posted_at`. The
+> 21:30 dashcam reel had not yet run. Rows are left in place (same handling as the 21-Jul case);
+> they are raw-tier with `raw_retention_hours=48`, so they sweep themselves by **2026-08-06
+> ~23:53Z**. **Do not build anything from that window before then.**
+>
+> **The identity gate did not hold, and is not yet fixed.** `_resolve_verified_device_index()`
+> guards only the *relative* margin between best and runner-up; when a sibling process already
+> holds the other cv2 index, only one candidate is openable, `runner_up is None`, and the guard
+> is skipped entirely — so differences of **37.1** and **32.6** were accepted. For scale, a true
+> match measured **0.4**. Root cause, evidence and three fix options:
+> [`docs/04-Aug-2026-camera-identity-collision-incident-and-fix-plan.md`](docs/04-Aug-2026-camera-identity-collision-incident-and-fix-plan.md).
+> Until that lands, **restart the Air's camera services one at a time, never together.**
+>
+> **✅ How to check for this — bytes, not eyeballs.** The cameras on the Air overlook overlapping
+> ground, so similar framing proves nothing. Fetch `/photo.jpg` from every endpoint
+> **concurrently** and hash. Any two hashes matching = two services on one camera.
+>
+> ```bash
+> for p in 8089 8091; do curl -s -o /tmp/c$p.jpg http://192.168.0.50:$p/photo.jpg & done
+> curl -s -o /tmp/cg.jpg http://192.168.0.69:8089/photo.jpg & wait
+> md5 -q /tmp/c8089.jpg /tmp/c8091.jpg /tmp/cg.jpg
+> ```
+>
+> Verified clean over three rounds after containment on 04-Aug-2026.
+>
+> **`/health`'s `resolved_device_name` is NOT current truth.** It is recorded once at resolution
+> time and never re-checked — it cheerfully reported `USB CAMERA #4` for a camera that was no
+> longer on the machine. Read it as "what this process believed at startup".
+
 > ### 🔴 CAMERAS RENAMED + DASHCAM ADDED — 01-Aug-2026 — THIS SUPERSEDES EVERY NAME BELOW
 >
 > **`usb-cam` and `mba-cam` no longer exist.** Every camera is now named for what it
@@ -9,9 +61,10 @@
 > | Old name | New name | What it actually is |
 > |---|---|---|
 > | `mba-cam` | **`macbook-air-facetime`** | MacBook Air 2013 built-in FaceTime HD, 1280x720. Port **8089** on `192.168.0.50` |
-> | `usb-cam` | **`usb-webcam-1080p`** | Generic USB webcam, 1920x1080, VID `0x32e6` / PID `0x9221`, serial `240725172848`. No brand or model — the manufacturer string is literally "USB CAMERA". Port **8090** on `192.168.0.50` |
+> | `usb-cam` | **`usb-webcam-1080p`** | Generic USB webcam, 1920x1080, VID `0x32e6` / PID `0x9221`, serial `240725172848`. No brand or model — the manufacturer string is literally "USB CAMERA". ⚠️ **Moved 04-Aug-2026: now port 8089 on GWTC `192.168.0.69`**, not 8090 on the Air. Serial is the identity check |
 > | — new — | **`jieli-dashcam`** | Car dashcam in PC-camera mode. Jieli Technology "USB PHY 2.0", VID `0x1224` / PID `0x2825`, 1280x720 wide-angle. Port **8091** on `192.168.0.50`. **Best picture of the three.** **Aim changes often — do not describe what it is pointed at anywhere** |
 >
+> **(Superseded 04-Aug-2026 — only two of the three are on the Air now; see the block above.)**
 > **All three cameras are on the MacBook Air**, on one VIA Labs USB hub, each served by its
 > own `usb-cam-host` instance (LaunchAgents `com.farmguardian.cam-<name>`). The old single
 > `com.farmguardian.usb-cam-host` plist there is suffixed `.replaced-01aug2026`.
