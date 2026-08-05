@@ -4,6 +4,60 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.61.3 — Camera identity collision recurred and was fixed; `usb-webcam-1080p` repointed off a black feed (Claude Opus 5) — 05-Aug-2026
+
+**What broke.** At 13:51 EDT the `jieli-dashcam` service silently re-bound itself to the
+**MacBook Air's FaceTime camera** and served the chicken run under the dashcam's name for
+just under four hours. This is the un-fixed hole from
+`docs/04-Aug-2026-camera-identity-collision-incident-and-fix-plan.md`, firing on its own — no
+code change triggered it.
+
+**Why.** The identity gate only checks the *relative* margin between the best and second-best
+candidate. At 13:50 the real dashcam threw 5 consecutive read failures and became
+un-openable, so when the service re-resolved there was exactly **one** openable cv2 index and
+nothing to compare against — the margin check was skipped and a scene mismatch of **37.8** was
+accepted. A true match on this rig scores **0.7–0.9**. The tell in the log is `next best n/a`:
+
+```
+GOOD:  'USB PHY 2.0 #2' identified by picture -> cv2 index 0 (difference 0.7,  next best 30.9)
+BAD:   'USB PHY 2.0 #2' identified by picture -> cv2 index 1 (difference 37.8, next best n/a)
+```
+
+**What set it off.** `usb-webcam-1080p` dropping its video interface while staying on the USB
+bus. Measured live: the AVFoundation list went from `[0] FaceTime [1] USB PHY [2] USB CAMERA`
+to `[0] USB PHY [1] FaceTime` with nothing replugged. Every such flicker renumbers every camera
+underneath the running services.
+
+**How it was fixed.** A plain service restart once both cameras were openable again —
+`launchctl kickstart -k gui/$(id -u)/com.farmguardian.cam-jieli-dashcam`. It re-bound at
+`difference 0.7, next best 30.9` and both endpoints were verified by eye to be showing
+different scenes.
+
+**Archive impact, not repaired:** `image_archive` rows with `camera_id='jieli-dashcam'` and
+`ts` between `2026-08-05T17:51:32Z` and `2026-08-05T21:48:30Z` are FaceTime-camera frames.
+Boss was told and explicitly declined remediation ("I really don't care… the reels get seen by
+maybe one or two people"), so the 21:30 dashcam Reel was left to run against a 71%-contaminated
+window. Recorded here so nobody later mistakes those frames for genuine dashcam footage.
+
+**`usb-webcam-1080p` repointed — both config files.** The camera is physically on the MacBook
+Air, but both configs still polled GWTC `192.168.0.69:8089`, which serves a **pure-black
+1920x1080 frame** from something that is not this camera. That black feed was showing on the
+dashboard as a working camera. Both files now point at `192.168.0.50:8090`, and the Air's
+`com.farmguardian.cam-usb-webcam-1080p` LaunchAgent was un-parked and loaded. The endpoint
+currently returns an honest 503 (`acquire_stalled_s: 0.0` = camera absent from the video bus,
+needs a physical replug) instead of a black lie. **GWTC `:8089` is a black-frame trap — do not
+point anything at it.**
+
+**Docs.** `CLAUDE.md`'s collision triage was **wrong and is corrected**: it said to hash
+`/photo.jpg` from every endpoint and treat non-matching hashes as all-clear. That test is
+**one-way** — each service runs an independent grabber loop, so two services on one lens never
+byte-match. It produced a **false negative** on this incident, which was caught only by looking
+at the two pictures. The corrected section documents the `next best n/a` tell, ffmpeg
+name-based ground truth (with a hard-kill warning — an orphaned ffmpeg probe holds a camera
+open and can itself cause the next collision), and the restart recipe.
+`docs/05-Aug-2026-birdcatraz-pi5-camera-host-architecture-plan.md` records Boss's answers to all
+four open questions and the verified Pi 5 USB power budget.
+
 ### v2.61.2 — Powered hub confirmed working; `usb-webcam-1080p` flagged intermittent (Claude Opus 5) — 05-Aug-2026
 
 > **Corrected by Boss the same day.** This entry originally retired `usb-webcam-1080p` as a dead

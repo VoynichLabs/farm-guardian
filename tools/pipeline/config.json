@@ -137,7 +137,7 @@
    "offpeak_cycle_seconds": 180,
    "raw_retention_hours": 48,
    "capture_method": "ip_webcam",
-   "ip_webcam_base": "http://192.168.0.69:8089",
+   "ip_webcam_base": "http://192.168.0.50:8090",
    "photo_path": "/photo.jpg",
    "trigger_focus": false,
    "context": "Cheap generic USB webcam (UVC, 1920x1080, lower image quality than the S7) looking out over open grass bounded by blue-and-white electric poultry netting, with woods behind and farm buildings and vehicles off to one side. Subjects: adult and adolescent chickens, mixed rare/exotic breeds — the whole flock is grown or nearly grown now. NO chicks in this view. Birds range in and out of frame and can pass very close to the lens; large parts of a frame are often just empty grass. Camera angle is fixed. Score conservatively — this is a budget sensor and a 7 here is a genuinely good shot for this camera. Served on port 8089 of the Gateway laptop GWTC (192.168.0.69) by its own usb-cam-host instance; moved there from the MacBook Air on 04-Aug-2026. This camera is INTERMITTENT (05-Aug-2026) — it loses its video function and serves black until physically replugged.",

@@ -143,48 +143,134 @@ of one file with four personalities.
 
 ---
 
-## Relationship to the open macOS bug
+## Boss's decision, 05-Aug-2026 — and why it closes the macOS bug too
 
-These are separate and both should happen.
+**Decision: both USB cameras (`jieli-dashcam`, `usb-webcam-1080p`) move to the Pi. The MacBook
+Air is left serving exactly one camera — its own built-in FaceTime HD — and nothing else.**
 
-The Pi work makes the macOS bug *less load-bearing* — fewer cameras on the Air, fewer chances to
-collide — but it does not fix it, and the Air still runs two cameras through the picture test.
-The three options in the 04-Aug plan still need a decision.
+The Pi is the camera hub at Birdcatraz: secure, weatherproof, wired Ethernet. The Air stops
+being a multi-camera host and becomes a dumb single-camera endpoint on `:8089`.
 
-**Worth noting for that decision:** if `by-id` is the right answer on Linux, it is worth one
-afternoon checking whether macOS can be made to do the same thing. `AVCaptureDevice.uniqueID`
-carries a stable per-device identifier (the Air reported `0x1424000012242825` for the dashcam
-and `DJH4131MBP2F9TCC7` for the built-in), and those are exactly the kind of key the picture
-test is a poor substitute for. If a small PyObjC helper can map `uniqueID` → the index OpenCV
-wants, then **all three options in that plan become moot** and macOS gets the same structural
-identity the Pi has. That is a better outcome than any of them and should be investigated first.
+**⚠️ An earlier draft of this section said the Pi "does not fix" the macOS identity bug and
+recommended an `AVCaptureDevice.uniqueID` workstream. That was wrong, and it was wrong because
+it mislocated the hardware.** The MacBook Air *is at Birdcatraz* — it is the host for the run
+and garden cameras. Treating "the Air" and "Birdcatraz" as two different sites made the Air look
+like a separate ongoing problem the Pi would leave behind. It is not; it is the thing the Pi
+replaces.
+
+**With one permanently-attached camera on the Air, the collision class is gone — not patched,
+structurally absent:**
+
+- A collision needs two or more cameras on one host competing for OpenCV indices. One camera
+  cannot collide with itself.
+- Index renumbering was caused by USB cameras appearing and disappearing. With none attached,
+  the built-in is index 0 forever.
+- The `next best n/a` hole (see below) only produces a *wrong* answer when two or more physical
+  cameras exist and just one happens to be openable. With genuinely one camera, accepting the
+  sole candidate is the correct answer, not a guess.
+- The destabiliser leaves the building. The 05-Aug collision was triggered by
+  `usb-webcam-1080p` dropping its video interface while staying on the USB bus, which renumbered
+  every camera underneath two running services. That camera moves to the Pi.
+
+**Therefore the `AVCaptureDevice.uniqueID` / PyObjC work is NOT needed, and neither are the
+three options in `docs/04-Aug-2026-camera-identity-collision-incident-and-fix-plan.md`.** Do not
+start that workstream. Removing the precondition beats fixing the heuristic — the heuristic is
+what this whole plan exists to stop writing.
+
+**What the Pi does not fix, stated plainly:** `usb-webcam-1080p` is separately broken (its video
+function drops and does not self-recover; the fault has followed it across two machines and two
+operating systems). The Pi does not cure it. But it does make it fail *cleanly* — with `by-id`
+paths, a camera whose video interface is gone is simply an absent path, so its service 503s and
+it can no longer take a sibling camera down with it. That containment is worth having on its own.
+
+### The 05-Aug collision, for the record
+
+Live example of the un-fixed macOS hole, from the Air's `jieli-dashcam.log` (EDT):
+
+```
+12:14  'USB PHY 2.0'    -> cv2 index 0 (difference 0.9,  next best 37.2)   genuine
+13:50  5 consecutive read failures — releasing camera and reopening
+13:51  'USB PHY 2.0 #2' -> cv2 index 1 (difference 37.8, next best n/a)    garbage, ACCEPTED
+```
+
+A true match on this rig scores **0.9**. It accepted **37.8** because only one index was
+openable, so the relative-margin gate had no second candidate and was skipped. Result: the
+`jieli-dashcam` endpoint served the FaceTime camera from 13:51 EDT onward, and
+`image_archive` rows with `camera_id='jieli-dashcam'` and `ts >= 2026-08-05T17:51:32Z` are
+FaceTime frames.
+
+**Triage correction — the documented byte-hash check gives FALSE NEGATIVES.** `CLAUDE.md` says
+to fetch `/photo.jpg` from every endpoint concurrently and hash them, and that any two matching
+means two services on one camera. Matching hashes do prove a collision, but **non-matching
+hashes prove nothing**: each service runs its own independent grabber loop, so two services on
+one lens still capture at different instants and never byte-match. This collision was caught by
+*looking at the two pictures*, after the hash check had cleared it. Ground truth is
+`ffmpeg -f avfoundation -i "<device name>"` on the host, which selects by name rather than index.
 
 ---
 
 ## Open questions for Boss
 
-1. **Which cameras go on the Pi?** The 1080p webcam is intermittent and its behaviour is not yet
-   attributed to camera vs cable vs host. Deciding what lives at Birdcatraz is a hardware call.
-2. **Does the S7 change?** It is at Birdcatraz on a Qi pad with a dead micro-USB port and no ADB
-   path. A wired Pi nearby does not fix that by itself, but it is worth asking whether the phone
-   should stay in the plan at all long-term.
-3. **Does anything else at Birdcatraz need the Pi** (sensors, a second camera angle, audio), or
-   is it strictly a camera host? That changes whether 4 GB is comfortable or tight.
-4. **Static IP or DNS name?** A static lease plus an `/etc/hosts` entry on the Mini would end the
-   `.68 → .69` IP-drift pattern that has bitten repeatedly.
+1. ~~**Which cameras go on the Pi?**~~ **ANSWERED BY BOSS 05-Aug-2026 — see "Boss's decision"
+   below. Both USB cameras move to the Pi; the MacBook Air keeps only its own built-in FaceTime
+   HD. This answer also closes the macOS identity bug, so read that section before acting on
+   anything else in this plan.**
+2. ~~**Does the S7 change?**~~ **ANSWERED 05-Aug-2026: the S7 STAYS long-term, and a replacement
+   handset is already on the way.** Do not plan its retirement, do not fold `s7-cam` into the Pi,
+   and do not treat the dead micro-USB port as a reason to decommission it. It keeps its own
+   lane exactly as documented in `CLAUDE.md` (Qi pad, HTTP snapshot on `192.168.0.249:8080`,
+   no ADB path of any kind). When the replacement arrives it inherits the `s7-cam` id.
+3. ~~**Does anything else at Birdcatraz need the Pi?**~~ **ANSWERED 05-Aug-2026: strictly a
+   camera host. 4 GB is comfortable.** This hardens the "capture appliance only" rule in Scope
+   from a recommendation into a decision — see Risks, "Scope creep onto the Pi."
+4. ~~**Static IP or DNS name?**~~ **ANSWERED 05-Aug-2026: static lease.** Reserve it on the
+   TP-Link Archer AX55 against the Pi's MAC and add an `/etc/hosts` entry on the Mini so configs
+   can name the host rather than an address. This ends the `.68 → .69` drift class for this box.
 
 ---
 
 ## TODOs (ordered; nothing starts before approval)
 
-1. **Decide the questions above**, especially which cameras move.
+1. ~~Decide which cameras move~~ — **DONE 05-Aug-2026: both USB cameras go to the Pi, the Air
+   keeps only its built-in FaceTime HD.** Questions 2–4 (S7, scope, static IP) are still open.
 2. Bring the Pi up: OS, Ethernet, static lease, SSH key from the Mini, `c` alias if it should
    join the multi-machine Claude pattern.
-3. **Verify the power budget before trusting it.** The dashcam alone requests 500 mA. Pi 5 USB
-   current is limited unless the supply advertises enough, and the exact figures are worth
-   checking against current Raspberry Pi documentation rather than memory — **a web search here
-   is warranted, this is recent hardware.** Plan on a powered hub regardless; it is cheap
-   insurance and the farm already knows what starvation looks like.
+3. ~~Verify the power budget~~ — **VERIFIED 05-Aug-2026 against Raspberry Pi's own docs. The
+   answer is worse than expected: a POWERED HUB IS MANDATORY, not insurance.**
+
+   **A Pi 5 allows 600 mA TOTAL across all USB ports by default.** It only raises that to
+   1600 mA if it successfully negotiates **5 V / 5 A** with a USB-PD supply (i.e. the official
+   27 W unit). Any lesser brick — including a perfectly good 5 V/3 A phone charger — leaves you
+   at 600 mA for every USB device combined.
+
+   Now the farm's actual numbers, straight off the Air's USB tree:
+
+   | Device | Current required |
+   |---|---|
+   | `jieli-dashcam` (Jieli USB PHY 2.0) | **500 mA** |
+   | `usb-webcam-1080p` (USB CAMERA, 0x32e6) | **100 mA** |
+   | **Total** | **600 mA — exactly the default ceiling, zero headroom** |
+
+   **This is the MacBook Air's bus-powered-hub failure repeating on new hardware.** That hub
+   supplied 500 mA against the same 600 mA of demand, and whichever camera came up second lost.
+   Three cameras were lost to it in four days (dashcam 01-Aug, USB webcam 02-Aug, the built-in
+   FaceTime 04-Aug). A default-configured Pi 5 gives 600 mA against 600 mA of demand — the same
+   trap with 100 mA more rope.
+
+   **Do not "solve" this with `usb_max_current_enable=1` in `/boot/firmware/config.txt`.** That
+   forces the 1.6 A limit without the supply having proven it can deliver, and Raspberry Pi's
+   own guidance is that it can brown out the SoC under load — trading a camera dropout for
+   whole-box instability, at Birdcatraz, on a machine with no screen. The setting is applied
+   automatically and safely when a genuine 5 V/5 A PD supply is negotiated; that is the only
+   way it should ever be on.
+
+   **Required, in order:** (a) the official 27 W USB-C PD supply for the Pi itself, (b) an
+   **externally powered** USB hub for both cameras, so camera draw never touches the Pi's
+   budget at all. Verify after assembly with `lsusb -v | grep -i MaxPower` and confirm both
+   cameras deliver frames *simultaneously* — the Air's failure only ever showed up with both
+   attached at once.
+
+   Sources: [USB Power Delivery on Raspberry Pi 5 (white paper)](https://pip-assets.raspberrypi.com/categories/685-app-notes-guides-whitepapers/documents/RP-009856-WP-1-USB%20Power%20delivery%20on%20Raspberry%20Pi%205.pdf)
 4. Confirm each camera's `by-id` path on the Pi and write the udev rules. **Verification: unplug
    everything, replug in a deliberately different order, reboot, and confirm every symlink still
    resolves to the same physical camera.** That test is the whole point of the design — if it
@@ -194,6 +280,15 @@ identity the Pi has. That is a better outcome than any of them and should be inv
 7. Stand the cameras up **one at a time**, and verify with the concurrent byte-comparison check —
    the same test that caught the 04-Aug collision. Framing similarity is not evidence.
 8. Repoint **both** `config.json` and `tools/pipeline/config.json`; reload **both** agents.
+   Note `usb-webcam-1080p` is currently pointed at GWTC `192.168.0.69:8089`, which serves a
+   **black frame** while the physical camera sits on the Air — fix that in the same pass.
+8b. **Reduce the MacBook Air to one camera.** Boot out `com.farmguardian.cam-jieli-dashcam` and
+   leave only `com.farmguardian.cam-macbook-air-facetime` on `:8089`. This is the step that
+   closes the identity bug, so do not skip it or leave a second agent parked-but-loadable.
+   **Then check one residual:** the Air's AVFoundation list also contains `Capture screen 0`.
+   The built-in FaceTime HD is documented as able to vanish while the lid is open — if it does,
+   confirm the single-candidate acceptance path cannot latch onto the screen-capture device and
+   serve a desktop screenshot as a camera. If it can, that one branch still needs a guard.
 9. **Delete, don't leave lying around:** the `gwtc` camera entry in both configs, `deploy/gwtc/`
    Windows watchdog artifacts, `screen-on.ps1` / `register-screen-task.ps1` (already dead), and
    the GWTC troubleshooting sections in `CLAUDE.md` once the box is genuinely retired. A retired
