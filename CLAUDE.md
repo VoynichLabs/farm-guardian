@@ -601,6 +601,24 @@ ssh -i ~/.ssh/id_ed25519 markb@192.168.0.50 'c -p "Granular task description her
 
 **Cross-reference:** `bubba-workspace/skills/macbook-air/SKILL.md` has the per-machine details for the Air; `bubba-workspace/memory/reference/network.md` has the master device table; `bubba-workspace/skills/larry-access/SKILL.md` and `egon-gateway/SKILL.md` document the Windows and Linode targets respectively.
 
+## Places on the farm — BIRDCATRAZ
+
+**Birdcatraz** is the outdoor enclosed poultry compound: **the chicken coop and the turkey pen
+together**. It is where the flock lives, where the machine in the coop sits, and where the
+S7 phone is. When someone says "out there" or "at the coop", this is the place they mean.
+
+**⚠️ Birdcatraz is a PLACE, not a camera name.** The device-not-location naming rule still holds
+without exception — never `birdcatraz-cam`. Use it in prose, in VLM `context` strings, and in
+plan docs; never as a camera id, a config key, or a service name. See the naming rule in
+`HARDWARE_INVENTORY.md`.
+
+**🔜 A Raspberry Pi 5 (4 GB) on wired Ethernet is coming to replace the machine at Birdcatraz.**
+This is a re-architecture, not a port — the plan deliberately deletes five layers of accumulated
+camera-identity workarounds rather than carrying them to Linux. Read
+[`docs/05-Aug-2026-birdcatraz-pi5-camera-host-architecture-plan.md`](docs/05-Aug-2026-birdcatraz-pi5-camera-host-architecture-plan.md)
+before touching anything camera-host related, and **do not start porting `usb_cam_host.py` to
+Linux** — that is the specific thing the plan says not to do.
+
 ## Environment
 
 - **Machine:** Mac Mini M4 Pro, 14-core, 64GB RAM, macOS 26.3. **LAN IP `192.168.0.54`** (was `.71` before a DHCP hop — grep any doc still citing `.71`).
