@@ -4,6 +4,52 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.62.0 — Birdcatraz Pi 5 is up; both USB cameras moved to it and identified by serial (Claude Opus 5) — 05-Aug-2026
+
+**The Pi is live.** `farm-pi5` at `192.168.0.17`, Raspberry Pi 5 Model B Rev 1.1 / 4 GB,
+Debian 13 (trixie), rootfs auto-expanded to 57 GB. SSH as `markb` with the Mini's
+`id_ed25519` installed. **No camera-host software yet** — bare OS plus verified hardware.
+Full detail: [`docs/05-Aug-2026-birdcatraz-pi5-bringup-log.md`](docs/05-Aug-2026-birdcatraz-pi5-bringup-log.md).
+
+**Both USB cameras are physically on the Pi now** and resolve to stable, serial-derived paths:
+
+```
+/dev/v4l/by-id/usb-Jieli_Technology_USB_PHY_2.0-video-index0         (dashcam)
+/dev/v4l/by-id/usb-USB_CAMERA_USB_CAMERA_240725172848-video-index0   (1080p webcam)
+```
+
+That is the plan's central bet paying off: these paths come from the hardware, survive replug
+and reboot and plug order, and make the identity-collision class that broke `jieli-dashcam`
+twice this week **structurally impossible** — no index guessing, no name matching, no picture
+test. Dashcam verified with a real night frame.
+
+**🔴 `custom.toml` does not work on this image — use `userconf.txt`.** firstboot ran (it
+consumed its `init=` trigger from `cmdline.txt` and expanded the rootfs) but ignored
+`custom.toml` entirely and created no user, leaving sshd refusing every login with *"SSH may
+not work until a valid user has been set up."* A one-line `userconf.txt` fixed it **without a
+re-flash**, because it is handled by a different service than firstboot. Also recorded: never
+build a `$6$` crypt hash through a shell — bash eats `$6` as a positional parameter and
+silently corrupts it, which happened here and would have shipped an unloggable card.
+
+**Correction:** the Pi uses its **native** Ethernet (`eth0`, driver `macb`, MAC
+`88:a2:9e:a2:e6:23`). The Genesys dock's Realtek RTL8153 shows up as `eth1` and is **DOWN and
+unused**. An earlier claim this session that networking ran through the hub was wrong — USB
+topology says nothing about which interface holds the route. The hub is not load-bearing.
+
+**`usb-webcam-1080p` — two new data points, still not resolved.** On Linux its video interface
+enumerates cleanly (on macOS it kept vanishing from the device list; on GWTC it served black),
+and its `gain` was found pinned at **0** against a default of 32 — which would produce black
+frames on any host and matches its entire history. Setting `gain=32` moved the frame mean from
+1.1 to 3.5, but the test ran after dark so it proves nothing. **Deliberately NOT recorded as
+fixed or as dead** — retest in daylight, command in the bring-up log.
+
+**Live consequence:** both cameras have left the MacBook Air, so `jieli-dashcam` and
+`usb-webcam-1080p` are **offline** until the Pi serves them; their configs still point at the
+Air. `macbook-air-facetime` is unaffected.
+
+**Also:** the Mac Mini's own LAN IP drifted to `192.168.0.217` (was `.54`, `.71` before that);
+`CLAUDE.md` corrected. Static lease for the Pi is approved but **not yet reserved**.
+
 ### v2.61.3 — Camera identity collision recurred and was fixed; `usb-webcam-1080p` repointed off a black feed (Claude Opus 5) — 05-Aug-2026
 
 **What broke.** At 13:51 EDT the `jieli-dashcam` service silently re-bound itself to the

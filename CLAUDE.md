@@ -610,6 +610,7 @@ ssh -i ~/.ssh/id_ed25519 markb@192.168.0.50 'c -p "Granular task description her
 |---|---|---|
 | Mac Mini (Bubba) | local — you're already here | yes (this is the orchestrator most of the time) |
 | MacBook Air | `ssh -i ~/.ssh/id_ed25519 markb@192.168.0.50` | yes — `c` alias, OAuth-logged-in |
+| **`farm-pi5`** (Birdcatraz camera host) | `ssh -i ~/.ssh/id_ed25519 markb@192.168.0.17` | not installed — bare OS as of 05-Aug-2026. Debian 13 trixie, Pi 5 4 GB. sudo needs the password (`echo 12345 \| sudo -S …`). **Both USB cameras live here now.** See [`docs/05-Aug-2026-birdcatraz-pi5-bringup-log.md`](docs/05-Aug-2026-birdcatraz-pi5-bringup-log.md) |
 | Gateway laptop (GWTC) | `ssh -o StrictHostKeyChecking=no markb@192.168.0.69` (IP moved from `.68`; rediscover via /24 sweep on `:8554`) | yes — pinned `c.cmd`. **Verified reachable + healthy 23-Jul-2026**; only its webcam is dead (see Camera 4) |
 | MSI Katana 15 HX (Boss's machine) | `ssh markb@192.168.0.4` — **IP drifted from `.3` to `.4`** (MAC `fc:6d:77:b8:e8:db`, verified 23-Jul-2026). Windows: default shell is cmd.exe, so wrap commands in `powershell -NoProfile -Command "..."` | yes |
 | Larry's MSI laptop (Dominator) | `ssh -o StrictHostKeyChecking=no user@192.168.0.194` | box answers SSH, but its camera services are down (likely sitting at the Windows login screen — AtLogOn tasks need an interactive login). Verify before relying on it |
@@ -655,7 +656,7 @@ Linux** — that is the specific thing the plan says not to do.
 
 ## Environment
 
-- **Machine:** Mac Mini M4 Pro, 14-core, 64GB RAM, macOS 26.3. **LAN IP `192.168.0.54`** (was `.71` before a DHCP hop — grep any doc still citing `.71`).
+- **Machine:** Mac Mini M4 Pro, 14-core, 64GB RAM, macOS 26.3. **LAN IP `192.168.0.217`** (drifted 05-Aug-2026; was `.54`, and `.71` before that — grep any doc still citing either. Verify with `ifconfig | grep "inet 192"` rather than trusting this line).
 - **Python:** 3.13 (Homebrew)
 
 > ⚠️ **Cameras and hosts move around constantly.** Boss rearranges hardware whenever it suits him — there is no "final setup" and this table is a point-in-time snapshot, not a contract. **Always verify against the live configs and a probe before trusting any row here.** Fast check:
