@@ -119,6 +119,21 @@ ACQUIRE_STALL_S = _env_float("FARMCAM_ACQUIRE_STALL_S", 300.0)
 # host and matches its entire history of black output.
 V4L2_CTRLS = _env_str("FARMCAM_V4L2_CTRLS")  # e.g. "gain=32,auto_exposure=3"
 
+# FOURCC: "MJPG" forces the camera's MJPEG stream; "auto"/empty leaves the format
+# to OpenCV. Both Birdcatraz cameras advertise ONLY MJPG, so in practice this
+# changes nothing for them — it exists for a future camera that offers a choice.
+#
+# ⛔ DO NOT reach for this to fix the dashcam's daylight overexposure. Measured
+# 06-Aug-2026 on the live endpoint: MJPG, auto and an explicit YUYV request all
+# produced mean ~220 with ~41% of pixels clipped white. An earlier note in this
+# file claimed a libv4l/YUYV path fixed it (mean 114, 0.9% clipped) — that was a
+# MEASUREMENT ERROR and is retracted. `v4l2-ctl --set-fmt-video=pixelformat=YUYV`
+# on a camera that only advertises MJPG does not yield clean YUYV; the captured
+# file was not a whole multiple of a YUYV frame, so treating it as a Y plane was
+# really averaging compressed JPEG bytes, which land near 114 by coincidence.
+# See the dashcam exposure note in docs/05-Aug-2026-birdcatraz-pi5-bringup-log.md.
+FOURCC = _env_str("FARMCAM_FOURCC", "MJPG")
+
 
 @dataclass
 class Frame:
@@ -172,9 +187,10 @@ def _open() -> Optional[cv2.VideoCapture]:
     if not cap.isOpened():
         cap.release()
         return None
-    # MJPG first: both Birdcatraz cameras produce it natively, and asking for raw
-    # YUYV at 1080p exceeds USB 2.0 bandwidth and silently drops the frame rate.
-    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+    # See the FOURCC comment above — on the dashcam this is a correctness knob,
+    # not a performance one. Only force a fourcc when one is configured.
+    if FOURCC and FOURCC.lower() not in {"auto", "none"}:
+        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*FOURCC[:4]))
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, REQ_W)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, REQ_H)
     _apply_v4l2_controls()
@@ -334,6 +350,7 @@ def health():
         "max_frame_age_s": MAX_FRAME_AGE_S,
         "jpeg_quality": JPEG_QUALITY,
         "v4l2_ctrls": V4L2_CTRLS or None,
+        "fourcc": FOURCC or "auto",
     })
 
 

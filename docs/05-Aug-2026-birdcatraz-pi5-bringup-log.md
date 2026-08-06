@@ -145,6 +145,62 @@ converges, and will read as black on a perfectly good camera. Use `--stream-skip
 
 ---
 
+## ✅ 06-Aug-2026 daylight retest — the webcam is FIXED, the dashcam has a new problem
+
+### `usb-webcam-1080p` — CONFIRMED WORKING. The gain theory was right.
+
+Full 1920x1080 daylight frame: grass, poultry netting, the truck, sharp and correctly exposed —
+**mean 128.9, std 30.8, 0.0% clipped**. It is archiving again after roughly a day of nothing.
+
+**The camera was never broken.** Its V4L2 `gain` was pinned at **0** against a default of 32,
+which blackens the output on any host, and that single fact explains its entire recorded history
+— the pure-black frames on GWTC and the "video interface present but useless" behaviour on the
+Air. `FARMCAM_V4L2_CTRLS=gain=32,auto_exposure=3` in `/etc/farmcam/usb-webcam-1080p.env` is the
+whole fix.
+
+**Update `HARDWARE_INVENTORY.md` and `CLAUDE.md` accordingly** — every "intermittent / loses its
+video function / needs a physical replug" warning about this camera predates the gain discovery
+and should no longer send anyone out to replug it. Watch it for a few days before deleting those
+notes entirely, but it is not the flaky camera it was believed to be.
+
+### 🟡 `jieli-dashcam` — badly overexposed in daylight, and NOT fixable from software
+
+Night frames are excellent. The first daylight frame is washed out: **mean ~220, ~41% of pixels
+clipped white**. Everything below was measured on the live endpoint and **none of it helped**:
+
+| Attempt | Result |
+|---|---|
+| `gain` swept 128 → 6 | mean stayed 221.1–221.7. No effect. |
+| `brightness` swept 128 → 0 | mean stayed 221.9–226.0. No effect. |
+| `FARMCAM_FOURCC=auto` | mean 218.5, 40.1% clipped |
+| `FARMCAM_FOURCC=YUYV` | mean 220.1, 41.4% clipped |
+
+**Its exposure controls are stubs.** `v4l2-ctl --list-ctrls` reports `auto_exposure`,
+`exposure_time_absolute` and `exposure_dynamic_framerate` all as `min=0 max=0`,
+`read-only, write-only`. `gain` and `brightness` accept writes and are simply ignored. This is a
+car dashcam with a fixed internal auto-exposure tuned for night driving; there is no UVC lever to
+pull. Config has been returned to defaults — do not leave it looking "tuned" when nothing tuned it.
+
+**⛔ RETRACTED: a libv4l/YUYV path does NOT fix this.** An intermediate finding in this session
+claimed MJPG gave mean 223.6 while a YUYV capture gave 114.3, and called it decisive. **It was a
+measurement error.** The camera advertises *only* MJPG, so
+`v4l2-ctl --set-fmt-video=pixelformat=YUYV` never produced clean YUYV — the captured file was not
+a whole multiple of a 640×480×2 frame, so slicing `[0::2]` as a "Y plane" was averaging compressed
+JPEG bytes, which land near 114 by coincidence. Re-tested properly through the HTTP endpoint, YUYV
+is no better than MJPG. **Do not re-run this experiment expecting a different answer, and do not
+trust a pixel statistic from a file whose size is not a whole multiple of the frame size.**
+
+**What is actually left to try** (all physical or downstream, in rough order of cost):
+1. **Re-aim it.** Boss re-aims this camera often. It is currently pointing across a bright
+   sky-and-treeline scene; the well-exposed macOS daylight frames from 05-Aug were a shadier
+   garden view. This may be nothing more than a hard backlit aim.
+2. A neutral-density filter or shade hood over the lens.
+3. Accept it: it is time-lapse material, never a gem, and it is excellent after dark.
+
+**Do NOT reintroduce an image-processing layer to claw the highlights back.** Boss removed all
+processing from this host deliberately, and 41% of the pixels are clipped to pure white — that
+data is gone, and no amount of tone-mapping invents it back.
+
 ## Not done yet
 
 1. **Static DHCP lease** — reserve `192.168.0.17` against `88:a2:9e:a2:e6:23` on the Archer

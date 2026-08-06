@@ -4,6 +4,79 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.63.2 — Daylight retest: `usb-webcam-1080p` was never broken, it was gain=0 (Claude Opus 5) — 06-Aug-2026
+
+**`usb-webcam-1080p` is FIXED and confirmed in daylight.** 1920x1080, **mean 128.9, std 30.8,
+0.0% of pixels clipped** — a sharp, correctly exposed frame, and it is archiving again after
+roughly a day of nothing.
+
+**It was never a broken camera.** Its V4L2 `gain` was pinned at **0** against a default of 32,
+which blackens the output on any host. That single fact accounts for its entire recorded history:
+the pure-black 1920x1080 frames on GWTC, and the "enumerates but useless" behaviour on the
+MacBook Air. The whole fix is `FARMCAM_V4L2_CTRLS=gain=32,auto_exposure=3` in
+`/etc/farmcam/usb-webcam-1080p.env`. Every "intermittent / loses its video function / needs a
+physical replug" warning about this camera in `CLAUDE.md` and `HARDWARE_INVENTORY.md` predates
+this and has been corrected — **nobody should be sent out to replug it.**
+
+**🟡 `jieli-dashcam` has the opposite problem and it is NOT fixable in software.** Night frames
+are excellent; the first daylight frame is washed out at ~mean 220 with ~41% of pixels clipped
+white. Measured on the live endpoint, none of these helped: `gain` swept 128→6 (mean 221.1–221.7),
+`brightness` swept 128→0 (221.9–226.0), `FARMCAM_FOURCC=auto` (218.5), `FARMCAM_FOURCC=YUYV`
+(220.1). Its exposure controls are **stubs** — `auto_exposure`, `exposure_time_absolute` and
+`exposure_dynamic_framerate` all report `min=0 max=0, read-only`, and `gain`/`brightness` accept
+writes and ignore them. It is a car dashcam with fixed internal AE tuned for night driving.
+Config returned to defaults. Remaining options are physical: re-aim it (it currently looks across
+a bright sky-and-treeline scene, where the well-exposed 05-Aug macOS frames were a shadier garden
+view), shade it, or accept it — it is time-lapse material, never a gem, and it is excellent after
+dark. ⛔ Do not reintroduce image processing to recover the highlights; 41% of the pixels are pure
+white and that data is gone.
+
+**⛔ RETRACTION — the "libv4l/YUYV fixes the dashcam" finding was a measurement error.** An
+intermediate result in this session reported MJPG at mean 223.6 versus a YUYV capture at 114.3 and
+called it decisive; it was wrong, and the misleading comment it produced in `camera_host.py` has
+been corrected. The camera advertises *only* MJPG, so
+`v4l2-ctl --set-fmt-video=pixelformat=YUYV` never yielded clean YUYV — the captured file was not a
+whole multiple of a 640×480×2 frame, so slicing `[0::2]` as a "Y plane" was averaging compressed
+JPEG bytes, which land near 114 by coincidence. **Do not trust a pixel statistic from a file whose
+size is not a whole multiple of the frame size.**
+
+`FARMCAM_FOURCC` was added while chasing this and is kept — it is harmless, `/health` reports it,
+and it will matter for a future camera that genuinely offers a format choice. It is documented as
+**not** a lever for this problem.
+
+### v2.63.1 — Migration finished: mDNS addressing, VLM context corrected, Air reduced to one camera (Claude Opus 5) — 05-Aug-2026
+
+**Both configs now address the Pi as `farm-pi5.local`, not an IP.** This farm's hosts drift
+(`.68→.69`, `.54→.217`, `.71→.54`) and every drift has cost an outage and a hunt. mDNS follows
+the drift with no edit and no router reservation, which is a better answer than the static lease
+originally planned. Verified end-to-end from Python on the Mini (200, ~1.1 s including
+resolution) before the configs were switched to it. The Pi's `avahi-daemon` needed a restart to
+begin advertising the new hostname — a rename alone does not re-announce.
+
+**Stale VLM context strings corrected in `tools/pipeline/config.json`.** `usb-webcam-1080p`'s
+context still told the VLM it was "served on port 8089 of the Gateway laptop GWTC" and
+`jieli-dashcam`'s still described the MacBook Air. These strings are prompt input, not comments —
+a wrong one actively misinforms every enrichment call. Both now name the Pi, and the dashcam's
+records that its frames carry no image processing.
+
+**MacBook Air reduced to one camera.** Its `jieli-dashcam` and `usb-webcam-1080p` LaunchAgents
+are booted out and their plists parked `.moved-to-farm-pi5-05aug2026`, leaving only
+`macbook-air-facetime`. **This is the step that closes the open macOS identity bug** — with a
+single permanently attached camera there is nothing to collide with, so the precondition is gone
+rather than the heuristic patched. The `AVCaptureDevice.uniqueID` work proposed in the 04-Aug
+plan is **no longer needed**. (The Air was asleep at the time of writing; the cleanup runs the
+moment it wakes.)
+
+**systemd units confirmed `enabled`**, so both cameras come back by themselves after a Pi reboot.
+
+**Docs:** `HARDWARE_INVENTORY.md` gets a new top note superseding the 04-Aug and 01-Aug host
+claims for these two cameras; `CLAUDE.md` roster rows 3 and 5b repointed at the Pi.
+
+**Still open and deliberately not closed:** `usb-webcam-1080p` remains unconfirmed — gain
+restored from 0 to 32, but only ever tested after dark. **Retest in daylight.** GWTC teardown is
+also deliberately deferred: the plan says keep it until the Pi has run a clean week, and the
+30-Jul Reolink case is why.
+
 ### v2.62.0 — Birdcatraz Pi 5 is up; both USB cameras moved to it and identified by serial (Claude Opus 5) — 05-Aug-2026
 
 **The Pi is live.** `farm-pi5` at `192.168.0.17`, Raspberry Pi 5 Model B Rev 1.1 / 4 GB,

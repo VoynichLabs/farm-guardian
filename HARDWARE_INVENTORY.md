@@ -1,5 +1,74 @@
 # Hardware Inventory — Farm Guardian Cameras
 
+> ### ✅ 05-Aug-2026 — BOTH USB CAMERAS MOVED TO THE RASPBERRY PI 5 (`farm-pi5`) AT BIRDCATRAZ
+>
+> **This supersedes every host claim in the 04-Aug and 01-Aug notes below for these two
+> cameras.** `jieli-dashcam` and `usb-webcam-1080p` no longer live on the MacBook Air or on
+> GWTC. They are on a Raspberry Pi 5 (4 GB, wired Ethernet) in a weatherproof enclosure at
+> Birdcatraz, served by `tools/camera-host-linux/camera_host.py` under systemd.
+>
+> | camera | URL | resolution |
+> |---|---|---|
+> | `jieli-dashcam` | `http://farm-pi5.local:8091/photo.jpg` | 1280x720 |
+> | `usb-webcam-1080p` | `http://farm-pi5.local:8090/photo.jpg` | 1920x1080 |
+>
+> **Configs use the mDNS name `farm-pi5.local`, deliberately, not an IP.** This farm's hosts
+> drift (`.68→.69`, `.54→.217`, `.71→.54`) and every drift has cost an outage. mDNS follows the
+> drift with no edit and no router reservation. The Pi is at `192.168.0.17` today with MAC
+> `88:a2:9e:a2:e6:23` on its **native** port (`eth0`, driver `macb`) — the Genesys dock's
+> Realtek adapter is `eth1` and is DOWN and unused, so **do not** conclude from `lsusb` that
+> networking runs through the hub.
+>
+> **🔑 IDENTITY IS NOW STRUCTURAL, AND THE COLLISION CLASS IS GONE.** Each service opens exactly
+> one `/dev/v4l/by-id/` path derived from the camera's own USB serial:
+>
+> ```
+> /dev/v4l/by-id/usb-Jieli_Technology_USB_PHY_2.0-video-index0            jieli-dashcam
+> /dev/v4l/by-id/usb-USB_CAMERA_USB_CAMERA_240725172848-video-index0      usb-webcam-1080p
+> ```
+>
+> That `240725172848` is the same serial recorded in the table below — same physical unit. These
+> paths survive replug, reboot and plug order. There is **no index fallback, no name substring
+> match, no unique-resolution probe, no picture test and no `PREFER_EXTERNAL`** on this host.
+> Two services cannot land on one camera when each opens a distinct serial-derived path, so the
+> mislabel incidents described in the notes below **cannot recur on the Pi**. ⛔ Do not add an
+> index fallback "in case the path is missing" — a missing path means a missing camera, and
+> guessing is the bug this replaced.
+>
+> **⛔ NO IMAGE PROCESSING on this host** (Boss directive). Frames are served exactly as the
+> sensor produced them — no gray-world WB, no orange desaturation, no highlight roll-off, no
+> unsharp mask. If a picture looks wrong here, it is the camera, the lens or the light. Do not
+> reintroduce a processing layer; the whole point is that there is nothing left to blame.
+> Camera-side V4L2 controls (gain, exposure) are not processing and live in
+> `/etc/farmcam/<name>.env`.
+>
+> **The MacBook Air keeps ONLY its built-in FaceTime HD** on `:8089`. With one permanently
+> attached camera it has nothing to collide with, which closes the open macOS identity bug by
+> removing its precondition rather than patching it — the `AVCaptureDevice.uniqueID` work
+> proposed in `docs/04-Aug-2026-camera-identity-collision-incident-and-fix-plan.md` is **not
+> needed**.
+>
+> **✅ `usb-webcam-1080p` IS FIXED — and it was never broken.** Daylight-confirmed 06-Aug-2026:
+> full 1920x1080, **mean 128.9, 0.0% clipped**, sharp. Its V4L2 `gain` had been pinned at **0**
+> against a default of 32, which blackens the output on any host — and that one fact explains its
+> entire recorded history, the pure-black frames on GWTC and the useless video interface on the
+> Air alike. The whole fix is `FARMCAM_V4L2_CTRLS=gain=32,auto_exposure=3` in
+> `/etc/farmcam/usb-webcam-1080p.env`. **Every "intermittent / needs a physical replug" warning
+> about this camera elsewhere in this file predates that discovery — do not send anyone out to
+> replug it.**
+>
+> **🟡 `jieli-dashcam` is overexposed in daylight and it is NOT fixable in software.** Night
+> frames are excellent; daylight runs ~mean 220 with ~41% of pixels clipped white. `gain` and
+> `brightness` sweeps changed nothing, and its `auto_exposure` / `exposure_time_absolute`
+> controls are stubs (`min=0 max=0`, read-only) — it is a car dashcam with fixed internal AE
+> tuned for night driving. Likeliest cause is the current aim across a bright sky-and-treeline
+> scene. **Re-aim it, shade it, or accept it** (it is time-lapse material, never a gem).
+> ⛔ Do not reintroduce image processing to recover the highlights — 41% of the pixels are pure
+> white and that data is gone. Detail and the retracted YUYV red herring are in the bring-up log.
+>
+> Detail: [`docs/05-Aug-2026-birdcatraz-pi5-bringup-log.md`](docs/05-Aug-2026-birdcatraz-pi5-bringup-log.md),
+> CHANGELOG v2.62.0 / v2.63.0.
+
 > ### 🔴 04-Aug-2026 — POWERED HUBS FITTED; `usb-webcam-1080p` MOVED TO GWTC; 23-MINUTE MISLABEL WINDOW
 >
 > Boss fitted the powered USB hubs. In the reshuffle the 1080p USB webcam left the MacBook Air.
