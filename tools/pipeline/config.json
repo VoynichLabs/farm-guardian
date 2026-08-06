@@ -176,7 +176,7 @@
    "cycle_seconds": 10,
    "raw_retention_hours": 48,
    "capture_method": "ip_webcam",
-   "ip_webcam_base": "http://192.168.0.50:8089",
+   "ip_webcam_base": "http://Marks-MacBook-Air.local:8089",
    "photo_path": "/photo.jpg",
    "trigger_focus": false,
    "context": "MacBook Air 2013 built-in FaceTime HD camera (1280x720), served on port 8089 of 192.168.0.50 by its own usb-cam-host instance (LaunchAgent com.farmguardian.cam-macbook-air-facetime). MOVED 2026-06-21 from the brooder to the TURKEY PEN (part of BIRDCATRAZ, the outdoor enclosed poultry area): an outdoor wire-fenced enclosure in natural daylight. The MacBook Air sits on a ledge inside the pen; the built-in camera looks across the pen through wire mesh toward the grass beyond, so much of the frame is fence and bedding. Subjects: the turkeys kept in this pen, often out of frame. This is NOT the brooder and there are NO baby chicks here. Lowest picture quality of the three cameras on this host \u2014 score conservatively. NOTE: this camera disappears from the system entirely when the laptop's lid is shut, and the service then serves nothing rather than substituting another camera.",

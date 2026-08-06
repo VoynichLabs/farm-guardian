@@ -190,6 +190,23 @@ JPEG bytes, which land near 114 by coincidence. Re-tested properly through the H
 is no better than MJPG. **Do not re-run this experiment expecting a different answer, and do not
 trust a pixel statistic from a file whose size is not a whole multiple of the frame size.**
 
+**`auto_exposure` was tried too and the camera REFUSES it.** `v4l2-ctl --set-ctrl=auto_exposure=<0|1|2|3>`
+returns **`Error setting controls: Permission denied (VIDIOC_S_EXT_CTRLS)`** for every value. The
+control is advertised but not implemented. There is no software exposure lever on this camera —
+that is now exhaustively established, so **do not spend another session looking for one.**
+
+**Proof that the host is NOT processing the image** (asked directly by Boss, 06-Aug-2026).
+Captured with the service stopped, straight off the sensor with `v4l2-ctl`, versus what
+`/photo.jpg` served seconds later:
+
+```
+RAW off the sensor (camera_host.py not involved)   mean 192.1  std 67.7
+served by /photo.jpg                                mean 192.7  std 63.1
+```
+
+Identical within re-encode and a few seconds of scene drift. **The washout is the camera.** If
+this question comes up again, re-run that comparison rather than arguing about it.
+
 **What is actually left to try** (all physical or downstream, in rough order of cost):
 1. **Re-aim it.** Boss re-aims this camera often. It is currently pointing across a bright
    sky-and-treeline scene; the well-exposed macOS daylight frames from 05-Aug were a shadier

@@ -69,7 +69,7 @@
       "type": "fixed",
       "source": "snapshot",
       "snapshot_method": "http_url",
-      "http_base_url": "http://192.168.0.50:8089",
+      "http_base_url": "http://Marks-MacBook-Air.local:8089",
       "http_photo_path": "/photo.jpg",
       "http_trigger_focus": false,
       "snapshot_interval": 5.0,

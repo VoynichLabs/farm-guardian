@@ -4,6 +4,36 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.63.3 — Air reduced to one camera and both hosts moved to mDNS names (Claude Opus 5) — 06-Aug-2026
+
+**The MacBook Air now runs exactly one camera.** `jieli-dashcam` and `usb-webcam-1080p` are
+booted out and their plists parked `.moved-to-farm-pi5-05aug2026`; only
+`com.farmguardian.cam-macbook-air-facetime` is loaded and only `:8089` is listening. **This
+closes the open macOS identity bug** — a single permanently attached camera has nothing to
+collide with, so the precondition is gone rather than the heuristic patched, and the
+`AVCaptureDevice.uniqueID` workstream proposed in the 04-Aug plan is **not needed**.
+
+**The Air had drifted `192.168.0.50 → .51`**, which is why it read as dead. Both configs now
+address it as **`Marks-MacBook-Air.local`**, matching the treatment already given the Pi. Every
+camera host on this farm is now addressed by mDNS name rather than IP, which retires an entire
+recurring outage class — `.68→.69`, `.54→.217`, `.71→.54`, `.50→.51` have each cost a hunt.
+All three endpoints verified through their names after the change.
+
+**Dashcam exposure: `auto_exposure` also refused.** `v4l2-ctl --set-ctrl=auto_exposure=<0|1|2|3>`
+returns `Permission denied (VIDIOC_S_EXT_CTRLS)` for every value — advertised, not implemented.
+Combined with the earlier gain, brightness and pixel-format sweeps, **there is no software
+exposure lever on this camera and that is now exhaustively established.** Do not spend another
+session looking for one.
+
+**Proved the host does no image processing**, asked directly. With the service stopped, a frame
+taken straight off the sensor with `v4l2-ctl` measured **mean 192.1**; `/photo.jpg` served
+**mean 192.7** seconds later. Identical within re-encode and scene drift — the washout is the
+camera, not the code. The comparison is recorded in the bring-up log so it can be re-run instead
+of re-argued.
+
+**Also confirmed:** `s7-cam` came back on its own at `192.168.0.249`, consistent with the
+documented Qi-pad charging window rather than a fault.
+
 ### v2.63.2 — Daylight retest: `usb-webcam-1080p` was never broken, it was gain=0 (Claude Opus 5) — 06-Aug-2026
 
 **`usb-webcam-1080p` is FIXED and confirmed in daylight.** 1920x1080, **mean 128.9, std 30.8,
