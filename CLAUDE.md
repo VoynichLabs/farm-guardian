@@ -2,6 +2,43 @@
 
 This file provides guidance to AI coding agents working in this repository.
 
+## 🔴 OPEN — FIRST THING TO DO THIS SESSION: measure the new VLM prompt
+
+**Boss is starting this session specifically to look at this. Do it before anything else, and
+report the answer without being asked.**
+
+On 06-Aug-2026 the VLM prompt was cut **20,081 → 5,211 chars (-75%)** to make it answer one
+question — *is this a good photo of a bird?* — instead of writing essays. **It was never
+measured, because the S7 was off charging at the time.** The S7 is the only camera that runs the
+VLM at all; every other camera has `vlm_bypass: true`.
+
+Run this and read it out to Boss. **Do not hand him the command — he will not run it.**
+
+```bash
+sqlite3 data/guardian.db "select substr(vlm_prompt_hash,1,18) h, count(*) n, round(avg(vlm_inference_ms)) avg_ms from image_archive where camera_id='s7-cam' and vlm_inference_ms is not null and ts>='2026-08-06T00:00' group by 1 order by n desc"
+```
+
+- **Baseline: the OLD prompt averaged 5,509 ms** (hash starting `sha256:7be43bfba7ee331`).
+  Two hashes will appear once new frames have been enriched; the other one is the new prompt.
+- **If the new prompt is meaningfully faster** — good, say so with the numbers and stop.
+- **If it is NOT meaningfully faster, the prompt was never the bottleneck.** The cost is image
+  encoding, and the next lever is **`vlm_input_long_edge_px` in `tools/pipeline/config.json`,
+  currently `768`** — try 512. That is a one-line change. **Do not cut the prompt further; it is
+  already at the floor of what the 22 required schema fields need.**
+
+Also check quality, not just speed: Boss's two complaints were that it called everything a
+**bantam** (the old prompt taught it to — that priming is removed) and that it wasted time on
+description. Sample recent `share_reason` / `caption_draft` values and confirm both improved.
+The `share_worth` mix should stay roughly `skip` ≫ `strong` > `decent`; if `strong` has jumped
+sharply, the gem gate has loosened and Discord will get flooded.
+
+Rollback if it is worse: `cp tools/pipeline/prompt.md.full-20260806 tools/pipeline/prompt.md`
+then `launchctl kickstart -k gui/$(id -u)/com.farmguardian.pipeline`. Nothing else to undo —
+all 22 output fields are enforced by server-side grammar sampling, so prompt changes cannot
+break the schema. Full rationale: CHANGELOG v2.64.0.
+
+---
+
 ## First thing to read if you are new here
 
 **[`docs/HOW_IT_ALL_FITS.md`](docs/HOW_IT_ALL_FITS.md)** — 10,000-ft view of where every photo on this Mac Mini lives, how the tagging pipeline works, how images land on Instagram `@pawel_and_pawleen`, and where the secrets actually live (reference only, never committed). If someone asks "how does this all fit together," that's the document that answers them.
