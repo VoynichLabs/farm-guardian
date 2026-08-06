@@ -1,0 +1,30 @@
+[Unit]
+# Templated camera host: one instance per camera, e.g.
+#   systemctl enable --now farmcam@jieli-dashcam
+# Each instance reads /etc/farmcam/<name>.env, which supplies the ONE identity
+# input that matters: FARMCAM_DEVICE_PATH, a /dev/v4l/by-id/ symlink keyed on the
+# camera's USB serial. Two instances cannot collide on one camera because each
+# opens a distinct serial-derived path.
+Description=Farm Guardian camera host (%i)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=markb
+# 'video' group grants /dev/video* access without running as root.
+SupplementaryGroups=video
+EnvironmentFile=/etc/farmcam/%i.env
+ExecStart=/opt/farmcam/venv/bin/python /opt/farmcam/camera_host.py
+# systemd IS the watchdog. This replaces farmcam-watchdog, farmcam-wifi-watchdog
+# and the usb-cam-watchdog scheduled task that the Windows/macOS hosts needed.
+Restart=always
+RestartSec=5
+# The service exits itself (os._exit(1)) when it has been unable to acquire a
+# camera that IS present for FARMCAM_ACQUIRE_STALL_S. Do not "fix" that by
+# removing the exit — it is the self-heal, and systemd restarting it is the cure.
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
