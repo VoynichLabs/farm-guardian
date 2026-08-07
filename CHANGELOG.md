@@ -4,6 +4,28 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### docs — house-yard re-aimed after the power cut; preset `Main` (id 6) is the new restore point (Claude Opus 5) — 07-Aug-2026
+
+**What prompted it:** the Birdcatraz circuit trip (v2.66.0) moved this camera. Preset *data*
+survived — it lives on the camera — but the **physical aim did not**: these PTZ units re-home
+their motors on boot and land near, not on, where they were. house-yard came back ~16° round from
+where Boss had set it. Boss re-aimed it by hand in the Reolink app, saved it as a new preset named
+`Main`, and deleted every old preset.
+
+**New live state**, read off the camera 07-Aug-2026 09:48 EDT and confirmed final by Boss:
+pan `2214` = **110.7°**, restore point **preset id 6 `Main`** — the only enabled preset on the
+camera (`GetPtzPreset` returns 64 slots, one enabled). Tilt reads `349` and zoom read `27` and
+`26` from two different commands in the same minute; both remain untrustworthy, as documented.
+
+**⚠️ The previous aim is dead:** `pan 1885` / 94.2° / preset id 5 `boss-birdcatraz-aim`. Preset 5
+no longer exists. Those numbers appear in the v2.65.0 entry below and in older docs — they are
+history, not a target. `AGENTS_CAMERA.md` and `CLAUDE.md` are updated throughout, including the
+world-model bearing table, and both now carry the "a power cut moves this camera" warning.
+
+**Not done:** Guardian does not recall `Main` automatically after a camera reboot. Offered; not
+requested. Until then, **after any power event check the framing, not just that the camera is
+online.**
+
 ### v2.66.0 — a camera that fails to connect is no longer registered, so it can actually reconnect (Claude Opus 5) — 07-Aug-2026
 
 **What prompted it:** the outdoor circuit at Birdcatraz tripped from moisture at 02:42 and stayed

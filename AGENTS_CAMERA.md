@@ -22,17 +22,35 @@ every frame — it is how you confirm a snapshot came from this camera and not `
 
 ## 🔴 Current Pointing — set by Boss 06-Aug-2026. LEAVE IT ALONE.
 
-Boss aimed this camera by hand in the Reolink app and it is **exactly where he wants it**. Verified
-against the live camera 06-Aug-2026 20:09 EDT:
+Boss aimed this camera by hand in the Reolink app and it is **exactly where he wants it**. Re-aimed
+and re-saved 07-Aug-2026 after the Birdcatraz power cut; read off the live camera 07-Aug-2026
+09:48 EDT and confirmed by Boss as final:
 
 | | Value |
 |---|---|
-| Pan | `1885` raw = **94.2°** — stable, trustworthy |
-| Tilt | `0` as reported — **not trustworthy, see below** |
-| Zoom | reported `19` in daylight, `27` after dark — **not trustworthy, see below** |
+| Pan | `2214` raw = **110.7°** — stable, trustworthy |
+| Tilt | `349` as reported — **not trustworthy, see below** |
+| Zoom | reported `27` by `GetPtzCurPos` and `26` by `GetZoomFocus` **in the same minute** — not trustworthy, see below |
 
-Pan was read four times over ~30 minutes and never moved. **The framing never moved either** —
-verified by eye against snapshots taken 26 minutes apart.
+**Restore point: camera preset `id=6`, name `Main`.** It is the *only* enabled preset on the
+camera — Boss deleted every old one, so `GetPtzPreset` now returns 64 slots with exactly one
+enabled.
+
+### ⚠️ Superseded — do not restore the April/06-Aug values
+
+The previous aim (`pan 1885` / 94.2°, preset id 5 `boss-birdcatraz-aim`) is **dead**. Preset 5 no
+longer exists and 1885 is the wrong bearing. If you find either in an old doc or CHANGELOG entry,
+it is history, not a target.
+
+### A power cut moves this camera — the preset survives, the aim does not
+
+Learned 07-Aug-2026. When the Birdcatraz circuit tripped, the saved preset came back fine (preset
+data is stored on the camera and is not lost by a power cut) but the **physical aim did not** —
+these PTZ units re-home their motors on boot and land near, not on, where they were. The camera
+came back roughly 16° round from where Boss had left it.
+
+**So after any power event on this camera, check the framing, not just that it is online.** The way
+back is a `preset/goto` of `Main` (below). Guardian does not do this automatically yet.
 
 **⚠️ Only pan is trustworthy on this camera. Tilt and zoom readback both lie.**
 
@@ -78,22 +96,21 @@ A low green electric-poultry-net fence runs across the middle of the shot.
    (`patrol.py:124`), so it would **wipe the zoom 19 as well as the aim**.
 2. `sky_watch.enabled: true` — jumps straight to preset id 1 on Guardian startup.
 
-### The restore point — preset 5 `boss-birdcatraz-aim`
+### The restore point — preset 6 `Main`
 
-**Boss's aim is saved as camera preset id 5, name `boss-birdcatraz-aim`** (saved 06-Aug-2026,
-confirmed present in `GetPtzPreset` read straight off the camera). If anything ever knocks this
-camera off its aim, that is the way back:
+**Boss's aim is saved as camera preset id 6, name `Main`**, created by Boss in the Reolink app on
+07-Aug-2026. He deleted every other preset, so it is the only enabled entry in `GetPtzPreset`.
+If anything knocks this camera off its aim, that is the way back:
 
 ```bash
 curl -s -X POST http://localhost:6530/api/v1/cameras/house-yard/preset/goto \
-  -H 'Content-Type: application/json' -d '{"id": 5}'
+  -H 'Content-Type: application/json' -d '{"id": 6}'
 ```
 
 **⚠️ Saved but never recall-tested.** Testing it would mean moving the camera off the aim it is
-protecting, which was not worth doing on the night it was set. The write is confirmed against the
-camera's own preset table, so the entry definitely exists — what is unproven is that recalling it
-lands exactly back. **First person to actually need it: take a `/snapshot` before and after and
-compare framing**, and record the result here.
+protecting. The entry is confirmed present by reading the camera's own preset table — what is
+unproven is that recalling it lands exactly back. **First person to actually need it: take a
+`/snapshot` before and after, compare framing, and record the result here.**
 
 **The other five presets are stale April-2026 aims — ids 0–4: `yard-center`, `coop-approach`,
 `fence-line`, `sky-watch`, `driveway`. None of them is this position.** They are harmless because
@@ -226,14 +243,15 @@ curl -s https://guardian.markbarney.net/api/v1/cameras/house-yard/position
 
 ## World Model — What the Camera Sees
 
-⚠️ **This table was mapped in April 2026 at zoom 0. The camera is now at 94.2° / zoom 19 (see
+⚠️ **This table was mapped in April 2026 at zoom 0. The camera is now at 110.7° / zoom ~26 (see
 "Current Pointing" above), so the framing at any given angle is tighter than these notes describe.
 Treat everything below as approximate bearings, not as what you would see today.**
 
 | Pan (degrees) | Pan (raw) | Location | Key Details |
 |---------------|-----------|----------|-------------|
 | 0° / 360° | 0 / 7200 | **DEAD ZONE** | Wooden mounting post blocks ~40% of frame. Useless. Dead zone config: pan 340°–22°. |
-| **94.2°** | **1885** | **BIRDCATRAZ — the live aim** | Coop run under the pink tarp (left), cinderblock/plywood shed and its wire pen (centre), sunflower row and netted garden (right), treeline behind, lawn across the bottom. **This is where the flock is, and it is where Boss wants the camera.** At zoom 0 this same bearing was described only as "yard / hillside … pink tarp edge" — at that zoom the coop sat small in a much wider frame, so the April note never named it. |
+| **110.7°** | **2214** | **BIRDCATRAZ — the live aim (07-Aug-2026, preset `Main` id 6)** | Coop run under the pink tarp (left), cinderblock/plywood shed and its wire pen (centre), sunflower row and netted garden (right), treeline behind, lawn across the bottom two-thirds. **This is where the flock is, and it is where Boss wants the camera.** Verified against a live 4K snapshot 07-Aug-2026 09:48 EDT. |
+| ~94.2° | ~1885 | *(superseded)* | The 06-Aug-2026 aim, lost when the Birdcatraz circuit tripped and the camera re-homed on boot. Listed only so the number is recognisable as history — **do not restore it.** |
 | ~180° | ~3600 | The house | Two-story house with upper deck, dark truck in driveway, green lawn, chicken coop (wire enclosure) on right side. **Was the "most important angle" under the April aim — it is not any more.** |
 | ~270° | ~5400 | Old stable / property edge | Crumbling concrete foundation, cut wood stacked on it, Rose of Sharon bushes in rows (NOT trees), thin treeline boundary, neighbor's corn field beyond. Green chicken wire perimeter fencing. |
 
@@ -270,8 +288,8 @@ Commands like `"setPos"` (save preset) are NOT in `PtzEnum`, so the library reje
 body = [{"cmd": "SetPtzPreset", "action": 0, "param": {"PtzPreset": {
     "channel": 0,
     "enable": 1,
-    "id": 5,
-    "name": "boss-birdcatraz-aim"
+    "id": 7,
+    "name": "example-do-not-use-6"
 }}}]
 self._run_async(host.send_setting(body))
 ```
@@ -349,9 +367,8 @@ Guardian's step-and-dwell patrol moves the camera through 11 positions every ~2 
 
 Mark messages from his phone while outside. He expects action, not questions.
 
-⚠️ **The camera is parked on a hand-set aim Boss chose (94.2° / zoom 19). Any move below throws it
-away and there is no saved preset to restore it.** Before moving, save the current position to a
-free slot (`preset/save`, id ≥ 5) so you can put it back.
+⚠️ **The camera is parked on a hand-set aim Boss chose (110.7° / zoom ~26).** Any move below throws
+it away. The way back is `preset/goto` id **6** (`Main`) — see "The restore point" above.
 
 | Mark says | You do |
 |-----------|--------|
