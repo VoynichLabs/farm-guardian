@@ -4,6 +4,83 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.66.0 — a camera that fails to connect is no longer registered, so it can actually reconnect (Claude Opus 5) — 07-Aug-2026
+
+**What prompted it:** the outdoor circuit at Birdcatraz tripped from moisture at 02:42 and stayed
+tripped until Boss physically flipped it at ~05:57 — it powers everything outside, so `duo2` and
+both `farm-pi5` cameras died together. That part is a wet breaker, not software. **The bug is
+what happened after power came back:** duo2 was on the LAN serving 4K JPEGs to curl, and Guardian
+served nothing, with no path to ever recover.
+
+**Why:** Guardian's nightly 03:00 restart landed inside the outage. `connect_camera` timed out, so
+no Reolink host was stored — but `_register_camera_capture` built the `ReolinkSnapshotSource`
+anyway. That put duo2 into `active_cameras`, and the 300s re-scan only reconnects cameras *not*
+already active. Registering the broken camera is precisely what disabled its retry.
+`take_snapshot` then returned `None` silently on every tick, so hours passed with no log line
+naming the cause. `house-yard` self-healed at 06:02 for the opposite reason — it was never
+registered, so the re-scan picked it up.
+
+**How:**
+- `guardian.py` — `_register_camera_capture` refuses to register a `ReolinkSnapshotSource` when
+  the controller has no connection; logs an error, returns `False`, and leaves the camera out of
+  `active_cameras` so the 300s re-scan retries the connect. Root-cause fix: duo2 would have come
+  back on its own ~5 minutes after the breaker was flipped, with no restart.
+- `camera_control.py` — new public `is_connected(camera_id)`; `take_snapshot` warns (throttled to
+  one per camera per 300s) instead of returning `None` in silence; `_run_async` catches
+  `concurrent.futures.TimeoutError` explicitly and logs `type(exc).__name__` for everything else.
+  The old `Async camera operation failed: ` rendered as a bare colon because `TimeoutError.str()`
+  is empty — that erased the one fact identifying the failure.
+
+**Verified:** `py_compile` clean; unit-level no-host path logs and returns `None`; live restart on
+the farm with both Reolink cameras connecting *before* registering and serving real frames through
+the API (duo2 7.5 MB, house-yard 1.3 MB). The negative path was not exercised against a real
+outage — next tripped breaker is the proof.
+
+**Docs:** `docs/07-Aug-2026-duo2-failed-reconnect-incident.md` (includes a correction: the first
+draft wrongly called this a 3.5-hour software outage; ~3h15m of it was the tripped circuit).
+CLAUDE.md gains the GFCI signature and the ports-open triage.
+
+### v2.65.0 — `ptz_save_preset()` never worked; house-yard's aim is now a real restore point (Claude Opus 5) — 06-Aug-2026
+
+**What prompted it:** Boss re-aimed `house-yard` (`FarmGuardian1`) by hand in the Reolink app and
+asked for confirmation that nothing would override it. Nothing does — patrol, sky-watch, deterrent
+PTZ, camera-side PTZ guard, AI auto-tracking and all six on-camera cruise slots are off, and the
+only scheduled job touching the camera asks for `/snapshot`. That answer is documented in
+`AGENTS_CAMERA.md` → "Current Pointing". Saving the aim as a recoverable preset is what surfaced
+the bug below.
+
+**`ptz_save_preset()` has been silently failing since April 2026.** It sent
+`{"cmd": "PtzCtrl", "op": "setPos", …}`, which this firmware rejects with `param error /
+rspCode -4`. Nothing saved, and every layer said otherwise: `send_setting()` raises `ApiError`
+correctly, but `_run_async()` catches all exceptions and returns `None`, and the old code then
+returned `True` unconditionally — so `POST /preset/save` answered `{"ok": true}` over a camera that
+had stored nothing. **Why now:** the recipe was written into `AGENTS_CAMERA.md` in April as solved
+and never verified by reading the preset table back.
+
+**Fixed** by switching the body to `SetPtzPreset` (`rspCode 200`, verified against the live camera)
+and confirming the save against the camera's own preset table rather than the write's return value.
+**`get_presets()` also now refreshes** via `get_state(cmd="GetPtzPreset")` — it previously served a
+connect-time cache, so a preset saved by the Reolink app or a curl stayed invisible until Guardian
+restarted. Both verified end-to-end after a `kickstart`.
+
+**Boss's aim is saved as camera preset id 5, `boss-birdcatraz-aim`.** ⚠️ Written and confirmed
+present, but **not recall-tested** — testing means moving the camera off the aim it protects.
+Whoever first needs it should snapshot before and after and record the result.
+
+**Zoom readback on this camera is unreliable and was nearly mis-documented as canonical.** It read
+`19` in daylight and `27` after the night IR switch 26 minutes later — with identically framed
+snapshots either side and no PTZ command in the log; `GetZoomFocus` confirms 27 at the camera, so
+it is not a Guardian cache artifact. Likely the IR-cut focus shift moving the shared zoom-focus
+carriage. **Only pan readback is trustworthy on this camera; judge the aim by the picture.** Docs
+that briefly recorded "zoom 19, preserve it" are corrected — restoring that number would move a
+lens that was never out of place.
+
+**Docs:** `AGENTS_CAMERA.md` (new "Current Pointing" section, corrected preset-save recipe,
+corrected world-model table and "Mistakes" entry #1, patrol-is-off note), `CLAUDE.md` (Camera 1
+entry; also corrected the stale claim that `config.json` holds the camera password — it holds a
+placeholder, the real one is `CAMERA_PASSWORD` in `.env`). No behavior change beyond
+`camera_control.py`; no config change.
+
 ### v2.63.3 — Air reduced to one camera and both hosts moved to mDNS names (Claude Opus 5) — 06-Aug-2026
 
 **The MacBook Air now runs exactly one camera.** `jieli-dashcam` and `usb-webcam-1080p` are

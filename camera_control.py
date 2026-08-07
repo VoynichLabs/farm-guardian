@@ -1,5 +1,5 @@
-# Author: Claude Opus 4.6
-# Date: 08-April-2026
+# Author: Claude Opus 5 (last edit); originally Claude Opus 4.6
+# Date: 06-August-2026 (originally 08-April-2026)
 # PURPOSE: Reolink camera hardware control for Farm Guardian v2. Provides sync
 #          wrappers around the async reolink_aio library for PTZ (pan/tilt/zoom),
 #          spotlight, siren, audio alarm, autofocus, PTZ guard (auto-return-to-home),
@@ -7,18 +7,37 @@
 #          recall, and patrol route cycling with pause/resume support for deterrent
 #          integration. Runs an async event loop in a background thread.
 #          This module talks directly to the camera over the local network.
-# SRP/DRY check: Pass — single responsibility is camera hardware control.
+#          07-Aug-2026: added is_connected() so callers can refuse to build a snapshot
+#          source against a missing host; take_snapshot() now warns (throttled) instead of
+#          returning None silently; _run_async() logs the exception TYPE, because the
+#          common concurrent.futures.TimeoutError has an empty str() and rendered as a
+#          bare colon. See docs/07-Aug-2026-duo2-failed-reconnect-incident.md.
+#          06-Aug-2026: ptz_save_preset() switched from the broken PtzCtrl/op=setPos
+#          body to SetPtzPreset and now verifies against the camera's preset table;
+#          get_presets() refreshes from the camera instead of serving a connect-time
+#          cache. See the docstrings on both for the failure they fix.
+# SRP/DRY check: Pass — single responsibility is camera hardware control. Reused the
+#          existing _get_host/_get_channel/_run_async helpers and get_presets() for the
+#          save verification rather than adding a second preset-reading path.
 
 import asyncio
 import json
 import logging
 import threading
 import time
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from typing import Optional
 
 from reolink_aio.api import Host
 
 log = logging.getLogger("guardian.camera_control")
+
+# Wall-clock cap on any single async camera call. Reolink snapshots on this farm
+# land in 1-3s; anything past this means the camera is slow or gone.
+_ASYNC_CALL_TIMEOUT_S = 10.0
+
+# Minimum gap between repeated "no host" warnings for the same camera.
+_NO_HOST_WARN_INTERVAL_S = 300.0
 
 
 class CameraController:
@@ -29,6 +48,10 @@ class CameraController:
         self._cameras: dict[str, Host] = {}  # camera_id → Host
         self._channel: dict[str, int] = {}   # camera_id → channel index
         self._lock = threading.Lock()
+        # camera_id → monotonic time of the last "no host" snapshot warning.
+        # Snapshot pollers tick every 2-5s; without throttling a disconnected
+        # camera would write ~17k identical lines an hour and bury everything else.
+        self._no_host_warned_at: dict[str, float] = {}
 
         # Dedicated event loop for async reolink_aio calls
         self._loop = asyncio.new_event_loop()
@@ -45,13 +68,37 @@ class CameraController:
         self._loop.run_forever()
 
     def _run_async(self, coro):
-        """Run an async coroutine from a sync context. Returns the result."""
+        """Run an async coroutine from a sync context. Returns the result.
+
+        Always logs the exception TYPE as well as its message. The common failure
+        here is concurrent.futures.TimeoutError off the 10s cap below, and its
+        str() is the empty string — so the old "Async camera operation failed: %s"
+        rendered as a bare colon and told you nothing. That cost 3.5 hours on
+        07-Aug-2026; see docs/07-Aug-2026-duo2-failed-reconnect-incident.md.
+        """
         future = asyncio.run_coroutine_threadsafe(coro, self._loop)
         try:
-            return future.result(timeout=10)
-        except Exception as exc:
-            log.error("Async camera operation failed: %s", exc)
+            return future.result(timeout=_ASYNC_CALL_TIMEOUT_S)
+        except FuturesTimeoutError:
+            log.error(
+                "Async camera operation timed out after %.0fs (camera slow or unreachable)",
+                _ASYNC_CALL_TIMEOUT_S,
+            )
             return None
+        except Exception as exc:
+            log.error("Async camera operation failed: %s: %s", type(exc).__name__, exc)
+            return None
+
+    def is_connected(self, camera_id: str) -> bool:
+        """True if this controller holds a live Host for the camera.
+
+        Callers must check this before standing up anything that depends on an
+        authenticated session (notably ReolinkSnapshotSource). connect_camera()
+        can fail — the camera may be powered off, as duo2 was during the
+        07-Aug-2026 Birdcatraz GFCI trip — and a snapshot source built against a
+        missing host returns None forever with nothing to retry it.
+        """
+        return self._get_host(camera_id) is not None
 
     # ------------------------------------------------------------------
     # Connection
@@ -253,9 +300,21 @@ class CameraController:
     def ptz_save_preset(self, camera_id: str, preset_id: int, name: str = "") -> bool:
         """Save the camera's current position as a named preset.
 
-        Bypasses reolink_aio's set_ptz_command() validation which rejects
-        the "setPos" op (it only allows PtzEnum values like Left/Right/Stop).
-        Calls host.send_setting() directly with the raw PtzCtrl body.
+        Uses the SetPtzPreset command. The camera stores whatever position it is
+        currently at (including zoom) under the given id; it does not move.
+
+        ⚠️ This deliberately does NOT use `PtzCtrl` with `op: "setPos"`. That was the
+        documented recipe here from April 2026 until 06-Aug-2026, and it does not work
+        on this firmware — the camera answers `param error / rspCode -4` and saves
+        nothing. It went unnoticed for months because the failure was invisible from
+        both sides: `_run_async` swallows the ApiError that send_setting raises and
+        returns None, and the old code then returned True regardless. `/preset/save`
+        reported `{"ok": true}` while the preset table was untouched. Verified against
+        the live camera 06-Aug-2026 — SetPtzPreset returns rspCode 200 and the preset
+        appears in GetPtzPreset; PtzCtrl/setPos does neither.
+
+        Because _run_async still hides send errors, success is confirmed by reading the
+        preset table back off the camera rather than by trusting the write.
 
         The Reolink E1 supports up to 64 presets. Once saved, any client can
         recall the preset with ptz_goto_preset(id) — the camera moves there
@@ -266,42 +325,59 @@ class CameraController:
             log.warning("ptz_save_preset: camera '%s' not connected", camera_id)
             return False
         ch = self._get_channel(camera_id)
+        preset_name = name or f"preset_{preset_id}"
 
         body = [
             {
-                "cmd": "PtzCtrl",
+                "cmd": "SetPtzPreset",
                 "action": 0,
                 "param": {
-                    "channel": ch,
-                    "op": "setPos",
-                    "id": preset_id,
-                    "name": name or f"preset_{preset_id}",
+                    "PtzPreset": {
+                        "channel": ch,
+                        "enable": 1,
+                        "id": preset_id,
+                        "name": preset_name,
+                    },
                 },
             }
         ]
 
         try:
             self._run_async(host.send_setting(body))
+            # Ground truth: the camera's own preset table, not the write's return value.
+            if self.get_presets(camera_id).get(preset_name) != preset_id:
+                log.error(
+                    "Preset %d '%s' for '%s' did NOT save — camera does not list it",
+                    preset_id, preset_name, camera_id,
+                )
+                return False
             pos = self.get_position(camera_id)
             if pos:
                 log.info(
                     "Saved preset %d '%s' for '%s' at pan=%d (%.1f°) tilt=%d",
-                    preset_id, name, camera_id, pos[0], pos[0] / 20.0, pos[1],
+                    preset_id, preset_name, camera_id, pos[0], pos[0] / 20.0, pos[1],
                 )
             else:
-                log.info("Saved preset %d '%s' for '%s'", preset_id, name, camera_id)
+                log.info("Saved preset %d '%s' for '%s'", preset_id, preset_name, camera_id)
             return True
         except Exception as exc:
             log.error("Failed to save preset %d for '%s': %s", preset_id, camera_id, exc)
             return False
 
     def get_presets(self, camera_id: str) -> dict:
-        """List saved PTZ presets on the camera."""
+        """List saved PTZ presets on the camera. Returns {name: id}.
+
+        Refreshes from the camera first. reolink_aio's ptz_presets() reads a cache
+        populated at connect time, so without this a preset saved by anything other
+        than this process (the Reolink app, a direct curl) stays invisible until
+        Guardian restarts — which is exactly what happened on 06-Aug-2026.
+        """
         host = self._get_host(camera_id)
         if not host:
             return {}
         ch = self._get_channel(camera_id)
         try:
+            self._run_async(host.get_state(cmd="GetPtzPreset"))
             return host.ptz_presets(ch)
         except Exception as exc:
             log.error("Failed to read presets for '%s': %s", camera_id, exc)
@@ -578,9 +654,25 @@ class CameraController:
     # ------------------------------------------------------------------
 
     def take_snapshot(self, camera_id: str) -> Optional[bytes]:
-        """Capture a JPEG snapshot from the camera. Returns bytes or None."""
+        """Capture a JPEG snapshot from the camera. Returns bytes or None.
+
+        The no-host branch below used to return None in total silence. That is how
+        duo2 produced 3.5 hours of "snapshot returned None" on 07-Aug-2026 with not
+        one line naming the actual cause (connect_camera had failed while the
+        Birdcatraz circuit was tripped). It now says so, throttled.
+        """
         host = self._get_host(camera_id)
         if not host:
+            now = time.monotonic()
+            last = self._no_host_warned_at.get(camera_id, 0.0)
+            if now - last >= _NO_HOST_WARN_INTERVAL_S:
+                self._no_host_warned_at[camera_id] = now
+                log.warning(
+                    "Camera '%s' has no Reolink connection — connect_camera never "
+                    "succeeded or the session was dropped. Snapshots will return None "
+                    "until it reconnects.",
+                    camera_id,
+                )
             return None
         ch = self._get_channel(camera_id)
         try:

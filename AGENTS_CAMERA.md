@@ -7,12 +7,101 @@
 ## The Camera
 
 **Reolink E1 Outdoor Pro** — 4K PTZ WiFi camera mounted on a wooden post in the yard.
+On-screen display name / Reolink app name: **`FarmGuardian1`** (Boss says "FarmGuardian One").
+That string is `cameras[0].device_name` in `config.json` and is burned into the bottom-right of
+every frame — it is how you confirm a snapshot came from this camera and not `duo2`.
 - IP: `192.168.0.88` (local network)
 - RTSP transport: TCP (HEVC over WiFi/UDP drops packets)
 - Pan range: 0–7200 raw units (20 units per degree, 360° total)
 - Tilt: readback is broken at many angles (returns 945). Values ~28 = level. Values 731–813 = pointed at ground.
-- Zoom: 0 (widest) to 33 (max telephoto). **Always leave at 0. Zoom is out of scope.**
+- Zoom: 0 (widest) to 33 (max telephoto). **Currently 19 — deliberately, set by Boss. See "Current
+  Pointing" below. Do not reset it to 0 and do not treat the old "always leave at 0" rule as live.**
 - Autofocus: motorized lens. Must be triggered after movement. Takes 2–3 seconds to settle.
+
+---
+
+## 🔴 Current Pointing — set by Boss 06-Aug-2026. LEAVE IT ALONE.
+
+Boss aimed this camera by hand in the Reolink app and it is **exactly where he wants it**. Verified
+against the live camera 06-Aug-2026 20:09 EDT:
+
+| | Value |
+|---|---|
+| Pan | `1885` raw = **94.2°** — stable, trustworthy |
+| Tilt | `0` as reported — **not trustworthy, see below** |
+| Zoom | reported `19` in daylight, `27` after dark — **not trustworthy, see below** |
+
+Pan was read four times over ~30 minutes and never moved. **The framing never moved either** —
+verified by eye against snapshots taken 26 minutes apart.
+
+**⚠️ Only pan is trustworthy on this camera. Tilt and zoom readback both lie.**
+
+- **Tilt** returns 945 at many angles (see the spec at the top of this file). The `0` above is what
+  the API said, not a verified mechanical position.
+- **Zoom** drifts on its own with no command sent. Measured 06-Aug-2026: `19` in daylight at 20:09,
+  `27` at 20:35 after the camera switched to night IR — while two snapshots either side of the
+  change are **identically framed**, and `guardian.log` shows no PTZ or zoom command in between.
+  `GetZoomFocus` (camera ground truth, not a Guardian cache) reports the same 27. The likely cause
+  is the IR-cut/night focus shift moving the shared zoom-focus carriage. **An earlier version of
+  this note recorded `19` as the canonical zoom and told you to preserve it — that was wrong, and
+  a future agent who "restores zoom to 19" would be moving a lens that was never out of place.**
+
+**Judge this camera's aim by the picture, not by the numbers.** Pull `/snapshot` and compare
+against the description below. A changed zoom or tilt readback on its own is not evidence the
+camera moved.
+
+This is also the whole reason the aim is stored as a camera-side preset (below) rather than as
+three numbers in this doc: the preset holds the real mechanical position, and this firmware has no
+absolute "go to tilt=X" command to dial one in by hand anyway.
+
+**What it sees at this position:** the Birdcatraz compound, framed across the middle third with the
+lawn filling the bottom half. Left edge: the pink-tarped run with its wire panels and a hanging
+feeder. Centre: the cinderblock/plywood shed with its open wire pen and shade frame. Right: a tall
+row of sunflowers, then the garden with green step-in posts and poultry netting. Treeline behind.
+A low green electric-poultry-net fence runs across the middle of the shot.
+
+**Nothing in this repo will move it.** Checked, all of it, on the live camera and in the code:
+
+| Possible override | State | Why it can't move the camera |
+|---|---|---|
+| PTZ guard (auto-return-to-home) — the camera's own firmware | **OFF** | `GetPtzGuard` → `benable: 0`, **and `bexistPos: 0`** — guard is disabled *and* has no home position saved, so there is nothing for it to snap back to |
+| Reolink AI auto-tracking | **OFF** | `GetAiCfg` → `aiTrack: 0`, `bSmartTrack: 0`. The camera will not pan to follow a person or animal |
+| On-camera cruise / preset tour — configured in the Reolink app, invisible to any code search | **OFF** | `GetPtzPatrol` → all six slots (`cruise1`–`cruise6`) have `enable: 0`, `bOpen: 0`, `running: 0`, `preset: null`. **Check this one explicitly** — it lives entirely on the camera, so grepping this repo will never rule it out |
+| Guardian sweep/preset patrol | **OFF** | `config.json` → `ptz.patrol_enabled: false`. `guardian.py:300` only starts a patrol thread when that is true |
+| Sky-watch park-at-preset | **OFF** | `config.json` → `sky_watch.enabled: false`. When true, `guardian.py:277` fires `ptz_goto_preset` at startup |
+| Deterrent engine | no PTZ | Every rule in `deterrent.response_rules` is `spotlight` / `siren` / `audio_alarm`. `deterrent.py` never touches PTZ |
+| Scheduled jobs (LaunchAgents, `scripts/`, `tools/`) | none | The only scheduled job that touches this camera is `scripts/yard-diary-capture.py`, and it calls **`/snapshot`** and nothing else |
+
+**⚠️ Two switches that WOULD move it — do not flip either without asking Boss:**
+
+1. `ptz.patrol_enabled: true` — starts the sweep. It also runs `set_zoom(camera, 0)`
+   (`patrol.py:124`), so it would **wipe the zoom 19 as well as the aim**.
+2. `sky_watch.enabled: true` — jumps straight to preset id 1 on Guardian startup.
+
+### The restore point — preset 5 `boss-birdcatraz-aim`
+
+**Boss's aim is saved as camera preset id 5, name `boss-birdcatraz-aim`** (saved 06-Aug-2026,
+confirmed present in `GetPtzPreset` read straight off the camera). If anything ever knocks this
+camera off its aim, that is the way back:
+
+```bash
+curl -s -X POST http://localhost:6530/api/v1/cameras/house-yard/preset/goto \
+  -H 'Content-Type: application/json' -d '{"id": 5}'
+```
+
+**⚠️ Saved but never recall-tested.** Testing it would mean moving the camera off the aim it is
+protecting, which was not worth doing on the night it was set. The write is confirmed against the
+camera's own preset table, so the entry definitely exists — what is unproven is that recalling it
+lands exactly back. **First person to actually need it: take a `/snapshot` before and after and
+compare framing**, and record the result here.
+
+**The other five presets are stale April-2026 aims — ids 0–4: `yard-center`, `coop-approach`,
+`fence-line`, `sky-watch`, `driveway`. None of them is this position.** They are harmless because
+nothing recalls them, but **any `preset/goto` with an id other than 5 throws away Boss's framing.**
+
+**Note the `ptz.presets[]` array in `config.json` is NOT these presets.** That array holds
+pan/tilt/zoom *degrees* for the legacy `patrol_mode: "preset"` path only; the real presets live on
+the camera and are addressed by id. Do not try to reconcile the two.
 
 ---
 
@@ -137,11 +226,15 @@ curl -s https://guardian.markbarney.net/api/v1/cameras/house-yard/position
 
 ## World Model — What the Camera Sees
 
+⚠️ **This table was mapped in April 2026 at zoom 0. The camera is now at 94.2° / zoom 19 (see
+"Current Pointing" above), so the framing at any given angle is tighter than these notes describe.
+Treat everything below as approximate bearings, not as what you would see today.**
+
 | Pan (degrees) | Pan (raw) | Location | Key Details |
 |---------------|-----------|----------|-------------|
 | 0° / 360° | 0 / 7200 | **DEAD ZONE** | Wooden mounting post blocks ~40% of frame. Useless. Dead zone config: pan 340°–22°. |
-| ~90° | ~1800 | Yard / hillside | Green grass slope uphill, fire pit with stones, pink tarp edge, white unidentified object, bare treeline background |
-| ~180° | ~3600 | **THE HOUSE** | Two-story house with upper deck, dark truck in driveway, green lawn, chicken coop (wire enclosure) on right side. **This is where the chickens are. Most important angle.** |
+| **94.2°** | **1885** | **BIRDCATRAZ — the live aim** | Coop run under the pink tarp (left), cinderblock/plywood shed and its wire pen (centre), sunflower row and netted garden (right), treeline behind, lawn across the bottom. **This is where the flock is, and it is where Boss wants the camera.** At zoom 0 this same bearing was described only as "yard / hillside … pink tarp edge" — at that zoom the coop sat small in a much wider frame, so the April note never named it. |
+| ~180° | ~3600 | The house | Two-story house with upper deck, dark truck in driveway, green lawn, chicken coop (wire enclosure) on right side. **Was the "most important angle" under the April aim — it is not any more.** |
 | ~270° | ~5400 | Old stable / property edge | Crumbling concrete foundation, cut wood stacked on it, Rose of Sharon bushes in rows (NOT trees), thin treeline boundary, neighbor's corn field beyond. Green chicken wire perimeter fencing. |
 
 **Predator approach vectors:**
@@ -174,16 +267,38 @@ Commands like `"setPos"` (save preset) are NOT in `PtzEnum`, so the library reje
 `camera_control.py` has `ptz_save_preset()` which calls `host.send_setting()` directly:
 
 ```python
-body = [{"cmd": "PtzCtrl", "action": 0, "param": {
+body = [{"cmd": "SetPtzPreset", "action": 0, "param": {"PtzPreset": {
     "channel": 0,
-    "op": "setPos",
-    "id": 0,
-    "name": "house"
-}}]
+    "enable": 1,
+    "id": 5,
+    "name": "boss-birdcatraz-aim"
+}}}]
 self._run_async(host.send_setting(body))
 ```
 
 This is the pattern for any command the library doesn't expose. Construct the raw JSON body and call `send_setting()`.
+
+**🔴 The body above changed on 06-Aug-2026. This doc previously told you to send
+`{"cmd": "PtzCtrl", "op": "setPos", "id": …, "name": …}` — that does not work.** The camera answers
+`param error / rspCode -4` and saves nothing. Verified against the live camera; `SetPtzPreset`
+returns `rspCode 200` and the preset then appears in `GetPtzPreset`.
+
+**It went unnoticed for four months because every layer reported success.** `send_setting()` does
+raise `ApiError` on a non-zero code — but `camera_control._run_async()` catches *all* exceptions,
+logs them at ERROR, and returns `None`; the old `ptz_save_preset()` then returned `True`
+unconditionally, so `POST /preset/save` answered `{"ok": true}` over a camera that had saved
+nothing.
+
+**Two lessons that generalise beyond presets:**
+
+1. **`_run_async()` swallows every async error.** Any method in `camera_control.py` that returns
+   `True` right after a bare `self._run_async(...)` is reporting "I sent it", not "it worked" —
+   that includes `disable_guard`, `set_zoom`, and `set_guard_position`. If a camera write matters,
+   read the state back and check it. `ptz_save_preset()` now does exactly that.
+2. **`get_presets()` used to serve a connect-time cache**, so a preset saved by the Reolink app or
+   a direct curl stayed invisible to Guardian until a restart. It now refreshes via
+   `get_state(cmd="GetPtzPreset")` before answering. If you are ever comparing what Guardian
+   reports against what the camera holds, query `GetPtzPreset` directly to settle it.
 
 ### Key methods in the library (with line numbers)
 
@@ -220,7 +335,11 @@ The Reolink firmware does NOT support "go to pan=X, tilt=Y". Confirmed by:
 
 ## Patrol Conflict
 
-Guardian's step-and-dwell patrol moves the camera through 11 positions every ~2 minutes. If patrol is running and you send manual PTZ commands, patrol will override you on its next cycle (~8 seconds).
+**Patrol is OFF as of 06-Aug-2026** (`ptz.patrol_enabled: false`) and has been for a long time, so
+there is nothing to fight right now. The rest of this section applies only if someone turns it back
+on.
+
+Guardian's step-and-dwell patrol moves the camera through 11 positions every ~2 minutes. If patrol is running and you send manual PTZ commands, patrol will override you on its next cycle (~8 seconds). It also forces zoom to 0 at startup and after every pause.
 
 **You cannot win this fight.** If Mark wants manual camera control, patrol must be stopped on the Mac Mini first. You cannot stop it remotely — someone with local access must kill it or disable it in config.
 
@@ -230,10 +349,14 @@ Guardian's step-and-dwell patrol moves the camera through 11 positions every ~2 
 
 Mark messages from his phone while outside. He expects action, not questions.
 
+⚠️ **The camera is parked on a hand-set aim Boss chose (94.2° / zoom 19). Any move below throws it
+away and there is no saved preset to restore it.** Before moving, save the current position to a
+free slot (`preset/save`, id ≥ 5) so you can put it back.
+
 | Mark says | You do |
 |-----------|--------|
 | "pan left" / "pan right" | Short PTZ burst, report new position |
-| "look at the house" | Preset goto "house" (id 0), snapshot, describe |
+| "look at the house" | Preset goto id 0 — **note the presets are April-2026 aims and id 0 is named `yard-center`, not `house`**; check `/presets` and snapshot before trusting a name |
 | "what do you see?" | Snapshot (with autofocus wait), describe in detail |
 | "tilt up" / "tilt down" | Short tilt burst, report new position |
 | "is it in focus?" | Snapshot, evaluate sharpness, report honestly |
@@ -261,6 +384,15 @@ When Mark asks you to watch the camera:
 **The truth:** The camera firmware doesn't support absolute pan/tilt coordinates — that part was correct. But preset saving IS supported via the same API we already use. The `reolink_aio` library just hadn't wired it up. The fix was to bypass the library with `send_setting()`. **Never tell Mark to use the Reolink app. We are the Reolink app.**
 
 **Lesson:** Don't declare things impossible without reading the full library source. Don't trust GitHub issues as the final word — they might reflect library gaps, not firmware limitations.
+
+**⚠️ Addendum 06-Aug-2026 — the bypass was right, the command in it was wrong.** The `send_setting()`
+approach is sound and still how we save presets. But the body that April session wrote
+(`PtzCtrl` / `op: "setPos"`) never actually worked, and it was written up here as a solved problem
+and copied into `camera_control.py`. The correct command is `SetPtzPreset` — see "How to bypass the
+library" above. **The deeper mistake was declaring victory without reading the result back.** Nobody
+listed `GetPtzPreset` afterwards to confirm a preset existed; the `{"ok": true}` was believed
+instead. When you bypass a library, the camera's own state is the only thing that tells you whether
+the bypass worked.
 
 ### 2. "Speed 5-8 is slow for positioning"
 **What happened:** The handoff doc said "use speed 5-8 for slow positioning." An assistant sent speed 6 with a 1.5-second sleep and overshot from 78° to 362° — nearly a full rotation.

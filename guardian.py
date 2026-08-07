@@ -1,4 +1,9 @@
-# Author: Claude Opus 5 — four-gate night alert artifact suppression (v2.53.0),
+# Author: Claude Opus 5 — refuse to register a Reolink snapshot poller with no connection
+#         (v2.66.0, 07-Aug-2026: a failed connect_camera used to register the poller anyway,
+#         which put the camera into active_cameras and permanently disabled the 300s reconnect
+#         path — duo2 stayed dark after the Birdcatraz circuit was restored. See
+#         docs/07-Aug-2026-duo2-failed-reconnect-incident.md),
+#         Claude Opus 5 — four-gate night alert artifact suppression (v2.53.0),
 #         Claude Sonnet 4.6 (Bubba) — LLM second-opinion verification for borderline detections,
 #         Claude Opus 4.7 — Bubba coding sub-agent (dormant motion-siren deterrent),
 #         Claude Opus 4.8 (1M context) — Bubba coding sub-agent (motion-alert wiring),
@@ -435,6 +440,21 @@ class GuardianService:
         if source_kind == "snapshot":
             method = cam_cfg.get("snapshot_method", "reolink")
             if method == "reolink":
+                # A ReolinkSnapshotSource is useless without an authenticated host:
+                # every fetch returns None, forever. Worse, registering anyway puts
+                # the camera into active_cameras, and the periodic re-scan below
+                # only reconnects cameras NOT already active — so the camera can
+                # never self-heal, which is exactly what stranded duo2 on
+                # 07-Aug-2026 after the Birdcatraz circuit tripped. Refuse to
+                # register; the re-scan retries connect_camera every 300s.
+                if not self._camera_ctrl.is_connected(cam.name):
+                    log.error(
+                        "Camera '%s' has no Reolink connection — not registering its "
+                        "snapshot poller. Will retry the connection on the next "
+                        "re-scan (every %ds).",
+                        cam.name, _RESCAN_INTERVAL,
+                    )
+                    return False
                 snap_src = ReolinkSnapshotSource(self._camera_ctrl, cam.name)
             elif method == "usb":
                 device_index = cam_cfg.get("device_index", 0)
