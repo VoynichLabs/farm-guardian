@@ -724,12 +724,38 @@ def select_s7_daily_reel_gems(
         log.info("select_s7_daily_reel: no candidates for %s", target.isoformat())
         return []
 
+    # ADAPTIVE BUCKETING (v2.68.0, 08-Aug-2026). The fixed 15-minute bucket
+    # assumed a dawn-to-dusk day: ~15 hours gives ~60 buckets, which fills a
+    # reel nicely. But the S7 runs on a Qi pad with only 1-2 hours of daily
+    # runtime now, and on a 64-minute day 15-minute buckets yield SIX. Live on
+    # 08-Aug that produced a 12-frame reel out of 125 eligible sharp frames —
+    # 90% of the day's material discarded, on a camera whose entire problem is
+    # that it isn't switched on for very long.
+    #
+    # The bucket is therefore derived from the day's actual span and the frame
+    # target. The configured bucket_minutes becomes a CEILING (never coarser
+    # than the old behaviour), and there is a hard FLOOR: below ~30s on a
+    # fixed-angle camera consecutive frames are near-identical, and padding a
+    # reel with 90 copies of one scene is a worse reel, not a longer one. A
+    # short day is allowed to fall short of the target instead.
+    min_bucket_s = max(1, int(cfg.get("s7_daily_reel_min_bucket_seconds", 30)))
+    target_frames = max(1, int(cfg.get("s7_daily_reel_target_frames", max_frames)))
+    span_s = max(0.0, (
+        datetime.fromisoformat(rows[-1]["ts"]) - datetime.fromisoformat(rows[0]["ts"])
+    ).total_seconds())
+    bucket_s = int(min(bucket_min * 60, max(min_bucket_s, span_s / target_frames)))
+    log.info(
+        "select_s7_daily_reel: %d candidates spanning %.0f min -> %ds buckets "
+        "(ceiling %dm, floor %ds, target %d frames)",
+        len(rows), span_s / 60, bucket_s, bucket_min, min_bucket_s, target_frames,
+    )
+
     gems: list[dict] = []
     filler_groups: dict[str, list[dict]] = {}
     gem_buckets: set[str] = set()
     for row in rows:
         item = dict(row)
-        bucket = _bucket_key(item["ts"], bucket_min)
+        bucket = _bucket_key_seconds(item["ts"], bucket_s)
         if (item.get("discord_reactions") or 0) >= 1:
             gems.append(item)
             gem_buckets.add(bucket)

@@ -69,7 +69,7 @@ if __package__ in (None, ""):
     from tools.pipeline.capture import capture_camera, capture_ip_webcam_burst, CaptureError
     from tools.pipeline.quality_gate import passes_trivial_gate, passes_exposure_gate, passes_sharpness_gate, MotionGate
     from tools.pipeline.presence import shared_detector
-    from tools.pipeline.frame_selector import Candidate, select_best
+    from tools.pipeline.frame_selector import Candidate, select_best, subject_laplacian
     from tools.pipeline.vlm_enricher import enrich, ensure_model_loaded, ModelNotLoaded, EnricherError, ValidationFailed
     from tools.pipeline.store import ensure_schema, store, store_raw, store_keyframe
     from tools.pipeline.retention import sweep as retention_sweep, sweep_raw as retention_sweep_raw
@@ -93,7 +93,7 @@ else:
     from .capture import capture_camera, capture_ip_webcam_burst, CaptureError
     from .quality_gate import passes_trivial_gate, passes_exposure_gate, passes_sharpness_gate, MotionGate
     from .presence import shared_detector
-    from .frame_selector import Candidate, select_best
+    from .frame_selector import Candidate, select_best, subject_laplacian
     from .vlm_enricher import enrich, ensure_model_loaded, ModelNotLoaded, EnricherError, ValidationFailed
     from .store import ensure_schema, store, store_raw, store_keyframe
     from .retention import sweep as retention_sweep, sweep_raw as retention_sweep_raw
@@ -167,44 +167,54 @@ def _downscale_for_vlm(jpeg_bytes: bytes, long_edge_px: int) -> bytes:
 
 
 def _compute_overall_score(metadata: dict) -> None:
-    """Compute the 0-100 farm-gem score from four weighted components
-    (v2.45.0, 12-Jul-2026, per Boss — replaces the old holistic 0-10 score;
-    Boss wanted finer granularity at the top and a hard 80+ gate).
+    """Compute the 0-100 farm-gem score. Mutates metadata in place.
 
-    Four axes, weighted to sum to 100:
-      - frame dominance   (0-30) — how much of the frame the biggest bird fills
+    THREE axes since v2.68.0 (08-Aug-2026, per Boss — "the requirement that the
+    bird fill a certain amount of the frame, I think that's just adding extra
+    noise, that's something we want to get rid of"):
+
       - expression        (0-30) — how absurd/expressive the bird is (VLM)
-      - notable detail     (0-25) — claws/wings/feet/features in focus (VLM)
-      - technical quality (0-15) — focus + light
+      - notable detail    (0-25) — claws/wings/feet/features in focus (VLM)
+      - technical quality (0-15) — focus + light, derived from image_quality
+                                   + lighting so it can't contradict them
 
-    Only two axes are asked of the VLM (`expression_score`, `detail_score`) —
-    small concrete ranges a 4b model can rate. The other two are DERIVED in
-    code from fields the VLM already emits, so they can never contradict the
-    rest of the metadata (DRY): dominance from `largest_subject_pct`, technical
-    from `image_quality` + `lighting`. Code owns the weighting; the VLM's own
-    `overall_score` guess is discarded — a small VLM cannot calibrate a single
-    0-100 number, but summing four small axes lands on far more distinct
-    totals, which is the granularity Boss asked for. Mutates metadata in place.
+    Only the first two are asked of the VLM — small concrete ranges a 4b model
+    can actually rate. Code owns the weighting, and the VLM's own
+    `overall_score` guess is discarded: a small VLM cannot calibrate a single
+    0-100 number, but summing small axes lands on far more distinct totals.
 
-    v2.45.1 (13-Jul-2026, Bubba) — dominance recalibrated: full marks at ~50%
-    coverage, not 100%. v2.45.0 shipped with `largest * 30/100`, which was
-    verified only against SYNTHETIC hand-set scores, never live VLM output.
-    Against real frames it was fatal: s7-cam (the only real gem source) is a
-    wide-angle phone cam, so even a bird posing right at the lens fills only
-    ~30-40% of the frame → dominance ~9-12/30. That capped every genuine gem
-    around 65-72 — below the 80 gate — so #farm-2026 went silent for a full day
-    (0 posts). The median historical gem was mathematically unable to reach 80.
-    A bird filling half a wide frame IS the dominant subject, so 50% now earns
-    the full 30; the best real gem in the dead window (expr 25, detail 22,
-    sharp, largest 35) rises 72 -> 83 and posts. Routine frames stay well under
-    80 because they also need high expression AND detail, which the multi-axis
-    design and the floor-pecking caps (30/40) still enforce.
+    WHY DOMINANCE WENT, and the honest caveat. It was 0-30 derived from
+    `largest_subject_pct`. Two things are true at once and worth recording:
+
+      * Boss's own Discord reactions say frame-fill IS his single best-measured
+        preference — reacted frames have a median largest-box of 31.4% of frame
+        against 19.5% for strong-but-unreacted (measured 08-Aug-2026 by running
+        YOLO over the archive). So the signal is real.
+      * But it was being spent as a GATE, and that is the wrong job for it. At
+        30 of 100 points it dragged whole clusters of good frames under the
+        posting floor — the 07-Aug pile-up of frames scoring exactly 68 against
+        a 70 floor was dominance 18 doing precisely this. Suppressing volume to
+        express a preference is redundant when a human is already curating
+        every frame downstream in Discord.
+
+    So dominance moved rather than died: it is now a *selection* weight in
+    frame_selector, where it picks the best of an already-captured burst and
+    costs no volume at all, instead of a *gate* here. Boss's taste still steers
+    which frame gets sent; it no longer decides whether one gets sent.
+
+    RESCALING — the number that matters. Dropping dominance leaves a 0-70 raw
+    range, so it is rescaled back to ~0-100. The factor is derived from the
+    OBSERVED ceiling, not the theoretical one: across 495 strong-tier s7 frames
+    the raw sum's max was 65 and its p95 62, because the 4b model never emits
+    the top of its own ranges (it returns expression 15 / detail 20 over and
+    over). Scaling by the theoretical 70 would have quietly preserved the
+    status quo — the exact trap v2.45.1 fell into by calibrating dominance
+    against synthetic scores instead of live output. Re-derive these two
+    constants from real data if the VLM, the prompt, or the camera aim changes.
     """
     def _clamp(v, lo, hi):
         return max(lo, min(hi, v)) if isinstance(v, int) and not isinstance(v, bool) else lo
 
-    largest = metadata.get("largest_subject_pct")
-    dominance = _clamp(round(largest * 30 / 50) if isinstance(largest, int) else 0, 0, 30)
     expression = _clamp(metadata.get("expression_score"), 0, 30)
     detail = _clamp(metadata.get("detail_score"), 0, 25)
 
@@ -212,10 +222,11 @@ def _compute_overall_score(metadata: dict) -> None:
     if metadata.get("lighting") in {"blown-out", "dim", "backlit"}:
         technical = max(0, technical - 4)
 
-    metadata["overall_score"] = dominance + expression + detail + technical
+    raw = expression + detail + technical
+    metadata["overall_score"] = min(100, round(raw * _SCORE_SCALE_TO / _SCORE_RAW_CEILING))
     log.debug(
-        "score: dominance=%d expression=%d detail=%d technical=%d -> overall=%d",
-        dominance, expression, detail, technical, metadata["overall_score"],
+        "score: expression=%d detail=%d technical=%d raw=%d -> overall=%d",
+        expression, detail, technical, raw, metadata["overall_score"],
     )
 
 
@@ -530,6 +541,13 @@ def _promote_keyframe_if_due(
 #   miss_streak    — consecutive cycles the presence gate found nothing
 _HUNT_STATE: dict[str, dict] = {}
 
+# Gem-score rescaling after dominance was dropped (v2.68.0). Both derived from
+# LIVE output, not from the schema's theoretical maxima — see
+# _compute_overall_score. Measured 08-Aug-2026 over 495 strong-tier s7 frames:
+# raw (expression + detail + technical) had max 65, p95 62, median 50.
+_SCORE_RAW_CEILING = 65   # observed max of the raw 3-axis sum
+_SCORE_SCALE_TO = 95      # what that ceiling should map to on the 0-100 scale
+
 
 def _hunt_capture(camera_name: str, camera_cfg: dict, cfg: dict,
                   hunt_cfg: dict) -> dict:
@@ -621,6 +639,9 @@ def _hunt_capture(camera_name: str, camera_cfg: dict, cfg: dict,
             presence=presence,
             gate_metrics=metrics,
             image_bgr=img,
+            # Sharpness measured on the bird rather than the grass — the
+            # whole-frame number ranks soft frames higher on this camera.
+            subject_laplacian=subject_laplacian(img, presence),
         ))
 
     if not candidates:

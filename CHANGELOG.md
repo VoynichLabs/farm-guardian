@@ -4,6 +4,91 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.68.0 — frame-fill dropped from the gem score, sharpness measured on the bird, reel bucket adapts to the S7's short runtime (Claude Opus 5) — 08-Aug-2026
+
+Three asks from Boss after a day of watching v2.67 run: drop the frame-fill
+requirement ("just adding extra noise"), some frames are "a little blurry" and
+"if anything you could be a little less strict", and — since the S7 now has only
+**1–2 hours of runtime a day** on its Qi pad — maximise what the reel gets out of
+that window.
+
+**1. Dominance removed from the gem score, and the honest caveat.** It was 0–30
+of 100, derived from `largest_subject_pct`. Two things turned out to be true at
+once, and both are recorded in `_compute_overall_score`:
+
+- Boss's own Discord reactions say frame-fill IS his best-measured preference —
+  running YOLO over the archive, reacted frames have a median largest-box of
+  **31.4%** of frame against **19.5%** for strong-but-unreacted.
+- But it was being spent as a **gate**, which is the wrong job for it. At 30
+  points it dragged whole clusters of good frames under the posting floor — the
+  07-Aug pile-up of frames scoring exactly 68 against a 70 floor was dominance
+  18 doing precisely that. Suppressing volume to express a preference is
+  redundant when a human curates every frame downstream in Discord.
+
+So dominance **moved rather than died**: it is now a selection weight in
+`frame_selector` (raised to 0.35), where it picks among an already-captured
+burst and costs no volume at all. Boss's taste still steers which frame is sent;
+it no longer decides whether one is sent.
+
+**Rescaling — the number that mattered.** Dropping a 0–30 axis leaves a 0–70 raw
+range. The factor is derived from the **observed** ceiling, not the theoretical
+one: across 495 strong-tier s7 frames the raw sum's max was **65** (p95 62,
+median 50), because the 4b model never emits the top of its own ranges. Scaling
+by the theoretical 70 would have quietly preserved the status quo — the same
+trap v2.45.1 fell into by calibrating against synthetic scores. The 68-pile-up
+frames now score **73**; a 30%-of-frame bird and a 10% one both score 73.
+
+**2. `focus` deleted — it measured badly.** Added 07-Aug as a photobomber
+discriminator (`largest_area / total_animal_area`) on a plausible theory. Tested
+against the only human signal available (70 reacted vs 67 unreacted archived
+frames): reacted median **0.484**, unreacted **0.501**. No separation, slightly
+backwards. It was reasoning, not evidence. There is still no bird-count cap, for
+the original reason recorded in `should_post`.
+
+**3. Sharpness now measured on the bird, not the grass.** This is the actual fix
+for "a little blurry", and the diagnosis was not what was expected. Whole-frame
+Laplacian variance is the *wrong instrument* on this camera — against the VLM's
+own quality labels over 3 days:
+
+```
+whole-frame lap:  sharp median 1328   soft/blurred median 1391   (0.95x — backwards)
+BIRD-BOX lap:     sharp median  855   soft/blurred median  696   (1.23x)
+```
+
+Grass, foliage and sensor noise generate far more high-frequency energy than a
+smooth-feathered bird. That also means **raising `laplacian_floor` would
+backfire** — at a floor of 400 it drops 12.8% of sharp frames while still
+admitting 91.9% of soft ones — so the floor was deliberately left at 60 and the
+*ranking* moved to the subject instead (`frame_selector.subject_laplacian`,
+cropping the largest YOLO box). Live effect is immediate: a burst came back
+`[331.6, 633.9, 61.3]` on subject sharpness and correctly skipped the 61.3
+frame, where whole-frame would have rated all three near-identical.
+
+Also worth noting what was ruled out: the burst selector was never the blur
+cause. Over 300 live bursts it gave up a mean of only **3.3%** sharpness when it
+didn't pick the sharpest, and **zero** bursts lost more than 25%.
+
+**4. Reel bucketing now adapts to actual runtime.** `select_s7_daily_reel_gems`
+bucketed at a fixed 15 minutes, which assumed a dawn-to-dusk day (~15 h → ~60
+buckets). On a **64-minute** day that yields **six**. Measured live on 08-Aug: a
+**12-frame** reel out of **125** eligible sharp frames — 90% of the day's
+material discarded, on a camera whose whole problem is that it isn't on for long.
+
+The bucket is now derived from the day's actual span and the frame target.
+Configured `bucket_minutes` becomes a **ceiling** (never coarser than before) and
+`s7_daily_reel_min_bucket_seconds` (default 30) a **floor** — below ~30 s on a
+fixed-angle camera, consecutive frames are near-identical and padding a reel with
+90 copies of one scene is a worse reel, not a longer one. A short day falls short
+of the target instead, and the chosen bucket is logged. Same day, re-run:
+**67 frames** (7 reacted gems + 60 filler) at 47 s buckets — **5.6× more**.
+`s7_daily_reel_min_frames` also lowered 10 → 6 so a genuinely short day produces
+a short reel rather than silently producing none.
+
+**To be explicit, since Boss asked:** the reel window is **one local calendar
+day** (midnight→midnight America/New_York, fires 21:00), **not** a rolling 24 h.
+A 64-minute runtime was never clipped by the window — the loss was entirely
+bucketing.
+
 ### v2.67.2 — Discord gem score floor 70 → 65 (Claude Opus 5) — 07-Aug-2026
 
 **Per Boss — "drop the gate."** With v2.67.0/v2.67.1 in place the score gate was

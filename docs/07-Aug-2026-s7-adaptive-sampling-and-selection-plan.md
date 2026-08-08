@@ -322,16 +322,48 @@ call, neither applied:
    affects the archived and published gems, which is Boss's aesthetic call, not
    mine. One command: `curl "http://192.168.0.249:8080/settings/quality?set=95"`
    (the s7-settings-watchdog does not enforce quality, so it will stick).
-3. **A dominance floor for s7 in `should_post`.** Per §3.4, `largest_subject_pct
-   ≥ 20–25` is the one signal separating a bird at the lens from a distant
-   scatter. Not applied: it would *reduce* what reaches Discord, which is the
-   opposite of the stated objective, and it changes the lane Boss says he
-   trusts. Worth revisiting only alongside (1).
+3. ~~**A dominance floor for s7 in `should_post`.**~~ **SUPERSEDED 08-Aug-2026
+   — and it is worth recording that this proposal was pointing the wrong way.**
+   §3.4 argued for *adding* a `largest_subject_pct` floor. Boss's instruction the
+   next day was the opposite: remove frame-fill from the gating entirely, "it's
+   just adding extra noise." He was right, and the archive explains why both
+   readings had a point. Frame-fill genuinely is his strongest measured
+   preference (reacted frames median 31.4% of frame vs 19.5% unreacted) — but it
+   was already spending 30 of 100 score points as a gate, which is what pinned
+   good frames at 68 under a 70 floor. A preference that strong belongs in
+   *ranking*, where it costs nothing, not in *gating*, where it silently
+   suppresses volume a human was going to filter anyway. See v2.68.0: dominance
+   moved to `frame_selector`, out of the score.
 4. **`MotionGate` on s7 remains unassessed.** Threshold 2.3 was tuned for
    house-yard/gwtc; s7 is outdoors where wind and cloud move a 64×64 thumbnail
    with no bird present. It cannot be checked retroactively — skip-tier rows
    carry `image_path = NULL`, so those 8,444 empty frames were never written to
    disk. YOLO was chosen over frame-differencing precisely to sidestep this.
+
+## 6.1 What the next day changed (08-Aug-2026, v2.68.0)
+
+Full detail in `CHANGELOG.md`. Recorded here because two of this document's own
+conclusions did not survive contact with more data:
+
+| This doc claimed | What measurement showed |
+|---|---|
+| A `largest_subject_pct` floor should be *added* to `should_post` (§3.4) | Backwards. Frame-fill is Boss's strongest preference **and** was already over-weighted as a gate. It moved to ranking and left the score entirely. |
+| `focus` (largest ÷ total animal area) expresses "no photobombers" (§4B) | No separation against Boss's reactions: 0.484 reacted vs 0.501 unreacted. Deleted. |
+| Laplacian variance ranks burst frames by sharpness (§4B) | Whole-frame Laplacian is *backwards* on this camera (sharp 1328 vs soft 1391). Ranking moved to a crop inside the largest YOLO box. `laplacian_floor` left alone — raising it would drop sharp frames faster than soft ones. |
+
+Also: the daily reel's fixed 15-minute bucketing was starving it on the S7's
+1–2 hour runtime — 12 frames out of 125 eligible on a 64-minute day. Bucketing
+is now derived from the day's actual span (ceiling = the configured minutes,
+floor = 30 s so a short burst isn't padded with near-duplicates). Same day
+re-run: 67 frames. The reel window was never the problem and never was a rolling
+24 h — it is one local calendar day, fires 21:00.
+
+The through-line worth keeping: **every idea in this document that came from
+reasoning about the domain lost to an idea that came from querying the archive.**
+The presence gate's threshold, the score rescale factor, the sharpness metric and
+the bucket size were all set from measurement; `focus`, the dominance floor and
+whole-frame Laplacian were all set from plausible argument, and all three were
+wrong.
 
 ## 7. Out of scope / aside
 
