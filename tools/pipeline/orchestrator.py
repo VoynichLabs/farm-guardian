@@ -66,8 +66,10 @@ import numpy as np
 # `python tools/pipeline/orchestrator.py` invocations.
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-    from tools.pipeline.capture import capture_camera, CaptureError
+    from tools.pipeline.capture import capture_camera, capture_ip_webcam_burst, CaptureError
     from tools.pipeline.quality_gate import passes_trivial_gate, passes_exposure_gate, passes_sharpness_gate, MotionGate
+    from tools.pipeline.presence import shared_detector
+    from tools.pipeline.frame_selector import Candidate, select_best
     from tools.pipeline.vlm_enricher import enrich, ensure_model_loaded, ModelNotLoaded, EnricherError, ValidationFailed
     from tools.pipeline.store import ensure_schema, store, store_raw, store_keyframe
     from tools.pipeline.retention import sweep as retention_sweep, sweep_raw as retention_sweep_raw
@@ -88,8 +90,10 @@ if __package__ in (None, ""):
         IGPosterError,
     )
 else:
-    from .capture import capture_camera, CaptureError
+    from .capture import capture_camera, capture_ip_webcam_burst, CaptureError
     from .quality_gate import passes_trivial_gate, passes_exposure_gate, passes_sharpness_gate, MotionGate
+    from .presence import shared_detector
+    from .frame_selector import Candidate, select_best
     from .vlm_enricher import enrich, ensure_model_loaded, ModelNotLoaded, EnricherError, ValidationFailed
     from .store import ensure_schema, store, store_raw, store_keyframe
     from .retention import sweep as retention_sweep, sweep_raw as retention_sweep_raw
@@ -519,6 +523,148 @@ def _promote_keyframe_if_due(
         )
 
 
+# Per-camera gem-hunting state, keyed by camera name. Only cameras with a
+# `hunt` config block ever appear here. Lives at module scope so it survives
+# across daemon cycles (the --once paths simply never populate it).
+#   hot_until      — monotonic deadline; while in the future, cadence is HOT
+#   miss_streak    — consecutive cycles the presence gate found nothing
+_HUNT_STATE: dict[str, dict] = {}
+
+
+def _hunt_capture(camera_name: str, camera_cfg: dict, cfg: dict,
+                  hunt_cfg: dict) -> dict:
+    """Burst-capture → per-frame gates → YOLO presence → pick the best frame.
+
+    This is the cheap loop. It replaces run_cycle's single-capture + gate chain
+    for cameras that opt in via a `hunt` config block, and its whole purpose is
+    to decide whether the expensive loop (one ~5.2 s VLM call) is worth running
+    at all, and if so on which frame.
+
+    Returns either:
+      {"status": "gated"/"error", ...}                  — caller returns as-is
+      {"jpeg_bytes","img","gate_metrics","presence",...} — caller proceeds to VLM
+
+    Ordering is cheapest-first, same principle as the original gate chain:
+    decode → trivial → exposure → sharpness (all free, reusing one metrics
+    dict) → YOLO (~16 ms) → VLM (~5.2 s).
+    """
+    burst_size = int(hunt_cfg.get("burst_size", 3))
+    presence_cfg = hunt_cfg.get("presence") or {}
+    presence_enabled = bool(presence_cfg.get("enabled", True))
+    # Shadow mode logs what the gate WOULD have skipped without skipping it.
+    # Flip to false to actually save the VLM call.
+    shadow = bool(presence_cfg.get("shadow_mode", False))
+
+    try:
+        frames = capture_ip_webcam_burst(
+            base_url=camera_cfg["ip_webcam_base"],
+            burst_size=burst_size,
+            shot_path=hunt_cfg.get("shot_path", "/shot.jpg"),
+            trigger_focus=camera_cfg.get("trigger_focus", True),
+            focus_wait=float(camera_cfg.get("focus_wait", 1.5)),
+            inter_frame_delay=float(hunt_cfg.get("inter_frame_delay", 0.0)),
+            force_portrait=camera_cfg.get("force_portrait", False),
+        )
+    except CaptureError as e:
+        return {"status": "error", "stage": "capture", "reason": str(e)}
+    except Exception as e:
+        log.exception("%s: hunt burst raised", camera_name)
+        return {"status": "error", "stage": "capture",
+                "reason": f"{type(e).__name__}: {e}"}
+
+    detector = shared_detector(presence_cfg) if presence_enabled else None
+    candidates: list[Candidate] = []
+    rejected: list[str] = []
+
+    for jpeg_bytes in frames:
+        try:
+            img = _decode_jpeg(jpeg_bytes)
+        except Exception:
+            rejected.append("decode")
+            continue
+
+        ok, metrics = passes_trivial_gate(
+            img, std_dev_floor=cfg.get("std_dev_floor", 5.0)
+        )
+        if not ok:
+            rejected.append("trivial")
+            continue
+        exp_ok, exp_reason = passes_exposure_gate(
+            metrics,
+            p50_floor=cfg.get("exposure_p50_floor", 25.0),
+            p50_ceiling=cfg.get("exposure_p50_ceiling", 230.0),
+            std_floor=cfg.get("exposure_std_floor", 15.0),
+        )
+        if not exp_ok:
+            rejected.append(exp_reason or "exposure")
+            continue
+        sharp_ok, sharp_reason = passes_sharpness_gate(
+            metrics, laplacian_floor=float(camera_cfg.get("laplacian_floor", 0.0))
+        )
+        if not sharp_ok:
+            rejected.append(sharp_reason or "sharpness")
+            continue
+
+        if detector is not None:
+            presence = detector.detect(
+                img, exposure_p50=metrics.get("exposure_p50"),
+                daylight_only=bool(presence_cfg.get("daylight_only", True)),
+            )
+        else:
+            from .presence import PresenceResult  # local: gate disabled entirely
+            presence = PresenceResult(present=True, abstained=True,
+                                      reason="presence_disabled")
+
+        candidates.append(Candidate(
+            jpeg_bytes=jpeg_bytes,
+            laplacian_var=float(metrics.get("laplacian_var", 0.0)),
+            presence=presence,
+            gate_metrics=metrics,
+            image_bgr=img,
+        ))
+
+    if not candidates:
+        return {"status": "gated", "stage": "burst_gates",
+                "reason": f"all {len(frames)} burst frames rejected",
+                "rejections": rejected[:8]}
+
+    # Presence verdict across the WHOLE burst, not per frame: a bird visible in
+    # any frame of the burst means the scene is worth a VLM call. Abstentions
+    # (too dark, model unavailable) count as present by construction, so the
+    # gate can only ever save work — never lose a frame to its own failure.
+    any_present = any(c.presence.present for c in candidates)
+    abstained = any(c.presence.abstained for c in candidates)
+
+    selection = select_best(candidates)
+    winner = selection.candidate
+
+    if presence_enabled and not any_present and not abstained:
+        if shadow:
+            log.info("%s: presence gate WOULD skip (shadow mode) — %d frames, no animal",
+                     camera_name, len(candidates))
+        else:
+            return {"status": "gated", "stage": "presence",
+                    "reason": "no_animal_in_burst",
+                    "burst_size": len(frames), "considered": len(candidates),
+                    "metrics": winner.gate_metrics}
+
+    return {
+        "jpeg_bytes": winner.jpeg_bytes,
+        "img": winner.image_bgr,
+        "gate_metrics": winner.gate_metrics,
+        "presence": winner.presence,
+        "hunt": {
+            "burst_size": len(frames),
+            "considered": selection.considered,
+            "picked": selection.index,
+            "score": round(selection.score, 3),
+            "present": any_present,
+            "abstained": abstained,
+            **selection.breakdown,
+        },
+    }
+
+
 def run_cycle(camera_name: str, camera_cfg: dict, cfg: dict, schema: dict,
               prompt_template: str, db_path: Path, archive_root: Path,
               motion_gate: MotionGate | None = None) -> dict:
@@ -539,7 +685,31 @@ def run_cycle(camera_name: str, camera_cfg: dict, cfg: dict, schema: dict,
     last_gate_metrics = None
     jpeg_bytes = None
     img = None
-    for attempt in range(1, retry_max + 1):
+
+    # Gem-hunting path (opt-in per camera via a `hunt` config block): a burst
+    # of frames, YOLO presence gate, and best-frame selection replace the
+    # single capture below. When it returns a frame, that frame has ALREADY
+    # cleared the trivial/exposure/sharpness chain inside _hunt_capture, so
+    # the re-checks further down are idempotent no-ops on the same metrics
+    # dict. When it returns a status, the cycle is over — most importantly
+    # stage='presence', which is the ~24% of cycles that no longer burn a
+    # 5.2 s VLM call on an empty enclosure.
+    hunt_cfg = camera_cfg.get("hunt") or {}
+    hunt_enabled = bool(hunt_cfg.get("enabled", False))
+    if hunt_enabled:
+        hunt_out = _hunt_capture(camera_name, camera_cfg, cfg, hunt_cfg)
+        if hunt_out.get("status"):
+            result.update(hunt_out)
+            return result
+        jpeg_bytes = hunt_out["jpeg_bytes"]
+        img = hunt_out["img"]
+        last_gate_metrics = hunt_out["gate_metrics"]
+        result["hunt"] = hunt_out["hunt"]
+
+    # Legacy single-capture path — skipped entirely in hunt mode, which has
+    # already chosen its winner above.
+    capture_attempts = 0 if hunt_enabled else retry_max
+    for attempt in range(1, capture_attempts + 1):
         try:
             jpeg_bytes = capture_camera(camera_name, camera_cfg, cfg)
         except CaptureError as e:
@@ -727,13 +897,28 @@ def run_cycle(camera_name: str, camera_cfg: dict, cfg: dict, schema: dict,
             # fire; >=90 restores the @-mention on genuine bird selfies.
             if isinstance(_score, int) and _score >= 90:
                 _caption = f"<@293569238386606080> BIRD SELFIE 💯\n{_caption}"
-            post_gem(
+            # v2.67.1: honour the return value. This used to set
+            # posted_to_discord=True unconditionally, so a gem that Discord
+            # rejected still logged as posted — which is exactly how four
+            # 503-dropped gems on 07-Aug-2026 looked completely healthy in
+            # the log. A silent delivery failure at this stage is the most
+            # expensive kind: the frame already passed every quality gate.
+            # Latency is bounded deliberately. post_gem runs INLINE in the
+            # daemon's tick loop, and it fires immediately after a strong
+            # verdict — i.e. at the start of the 90 s HOT window, the single
+            # highest-value sampling period we have (6.16x lift). At the
+            # default 20 s timeout / 2 s backoff, three attempts could freeze
+            # capture for 66 s and undo the throughput work outright. 8 s /
+            # 1 s caps the worst case at ~27 s. The observed 503s returned in
+            # well under a second, so this costs nothing in the normal case.
+            result["posted_to_discord"] = post_gem(
                 image_bytes=jpeg_bytes,
                 caption=_caption,
                 camera_name=camera_name,
                 webhook_url=webhook,
+                timeout=8,
+                backoff_seconds=1.0,
             )
-            result["posted_to_discord"] = True
     except Exception as e:
         log.warning("%s: gem post wrapper failed: %s", camera_name, e)
 
@@ -1029,6 +1214,64 @@ def _maybe_post_to_story(
     )
 
 
+def _next_cadence(camera_name: str, camera_cfg: dict, result: dict) -> float:
+    """How long to wait before this camera's next cycle — the expensive loop's
+    feedback into scheduling.
+
+    Rationale, measured over 21 days / 35,732 s7-cam frames: gems arrive in
+    minute-scale bursts, not at particular times of day. Given a strong frame,
+    P(another strong frame within 60 s) = 38.2% against a 6.2% base rate — a
+    6.16x lift, decaying to 3.4x at 180 s and 2.0x at 600 s. Hour-of-day, by
+    contrast, spans only 1.6%-5.3% across the whole daylight window, which is
+    why this is a reactive state machine and NOT a reuse of the
+    timelapse_golden_windows scheduler built for usb-cam/dominator-cam.
+
+    Note the asymmetry that makes this safe: HOT can only be entered by an
+    actual VLM verdict, so the pipeline speeds up only when it has already
+    proven something is happening. COLD is entered from repeated presence
+    misses, which are cheap to observe.
+
+      HOT   — a strong frame just landed; sample hard for hot_hold_seconds
+      WARM  — birds around but nothing special; the normal working cadence
+      COLD  — presence gate has found nothing cold_after_misses times running
+
+    Cameras without a `hunt` block are unaffected and keep cycle_seconds.
+    """
+    hunt_cfg = camera_cfg.get("hunt") or {}
+    base = float(camera_cfg.get("cycle_seconds", 45))
+    if not hunt_cfg.get("enabled", False):
+        return base
+
+    cadence_cfg = hunt_cfg.get("cadence") or {}
+    hot = float(cadence_cfg.get("hot_seconds", 0.5))
+    warm = float(cadence_cfg.get("warm_seconds", base))
+    cold = float(cadence_cfg.get("cold_seconds", 20.0))
+    hold = float(cadence_cfg.get("hot_hold_seconds", 90.0))
+    cold_after = int(cadence_cfg.get("cold_after_misses", 3))
+
+    state = _HUNT_STATE.setdefault(camera_name, {"hot_until": 0.0, "miss_streak": 0})
+    now = time.monotonic()
+
+    if result.get("share_worth") == "strong":
+        state["hot_until"] = now + hold
+        state["miss_streak"] = 0
+        log.info("%s: HOT for %.0fs (strong frame)", camera_name, hold)
+        return hot
+
+    # Only a presence-gate skip counts as a miss. A VLM 'skip' verdict still
+    # means birds were there, which is a warm scene, not a cold one.
+    if result.get("stage") == "presence":
+        state["miss_streak"] += 1
+    else:
+        state["miss_streak"] = 0
+
+    if now < state["hot_until"]:
+        return hot
+    if state["miss_streak"] >= cold_after:
+        return cold
+    return warm
+
+
 def _load_configs():
     here = Path(__file__).parent
     cfg = json.loads((here / "config.json").read_text())
@@ -1297,10 +1540,11 @@ def run_daemon() -> int:
                 r = {"camera": name, "status": "error", "stage": "orchestrator",
                      "reason": f"{type(e).__name__}: {e}"}
             elapsed = time.monotonic() - t0
-            next_due[name] = time.monotonic() + ccfg["cycle_seconds"]
+            cadence = _next_cadence(name, ccfg, r)
+            next_due[name] = time.monotonic() + cadence
             cycle_count += 1
-            log.info("%s: %s elapsed=%.1fs next_in=%ds (cycle #%d)",
-                     name, json.dumps(r, default=str), elapsed, ccfg["cycle_seconds"], cycle_count)
+            log.info("%s: %s elapsed=%.1fs next_in=%.1fs (cycle #%d)",
+                     name, json.dumps(r, default=str), elapsed, cadence, cycle_count)
 
         # Daily retention sweep at roughly the same time each day
         today = datetime.now().date()

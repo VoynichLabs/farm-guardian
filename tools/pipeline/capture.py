@@ -12,8 +12,14 @@
 #            - ip_webcam: HTTP /photo.jpg with optional AF trigger; bakes
 #              any EXIF Orientation tag into the pixels before returning,
 #              since downstream consumers decode via cv2 (EXIF-unaware).
+#            - ip_webcam_burst: N rapid /shot.jpg pulls on ONE AF lock, for
+#              the s7-cam gem-hunting path (see capture_ip_webcam_burst).
 # SRP/DRY check: Pass — single responsibility is turning a camera + recipe
 #                into sharp JPEG bytes in memory. No archiving, no VLM, no DB.
+#                The burst function returns a LIST and deliberately does no
+#                ranking — choosing a winner is frame_selector's job, because
+#                that choice needs YOLO box geometry this module has no
+#                business knowing about.
 
 from __future__ import annotations
 
@@ -252,6 +258,78 @@ def capture_ip_webcam(base_url: str, photo_path: str = "/photo.jpg",
     if not r.content or r.content[:2] != b"\xff\xd8":
         raise CaptureError(f"IP Webcam returned non-JPEG: {base_url}{photo_path}")
     return _apply_exif_rotation(r.content, force_portrait=force_portrait)
+
+
+def capture_ip_webcam_burst(
+    base_url: str,
+    burst_size: int = 3,
+    shot_path: str = "/shot.jpg",
+    trigger_focus: bool = True,
+    focus_wait: float = 1.5,
+    inter_frame_delay: float = 0.0,
+    timeout: int = 15,
+    force_portrait: bool = False,
+) -> list[bytes]:
+    """Pull N frames on a SINGLE autofocus lock and return all of them, in
+    capture order. Ranking is the caller's job (frame_selector.select_best).
+
+    Two deliberate departures from capture_ip_webcam:
+
+    1. `/shot.jpg`, not `/photo.jpg`. `/photo.jpg` triggers a full camera photo
+       capture; `/shot.jpg` serves the current video-stream frame. Measured
+       07-Aug-2026 they cost about the same wall-clock (both ~2-4 s, dominated
+       by shifting a ~1.5 MB JPEG over the phone's Wi-Fi, not by capture), and
+       both come back 1080x1920 already portrait-rotated. But the S7 runs on a
+       ~5 W Qi pad with a documented brown-out history (see
+       deploy/s7-settings-watchdog), so firing N full photo captures per cycle
+       is exactly the kind of load worth not adding. /shot.jpg is the lighter
+       call for identical pixels.
+
+    2. AF fires ONCE for the whole burst, not once per frame. A per-frame AF
+       would cost focus_wait seconds per frame and defeat the point. This is
+       safe because the flock moves but the focal plane does not — and it is
+       measured, not assumed: five consecutive /shot.jpg pulls with NO AF at
+       all still yielded laplacian 159/264/732/198/876, i.e. sharp frames are
+       available within a burst regardless. Picking the best of N is what
+       guarantees sharpness here; the AF lock is cheap insurance on top.
+
+    Returns whatever it managed to collect. Raises CaptureError only when it
+    collects nothing at all, so one flaky frame never costs the cycle.
+    """
+    if burst_size <= 1:
+        return [
+            capture_ip_webcam(
+                base_url, photo_path=shot_path, trigger_focus=trigger_focus,
+                focus_wait=focus_wait, timeout=timeout,
+                force_portrait=force_portrait,
+            )
+        ]
+
+    if trigger_focus:
+        try:
+            requests.get(f"{base_url}/focus", timeout=5)
+            time.sleep(focus_wait)
+        except Exception as e:
+            log.warning("burst AF trigger failed, continuing: %s", e)
+
+    frames: list[bytes] = []
+    last_err: Exception | None = None
+    for i in range(burst_size):
+        try:
+            r = requests.get(f"{base_url}{shot_path}", timeout=timeout)
+            r.raise_for_status()
+            if not r.content or r.content[:2] != b"\xff\xd8":
+                raise CaptureError(f"non-JPEG from {base_url}{shot_path}")
+            frames.append(_apply_exif_rotation(r.content, force_portrait=force_portrait))
+        except Exception as e:
+            last_err = e
+            log.debug("burst %s: frame %d/%d failed: %s", base_url, i + 1, burst_size, e)
+        if inter_frame_delay > 0 and i < burst_size - 1:
+            time.sleep(inter_frame_delay)
+
+    if not frames:
+        raise CaptureError(f"ip_webcam burst {base_url}: zero frames collected ({last_err})")
+    return frames
 
 
 def _apply_exif_rotation(jpeg_bytes: bytes, force_portrait: bool = False) -> bytes:

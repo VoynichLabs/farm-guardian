@@ -1,4 +1,4 @@
-# Author: Claude Opus 4.7 (1M context); Claude Sonnet 4.6 (09-May-2026 — gwtc/usb-cam/dominator-cam disabled); Claude Fable 5 (02-Jul-2026 — tier+score gate restored, trim_caption added, v2.44.5); Claude Opus 4.8 (Bubba) (12-Jul-2026 — score floor 7→80 for the 0-100 component scale, v2.45.0; 13-Jul-2026 — floor 80→70, v2.45.2); Claude Fable 5 (16-Jul-2026 — brooder-era Discord usernames retired for the Birdcatraz move, v2.46.0); Claude Sonnet 5 (02-Aug-2026 — should_post docstring's stale "overall_score < 80" corrected to match the v2.45.2 constant, v2.59.0)
+# Author: Claude Opus 4.7 (1M context); Claude Sonnet 4.6 (09-May-2026 — gwtc/usb-cam/dominator-cam disabled); Claude Fable 5 (02-Jul-2026 — tier+score gate restored, trim_caption added, v2.44.5); Claude Opus 4.8 (Bubba) (12-Jul-2026 — score floor 7→80 for the 0-100 component scale, v2.45.0; 13-Jul-2026 — floor 80→70, v2.45.2); Claude Fable 5 (16-Jul-2026 — brooder-era Discord usernames retired for the Birdcatraz move, v2.46.0); Claude Sonnet 5 (02-Aug-2026 — should_post docstring's stale "overall_score < 80" corrected to match the v2.45.2 constant, v2.59.0); Claude Opus 5 (07-Aug-2026 — transient-failure retry so a 503 stops destroying gems, v2.67.1; score floor 70→65 per Boss + docstring now names the constant instead of restating it, v2.67.2)
 # Date: 23-April-2026
 # PURPOSE: Post strong-tier frames to the #farm-2026 Discord channel as they
 #          land. Called from orchestrator.run_cycle whenever store returns
@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -65,7 +66,18 @@ _GEM_POST_DISABLED_CAMERAS = frozenset({
 # qwen3-vl-4b swap flooded #farm-2026 with sub-7 posts. Both checks still
 # run: tier must be "strong" AND overall_score must clear this floor. Boss
 # declined a posting cooldown (02-Jul) — quality gating only, no rate limit.
-_MIN_OVERALL_SCORE = 70
+#
+# v2.67.2 (07-Aug-2026, per Boss — "drop the gate"): 70 -> 65. After the S7 was
+# re-placed in Birdcatraz the VLM began returning a near-stereotyped
+# largest_subject_pct=30, which yields dominance 30*30/50 = 18 and, with a
+# typical expression 15 + detail 20 + technical 15, lands frame after frame on
+# exactly 68 — two points under the old floor. Manually reviewed: those 68s
+# include genuinely good shots (birds crowding the lens, sharp, well lit), so
+# the cutoff was landing in the middle of a dense cluster of real gems rather
+# than between good and bad ones. Boss's goal is throughput into #farm-2026.
+# tier=="strong" remains the primary filter and the floor-pecking caps (30/40)
+# still hold routine frames far below 65.
+_MIN_OVERALL_SCORE = 65
 
 # Non-s7 cameras rejected at these activity/composition tags even when the
 # VLM self-approves them as strong. Huddle/sleep/empty frames are the
@@ -165,7 +177,10 @@ def should_post(vlm_metadata: dict, tier: str, camera_id: Optional[str] = None) 
     Universal rules (all cameras):
       - share_worth == 'skip'  → reject
       - tier != 'strong'       → reject  (v2.44.5; tier is store's share_worth)
-      - overall_score < 70 or missing → reject  (v2.45.0 set 80; v2.45.2 lowered to 70; fail closed)
+      - overall_score < _MIN_OVERALL_SCORE or missing → reject (fail closed).
+        Currently 65 (v2.45.0 set 80; v2.45.2 → 70; v2.67.2 → 65). Named
+        rather than repeated as a literal: this docstring has already drifted
+        from the constant twice and needed correcting in v2.59.0.
       - bird_count < 1         → reject
       - image_quality 'blurred'→ reject
 
@@ -296,9 +311,25 @@ def post_gem(
     camera_name: str,
     webhook_url: str,
     timeout: int = 20,
+    max_attempts: int = 3,
+    backoff_seconds: float = 2.0,
 ) -> bool:
     """POST the image + caption to a Discord webhook as a multipart attachment.
-    Returns True on 2xx, False otherwise. Never raises."""
+    Returns True on 2xx, False otherwise. Never raises.
+
+    RETRIES TRANSIENT FAILURES (added 07-Aug-2026, v2.67.1). This used to make
+    exactly one attempt, so any hiccup between here and Discord silently and
+    permanently destroyed a gem that had already cleared every quality gate —
+    the most expensive possible moment to drop a frame. Observed live the same
+    day: four consecutive s7-cam gems, every one of which passed should_post,
+    all lost to
+
+        http=503 'upstream connect error or disconnect/reset before headers.
+                  reset reason: connection termination'
+
+    while a GET on the very same webhook returned 200 in 0.25 s — the webhook
+    was healthy and Discord's edge was simply refusing the multipart POST.
+    Precisely the failure shape a retry exists for."""
     if not webhook_url:
         log.debug("gem_poster: no webhook configured, skipping %s", camera_name)
         return False
@@ -307,20 +338,44 @@ def post_gem(
     # Discord content length cap is 2000; belt-and-suspenders truncation.
     if len(content) > 1900:
         content = content[:1900] + "…"
-    try:
-        r = requests.post(
-            webhook_url,
-            files={"file": (f"{camera_name}-gem.jpg", image_bytes, "image/jpeg")},
-            data={"payload_json": json.dumps({"username": username, "content": content})},
-            timeout=timeout,
-        )
-    except requests.RequestException as e:
-        log.warning("gem_poster: %s request failed: %s", camera_name, e)
-        return False
-    if 200 <= r.status_code < 300:
-        log.info("gem_poster: posted %s gem (%d bytes, http=%d)",
-                 camera_name, len(image_bytes), r.status_code)
-        return True
-    log.warning("gem_poster: %s post failed http=%d body=%r",
-                camera_name, r.status_code, (r.text or "")[:200])
+
+    for attempt in range(1, max_attempts + 1):
+        is_last = attempt == max_attempts
+        try:
+            r = requests.post(
+                webhook_url,
+                files={"file": (f"{camera_name}-gem.jpg", image_bytes, "image/jpeg")},
+                data={"payload_json": json.dumps({"username": username, "content": content})},
+                timeout=timeout,
+            )
+        except requests.RequestException as e:
+            log.warning("gem_poster: %s request failed (attempt %d/%d): %s",
+                        camera_name, attempt, max_attempts, e)
+            if is_last:
+                return False
+            time.sleep(backoff_seconds * attempt)
+            continue
+
+        if 200 <= r.status_code < 300:
+            log.info("gem_poster: posted %s gem (%d bytes, http=%d, attempt %d/%d)",
+                     camera_name, len(image_bytes), r.status_code, attempt, max_attempts)
+            return True
+
+        # 5xx and 429 are transient; every other 4xx is permanent (bad payload,
+        # dead webhook, oversized file) and retrying just burns time.
+        retryable = r.status_code >= 500 or r.status_code == 429
+        log.warning("gem_poster: %s post failed http=%d (attempt %d/%d) body=%r",
+                    camera_name, r.status_code, attempt, max_attempts,
+                    (r.text or "")[:200])
+        if not retryable or is_last:
+            return False
+
+        delay = backoff_seconds * attempt
+        if r.status_code == 429:
+            try:
+                delay = max(delay, float(r.headers.get("Retry-After", 0)))
+            except (TypeError, ValueError):
+                pass
+        time.sleep(delay)
+
     return False

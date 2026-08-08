@@ -4,6 +4,160 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.67.2 — Discord gem score floor 70 → 65 (Claude Opus 5) — 07-Aug-2026
+
+**Per Boss — "drop the gate."** With v2.67.0/v2.67.1 in place the score gate was
+the last thing standing between a good frame and #farm-2026.
+
+After the S7 was re-placed in Birdcatraz the VLM began returning a
+near-stereotyped `largest_subject_pct = 30`, which yields dominance
+`30 × 30/50 = 18`; with a typical expression 15 + detail 20 + technical 15 that
+lands frame after frame on **exactly 68** — two points under the old floor.
+Reviewing those 68s by eye, they include genuinely good shots: birds crowding
+the lens, sharp, well lit. The cutoff was falling in the middle of a dense
+cluster of real gems rather than between the good and the bad ones.
+
+`tier == "strong"` remains the primary filter, and the floor-pecking caps
+(30/40) still hold routine frames far below 65.
+
+**Also fixed the recurring docstring drift.** `should_post`'s docstring restated
+the floor as a literal, and had already needed correcting once (v2.59.0). It now
+names `_MIN_OVERALL_SCORE` instead. `test_gem_poster_gate.py` had the same
+problem — a hardcoded "score=69 rejects (just under floor)" case that broke on
+this change while only ever asserting where the floor happened to sit. Its
+boundary cases are now expressed relative to the constant, so the next move
+won't produce a spurious failure.
+
+### v2.67.1 — gems that cleared every quality gate were being silently destroyed at the Discord POST (Claude Opus 5) — 07-Aug-2026
+
+**Found while verifying v2.67.0**, and it matters more than v2.67.0 does for
+Boss's actual goal (*"I'm just concerned with more of them getting there"*).
+
+Four consecutive s7-cam gems passed `should_post` — tier strong, score 73/85/71/82,
+sharp, face visible — were sent to Discord, and **every one was lost**:
+
+```
+gem_poster: s7-cam post failed http=503 body='upstream connect error or
+            disconnect/reset before headers. reset reason: connection termination'
+```
+
+A GET on the very same webhook returned **200 in 0.25 s** with valid metadata, so
+the webhook was healthy and Discord's edge was simply refusing the multipart POST.
+
+**Two bugs, both fixed:**
+
+1. **`post_gem` made exactly one attempt.** Any transient failure permanently
+   destroyed a frame that had already survived capture, four quality gates, a VLM
+   call and the score gate — the most expensive possible moment to drop one. Now
+   retries up to 3 attempts with linear backoff. 5xx and 429 retry (429 honours
+   `Retry-After`); other 4xx do not, since a 400/404 is a dead webhook or a bad
+   payload and retrying only burns time.
+2. **`orchestrator` ignored the return value** and set
+   `result["posted_to_discord"] = True` unconditionally. That is why all four
+   failures logged as `"posted_to_discord": true` and the pipeline looked
+   perfectly healthy while dropping every gem on the floor. Now honours it.
+
+**Latency is bounded on purpose.** `post_gem` runs inline in the daemon tick
+loop and fires immediately after a strong verdict — i.e. at the start of the
+90 s HOT window, the highest-value sampling period v2.67.0 creates. At the
+default 20 s timeout / 2 s backoff, three attempts could freeze capture for 66 s
+and undo the throughput work outright, so the call site passes `timeout=8,
+backoff_seconds=1.0` (worst case ~27 s). Observed 503s returned in well under a
+second, so this costs nothing in the normal case.
+
+**Tested out-of-band** — `tools/pipeline/test_gem_poster_retry.py` (7 checks,
+all passing) drives a throwaway local HTTP server, never Discord, and never
+posts to #farm-2026. Covers: 5xx retries to the limit, 2xx first-try, 4xx does
+NOT retry, 429 retryable, **recovery of a gem after a transient 503** (the case
+this whole fix exists for), bounded failure on an unroutable host, and empty
+webhook as a no-op.
+
+**Note for anyone auditing gem delivery:** `image_archive.discord_message_id` is
+written by `scripts/discord-reaction-sync.py`, *not* at post time, and only for
+messages that already have a reaction — so it cannot be used to check whether a
+gem was delivered. The log is the only record, which is what made this invisible.
+
+### v2.67.0 — s7-cam gem hunting: burst capture, best-frame selection, YOLO presence gate, adaptive cadence (Claude Opus 5) — 07-Aug-2026
+
+**What prompted it:** Boss — *"there's a smarter way to pull images from the S7,
+judge them, and send them to the LLM. There are large clusters of activity and
+then large periods of nothing... even during clusters, not all images are great
+— we've got to get an image that's clear, doesn't have bird photobombers."*
+Then, mid-analysis, the objective: *"I know how the Discord reaction works. I'm
+just concerned with more of them getting there."*
+
+**What the archive actually said** (21 days, 35,732 s7-cam VLM calls — s7-cam is
+the only camera that reaches the VLM; every other enabled camera is `vlm_bypass`):
+
+- **Hour-of-day is a dead end.** Strong-frame yield spans only 1.6 %–5.3 % across
+  05:00–20:00. The `timelapse_golden_windows` scheduler built for
+  usb-cam/dominator would have bought almost nothing here — deliberately not reused.
+- **Minute-scale clustering is real and strong.** P(a strong frame within 60 s |
+  this frame strong) = 38.2 % vs a 6.2 % base rate — a **6.16× lift**, decaying to
+  3.4× at 180 s and 2.0× at 600 s. Boss's intuition was right; the timescale is
+  minutes, not time-of-day.
+- **23.6 % of every VLM call landed on `bird_count = 0`,** and not one of those
+  8,444 frames ever became a gem — ~35 min/day of GPU establishing that no bird
+  was present.
+- **Consecutive frames vary enormously.** Five `/shot.jpg` pulls seconds apart on
+  a static scene: laplacian 159 / 264 / 732 / 198 / 876. All clear the camera's
+  floor of 60, so the pipeline was feeding the VLM a 159 about as often as an 876.
+
+**What shipped** — a per-camera `hunt` config block, enabled only on `s7-cam`:
+
+- **`tools/pipeline/presence.py`** (new) — YOLO presence gate before the VLM.
+  `yolov8s.pt` @ `conf 0.05`, ~16 ms on MPS vs ~5.2 s for a VLM call. Threshold set
+  by measuring recall on 200 archived frames already tiered `strong`: yolov8s/0.05
+  hit **99.5 %** (yolov8n/0.25, the obvious default, would have lost 12 %). Tuned
+  toward recall because the costs are asymmetric — a false negative loses a gem, a
+  false positive costs one VLM call. Not reused from `detect.py`'s `AnimalDetector`:
+  its dwell filter, no-alert zones and 8 % bbox floor exist for alerting and each
+  destroys recall here. Per Boss's note that YOLO goes overactive at night, the
+  gate abstains below `exposure_p50 30` — and s7 produced 0 gems outside
+  05:00–20:00 anyway. Every failure path abstains, so the gate can only save work,
+  never lose a frame. **Shipped with `shadow_mode: true`** — it logs what it would skip
+  without skipping. Two reasons: the 99.5 % was measured at the camera's *old* aim and Boss
+  re-placed it the same evening (`largest_subject_pct` median moved 39 → 30), and with the
+  gate live its false-negative rate is unmeasurable by construction, since a skipped frame
+  never gets a VLM label to check against. Costs nothing today — birds are in frame
+  continuously at the new position, so the gate has had nothing to skip. Flip to `false`
+  after a day of numbers at this aim.
+- **`tools/pipeline/frame_selector.py`** (new) — ranks a burst, returns one winner.
+  Sharpness 0.45 / dominance 0.30 / focus 0.15 / centring 0.10. The photobomber
+  term is `largest_area / total_animal_area`, **not** a bird-count cap — because
+  `should_post`'s docstring records Boss's instruction that a bird at the lens with
+  the flock behind is a favourite framing. One close bird + six specks ≈ 1.0;
+  eight scattered birds ≈ 0.125. Same count, opposite verdicts.
+- **`capture.capture_ip_webcam_burst`** (new) — N frames on ONE AF lock via
+  `/shot.jpg` not `/photo.jpg`: identical pixels and wall-clock, but it avoids
+  firing N full camera captures at a phone on a ~5 W Qi pad with a brown-out history.
+- **`orchestrator`** — `_hunt_capture` (cheap loop: decode → trivial → exposure →
+  sharpness → YOLO) and `_next_cadence` (expensive loop: HOT 0.5 s for 90 s after a
+  strong verdict → WARM 3 s → COLD 20 s after three presence misses). Kept strictly
+  separate, because the 6.16× lift is only observable *via* a VLM call and so can
+  never gate one — only accelerate after a hit.
+
+**Measured live after restart:** median cycle period **17.0 s → 12.0 s**
+(212 → 300 VLM calls/hour, **1.42×**), each one now spent on the best of 3 frames
+instead of whichever landed on the tick. First hunt cycle:
+`laplacian [674.5, 743.2, 1205.1] → picked 1205.1 → tier: strong → next_in=0.5s`.
+
+**One bug caught in the first live run and fixed:** sharpness was min-max
+normalised unconditionally, so a burst of `1518.3 / 1517.9 / 1505.8` — a
+meaningless 0.8 % spread — mapped to `1.0 / 0.97 / 0.0` and penalised the last
+frame by 0.45 for nothing. Now guarded by `MIN_SHARPNESS_REL_SPREAD` (15 %):
+below that the component goes flat and subject geometry decides.
+
+**Deliberately NOT done** (all in
+`docs/07-Aug-2026-s7-adaptive-sampling-and-selection-plan.md` §6): recording
+Discord negatives — `discord-reaction-sync.py:685` skips gems with zero
+reactions, so the "203/203 reacted" figure is an absence of negatives rather than
+a perfect hit rate, but fixing it changes nothing about throughput; a
+`largest_subject_pct` floor for s7 in `should_post`, which would *reduce* what
+reaches Discord; and phone JPEG quality 99 → 95, measured at **1.15 s/1834 KB →
+0.68 s/923 KB** per frame (~1.4 s off every burst) but left alone because it
+permanently affects published gems and is Boss's aesthetic call.
+
 ### docs — house-yard re-aimed after the power cut; preset `Main` (id 6) is the new restore point (Claude Opus 5) — 07-Aug-2026
 
 **What prompted it:** the Birdcatraz circuit trip (v2.66.0) moved this camera. Preset *data*

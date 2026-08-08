@@ -159,7 +159,28 @@
    "require_face": true,
    "enabled": true,
    "motion_gate": false,
-   "laplacian_floor": 60.0
+   "laplacian_floor": 60.0,
+   "hunt": {
+    "enabled": true,
+    "burst_size": 3,
+    "shot_path": "/shot.jpg",
+    "inter_frame_delay": 0.0,
+    "presence": {
+     "enabled": true,
+     "shadow_mode": true,
+     "model": "yolov8s.pt",
+     "conf": 0.05,
+     "daylight_only": true,
+     "min_exposure_p50": 30.0
+    },
+    "cadence": {
+     "hot_seconds": 0.5,
+     "warm_seconds": 3.0,
+     "cold_seconds": 20.0,
+     "hot_hold_seconds": 90.0,
+     "cold_after_misses": 3
+    }
+   }
   },
   "gwtc": {
    "cycle_seconds": 20,

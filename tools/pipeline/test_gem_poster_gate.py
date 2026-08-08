@@ -21,7 +21,11 @@ from pathlib import Path
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from tools.pipeline.gem_poster import should_post, trim_caption  # noqa: E402
+from tools.pipeline.gem_poster import (  # noqa: E402
+    should_post,
+    trim_caption,
+    _MIN_OVERALL_SCORE,
+)
 
 
 def _meta(**overrides) -> dict:
@@ -74,19 +78,23 @@ def run_synthetic_cases() -> int:
                          should_post(_meta(image_quality="blurred"), "strong", "macbook-air-facetime"), False)
 
     # v2.45.0 tier + score gate on the 0-100 scale (12-Jul-2026, per Boss).
-    # v2.45.2 (13-Jul-2026, per Boss): floor lowered 80 -> 70. tier must be
-    # strong AND the computed overall_score must clear 70.
+    # Floor history: 80 (v2.45.0) -> 70 (v2.45.2) -> 65 (v2.67.2, per Boss).
+    # Cases are expressed RELATIVE to _MIN_OVERALL_SCORE rather than against
+    # hardcoded numbers: the v2.67.2 drop broke a literal "score=69 rejects"
+    # case that was only ever asserting where the floor happened to sit, not
+    # that the gate works. What matters is the boundary, wherever it is.
+    _floor = _MIN_OVERALL_SCORE
     fails += not _expect("s7 tier=decent rejects (tier gate)",
                          should_post(_meta(share_worth="decent"), "decent", "s7-cam"), False)
-    fails += not _expect("s7 strong but score=60 rejects (below 70 floor)",
-                         should_post(_meta(overall_score=60), "strong", "s7-cam"), False)
-    fails += not _expect("s7 strong but score=69 rejects (just under floor)",
-                         should_post(_meta(overall_score=69), "strong", "s7-cam"), False)
+    fails += not _expect(f"s7 strong but score far below floor ({_floor - 10}) rejects",
+                         should_post(_meta(overall_score=_floor - 10), "strong", "s7-cam"), False)
+    fails += not _expect(f"s7 strong but score just under floor ({_floor - 1}) rejects",
+                         should_post(_meta(overall_score=_floor - 1), "strong", "s7-cam"), False)
     fails += not _expect("s7 strong score MISSING rejects (fail closed)",
                          should_post({k: v for k, v in _meta().items() if k != "overall_score"},
                                      "strong", "s7-cam"), False)
-    fails += not _expect("s7 strong score=70 sharp+face accepts (floor is inclusive)",
-                         should_post(_meta(overall_score=70), "strong", "s7-cam"), True)
+    fails += not _expect(f"s7 strong score AT floor ({_floor}) sharp+face accepts (inclusive)",
+                         should_post(_meta(overall_score=_floor), "strong", "s7-cam"), True)
 
     # v2.44.5 trim_caption (Discord lane only).
     _short = "A chick posing."
