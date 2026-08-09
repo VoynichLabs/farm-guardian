@@ -84,6 +84,8 @@ from tools.pipeline.golden_windows import (
     is_daylight,
     is_dt_in_golden_windows,
     minute_in_window,
+    sunrise_minute,
+    sunset_minute,
 )
 
 # _MAX_FRAMES: reel_stitcher's own Reel-length cap, imported (not restated)
@@ -1019,28 +1021,117 @@ def select_timelapse_gems(
         min_frames = int(gwc.get("min_frames", min_frames))
 
     now = _ensure_timezone(now)
-    cutoff_iso = (now - timedelta(hours=window_h)).isoformat()
+
+    # Single-day mode (09-Aug-2026, v2.69.1). Boss on the daily duo2 reel:
+    # "It starts at like 7 p.m., which is not good. It's just a long period of
+    # just nothing because it's nighttime... It needs to start at 6 a.m."
+    #
+    # A rolling `now - window_hours` look-back starts wherever the clock
+    # happens to be and runs through the night. Worse, filtering that rolling
+    # span to daylight hours splices yesterday-evening onto today-morning —
+    # the exact straddle the S7 daily lane already learned the hard way (see
+    # CLAUDE.md: "21:00 + a single-day window is what actually fixes it").
+    #
+    # So the window is anchored to ONE local calendar day, daylight_start ->
+    # daylight_end, and it is the most recent COMPLETE such day: today if the
+    # lane runs after daylight_end, otherwise yesterday. That makes the reel
+    # independent of what time the lane is scheduled — no plist moves — and
+    # it always opens at 06:0x local on a full 14-hour day.
+    single_day = bool(cfg.get("timelapse_reel_single_day", False))
+    end_iso: Optional[str] = None
+    if single_day:
+        tz = ZoneInfo(daylight_tz)
+        local_now = now.astimezone(tz)
+        target_day = local_now.date()
+        if local_now.hour < daylight_end:
+            target_day = target_day - timedelta(days=1)
+
+        # Bound the day by REAL sunrise/sunset, not fixed clock hours. A fixed
+        # 06:00-21:00 was measured on 09-Aug-2026 to end at 20:59 with the
+        # Reolink already flipped to infrared — the last ~45 min was grey night
+        # footage. Fixed hours are also season-blind: the same window that is
+        # slightly too long in August is four hours of darkness in December.
+        # Solar bounds track the year and always stop before the IR switch.
+        # Same sunrise equation the weekly/monthly lanes use (golden_windows),
+        # and the same farm coordinates, so all six lanes agree on "daylight".
+        solar_cfg = cfg.get("multiday_timelapse") or {}
+        latitude = float(solar_cfg.get("latitude", 41.7558))
+        longitude = float(solar_cfg.get("longitude", -71.9789))
+        start_min = sunrise_minute(target_day, latitude, longitude, daylight_tz)
+        end_min = sunset_minute(target_day, latitude, longitude, daylight_tz)
+        if start_min is None or end_min is None:
+            # Polar day/night — impossible at this latitude, but fall back to
+            # the configured clock hours rather than raising.
+            log.warning(
+                "select_timelapse: no solar sunrise/sunset for %s; falling "
+                "back to fixed %02d:00-%02d:00", target_day, daylight_start,
+                daylight_end,
+            )
+            start_min, end_min = daylight_start * 60, daylight_end * 60
+        start_local = datetime.combine(target_day, time(0), tzinfo=tz) \
+            + timedelta(minutes=start_min)
+        end_local = datetime.combine(target_day, time(0), tzinfo=tz) \
+            + timedelta(minutes=end_min)
+        cutoff_iso = start_local.astimezone(timezone.utc).isoformat()
+        end_iso = end_local.astimezone(timezone.utc).isoformat()
+        log.info(
+            "select_timelapse: %s single-day window %s %s -> %s local "
+            "(sunrise->sunset)", camera_id, target_day,
+            start_local.strftime("%H:%M"), end_local.strftime("%H:%M"),
+        )
+    else:
+        cutoff_iso = (now - timedelta(hours=window_h)).isoformat()
 
     with sqlite3.connect(str(db_path)) as c:
         c.row_factory = sqlite3.Row
-        rows = c.execute(
-            """
-            SELECT id, camera_id, ts, laplacian_var
-              FROM image_archive
-             WHERE camera_id = ?
-               AND image_tier = 'raw'
-               AND image_path IS NOT NULL
-               AND ts >= ?
-             ORDER BY ts ASC
-            """,
-            (camera_id, cutoff_iso),
-        ).fetchall()
+        if end_iso is not None:
+            # Both bounds. Moving only the cutoff would still run through to
+            # `now` and drag the evening tail back in.
+            rows = c.execute(
+                """
+                SELECT id, camera_id, ts, laplacian_var
+                  FROM image_archive
+                 WHERE camera_id = ?
+                   AND image_tier = 'raw'
+                   AND image_path IS NOT NULL
+                   AND ts >= ?
+                   AND ts < ?
+                 ORDER BY ts ASC
+                """,
+                (camera_id, cutoff_iso, end_iso),
+            ).fetchall()
+        else:
+            rows = c.execute(
+                """
+                SELECT id, camera_id, ts, laplacian_var
+                  FROM image_archive
+                 WHERE camera_id = ?
+                   AND image_tier = 'raw'
+                   AND image_path IS NOT NULL
+                   AND ts >= ?
+                 ORDER BY ts ASC
+                """,
+                (camera_id, cutoff_iso),
+            ).fetchall()
 
     if not rows:
-        log.info(
-            "select_timelapse: no raw frames for %s in last %dh",
-            camera_id, window_h,
-        )
+        if single_day:
+            # Almost always raw retention, not a dead camera: the previous
+            # day's 06:00 is ~27h old at a 09:00 run, so a camera whose
+            # raw_retention_hours was lowered below ~30 silently loses this
+            # lane. Name that here so it is not a mystery later.
+            log.warning(
+                "select_timelapse: no raw frames for %s in the %s daylight "
+                "window (%s -> %s). Check cameras.%s.raw_retention_hours is "
+                "still >= ~36h.",
+                camera_id, target_day.isoformat(), cutoff_iso, end_iso,
+                camera_id,
+            )
+        else:
+            log.info(
+                "select_timelapse: no raw frames for %s in last %dh",
+                camera_id, window_h,
+            )
         return []
 
     if use_golden:
@@ -1066,7 +1157,14 @@ def select_timelapse_gems(
             )
             if not rows:
                 return []
-    elif daylight_only:
+    elif daylight_only and not single_day:
+        # In single_day mode the SQL bounds ARE the daylight window
+        # (daylight_start -> daylight_end on one local date), so this filter
+        # would re-clip an already-clipped range to the same hours. Skipped
+        # deliberately: two overlapping mechanisms trimming the same span is
+        # how the next person loses an afternoon. When single_day is on, the
+        # window is the ONLY mechanism and
+        # timelapse_reel_daylight_only_cameras is dead for that camera.
         raw_count = len(rows)
         try:
             rows = [

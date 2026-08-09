@@ -95,6 +95,33 @@ Verified end-to-end through the production `_stitch_reel` path, not a
 prototype: `duo2-timelapse` selected 900/8,529 frames and encoded a 50.0s
 1920x1080 MP4 (40 MB) in 20s.
 
+**Daily lanes: rolling 24h window replaced with one solar day.** Boss on the
+first dense daily build: *"It starts at like 7 p.m., which is not good. It's
+just a long period of just nothing because it's nighttime... It needs to start
+at 6 a.m."* — and then: *"I want it to go from 6 a.m. until 8 p.m. or 9 p.m.
+That's it. From 9 p.m. until 6 a.m. ... that can be the gap."*
+
+`select_timelapse_gems` used `ts >= now - window_hours` with **no upper
+bound**, so the window opened wherever the clock happened to be and ran
+straight through the night. New `timelapse_reel_single_day` anchors it to ONE
+local calendar day — the most recent COMPLETE one (today if the lane runs
+after dusk, else yesterday), which makes the reel independent of the lane's
+scheduled hour and required no plist moves. The SQL gained a real upper bound;
+moving only the cutoff would have dragged the evening tail back in.
+
+The day is bounded by **actual sunrise/sunset**, not clock hours. A fixed
+06:00–21:00 was tried first and measured ending at 20:59 with the Reolink
+already flipped to infrared — ~45 minutes of grey night footage. Fixed hours
+are also season-blind: the window that is slightly too long in August is four
+hours of darkness in December. Solar bounds reuse `golden_windows`'
+`sunrise_minute`/`sunset_minute` and the same farm coordinates the weekly and
+monthly lanes use, so all six lanes now agree on what "daylight" means.
+
+Measured after the change: **05:50 → 19:58 local, 849 frames, 47s**, last frame
+19:41 in full evening colour with no IR. The `daylight_only` per-camera filter
+is now skipped in single-day mode — the window *is* the daylight window, and
+two mechanisms clipping the same range is a trap for the next reader.
+
 **Timing:** capture accrues from now — **09-Aug-2026 11:47 EDT**, confirmed
 live in the pipeline log on the `(interval)` path for both cameras. The
 existing 17 keyframes stay and simply become the oldest entries. The first

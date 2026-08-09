@@ -116,3 +116,48 @@ with Boss; not in this change's scope.
 - `CHANGELOG.md` — v2.69.0 entry.
 - `retention.py` header — the "keyframes are permanent by construction" note
   from v2.60.0 is now wrong and is marked superseded in place.
+
+## Addendum — the daily window (same day, after the first dense build)
+
+Density alone was not enough. Boss on the first dense daily reel:
+
+> "It starts at like 7 p.m., which is not good. It's just a long period of just
+> nothing because it's nighttime... It needs to start at 6 a.m."
+
+> "I want it to go from 6 a.m. until 8 p.m. or 9 p.m. That's it. From 9 p.m.
+> until 6 a.m. the next morning ... that can be the gap."
+
+**Cause:** `select_timelapse_gems` selected `ts >= now - window_hours` with **no
+upper bound**. The window opened wherever the clock was when the lane ran and
+ran through the night. (The 7 p.m. start he saw was a test build at 18:39; the
+live 15:00 lane opened at 15:00. Same defect, different hour.)
+
+**Fix:** `timelapse_reel_single_day` anchors the window to ONE local calendar
+day — the most recent COMPLETE one (today if run after dusk, else yesterday).
+That makes the reel independent of the lane's scheduled hour, so no plist moved
+and the packed 20:00–21:30 block and 25/day IG quota were left alone. The SQL
+gained a genuine upper bound; moving only the cutoff would still have run to
+`now`.
+
+**Bounded by sunrise/sunset, not clock hours.** A fixed 06:00–21:00 was tried
+first and measured ending 20:59 with the camera already in infrared — ~45 min
+of grey. Fixed hours are season-blind too: too long in August, four hours of
+dark in December. Solar bounds reuse `golden_windows.sunrise_minute` /
+`sunset_minute` and the farm coordinates, so all six time-lapse lanes now share
+one definition of daylight.
+
+**Retention is the constraint to watch.** The previous day's sunrise is ~27h old
+at the 09:00 house-yard run. All three cameras are at
+`raw_retention_hours: 48`, leaving ~14h of margin. Drop any of them below ~36h
+and that lane goes silent — the selector logs a warning naming the camera and
+the key rather than reporting an empty day.
+
+**Measured after the change:**
+
+| lane | frames | window (local) | duration |
+|---|---|---|---|
+| house-yard-cam-timelapse | 849 | 05:50 → 19:58 | 47s |
+| duo2-timelapse | 849 | 05:50 → 19:58 | 47s |
+| jieli-dashcam-timelapse | 772 | 05:50 → 19:30 | 43s |
+
+Last frame of the duo2 build: 19:41, full evening colour, no IR.

@@ -263,6 +263,14 @@ HOUSE_YARD_CAM_TIMELAPSE_LANE = DailyReelLane(
     selector_overrides={
         "timelapse_reel_bucket_minutes": 1,
         "timelapse_reel_max_frames": 900,
+        # One complete local day, 06:00 -> 21:00, instead of a rolling 24h
+        # look-back that opened mid-evening and ran through the night. Boss,
+        # 09-Aug-2026: "I want it to go from 6 a.m. until 8 p.m. or 9 p.m.
+        # That's it... From 9 p.m. until 6 a.m. the next morning ... that can
+        # be the gap." 21:00 rather than the global 20:00 so the evening light
+        # is in the reel; 15h at 1-minute buckets is exactly the 900 cap.
+        "timelapse_reel_single_day": True,
+        "timelapse_reel_daylight_end_hour": 21,
     },
 )
 
@@ -294,6 +302,14 @@ DUO2_TIMELAPSE_LANE = DailyReelLane(
     selector_overrides={
         "timelapse_reel_bucket_minutes": 1,
         "timelapse_reel_max_frames": 900,
+        # One complete local day, 06:00 -> 21:00, instead of a rolling 24h
+        # look-back that opened mid-evening and ran through the night. Boss,
+        # 09-Aug-2026: "I want it to go from 6 a.m. until 8 p.m. or 9 p.m.
+        # That's it... From 9 p.m. until 6 a.m. the next morning ... that can
+        # be the gap." 21:00 rather than the global 20:00 so the evening light
+        # is in the reel; 15h at 1-minute buckets is exactly the 900 cap.
+        "timelapse_reel_single_day": True,
+        "timelapse_reel_daylight_end_hour": 21,
     },
 )
 
@@ -324,6 +340,14 @@ JIELI_DASHCAM_TIMELAPSE_LANE = DailyReelLane(
     selector_overrides={
         "timelapse_reel_bucket_minutes": 1,
         "timelapse_reel_max_frames": 900,
+        # One complete local day, 06:00 -> 21:00, instead of a rolling 24h
+        # look-back that opened mid-evening and ran through the night. Boss,
+        # 09-Aug-2026: "I want it to go from 6 a.m. until 8 p.m. or 9 p.m.
+        # That's it... From 9 p.m. until 6 a.m. the next morning ... that can
+        # be the gap." 21:00 rather than the global 20:00 so the evening light
+        # is in the reel; 15h at 1-minute buckets is exactly the 900 cap.
+        "timelapse_reel_single_day": True,
+        "timelapse_reel_daylight_end_hour": 21,
     },
 )
 
