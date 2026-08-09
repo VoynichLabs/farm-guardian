@@ -72,6 +72,29 @@ logs a warning and posts nothing. Normal capture clears 200 in ~1.5 days.
 900 frames / 50s / 0.056s per shot, spaced evenly across the whole week. Both
 Reolink cameras (house-yard and duo2), both cadences (weekly and monthly).
 
+**The three DAILY lanes had the same disease and were fixed in the same pass.**
+`house-yard-cam-timelapse` (09:00), `duo2-timelapse` (15:00) and
+`jieli-dashcam-timelapse` (21:30) were each pinned at exactly **90 frames** —
+`timelapse_reel_max_frames`, with 5-minute buckets — so a 24-hour day became
+one shot per 16 minutes held 0.4s. Less extreme than the weekly lane but the
+same linger-then-jump, and these post *every day*, so they are what Boss
+actually sees. duo2 alone captures ~8,500 raw frames a day, meaning the cap was
+discarding better than 99% of available material. All three now run the dense
+path at 1-minute buckets and a 900-frame cap: **900 frames / 50s** for the two
+all-hours Reolink lanes, ~525 for the daylight-only dashcam.
+
+New `DailyReelLane.selector_overrides` layers per-lane keys over
+`scheduled_cfg` before the selector runs. `timelapse_reel_max_frames` and
+`timelapse_reel_bucket_minutes` are global keys shared by every time-lapse
+lane, so a dense lane could not raise its own cap without this — and raising
+them globally would hand 900 frames to the mba-cam/gwtc/usb-cam/dominator
+lanes, which are still on the xfade path and cannot take it. Those four are
+`.disabled` today, and this keeps them safe if they are ever restored.
+
+Verified end-to-end through the production `_stitch_reel` path, not a
+prototype: `duo2-timelapse` selected 900/8,529 frames and encoded a 50.0s
+1920x1080 MP4 (40 MB) in 20s.
+
 **Timing:** capture accrues from now — **09-Aug-2026 11:47 EDT**, confirmed
 live in the pipeline log on the `(interval)` path for both cameras. The
 existing 17 keyframes stay and simply become the oldest entries. The first

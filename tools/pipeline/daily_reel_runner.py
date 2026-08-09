@@ -104,6 +104,12 @@ class DailyReelLane:
     # reached after ~1.5 days of 5-minute daylight capture, so a normal week
     # clears it easily and only a genuinely broken week gets held back.
     timelapse_min_frames: int = 200
+    # selector_overrides: per-lane keys layered over scheduled_cfg before the
+    # selector runs. The time-lapse selector's frame cap and bucket size are
+    # global config keys shared by every time-lapse lane, so a dense lane
+    # cannot raise its own cap without this — and raising them globally would
+    # hand 900 frames to lanes still on the xfade path, which cannot take it.
+    selector_overrides: Optional[dict] = None
 
 
 MIXED_DAILY_REEL_LANE = DailyReelLane(
@@ -249,7 +255,15 @@ HOUSE_YARD_CAM_TIMELAPSE_LANE = DailyReelLane(
     mention_user_id=MARK_DISCORD_USER_ID,
     landscape_mode=True,
     discord_preview_scale="960:540",
-    seconds_per_frame=0.4,
+    # Dense path 09-Aug-2026 (v2.69.0). Was 0.4s/frame capped at 90 frames —
+    # one shot per 16 minutes of a 24h day, held 0.4s, which is the same
+    # linger-then-jump Boss objected to on the weekly lane, just less extreme.
+    # 1-minute buckets over 24h give up to 1440 candidates, subsampled to 900.
+    timelapse_fps=18.0,
+    selector_overrides={
+        "timelapse_reel_bucket_minutes": 1,
+        "timelapse_reel_max_frames": 900,
+    },
 )
 
 # 22-June-2026 (Claude Opus 4.7): duo2 (Reolink Duo 2 WiFi) time-lapse lane, the
@@ -273,7 +287,14 @@ DUO2_TIMELAPSE_LANE = DailyReelLane(
     mention_user_id=MARK_DISCORD_USER_ID,
     landscape_mode=True,
     discord_preview_scale="960:540",
-    seconds_per_frame=0.4,
+    # Dense path 09-Aug-2026 (v2.69.0) — see HOUSE_YARD_CAM_TIMELAPSE_LANE.
+    # duo2 captures every 10s, so a 24h day holds ~8,500 raw frames and the
+    # 90-frame cap was throwing away better than 99% of the material.
+    timelapse_fps=18.0,
+    selector_overrides={
+        "timelapse_reel_bucket_minutes": 1,
+        "timelapse_reel_max_frames": 900,
+    },
 )
 
 
@@ -295,8 +316,15 @@ JIELI_DASHCAM_TIMELAPSE_LANE = DailyReelLane(
     # 1280x720 sensor — 16:9, same as the duo2 and house-yard lanes.
     landscape_mode=True,
     discord_preview_scale="960:540",
-    # Fast pacing, matching the other outdoor time-lapse lanes.
-    seconds_per_frame=0.4,
+    # Dense path 09-Aug-2026 (v2.69.0) — see HOUSE_YARD_CAM_TIMELAPSE_LANE.
+    # This lane is daylight-only (jieli-dashcam is in
+    # timelapse_reel_daylight_only_cameras), so 1-minute buckets yield ~840
+    # candidates rather than 1440 and the 900 cap is rarely reached.
+    timelapse_fps=18.0,
+    selector_overrides={
+        "timelapse_reel_bucket_minutes": 1,
+        "timelapse_reel_max_frames": 900,
+    },
 )
 
 # KNOWN AND DELIBERATELY DEFERRED (02-Aug-2026): unlike every other lane here,
@@ -1293,7 +1321,10 @@ def _select_gems(
     from tools.pipeline import ig_selection
 
     selector = getattr(ig_selection, lane.selector_name)
-    return selector(db_path=db_path, cfg=scheduled_cfg)
+    cfg = scheduled_cfg
+    if lane.selector_overrides:
+        cfg = {**scheduled_cfg, **lane.selector_overrides}
+    return selector(db_path=db_path, cfg=cfg)
 
 
 def _s7_daily_frame_holds(

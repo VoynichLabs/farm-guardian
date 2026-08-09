@@ -27,9 +27,20 @@ there was nothing else in the pool to choose.
 
 ## Scope
 
-**In:** `house-yard` + `duo2`, weekly + monthly lanes (4 lanes).
-**Out:** every other reel lane. The S7, mixed, and per-camera time-lapse lanes
-keep the xfade path and their existing pacing, untouched.
+**In (7 lanes):**
+
+- `house-yard` + `duo2` weekly + monthly (4 lanes) — the reported fault.
+- `house-yard-cam-timelapse` (09:00), `duo2-timelapse` (15:00),
+  `jieli-dashcam-timelapse` (21:30) — the **daily** lanes, found during a
+  follow-up sweep. Each was pinned at exactly 90 frames
+  (`timelapse_reel_max_frames`) with 5-minute buckets, i.e. one shot per 16
+  minutes of a 24h day held 0.4s. Same linger-then-jump, and these post daily,
+  so they are the ones actually seen. duo2 captures ~8,500 raw frames/day, so
+  the cap was discarding >99% of the material.
+
+**Out:** the S7, mixed, and the four `.disabled` per-camera time-lapse lanes
+(mba-cam, gwtc, usb-cam, dominator-cam). They keep the xfade path and their
+existing pacing, untouched.
 
 ## Architecture
 
@@ -39,7 +50,15 @@ keep the xfade path and their existing pacing, untouched.
 | Stitch | `reel_stitcher.py` | `stitch_frames_to_timelapse()` — 18fps, no crossfade, `image2` demuxer. Separate `_MAX_TIMELAPSE_FRAMES = 900`. |
 | Selection | `ig_selection.py` | Even-stride subsample across the window, replacing keep-most-recent. |
 | Retention | `retention.py`, `orchestrator.py` | `sweep_raw(image_tier=…)`, 768h rolling window on the keyframe tier. |
-| Lanes | `daily_reel_runner.py` | `timelapse_fps=18.0`, `timelapse_min_frames=200` on the 4 lanes. |
+| Lanes | `daily_reel_runner.py` | `timelapse_fps=18.0`, `timelapse_min_frames=200`, `selector_overrides` on the 7 lanes. |
+
+### Why `selector_overrides` rather than editing the config keys
+
+`timelapse_reel_max_frames` and `timelapse_reel_bucket_minutes` are **global**
+keys read by every time-lapse lane. Raising them in `config.json` would hand
+900 frames to the mba-cam / gwtc / usb-cam / dominator lanes, which are still
+on the xfade path (one ffmpeg input + one filter per frame) and cannot take it.
+They are `.disabled` today; this keeps them safe if restored.
 
 ### Why the xfade path could not be reused
 
