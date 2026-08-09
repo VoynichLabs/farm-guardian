@@ -4,6 +4,96 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.69.0 — the weekly/monthly Reolink time-lapse reels stop being choppy: dense capture, dense stitch, rolling retention (Claude Opus 5) — 09-Aug-2026
+
+**Boss, on the duo2 weekly reel:** *"you got 17 frames in it for the entire
+fucking week? That's fucking insane. It should be hundreds of pictures."* And
+on what actually made it look bad: *"the videos you show me are choppy... They
+linger on one shot far too long, and then it is an abrupt transition to another
+shot at a totally different time of day. The same thing is the case on the
+other reolink camera."*
+
+**He was right on both counts and the arithmetic is exact.** The weekly and
+monthly lanes source `image_tier='keyframe'`, and `keyframe_capture` promoted a
+frame at **3 fixed local times a day** (07:00 / 12:00 / 16:00). Seven days × 3
+= 21 possible frames; the tier only started existing on 03-Aug (v2.60.0), so
+duo2 had **17 keyframes in the entire database**. The selector was not
+discarding anything — there was nothing else to pick. Those 17 frames were then
+held **1.8s each** by the xfade path, so the reel cut between shots captured
+*five real hours apart*: linger, jump, linger, jump. 17 × 1.8 − 16 × 0.15 =
+28.2s, matching the posted file exactly.
+
+**What changed — four parts, all needed, none sufficient alone:**
+
+1. **Capture (`orchestrator.py`, `config.json`).** New `_keyframe_interval_due`
+   promotes a keyframe every `keyframe_capture.interval_minutes` (**5**) of
+   daylight instead of at 3 fixed slots — ~168 frames/day/camera, one every 5
+   minutes, so consecutive frames are minutes apart rather than hours.
+   Daylight-gated by `golden_windows.is_daylight`, the same predicate the
+   selector filters on, so no dark frame is ever written just to be discarded.
+   Idempotency is a "newest keyframe age" query, so it survives daemon restarts
+   with no state file — same discipline as the slot path, which is retained as
+   a fallback when `interval_minutes` is cleared.
+
+2. **Stitch (`reel_stitcher.py`).** New `stitch_frames_to_timelapse()` — a
+   dense fixed-fps path at **18 fps**, no crossfade, via ffmpeg's `image2`
+   demuxer over a numbered sequence. The existing xfade path structurally
+   cannot do this: it spends **one ffmpeg `-i` and one chained filter per
+   frame**, which is fine at 17 and untenable at 900, and a 0.15s crossfade on
+   a 0.056s frame is mush. Both paths share the same framing helpers and error
+   contract, so a lane switches between them with one field.
+
+3. **Selection (`ig_selection.py`).** The multiday trim kept
+   `daylight_rows[-_MAX_FRAMES:]` — the most *recent* N. Harmless at 17 rows;
+   at 168/day it would have turned *"A month across the farm"* into the last
+   day and a half, captioned as a month. Now thinned by **even stride across
+   the whole window**, which also lets one dense capture stream serve both
+   lanes (weekly = fine stride over 7 days, monthly = coarse over 30). New
+   `_MAX_TIMELAPSE_FRAMES = 900` is a **separate constant from `_MAX_FRAMES`**
+   deliberately — `ig_selection` imports the latter and the S7 daily lane
+   budgets its per-frame gem holds against it, so raising it would silently
+   restretch reels this change has no business touching.
+
+4. **Retention (`retention.py`, `orchestrator.py`).** Keyframes were
+   "permanent by construction" at 3/day. At 168/day that is **~117 GB/year**
+   across the two cameras, so they now expire on a rolling
+   `keyframe_capture.retention_hours` window (**768h / 32 days** — sized to
+   outlast the 30-day monthly reel with two days of slack). `sweep_raw()` was
+   **not** broadened to catch them; it gained an explicit `image_tier`
+   argument defaulting to `'raw'`, so it prunes exactly the tier its caller
+   names and no existing caller changed behaviour. Steady state is ~10 GB.
+
+**Guard against the same failure in a new costume:** `timelapse_min_frames`
+(200, ~11s) makes a dense lane **skip** rather than publish. At 18 fps the 17
+frames available today would have produced a *one-second* reel; a thin week now
+logs a warning and posts nothing. Normal capture clears 200 in ~1.5 days.
+
+**Net:** the weekly reel goes from 17 frames / 28.2s / 1.8s per shot to up to
+900 frames / 50s / 0.056s per shot, spaced evenly across the whole week. Both
+Reolink cameras (house-yard and duo2), both cadences (weekly and monthly).
+
+**Timing:** capture accrues from now — **09-Aug-2026 11:47 EDT**, confirmed
+live in the pipeline log on the `(interval)` path for both cameras. The
+existing 17 keyframes stay and simply become the oldest entries. The first
+weekly reel with a full dense week behind it is **Sunday 16-Aug**; the run on
+10-Aug will have ~1 day of dense capture and may skip on the 200-frame floor,
+which is the intended behaviour rather than a regression.
+
+**Rejected — do not revisit without reading this.** The duo2 has a 128 GB SD
+card and *does* record natively, but it cannot feed these lanes: it is full
+(811 MB free) and holds only ~3 days (Aug 7/8/9 on a `cmd=Search` status
+sweep). Substream-only recording would stretch it to ~27 days at 1536×576,
+which is *worse* than the 2304 px frames the pipeline already captures every
+10s. The card is a good backstop for finding a past event; it is the wrong
+source for a reel. Extending `raw_retention_hours` was also rejected — 30 days
+of duo2 raw is ~128 GB and it still cannot serve the monthly lane.
+
+**Not addressed here (separate concern, flagged for Boss):** the duo2's frame
+is a 2304×864 near-3:1 panorama, so in a 9:16 Reel it renders as a strip with
+black filling most of a phone screen, and everything in it is far enough away
+that the birds are specks. That is a framing question, not a frame-count one,
+and no amount of extra frames changes it.
+
 ### v2.68.0 — frame-fill dropped from the gem score, sharpness measured on the bird, reel bucket adapts to the S7's short runtime (Claude Opus 5) — 08-Aug-2026
 
 Three asks from Boss after a day of watching v2.67 run: drop the frame-fill

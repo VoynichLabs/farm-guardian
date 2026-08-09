@@ -32,7 +32,13 @@
    "16:00"
   ],
   "timezone": "America/New_York",
-  "tolerance_minutes": 5
+  "tolerance_minutes": 5,
+  "interval_minutes": 5,
+  "daylight": {
+   "latitude": 41.7558,
+   "longitude": -71.9789
+  },
+  "retention_hours": 768
  },
  "instagram": {
   "enabled": false,

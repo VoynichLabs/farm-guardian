@@ -1,7 +1,24 @@
-# Author: Claude Opus 4.7 (1M context) / updated Claude Sonnet 4.6 01-May-2026; Claude Sonnet 4.6 09-May-2026 — landscape mode for time-lapse camera lanes; Claude Opus 5 28-Jul-2026 — optional per-frame durations + duration guard
-# Date: 20-April-2026; 28-Jul-2026 — per_frame_seconds (variable hold per frame)
+# Author: Claude Opus 4.7 (1M context) / updated Claude Sonnet 4.6 01-May-2026; Claude Sonnet 4.6 09-May-2026 — landscape mode for time-lapse camera lanes; Claude Opus 5 28-Jul-2026 — optional per-frame durations + duration guard; Claude Opus 5 09-Aug-2026 — stitch_frames_to_timelapse (dense fixed-fps path), v2.69.0
+# Date: 20-April-2026; 28-Jul-2026 — per_frame_seconds (variable hold per frame); 09-Aug-2026 — dense time-lapse path
 # PURPOSE: Stitch N Guardian gem JPEGs into an MP4 suitable for
-#          posting to Instagram as a Reel. Two output modes:
+#          posting to Instagram as a Reel.
+#
+#          TWO STITCH PATHS, picked by frame count:
+#
+#          stitch_gems_to_reel  — the xfade path. Tens of frames, each
+#            held ~1s, crossfaded. One ffmpeg input + one filter per
+#            frame. Used by every reaction-gated and per-camera lane.
+#
+#          stitch_frames_to_timelapse — the DENSE path (09-Aug-2026).
+#            Hundreds of frames at a fixed 18fps, no transitions, via
+#            ffmpeg's image2 demuxer over a numbered sequence. Used by
+#            the house-yard/duo2 weekly + monthly lanes, which need
+#            continuous motion rather than a slideshow. See v2.69.0.
+#
+#          Both share the same framing helpers and output contract, so
+#          a lane switches between them without any other change.
+#
+#          Two output modes, common to both paths:
 #
 #          Portrait (default, landscape=False): center-crop each frame
 #          to 9:16 at the source's native height. Used by all reaction-
@@ -74,6 +91,20 @@ log = logging.getLogger("pipeline.reel_stitcher")
 # Instagram's 90s reel limit. All reacted gems come through; no bucketing.
 _MIN_FRAMES = 2
 _MAX_FRAMES = 90
+
+# _MAX_TIMELAPSE_FRAMES: the cap for the DENSE path (stitch_frames_to_timelapse)
+# only. Deliberately a separate constant from _MAX_FRAMES — ig_selection imports
+# _MAX_FRAMES and the S7 daily lane budgets its per-frame gem holds against it,
+# so raising that one would silently restretch reels this change has no business
+# touching. 900 frames at 18 fps is 50s, comfortably inside _MAX_REEL_SECONDS.
+_MAX_TIMELAPSE_FRAMES = 900
+
+# _TIMELAPSE_FPS: playback rate for the dense path. At 18 fps each frame is on
+# screen for 0.056s, so a week of 5-minute daylight captures reads as continuous
+# motion rather than a slideshow that lingers and cuts. This is the fix for the
+# 09-Aug-2026 complaint that the weekly Reolink reels were "choppy" — 17 frames
+# held 1.8s each with five real hours between consecutive shots.
+_TIMELAPSE_FPS = 18.0
 
 # _MAX_REEL_SECONDS: the frame cap above is really a DURATION proxy, and
 # that equivalence only holds while every frame is the same length. Once
@@ -505,6 +536,164 @@ def stitch_gems_to_reel(
 
     log.info(
         "reel_stitcher: wrote %s (%d bytes)",
+        output_path, output_path.stat().st_size,
+    )
+    return output_path
+
+
+def _resolve_gem_jpegs(gem_ids: list[int], db_path: Path) -> list[Path]:
+    """gem_ids -> on-disk JPEG paths, preserving caller order.
+
+    Extracted 09-Aug-2026 so stitch_gems_to_reel (xfade path) and
+    stitch_frames_to_timelapse (dense path) share one lookup instead of
+    duplicating the SELECT + resolve_gem_image_path pairing.
+    """
+    jpeg_sources: list[Path] = []
+    with sqlite3.connect(str(db_path)) as conn:
+        conn.row_factory = sqlite3.Row
+        for gid in gem_ids:
+            row = conn.execute(
+                "SELECT id, image_path FROM image_archive WHERE id = ?", (gid,),
+            ).fetchone()
+            if not row:
+                raise ReelStitcherError(f"gem_id {gid} not in image_archive")
+            jpeg_sources.append(resolve_gem_image_path(dict(row), db_path))
+    return jpeg_sources
+
+
+def stitch_frames_to_timelapse(
+    gem_ids: list[int],
+    db_path: Path,
+    output_path: Path,
+    landscape: bool = True,
+    fps: float = _TIMELAPSE_FPS,
+) -> Path:
+    """Stitch MANY frames into a continuous-motion time-lapse MP4.
+
+    The dense sibling of stitch_gems_to_reel, added 09-Aug-2026 for the
+    house-yard/duo2 weekly + monthly lanes. Boss's complaint was that those
+    reels were "choppy" — they held each shot ~1.8s and cut between frames
+    captured hours apart. The cure is many frames played fast, which the
+    xfade path structurally cannot do:
+
+      - stitch_gems_to_reel spends one ffmpeg `-i` and one chained xfade
+        filter PER FRAME. That is fine at 17 frames and untenable at 900
+        (nine hundred decoders in one filter graph).
+      - A crossfade is meaningless at 0.056s/frame anyway — the fade would
+        occupy most of every frame's screen time and read as mush.
+
+    So this path uses ffmpeg's image2 demuxer over a numbered sequence: one
+    input, one decode, fixed frame rate, no transitions. Frames are still
+    pre-processed through the same _pre_fit_landscape_frame / _pre_crop_frame
+    helpers, so framing matches the xfade path exactly.
+
+    Parameters:
+      gem_ids     Ordered image_archive ids (oldest-first for a time-lapse).
+                  Capped at _MAX_TIMELAPSE_FRAMES; callers subsample first.
+      db_path     Guardian SQLite DB, for id -> JPEG path resolution.
+      output_path Destination MP4. Parent dirs are created.
+      landscape   True -> 1920x1080 fit; False -> 9:16 center-crop.
+      fps         Playback rate. Duration is len(gem_ids)/fps, checked
+                  against _MAX_REEL_SECONDS.
+
+    Raises ReelStitcherError on any failure — same contract as the xfade
+    path, so post_reel_to_ig's existing handler covers both.
+    """
+    n = len(gem_ids)
+    if n < _MIN_FRAMES:
+        raise ReelStitcherError(
+            f"need at least {_MIN_FRAMES} frames for a time-lapse; got {n}"
+        )
+    if n > _MAX_TIMELAPSE_FRAMES:
+        raise ReelStitcherError(
+            f"{n} frames exceeds the {_MAX_TIMELAPSE_FRAMES}-frame time-lapse "
+            f"cap. Subsample in the selector — only it knows how to keep the "
+            f"span even, and silently dropping the tail would turn a month "
+            f"into a week."
+        )
+    if fps <= 0:
+        raise ReelStitcherError(f"fps must be positive; got {fps}")
+
+    duration = n / fps
+    if duration > _MAX_REEL_SECONDS:
+        raise ReelStitcherError(
+            f"{n} frames at {fps:g}fps runs {duration:.1f}s, over the "
+            f"{_MAX_REEL_SECONDS}s budget (Instagram's Reel limit is 90s)."
+        )
+
+    jpeg_sources = _resolve_gem_jpegs(gem_ids, db_path)
+
+    work_dir = Path(tempfile.mkdtemp(prefix="reel-timelapse-"))
+    try:
+        # Pre-process every frame to identical dimensions. image2 is stricter
+        # than xfade here: a mid-sequence resolution change makes the demuxer
+        # fail outright rather than warn.
+        dims: list[tuple[int, int]] = []
+        for i, src in enumerate(jpeg_sources):
+            dest = work_dir / f"f{i:05d}.jpg"
+            if landscape:
+                dims.append(_pre_fit_landscape_frame(src, dest))
+            else:
+                dims.append(_pre_crop_frame(src, dest))
+
+        target_w = max(d[0] for d in dims)
+        target_h = max(d[1] for d in dims)
+        for i, d in enumerate(dims):
+            if d != (target_w, target_h):
+                frame = work_dir / f"f{i:05d}.jpg"
+                _resize_frame(frame, frame, target_w, target_h)
+
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Silent AAC track for the same reason the xfade path carries one:
+        # IG's fetcher intermittently rejects pure-video MP4s.
+        cmd = [
+            _ffmpeg_path(), "-y",
+            "-framerate", f"{fps:g}",
+            "-i", str(work_dir / "f%05d.jpg"),
+            "-f", "lavfi",
+            "-t", f"{duration:.4f}",
+            "-i", "anullsrc=r=48000:cl=stereo",
+            "-map", "0:v", "-map", "1:a",
+            "-c:v", "libx264",
+            "-profile:v", "high",
+            "-level", "4.1",
+            "-pix_fmt", "yuv420p",
+            # Encode at 30fps regardless of capture rate: IG re-encodes
+            # anything non-standard, and 18fps source -> 30fps output is a
+            # clean frame duplication rather than a resample.
+            "-r", "30",
+            "-b:v", "6M",
+            "-c:a", "aac",
+            "-b:a", "128k",
+            "-shortest",
+            "-movflags", "+faststart",
+            str(output_path),
+        ]
+        log.info(
+            "reel_stitcher: time-lapse ffmpeg (n=%d, %.1fs at %gfps, %dx%d, "
+            "out=%s)", n, duration, fps, target_w, target_h, output_path,
+        )
+        # Dense encodes are far heavier than a 17-frame xfade; give ffmpeg
+        # proportionally more room than _FFMPEG_TIMEOUT_S allows.
+        proc = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=_FFMPEG_TIMEOUT_S * 4,
+        )
+        if proc.returncode != 0:
+            raise ReelStitcherError(
+                f"ffmpeg exited rc={proc.returncode}\n"
+                f"  stderr (tail): {proc.stderr[-500:].strip()}"
+            )
+    except subprocess.TimeoutExpired as e:
+        raise ReelStitcherError(
+            f"time-lapse ffmpeg timed out after {_FFMPEG_TIMEOUT_S * 4}s"
+        ) from e
+    finally:
+        shutil.rmtree(work_dir, ignore_errors=True)
+
+    log.info(
+        "reel_stitcher: wrote time-lapse %s (%d bytes)",
         output_path, output_path.stat().st_size,
     )
     return output_path

@@ -1,4 +1,4 @@
-# Author: Claude Sonnet 4.6; Claude Opus 4.8 (Bubba sub-agent) 14-June-2026 — golden-window two-window filter + seconds-granular bucketing for usb-cam/dominator-cam time-lapse lanes; Claude Opus 4.7 (Bubba sub-agent) 22-June-2026 — select_duo2_timelapse_gems wrapper; Claude Opus 5 28-Jul-2026 — S7 dawn-to-dusk single-day window + gem-survival union; s7-backlog drain converted to a 7-day weekly gems window; Claude Sonnet 5 Extra 03-Aug-2026 — select_multiday_timelapse_gems + house-yard/duo2 weekly+monthly wrappers, v2.60.0
+# Author: Claude Sonnet 4.6; Claude Opus 4.8 (Bubba sub-agent) 14-June-2026 — golden-window two-window filter + seconds-granular bucketing for usb-cam/dominator-cam time-lapse lanes; Claude Opus 4.7 (Bubba sub-agent) 22-June-2026 — select_duo2_timelapse_gems wrapper; Claude Opus 5 28-Jul-2026 — S7 dawn-to-dusk single-day window + gem-survival union; s7-backlog drain converted to a 7-day weekly gems window; Claude Sonnet 5 Extra 03-Aug-2026 — select_multiday_timelapse_gems + house-yard/duo2 weekly+monthly wrappers, v2.60.0; Claude Opus 5 09-Aug-2026 — multiday trim switched from keep-most-recent to even-stride subsampling so a month reel spans a month, v2.69.0
 # Date: 07-May-2026; 09-May-2026 — _score_raw_frame + select_timelapse_gems for vlm_bypass lanes; 10-May-2026 — daylight filter for coop-roof time-lapse lanes; 11-May-2026 — S7 backlog duplicate guard; 14-June-2026 — golden activity windows (sunrise->09:00, 19:30->20:30), denser in-window sampling; 28-Jul-2026 — S7 daily reel bounded to one local calendar day, every reacted gem guaranteed to survive bucketing; 03-Aug-2026 — multi-day (weekly/monthly) keyframe-tier selectors for house-yard/duo2
 # PURPOSE: Select Instagram-post-eligible gems from image_archive on
 #          wall-clock windows (day, 2-hour, week). Pure SELECT +
@@ -90,7 +90,7 @@ from tools.pipeline.golden_windows import (
 # so select_multiday_timelapse_gems's defensive trim always agrees with what
 # the stitcher will actually accept. Same convention growth_timelapse.py
 # uses for the same reason.
-from tools.pipeline.reel_stitcher import _MAX_FRAMES
+from tools.pipeline.reel_stitcher import _MAX_FRAMES, _MAX_TIMELAPSE_FRAMES
 
 log = logging.getLogger("pipeline.ig_selection")
 
@@ -1197,9 +1197,9 @@ def select_multiday_timelapse_gems(
       longitude  (float, default -71.9789)
 
     Returns oldest-first. If daylight-filtered rows exceed
-    reel_stitcher._MAX_FRAMES, the OLDEST excess is dropped (kept: the most
-    recent _MAX_FRAMES) — logged as a warning, never a silent truncation.
-    Returns [] if nothing qualifies.
+    reel_stitcher._MAX_TIMELAPSE_FRAMES they are thinned by EVEN STRIDE across
+    the whole window, so a monthly reel still spans a month. Returns [] if
+    nothing qualifies.
     """
     mt_cfg = cfg.get("multiday_timelapse") or {}
     tz_name = str(mt_cfg.get("timezone", "America/New_York"))
@@ -1252,15 +1252,26 @@ def select_multiday_timelapse_gems(
         )
         return []
 
-    if len(daylight_rows) > _MAX_FRAMES:
-        log.warning(
+    # Thin to the Reel cap by EVEN STRIDE across the whole window, not by
+    # dropping the oldest. The original "keep the most recent N" trim was
+    # harmless while capture ran at 3 frames/day (17 rows never reached the
+    # cap), but from v2.69.0 capture is ~168 frames/day — at which point
+    # keeping the tail would turn "A month across the farm" into the last
+    # day and a half, captioned as a month. Even stride also lets ONE dense
+    # capture stream serve both lanes: weekly takes a fine stride over 7
+    # days, monthly a coarse one over 30.
+    if len(daylight_rows) > _MAX_TIMELAPSE_FRAMES:
+        stride = len(daylight_rows) / _MAX_TIMELAPSE_FRAMES
+        log.info(
             "select_multiday_timelapse: %d daylight keyframes for %s over "
-            "%dd exceeds the %d-frame Reel cap; dropping the oldest %d, "
-            "keeping the most recent %d",
-            len(daylight_rows), camera_id, since_days, _MAX_FRAMES,
-            len(daylight_rows) - _MAX_FRAMES, _MAX_FRAMES,
+            "%dd exceeds the %d-frame cap; subsampling every ~%.1f frames so "
+            "the full %dd span is preserved",
+            len(daylight_rows), camera_id, since_days, _MAX_TIMELAPSE_FRAMES,
+            stride, since_days,
         )
-        daylight_rows = daylight_rows[-_MAX_FRAMES:]
+        daylight_rows = [
+            daylight_rows[int(i * stride)] for i in range(_MAX_TIMELAPSE_FRAMES)
+        ]
 
     ids = [r["id"] for r in daylight_rows]
     log.info(

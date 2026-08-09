@@ -1,4 +1,4 @@
-# Author: Claude Opus 4.7 (1M context); Claude Sonnet 4.6 (edits 27-April-2026 — vlm_bypass mode: run_raw_cycle, dedicated raw threads, raw retention sweep, v2.37.13; 28-April-2026 — sharpness gate wired in, v2.37.14; 04-May-2026 — Birds preset as prompt/schema source, v2.40.0); GPT-5.5 Codex (edits 08-May-2026 — static floor-pecking score calibration); Claude Opus 4.8 (1M context) (edits 03-June-2026 — VLM input downscale via _downscale_for_vlm + vlm_input_long_edge_px config, to cut per-frame latency, v2.40.17); Claude Opus 4.8 (Bubba sub-agent) (edits 14-June-2026 — golden-window raw capture: per-iteration thick/sparse cadence for usb-cam/dominator-cam via offpeak_cycle_seconds + timelapse_golden_windows); Claude Sonnet 4.6 (edits 27-June-2026 — run_raw_cycle quality gates + laplacian storage, v2.44.1); Claude Fable 5 (edits 02-July-2026 — Discord caption trim via gem_poster.trim_caption, v2.44.5); Claude Opus 4.8 (Bubba) (edits 12-July-2026 — _compute_overall_score 0-100 weighted-component scoring, floor-pecking cap + caption rescaled, v2.45.0; 13-July-2026 — dominance recalibrated (full at ~50% coverage) so real gems clear the 80 gate + BIRD SELFIE ping 95->90, v2.45.1); Claude Fable 5 (edits 16-July-2026 — IG-hook hashtag rotation fed from posted-caption ledger, v2.47.0); Claude Sonnet 5 Extra (edits 03-Aug-2026 — keyframe-promotion hook in run_raw_cycle for the permanent weekly/monthly time-lapse archive, v2.60.0)
+# Author: Claude Opus 4.7 (1M context); Claude Sonnet 4.6 (edits 27-April-2026 — vlm_bypass mode: run_raw_cycle, dedicated raw threads, raw retention sweep, v2.37.13; 28-April-2026 — sharpness gate wired in, v2.37.14; 04-May-2026 — Birds preset as prompt/schema source, v2.40.0); GPT-5.5 Codex (edits 08-May-2026 — static floor-pecking score calibration); Claude Opus 4.8 (1M context) (edits 03-June-2026 — VLM input downscale via _downscale_for_vlm + vlm_input_long_edge_px config, to cut per-frame latency, v2.40.17); Claude Opus 4.8 (Bubba sub-agent) (edits 14-June-2026 — golden-window raw capture: per-iteration thick/sparse cadence for usb-cam/dominator-cam via offpeak_cycle_seconds + timelapse_golden_windows); Claude Sonnet 4.6 (edits 27-June-2026 — run_raw_cycle quality gates + laplacian storage, v2.44.1); Claude Fable 5 (edits 02-July-2026 — Discord caption trim via gem_poster.trim_caption, v2.44.5); Claude Opus 4.8 (Bubba) (edits 12-July-2026 — _compute_overall_score 0-100 weighted-component scoring, floor-pecking cap + caption rescaled, v2.45.0; 13-July-2026 — dominance recalibrated (full at ~50% coverage) so real gems clear the 80 gate + BIRD SELFIE ping 95->90, v2.45.1); Claude Fable 5 (edits 16-July-2026 — IG-hook hashtag rotation fed from posted-caption ledger, v2.47.0); Claude Sonnet 5 Extra (edits 03-Aug-2026 — keyframe-promotion hook in run_raw_cycle for the permanent weekly/monthly time-lapse archive, v2.60.0); Claude Opus 5 (edits 09-Aug-2026 — keyframe capture switched from 3 fixed daily slots to a daylight-gated interval via _keyframe_interval_due, v2.69.0)
 # Date: 17-April-2026 (last touched 03-Aug-2026)
 # PURPOSE: Main entry point for the multi-cam image pipeline. Schedules per-
 #          camera capture cycles at their configured cadences, runs each
@@ -73,7 +73,7 @@ if __package__ in (None, ""):
     from tools.pipeline.vlm_enricher import enrich, ensure_model_loaded, ModelNotLoaded, EnricherError, ValidationFailed
     from tools.pipeline.store import ensure_schema, store, store_raw, store_keyframe
     from tools.pipeline.retention import sweep as retention_sweep, sweep_raw as retention_sweep_raw
-    from tools.pipeline.golden_windows import camera_uses_golden_windows, camera_golden_cfg, is_dt_in_golden_windows
+    from tools.pipeline.golden_windows import camera_uses_golden_windows, camera_golden_cfg, is_dt_in_golden_windows, is_daylight
     from tools.pipeline.gem_poster import post_gem, should_post, load_dotenv, trim_caption
     from tools.pipeline.ig_poster import (
         build_caption,
@@ -97,7 +97,7 @@ else:
     from .vlm_enricher import enrich, ensure_model_loaded, ModelNotLoaded, EnricherError, ValidationFailed
     from .store import ensure_schema, store, store_raw, store_keyframe
     from .retention import sweep as retention_sweep, sweep_raw as retention_sweep_raw
-    from .golden_windows import camera_uses_golden_windows, camera_golden_cfg, is_dt_in_golden_windows
+    from .golden_windows import camera_uses_golden_windows, camera_golden_cfg, is_dt_in_golden_windows, is_daylight
     from .gem_poster import post_gem, should_post, load_dotenv, trim_caption
     from .ig_poster import (
         build_caption,
@@ -452,6 +452,52 @@ def run_raw_cycle(camera_name: str, camera_cfg: dict, cfg: dict,
     return result
 
 
+def _keyframe_interval_due(
+    camera_name: str, cfg: dict, db_path: Path, now_utc: datetime,
+) -> bool:
+    """Interval mode (v2.69.0): true when this camera is in daylight AND its
+    newest keyframe is older than keyframe_capture.interval_minutes.
+
+    Replaces the fixed local_times slot list for the weekly/monthly time-lapse
+    cameras. Three slots a day produced 17 frames for a whole week, so the
+    reels held each shot ~1.8s and cut between captures five real hours apart
+    — Boss's "choppy, lingers, then jumps" complaint on 09-Aug-2026. A reel
+    that flows needs consecutive frames minutes apart, which means capture has
+    to be interval-driven rather than slot-driven.
+
+    Daylight-gated by golden_windows.is_daylight (plain sunrise->sunset), the
+    same predicate select_multiday_timelapse_gems filters on — capturing dark
+    frames the selector will discard would just burn permanent disk.
+
+    Idempotency is the "newest keyframe age" query itself, so this is safe
+    across daemon restarts with no state file, exactly like the slot path.
+    """
+    kf_cfg = cfg.get("keyframe_capture") or {}
+    interval_min = float(kf_cfg.get("interval_minutes") or 0)
+    if interval_min <= 0:
+        return False
+
+    mt_cfg = kf_cfg.get("daylight") or {}
+    tz_name = kf_cfg.get("timezone", "America/New_York")
+    if not is_daylight(
+        now_utc,
+        float(mt_cfg.get("latitude", 41.7558)),
+        float(mt_cfg.get("longitude", -71.9789)),
+        tz_name,
+    ):
+        return False
+
+    cutoff = (now_utc - timedelta(minutes=interval_min)).isoformat()
+    with sqlite3.connect(str(db_path), timeout=30) as c:
+        recent = c.execute(
+            """SELECT 1 FROM image_archive
+                WHERE camera_id = ? AND image_tier = 'keyframe' AND ts >= ?
+                LIMIT 1""",
+            (camera_name, cutoff),
+        ).fetchone()
+    return recent is None
+
+
 def _due_keyframe_slot(
     camera_name: str, cfg: dict, now_utc: datetime,
 ) -> tuple[str, datetime] | None:
@@ -463,6 +509,11 @@ def _due_keyframe_slot(
     that list (i.e. every camera except house-yard/duo2 today) always
     returns None here, so this function is a no-op for the other five
     vlm_bypass cameras without needing its own enabled flag.
+
+    Legacy slot mode. When keyframe_capture.interval_minutes is set (the
+    default since v2.69.0) _promote_keyframe_if_due uses the interval path
+    above instead and never calls this. Kept so a camera can still be pinned
+    to specific times of day by clearing interval_minutes.
     """
     kf_cfg = cfg.get("keyframe_capture") or {}
     if camera_name not in (kf_cfg.get("cameras") or []):
@@ -503,11 +554,29 @@ def _promote_keyframe_if_due(
     See docs/03-Aug-2026-multi-day-timelapse-reels-plan.md.
     """
     try:
-        due = _due_keyframe_slot(camera_name, cfg, datetime.now(timezone.utc))
+        now_utc = datetime.now(timezone.utc)
+        kf_cfg = cfg.get("keyframe_capture") or {}
+
+        # Interval mode (default since v2.69.0) short-circuits the slot path:
+        # capture every interval_minutes of daylight instead of at 3 fixed
+        # times, so the weekly/monthly reels have hundreds of closely-spaced
+        # frames to play instead of 17 hours-apart stills.
+        if float(kf_cfg.get("interval_minutes") or 0) > 0:
+            if camera_name not in (kf_cfg.get("cameras") or []):
+                return
+            if not _keyframe_interval_due(camera_name, cfg, db_path, now_utc):
+                return
+            store_keyframe(db_path=db_path, archive_root=archive_root,
+                           camera_id=camera_name, jpeg_bytes=jpeg_bytes,
+                           gate_metrics=gate_metrics)
+            log.info("%s: promoted raw frame to permanent keyframe (interval)",
+                     camera_name)
+            return
+
+        due = _due_keyframe_slot(camera_name, cfg, now_utc)
         if due is None:
             return
         slot_label, slot_utc = due
-        kf_cfg = cfg.get("keyframe_capture") or {}
         tolerance_min = float(kf_cfg.get("tolerance_minutes", 5))
         window_start = (slot_utc - timedelta(minutes=tolerance_min)).isoformat(timespec="seconds")
         window_end = (slot_utc + timedelta(minutes=tolerance_min)).isoformat(timespec="seconds")
@@ -1572,6 +1641,24 @@ def run_daemon() -> int:
         if last_retention_day != today:
             r = retention_sweep(db_path, archive_root)
             log.info("retention: %s", json.dumps(r))
+
+            # Keyframe tier (v2.69.0). Capture went from 3/day to ~168/day to
+            # feed the dense time-lapse reels, so this tier can no longer be
+            # unbounded — at that rate it would accrue ~117 GB/year across the
+            # two cameras. The window only has to outlast the longest consumer,
+            # which is the 30-day monthly reel; the default 768h (32 days)
+            # leaves two days of slack for a late monthly run.
+            kf_cfg = cfg.get("keyframe_capture") or {}
+            kf_hours = int(kf_cfg.get("retention_hours", 768))
+            if kf_hours > 0:
+                for kf_camera in (kf_cfg.get("cameras") or []):
+                    kr = retention_sweep_raw(
+                        db_path, archive_root, kf_camera,
+                        retention_hours=kf_hours, image_tier="keyframe",
+                    )
+                    if kr.get("deleted"):
+                        log.info("retention(keyframe): %s", json.dumps(kr))
+
             last_retention_day = today
 
         # Sleep 1s between ticks; signals still wake us via _STOP

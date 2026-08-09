@@ -1,4 +1,4 @@
-# Author: Claude Sonnet 4.6; Claude Opus 4.7 (22-June-2026 — duo2 timelapse lane); Claude Fable 5 (16-Jul-2026 — mba-cam lane relabeled brooder→turkey pen, v2.46.0; Codex captions for vlm_bypass lanes + posted-caption dedup + tag rotation from ledger + chicks bucket retired, v2.47.0; D8 codex_reel_curator wired into the s7-daily lane + opener pacing hook, D10 CAMERA_OF_THE_DAY_POOL/pick_camera_of_the_day rotation, v2.48.0); Claude Opus 4.8 (22-Jul-2026 — per-lane seconds_per_frame override so the two Reolink time-lapse lanes play fast without speeding up the s7/mixed lanes, v2.50.1); Claude Fable 5 (23-Jul-2026 — Codex subscription lapsed: all caption synthesis moved to the local VLM, timelapse lanes no longer short-circuit to a literal, BRAND_RULES extracted to caption_brand.py, s7 Codex frame-curation removed, v2.51.5); Claude Opus 5 (28-Jul-2026 — S7 daily lane rebuilt dawn-to-dusk: per-frame gem holds via _s7_daily_frame_holds, frame-0 duplication hack deleted, covered-day state key, s7-backlog lane converted to S7_WEEKLY_GEMS_REEL_LANE, v2.54.0); Claude Sonnet 5 Extra (03-Aug-2026 — 4 new lanes: house-yard/duo2 weekly + monthly daylight time-lapse Reels, v2.60.0)
+# Author: Claude Sonnet 4.6; Claude Opus 4.7 (22-June-2026 — duo2 timelapse lane); Claude Fable 5 (16-Jul-2026 — mba-cam lane relabeled brooder→turkey pen, v2.46.0; Codex captions for vlm_bypass lanes + posted-caption dedup + tag rotation from ledger + chicks bucket retired, v2.47.0; D8 codex_reel_curator wired into the s7-daily lane + opener pacing hook, D10 CAMERA_OF_THE_DAY_POOL/pick_camera_of_the_day rotation, v2.48.0); Claude Opus 4.8 (22-Jul-2026 — per-lane seconds_per_frame override so the two Reolink time-lapse lanes play fast without speeding up the s7/mixed lanes, v2.50.1); Claude Fable 5 (23-Jul-2026 — Codex subscription lapsed: all caption synthesis moved to the local VLM, timelapse lanes no longer short-circuit to a literal, BRAND_RULES extracted to caption_brand.py, s7 Codex frame-curation removed, v2.51.5); Claude Opus 5 (28-Jul-2026 — S7 daily lane rebuilt dawn-to-dusk: per-frame gem holds via _s7_daily_frame_holds, frame-0 duplication hack deleted, covered-day state key, s7-backlog lane converted to S7_WEEKLY_GEMS_REEL_LANE, v2.54.0); Claude Sonnet 5 Extra (03-Aug-2026 — 4 new lanes: house-yard/duo2 weekly + monthly daylight time-lapse Reels, v2.60.0); Claude Opus 5 (09-Aug-2026 — those 4 lanes moved to the dense fixed-fps stitch path via timelapse_fps/timelapse_min_frames, v2.69.0)
 # Date: 09-May-2026 (updated 09-May-2026 — landscape mode + LM Studio caption synthesis + 4 timelapse lanes; 10-May-2026 — GWTC approval gate; 22-June-2026 — DUO2_TIMELAPSE_LANE; 16-Jul-2026 — D8/D10; 22-Jul-2026 — per-lane pacing override; 28-Jul-2026 — per-frame durations for reacted gems + weekly gems lane; 03-Aug-2026 — weekly/monthly multi-day lanes)
 # PURPOSE: Shared runner for scheduled Instagram Reel lanes. The
 #          existing mixed-camera daily Reel uses the approval-gated
@@ -88,6 +88,22 @@ class DailyReelLane:
     # 1.0s pacing. Speed was briefly changed globally, which wrongly sped up
     # the s7 reel; this field is what keeps the change scoped to one lane.
     seconds_per_frame: Optional[float] = None
+    # timelapse_fps: when set, this lane uses reel_stitcher's DENSE path
+    # (stitch_frames_to_timelapse) instead of the xfade path — hundreds of
+    # frames at a fixed frame rate with no transitions. Set on the four
+    # house-yard/duo2 weekly+monthly lanes 09-Aug-2026 (v2.69.0): at 3
+    # captures/day those reels ran 17 frames held 1.8s apiece, cutting
+    # between shots hours apart, which Boss called choppy and awful. The
+    # xfade path cannot serve this — it spends one ffmpeg input and one
+    # filter per frame. When None the lane keeps the xfade path unchanged,
+    # so seconds_per_frame and timelapse_fps are mutually exclusive.
+    timelapse_fps: Optional[float] = None
+    # timelapse_min_frames: dense lanes SKIP rather than post below this.
+    # At 18fps a thin week would otherwise publish a one-second reel — the
+    # 09-Aug-2026 failure mode in a new costume. 200 frames is ~11s and is
+    # reached after ~1.5 days of 5-minute daylight capture, so a normal week
+    # clears it easily and only a genuinely broken week gets held back.
+    timelapse_min_frames: int = 200
 
 
 MIXED_DAILY_REEL_LANE = DailyReelLane(
@@ -329,7 +345,7 @@ HOUSE_YARD_WEEKLY_TIMELAPSE_LANE = DailyReelLane(
     mention_user_id=MARK_DISCORD_USER_ID,
     landscape_mode=True,
     discord_preview_scale="960:540",
-    seconds_per_frame=1.8,
+    timelapse_fps=18.0,
 )
 
 HOUSE_YARD_MONTHLY_TIMELAPSE_LANE = DailyReelLane(
@@ -347,7 +363,7 @@ HOUSE_YARD_MONTHLY_TIMELAPSE_LANE = DailyReelLane(
     mention_user_id=MARK_DISCORD_USER_ID,
     landscape_mode=True,
     discord_preview_scale="960:540",
-    seconds_per_frame=0.8,
+    timelapse_fps=18.0,
 )
 
 DUO2_WEEKLY_TIMELAPSE_LANE = DailyReelLane(
@@ -365,7 +381,7 @@ DUO2_WEEKLY_TIMELAPSE_LANE = DailyReelLane(
     mention_user_id=MARK_DISCORD_USER_ID,
     landscape_mode=True,
     discord_preview_scale="960:540",
-    seconds_per_frame=1.8,
+    timelapse_fps=18.0,
 )
 
 DUO2_MONTHLY_TIMELAPSE_LANE = DailyReelLane(
@@ -383,7 +399,7 @@ DUO2_MONTHLY_TIMELAPSE_LANE = DailyReelLane(
     mention_user_id=MARK_DISCORD_USER_ID,
     landscape_mode=True,
     discord_preview_scale="960:540",
-    seconds_per_frame=0.8,
+    timelapse_fps=18.0,
 )
 
 
@@ -1366,7 +1382,9 @@ def _stitch_reel(
     log: logging.Logger,
     per_frame_seconds: Optional[list[float]] = None,
 ) -> Path:
-    from tools.pipeline.reel_stitcher import ReelStitcherError, stitch_gems_to_reel
+    from tools.pipeline.reel_stitcher import (
+        ReelStitcherError, stitch_frames_to_timelapse, stitch_gems_to_reel,
+    )
 
     output_root = _reels_root(reels_cfg, lane)
     year_month = datetime.now(timezone.utc).strftime("%Y-%m")
@@ -1375,6 +1393,27 @@ def _stitch_reel(
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%S")
     slug = uuid.uuid4().hex[:8]
     mp4_path = out_dir / f"{lane.output_filename_prefix}-{stamp}-{slug}.mp4"
+
+    # Dense time-lapse lanes bypass the xfade path entirely — hundreds of
+    # frames played at a fixed rate, no crossfade, no per-frame holds. See
+    # DailyReelLane.timelapse_fps and reel_stitcher.stitch_frames_to_timelapse.
+    if lane.timelapse_fps is not None:
+        log.info(
+            "build: %s lane using dense time-lapse path (%d frames at %gfps "
+            "= %.1fs)",
+            lane.lane_id, len(gem_ids), lane.timelapse_fps,
+            len(gem_ids) / lane.timelapse_fps,
+        )
+        stitch_frames_to_timelapse(
+            gem_ids=gem_ids,
+            db_path=db_path,
+            output_path=mp4_path,
+            landscape=lane.landscape_mode,
+            fps=lane.timelapse_fps,
+        )
+        log.info("build: MP4 ready %s (%d bytes)",
+                 mp4_path, mp4_path.stat().st_size)
+        return mp4_path
 
     # Per-lane pacing override. reel_stitcher applies one seconds_per_frame to
     # the whole reel, so a faster lane is expressed by handing it a shallow
@@ -1652,6 +1691,19 @@ def _build_publish_and_notify(
     gem_ids = _select_gems(lane, db_path, scheduled_cfg)
     if not gem_ids:
         log.info("build: not enough frames for %s reel", lane.lane_id)
+        return 0
+
+    # Dense lanes need real density to look like anything. Skipping a week is
+    # strictly better than publishing the sparse, lingering, jump-cut reel
+    # this whole change exists to kill.
+    if lane.timelapse_fps is not None and len(gem_ids) < lane.timelapse_min_frames:
+        log.warning(
+            "build: %s has only %d frames (min %d for a %gfps time-lapse — "
+            "would run %.1fs); skipping this run. Keyframe capture needs to "
+            "accrue; check keyframe_capture.interval_minutes if this persists.",
+            lane.lane_id, len(gem_ids), lane.timelapse_min_frames,
+            lane.timelapse_fps, len(gem_ids) / lane.timelapse_fps,
+        )
         return 0
 
     # D8 (16-Jul-2026) wired the s7-daily lane through

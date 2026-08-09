@@ -1,23 +1,30 @@
-# Author: Claude Opus 4.6 (1M context); Claude Sonnet 4.6 (edits 27-April-2026 — sweep_raw() for vlm_bypass cameras, v2.37.13; 04-May-2026 — sqlite timeout=30 to fix DB lock errors, v2.40.2); Claude Sonnet 5 Extra (edits 03-Aug-2026 — comment-only: documented that image_tier='keyframe' rows are immune to both sweeps by construction, v2.60.0)
+# Author: Claude Opus 5 (09-Aug-2026 — sweep_raw generalised with an image_tier param so the keyframe tier reuses it, v2.69.0); Claude Opus 4.6 (1M context); Claude Sonnet 4.6 (edits 27-April-2026 — sweep_raw() for vlm_bypass cameras, v2.37.13; 04-May-2026 — sqlite timeout=30 to fix DB lock errors, v2.40.2); Claude Sonnet 5 Extra (edits 03-Aug-2026 — comment-only: documented that image_tier='keyframe' rows are immune to both sweeps by construction, v2.60.0)
 # Date: 13-April-2026 (last touched 03-Aug-2026)
 # PURPOSE: Daily retention sweep for the image archive. Deletes JPEGs whose
 #          retained_until has passed, sets image_path to NULL on those rows,
 #          and leaves metadata rows intact forever. Never touches rows with
 #          has_concerns=1 or retained_until IS NULL.
 #
-#          03-Aug-2026: image_tier='keyframe' rows (store.store_keyframe(),
-#          the permanent low-cadence archive behind the weekly/monthly
-#          time-lapse Reels — docs/03-Aug-2026-multi-day-timelapse-reels-plan.md)
-#          are retained forever BY CONSTRUCTION, not by a rule enforced
-#          here: sweep() below only matches retained_until IS NOT NULL,
-#          and sweep_raw() only matches image_tier='raw'. A 'keyframe' row
-#          is inserted with retained_until=NULL and a different tier, so
-#          it matches neither query and neither function needs to know
-#          this tier exists. If a future change ever needs to expire
-#          keyframes, it must be a THIRD sweep — do not broaden either
-#          existing WHERE clause to catch them, or you also start pruning
-#          rows (raw, or the daily-sweep tiers) that were never meant to
-#          be swept together.
+#          ⚠️ SUPERSEDED 09-Aug-2026 (v2.69.0) — the note below is kept only
+#          so the change is legible. It used to say image_tier='keyframe'
+#          rows were retained FOREVER by construction, because sweep() only
+#          matches retained_until IS NOT NULL and sweep_raw() only matched
+#          image_tier='raw', so a keyframe row matched neither query. That
+#          was safe while keyframe capture ran at 3 frames/day.
+#
+#          v2.69.0 raised keyframe capture to one frame every 5 minutes of
+#          daylight (~168/day/camera) so the weekly/monthly time-lapse Reels
+#          have enough frames to play as continuous motion. Unbounded, that
+#          is ~117 GB/year across house-yard and duo2. Keyframes are now
+#          swept on a rolling window (keyframe_capture.retention_hours,
+#          default 768h/32 days — sized to outlast the 30-day monthly reel).
+#
+#          The old note also said expiring keyframes must be a THIRD sweep
+#          and that neither existing WHERE clause should be broadened. The
+#          spirit of that is honoured: sweep()'s clause is untouched, and
+#          sweep_raw() was not broadened — it takes an explicit image_tier
+#          argument defaulting to 'raw', so it prunes exactly the one tier
+#          its caller names and no caller's behaviour changed.
 # SRP/DRY check: Pass — single responsibility is pruning expired JPEGs.
 
 from __future__ import annotations
@@ -66,17 +73,24 @@ def sweep(db_path: Path, archive_root: Path, dry_run: bool = False) -> dict:
 
 
 def sweep_raw(db_path: Path, archive_root: Path, camera_id: str,
-              retention_hours: int = 24, dry_run: bool = False) -> dict:
+              retention_hours: int = 24, dry_run: bool = False,
+              image_tier: str = "raw") -> dict:
     """Rolling hour-granular pruner for vlm_bypass cameras (tier='raw').
 
     Deletes both the JPEG on disk and the image_archive row for rows where:
       - camera_id matches
-      - image_tier = 'raw'
+      - image_tier matches (default 'raw')
       - ts < now - retention_hours
 
-    Unlike the daily sweep, raw rows are DROPPED from the DB entirely (not
+    Unlike the daily sweep, these rows are DROPPED from the DB entirely (not
     kept as metadata-only) — the raw path exists for transient on-disk
     storage, and an orphaned row with image_path=NULL serves no purpose.
+
+    image_tier (09-Aug-2026, v2.69.0): the keyframe tier reuses this exact
+    pruner rather than growing a second near-identical one. Keyframes were
+    "permanent" when capture ran at 3/day, but v2.69.0 raised that to ~168/day
+    for the dense time-lapse reels, so they now need the same rolling bound.
+    Default 'raw' keeps every existing caller byte-identical.
     """
     cutoff = datetime.now(timezone.utc) - timedelta(hours=retention_hours)
     cutoff_iso = cutoff.isoformat(timespec="seconds")
@@ -88,9 +102,9 @@ def sweep_raw(db_path: Path, archive_root: Path, camera_id: str,
         rows = c.execute("""
             SELECT id, image_path FROM image_archive
             WHERE camera_id = ?
-              AND image_tier = 'raw'
+              AND image_tier = ?
               AND ts < ?
-        """, (camera_id, cutoff_iso)).fetchall()
+        """, (camera_id, image_tier, cutoff_iso)).fetchall()
         for row in rows:
             rel = row["image_path"]
             try:
@@ -107,8 +121,9 @@ def sweep_raw(db_path: Path, archive_root: Path, camera_id: str,
                 errors.append(f"id={row['id']} path={rel}: {e}")
         if not dry_run:
             c.commit()
-    return {"camera": camera_id, "deleted": deleted, "freed_bytes": freed_bytes,
-            "errors": errors, "dry_run": dry_run, "cutoff": cutoff_iso}
+    return {"camera": camera_id, "tier": image_tier, "deleted": deleted,
+            "freed_bytes": freed_bytes, "errors": errors, "dry_run": dry_run,
+            "cutoff": cutoff_iso}
 
 
 if __name__ == "__main__":
