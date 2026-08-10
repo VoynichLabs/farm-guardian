@@ -1,5 +1,12 @@
 # dominator-cam + usb-cam on the MSI Dominator GT72 (`192.168.0.194`)
 
+**🔴 `dominator-cam` RETIRED 10-Aug-2026 — this is no longer a live runbook for it.** Boss no
+longer wants that feed; it's out of both Guardian config files and its scheduled task is
+disabled on the box. See `docs/10-Aug-2026-dominator-cam-retirement-plan.md`. The `usb-cam`
+half of this doc is unaffected — that role moved to the Birdcatraz Pi on 05-Aug-2026, separate
+from this retirement. Everything below describes the setup as it existed; kept for reference
+only.
+
 As of **2026-06-12** the MSI Dominator hosts **two** Guardian camera feeds at once, because
 the portable `usb-cam` was physically plugged into it (alongside the laptop's built-in webcam):
 

@@ -98,8 +98,7 @@
    "timelapse_golden_windows": {
     "enabled": true,
     "cameras": [
-     "usb-webcam-1080p",
-     "dominator-cam"
+     "usb-webcam-1080p"
     ],
     "timezone": "America/New_York",
     "latitude": 41.7558,
@@ -221,19 +220,6 @@
    "photo_path": "/photo.jpg",
    "trigger_focus": false,
    "context": "Car dashboard camera (Jieli Technology 'USB PHY 2.0', 1280x720, wide-angle) running in PC-camera mode, served on port 8091 of the MacBook Air by its own usb-cam-host instance. ⚠️ DO NOT DESCRIBE WHAT THIS CAMERA IS POINTED AT, AND DO NOT ADD A SCENE DESCRIPTION HERE. It gets re-aimed frequently and deliberately — any 'it looks at the yard / the coop / the pen' text written here goes stale within days and then actively misleads the model. Describe only the DEVICE. Judge each frame on what is actually in it. Wide-angle lens, so subjects are often small and there may be visible barrel distortion and tilt; that is normal for this camera and is not a fault. Best picture quality of the three cameras on this host. Served on port 8091 of the Raspberry Pi 5 'farm-pi5' at Birdcatraz (moved there 05-Aug-2026 from the MacBook Air). Frames are served with NO image processing of any kind — what you see is exactly what the sensor produced.",
-   "burst_size": 1,
-   "vlm_bypass": true,
-   "enabled": true
-  },
-  "dominator-cam": {
-   "cycle_seconds": 10.0,
-   "offpeak_cycle_seconds": 180,
-   "raw_retention_hours": 48,
-   "capture_method": "ip_webcam",
-   "ip_webcam_base": "http://192.168.0.194:8089",
-   "photo_path": "/photo.jpg",
-   "trigger_focus": false,
-   "context": "MSI Dominator GT72 6QD (Windows 10, 192.168.0.194) built-in BisonCam NB Pro webcam. Opportunistic — only live when Boss double-clicks the desktop shortcut. Aim varies.",
    "burst_size": 1,
    "vlm_bypass": true,
    "enabled": true

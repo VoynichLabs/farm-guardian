@@ -4,6 +4,25 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.70.3 — `dominator-cam` retired (Claude Sonnet 5) — 10-Aug-2026
+
+**What:** Removed `dominator-cam` (MSI Dominator GT72's built-in BisonCam, `192.168.0.194:8089`)
+from Guardian entirely. Out of both `config.json` and `tools/pipeline/config.json` via
+`scripts/add-camera.py remove dominator-cam`; its `dominator-cam-bisoncam` scheduled task
+disabled (not deleted — reversible) on the Dominator over SSH so it won't auto-start at the
+next login. Fleet is down to six cameras.
+
+**Why:** Boss's call — not using it anymore.
+
+**Scope:** The Dominator's companion `usb-cam` feed (port 8090) is untouched by this — that role
+already moved to the Birdcatraz Pi on 05-Aug-2026 as `usb-webcam-1080p` and has nothing to do
+with this retirement. The dedicated reel lane plist (`ig-dominator-cam-timelapse-reel`) was
+already `.plist.disabled` and unloaded, so nothing to do there either.
+
+**Docs:** CLAUDE.md camera roster table + the old "Camera 6" section, `HARDWARE_INVENTORY.md`'s
+row and running camera-count header, and a retirement banner on
+`deploy/dominator-cam/README.md`. Plan: `docs/10-Aug-2026-dominator-cam-retirement-plan.md`.
+
 ### v2.70.2 — `s7-settings-watchdog` retired: all three of its pushes were already redundant (Claude Opus 5) — 10-Aug-2026
 
 **What:** `com.farmguardian.s7-settings-watchdog` is disabled — booted out and its plist renamed
