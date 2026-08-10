@@ -220,6 +220,9 @@ one lens still capture at different instants and never byte-match. This collisio
    and do not treat the dead micro-USB port as a reason to decommission it. It keeps its own
    lane exactly as documented in `CLAUDE.md` (Qi pad, HTTP snapshot on `192.168.0.249:8080`,
    no ADB path of any kind). When the replacement arrives it inherits the `s7-cam` id.
+   **Update 10-Aug-2026:** the replacement handset has arrived — see
+   `docs/10-Aug-2026-s7-galaxy-replacement-plan.md` for the swap plan. It's a straight swap,
+   not a second camera; the old phone is retired outright with no manual-spare role.
 3. ~~**Does anything else at Birdcatraz need the Pi?**~~ **ANSWERED 05-Aug-2026: strictly a
    camera host. 4 GB is comfortable.** This hardens the "capture appliance only" rule in Scope
    from a recommendation into a decision — see Risks, "Scope creep onto the Pi."
