@@ -4,6 +4,48 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.70.0 — `s7-cam` is a different phone: SM-G930V swapped in, stripped to one app, ADB back (Claude Opus 5) — 10-Aug-2026
+
+**What:** The water-damaged S7 was retired and a replacement Galaxy S7 took over the `s7-cam`
+identity. **Zero code and zero config changes** — the new phone holds `192.168.0.249` via a
+static IP set on the device, so `config.json`, `tools/pipeline/config.json` and
+`deploy/s7-settings-watchdog/*` were untouched. Docs only.
+
+**Why:** the retired handset's micro-USB port died from water damage (01-Aug-2026), leaving it
+Qi-only, and Boss confirmed running it while charging drains net-negative — so keeping it fed
+meant carrying it indoors and taking the camera offline for hours at a time. Executes
+`docs/10-Aug-2026-s7-galaxy-replacement-plan.md`.
+
+**How / what a future agent must know:**
+
+- **It is not the same phone.** `SM-G930V` (`heroqltevzw`, Verizon) on **Android 6.0.1**, vs the
+  old `SM-G930F` on Android 8.0.0. **The Android-8 menu paths in
+  `docs/skills-s7-adb-operations.md` and `docs/01-Aug-2026-s7-factory-reset-runbook.md` do not
+  exist on it**, and `locksettings` / `svc power stayon` are Android 7+ so are unavailable to the
+  shell. Doze is plain AOSP (`dumpsys deviceidle whitelist +com.pas.webcam`).
+- **⚠️ ADB WORKS AGAIN — this reverses a standing repo-wide assumption.** Every statement that
+  `s7-cam` has no ADB path and can only be fixed by walking to the coop was about the *retired*
+  phone. A wedged IP Webcam is now recoverable from the Mini.
+- **Stripped 330 → 200 packages** on Boss's explicit instruction (which diverges from the plan
+  doc's "don't run a cleanup pass" — the substance of that warning was preserved: Play Services
+  and `com.sec.imsservice`/`com.sec.ims` are still enabled and verified). **`pm disable-user` is
+  denied to the shell user on Android 6**; the strip used `pm uninstall -k --user 0`, which has
+  **no per-app undo on API 23** — restoring one package means a factory reset.
+- **IP Webcam v1.14.37.759 (versionCode 7595) sideloaded**, same build as the old phone, no
+  account ever signed in. Signing cert verified before install: `CN=Pas XL`, SHA-256
+  `29C6216D…3724636C`, matching the publisher's key.
+- **Verified:** survives a reboot with the server auto-starting unattended (the old phone's
+  cold-boot black-camera bug does not reproduce); Guardian logs `online` before `registered in
+  snapshot mode`; 534 archive rows in 20 min with VLM enrichment at ~4.0 s; watchdog back to
+  `frame_ok` + `fm=1 or=1 pr=1` after weeks of `STALL`. `photo_rotation` still resets to `-1`
+  on every boot — unchanged, and what the watchdog is for.
+- **Left open on purpose:** sensor model unverified, so the VLM `context` string's "Sony IMX260"
+  claim was NOT edited; gem-tier baseline comparison waits until the phone is aimed at the flock;
+  and `tools/pipeline/config.json` line 135 has a **pre-existing** bug — house-yard's
+  `reolink_base` says `192.168.0.89` where the camera actually answers on `.88`.
+
+Full detail: `docs/10-Aug-2026-s7-galaxy-replacement-swap-log.md`.
+
 ### v2.69.0 — the weekly/monthly Reolink time-lapse reels stop being choppy: dense capture, dense stitch, rolling retention (Claude Opus 5) — 09-Aug-2026
 
 **Boss, on the duo2 weekly reel:** *"you got 17 frames in it for the entire
