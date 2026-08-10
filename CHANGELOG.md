@@ -4,6 +4,37 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.70.5 — `gwtc` retired, same day and same reason as `dominator-cam` (Claude Sonnet 5) — 10-Aug-2026
+
+**What:** Removed `gwtc` (Gateway laptop's built-in webcam, "Hy-HD-Camera") from Guardian
+entirely. Out of both `config.json` and `tools/pipeline/config.json`, including a hand-fix for
+`timelapse_reel_daylight_only_cameras` — a scattered list reference `scripts/add-camera.py
+remove` doesn't reach (the same class of gap the dominator-cam retirement hit for
+`timelapse_golden_windows.cameras`). Fleet is now six cameras, and — for the first time since
+`gwtc` was disabled-but-configured — config-entry count and Guardian's dashboard-visible count
+agree.
+
+**Why:** Boss's call — with the Birdcatraz Pi (`farm-pi5`) now hosting camera duty out there,
+neither `dominator-cam` nor `gwtc` (both laptop-hosted) is needed anymore.
+
+**Difference from the `dominator-cam` retirement:** GWTC's on-box services (`mediamtx`,
+`farmcam`, `farmcam-watchdog`, `farmcam-wifi-watchdog`) are **not yet disabled**. The Dominator
+was reachable over SSH at retirement time; GWTC was not (port 22 and port 8554 both
+closed/timeout, ARP-incomplete, and a full `/24` sweep for port 8554 found no host on the LAN at
+all). Nothing consumes GWTC's feed anymore either way, so this isn't urgent — but a future agent
+should not assume the on-box teardown is complete just because the config-side retirement is.
+
+**Docs:** CLAUDE.md's camera roster table, the "Camera 4 (gwtc)" narrative section (condensed to
+a retirement pointer, historical hardware detail kept below it since it documents a real
+electrical trap worth knowing if anyone's ever hands-on with that box again), and the
+multi-machine SSH table. `HARDWARE_INVENTORY.md`'s row, running camera-count header, and "What
+Runs Where" table. Plan: `docs/10-Aug-2026-gwtc-retirement-plan.md`.
+
+**Also fixed in this pass, unrelated to gwtc specifically:** CLAUDE.md's camera-count line had
+gone through several wrong values earlier the same day (see the dominator-cam entry below) —
+this entry is what finally settles it at six, matching both the config files and a live
+`GET /api/cameras` check.
+
 ### v2.70.3 — `dominator-cam` retired (Claude Sonnet 5) — 10-Aug-2026
 
 **What:** Removed `dominator-cam` (MSI Dominator GT72's built-in BisonCam, `192.168.0.194:8089`)

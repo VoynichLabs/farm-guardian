@@ -63,40 +63,36 @@ Same doc carries a latent trap: **duo2's password is NOT the one in `.env` — d
 and kill the camera. (Correctness, not secrecy — these are chicken cameras and Boss is explicit
 that plaintext passwords in this repo are fine. Don't raise it as a security issue.)
 
-## 🔴 OPEN — FIRST THING TO DO THIS SESSION: measure the new VLM prompt
+## ✅ MEASURED 10-Aug-2026 — the new VLM prompt is faster and the bantam priming is gone
 
-**Boss is starting this session specifically to look at this. Do it before anything else, and
-report the answer without being asked.**
+This was the standing "first thing to do this session" item (unmeasured since 06-Aug because
+the S7 was off charging at the time it was written). It's now been run for real against live
+`data/guardian.db`, reported here instead of the command being handed to Boss unread.
 
-On 06-Aug-2026 the VLM prompt was cut **20,081 → 5,211 chars (-75%)** to make it answer one
-question — *is this a good photo of a bird?* — instead of writing essays. **It was never
-measured, because the S7 was off charging at the time.** The S7 is the only camera that runs the
-VLM at all; every other camera has `vlm_bypass: true`.
+**Speed — meaningfully faster.** The old prompt (hash `sha256:7be43bfba7e...`, matching the
+documented cutover point) averages **5,767 ms** over 666 rows spanning 06-Aug 13:33–16:55 (the
+banner's own 5,509 ms baseline was a slightly narrower window — same ballpark). The prompt/
+schema has actually been touched **multiple times since 06-Aug** (v2.67.0/v2.68.0/v2.70.0), so
+there are now 4 distinct post-cutover hashes rather than the single "new prompt" the banner
+anticipated — every one of them averages **4,230–4,772 ms**, a consistent **15–25% drop**
+across all of them, not just one lucky sample.
 
-Run this and read it out to Boss. **Do not hand him the command — he will not run it.**
+**Quality — both of Boss's complaints are fixed.** Zero of the last 3,557 s7-cam frames (since
+08-Aug) mention "bantam" in `caption_draft` or `share_reason` — the old priming is gone; recent
+labels are varied and specific ("dark-feathered turkey," "grey hen with white-tipped feathers,"
+"rooster... red comb"). Captions are short, factual single sentences, not essays. `share_worth`
+mix over the same window: skip 2,250 ≫ decent 768 > strong 539 — skip still dominates (no
+flooding risk), though the order is `decent > strong` rather than the banner's expected
+`strong > decent`; not investigated further, flag to Boss if it feels off in practice.
 
-```bash
-sqlite3 data/guardian.db "select substr(vlm_prompt_hash,1,18) h, count(*) n, round(avg(vlm_inference_ms)) avg_ms from image_archive where camera_id='s7-cam' and vlm_inference_ms is not null and ts>='2026-08-06T00:00' group by 1 order by n desc"
-```
-
-- **Baseline: the OLD prompt averaged 5,509 ms** (hash starting `sha256:7be43bfba7ee331`).
-  Two hashes will appear once new frames have been enriched; the other one is the new prompt.
-- **If the new prompt is meaningfully faster** — good, say so with the numbers and stop.
-- **If it is NOT meaningfully faster, the prompt was never the bottleneck.** The cost is image
-  encoding, and the next lever is **`vlm_input_long_edge_px` in `tools/pipeline/config.json`,
-  currently `768`** — try 512. That is a one-line change. **Do not cut the prompt further; it is
-  already at the floor of what the 22 required schema fields need.**
-
-Also check quality, not just speed: Boss's two complaints were that it called everything a
-**bantam** (the old prompt taught it to — that priming is removed) and that it wasted time on
-description. Sample recent `share_reason` / `caption_draft` values and confirm both improved.
-The `share_worth` mix should stay roughly `skip` ≫ `strong` > `decent`; if `strong` has jumped
-sharply, the gem gate has loosened and Discord will get flooded.
-
-Rollback if it is worse: `cp tools/pipeline/prompt.md.full-20260806 tools/pipeline/prompt.md`
-then `launchctl kickstart -k gui/$(id -u)/com.farmguardian.pipeline`. Nothing else to undo —
-all 22 output fields are enforced by server-side grammar sampling, so prompt changes cannot
-break the schema. Full rationale: CHANGELOG v2.64.0.
+**No rollback needed.** Prompt file: `tools/pipeline/prompt.md.full-20260806` remains the
+rollback target if ever needed (`cp` it back + `launchctl kickstart -k
+gui/$(id -u)/com.farmguardian.pipeline`); all 22 output fields are still enforced by
+server-side grammar sampling regardless of prompt wording. **Rationale pointer was broken and
+is now fixed:** the original banner cited "CHANGELOG v2.64.0," which does not exist — the
+version sequence jumps v2.63.3 → v2.65.0 (both 06-Aug-2026, confirmed by grep). The prompt cut
+was never given its own CHANGELOG header; treat the 06-Aug-2026 date and this measurement as
+the record of record instead of chasing a v2.64.0 entry that isn't there.
 
 ---
 
@@ -413,13 +409,27 @@ restored power/network. Recovery notes:
 **Resolved same morning. Final state: `house-yard`, `duo2`, `macbook-air-facetime`,
 `jieli-dashcam` all live.** Boss moved both USB cameras onto the MacBook Air's powered hub.
 
-### ⚠️ `usb-webcam-1080p` IS INTERMITTENT — its video function drops out and does not self-recover
+### ✅ RESOLVED 06-Aug-2026 (v2.63.2) — `usb-webcam-1080p` was never intermittent, it was `gain=0`
+
+Everything below this line describes the pre-06-Aug hunt for the cause and is history — the
+current roster table above already says "WORKING, and it was never broken; ignore older
+intermittent/replug notes." Root cause, confirmed by daylight retest: the camera's V4L2 `gain`
+control was pinned at **0** (default is 32), which blackens output on any host — that single
+fact explains every black-frame symptom below on both GWTC and the MacBook Air. Fix:
+`gain=32` in `/etc/farmcam/usb-webcam-1080p.env`, confirmed live in this session's audit
+(10-Aug-2026: `farm-pi5.local:8090/health` reports `v4l2_ctrls:"gain=32,auto_exposure=3"`,
+`camera_open:true`, healthy 1920x1080). The camera has since also moved off GWTC/the MacBook
+Air entirely — see the roster table (`usb-webcam-1080p` now lives on `farm-pi5`, the Birdcatraz
+Pi) — so the GWTC-specific recovery commands below no longer apply to anything live.
+
+**Historical symptom writeup below (pre-06-Aug-2026), kept for reference only — do not act on
+any of it, the fix above is the whole story.**
 
 **It is NOT dead — an earlier note in this file called it a dead camera and that was an
 overclaim, corrected by Boss 05-Aug-2026.** It served a clean 1920x1080 daylight frame on GWTC on
 04-Aug and works some of the time. What it does is lose its **video** function and not get it
-back, while the rest of the device keeps working. Currently `enabled: true`, pointed at GWTC.
-Symptoms seen across two machines and two operating systems:
+back, while the rest of the device keeps working. Symptoms seen across two machines and two
+operating systems:
 
 - **On GWTC (Windows):** enumerated as a camera, `camera_open: true`, grabs incrementing, and
   **every frame pure black** — `min=0 max=0 std=0` across 1920x1080, in full daylight. Survived
@@ -428,62 +438,40 @@ Symptoms seen across two machines and two operating systems:
   its **microphone enumerates fine in the AVFoundation *audio* list** — but its video interface
   never appears in the video list at all.
 
-USB descriptor, power negotiation and audio all work; only video drops. Since it does work
-sometimes, suspect the **cable/connector or a video function that hangs until a full power
-cycle** before condemning the sensor. A `usb-cam-host` restart is NOT a power cycle and has been
-measured not to clear it — unplug and replug the camera itself.
+USB descriptor, power negotiation and audio all worked; only video dropped — which reads as a
+cable/power/hang theory right up until the actual cause (`gain=0`) turned out to be neither.
 
-**⛔ An `enabled: true/false` mismatch between the two config files CANNOT cause black frames,
-and is not worth investigating.** The black pixels were pulled straight off
-`http://<host>:8089/photo.jpg` — the `usb-cam-host` process. That process reads **neither**
-config file. Those flags only decide whether Guardian and the pipeline *consume* an endpoint;
-they cannot change what the camera host serves. Black at that URL means black coming off the
-camera, full stop. Diagnose at `/photo.jpg`, never through Guardian's view.
+**Note on reading `system_profiler SPUSBDataType` here — a trap fallen into along the way.** A
+single physical USB 3 hub shows up as *two* logical hubs (a 5 Gb/s branch and a 480 Mb/s
+branch, same `Location ID` prefix). The 2.0 branch reports `Current Available (mA): 500`
+because 500 mA is the **USB 2.0 per-port spec ceiling**, not because the hub is bus-powered — a
+self-powered hub reports the same number. Don't read "500" on the 2.0 branch as evidence of a
+bus-powered hub.
 
-**⚠️ Do NOT re-diagnose this as the USB power problem.** It is powered and it enumerates.
-Boss fitted the powered hub and it works — measured on the Air with both cameras attached
-simultaneously, each allocated 500 mA and the dashcam drawing its full 500 mA, which was
-impossible on the old bus-powered hub. **The power problem is FIXED; this camera is separately
-broken, and the power fault was masking it.**
+### ✅ RESOLVED — the held dashcam reel lane was restored
 
-**Note on reading `system_profiler SPUSBDataType` here — a trap I fell into.** A single physical
-USB 3 hub shows up as *two* logical hubs (a 5 Gb/s branch and a 480 Mb/s branch, same
-`Location ID` prefix). The 2.0 branch reports `Current Available (mA): 500` because 500 mA is the
-**USB 2.0 per-port spec ceiling**, not because the hub is bus-powered — a self-powered hub reports
-the same number. Do not read "500" on the 2.0 branch as evidence of a bus-powered hub and do not
-tell Boss to move cameras to "the powered hub" on that basis. Judge power by whether each device's
-`Current Required` is actually being satisfied.
-
-**Note `restart-usbcam.ps1` on GWTC needs `-ExecutionPolicy Bypass`** — without it PowerShell
-refuses to run the script at all:
-`ssh markb@192.168.0.69 'powershell -NoProfile -ExecutionPolicy Bypass -File C:\farm-services\restart-usbcam.ps1'`
-
-**🔴 OPEN — RESTORE THE HELD DASHCAM REEL LANE (after 2026-08-05T01:30Z).**
-`com.farmguardian.ig-jieli-dashcam-timelapse-reel` is booted out and its plist parked as
-`.HELD-restore-after-05Aug2026-0130Z`, because its 24h × sharpness selection would have pulled
-the 04-Aug mislabeled frames into an Instagram post. Only that one night is affected. Restore:
-
-```bash
-mv ~/Library/LaunchAgents/com.farmguardian.ig-jieli-dashcam-timelapse-reel.plist.HELD-restore-after-05Aug2026-0130Z ~/Library/LaunchAgents/com.farmguardian.ig-jieli-dashcam-timelapse-reel.plist && launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.farmguardian.ig-jieli-dashcam-timelapse-reel.plist
-```
+`com.farmguardian.ig-jieli-dashcam-timelapse-reel` is loaded and live (confirmed in this
+session's LaunchAgent audit, 10-Aug-2026 — no `.HELD` suffix on disk, firing daily 21:30 per
+its `StartCalendarInterval`, matching the "dashcam reel 21:30" line in the live daily schedule
+below). The 05-Aug-2026 hold (see prior CHANGELOG/incident docs for why it was held) is over;
+no restore action needed.
 
 **✅ CLOSED 05-Aug-2026 — the v2.61.0 self-heal is NOT cycling.** `macbook-air-facetime` opened
 its camera exactly **once** on 05-Aug and `jieli-dashcam` 20 times across its whole log life, with
 `acquire_stalled_s: 0.0` on both. (Don't be alarmed by a raw `grep -c` of
 `camera opened successfully` — that counts the entire log history, not today. Date-filter it.)
 
-**🔜 GWTC RETIREMENT — A RASPBERRY PI ON ETHERNET IS COMING (Boss, 05-Aug-2026).** That fixes the
-right problem: GWTC's flakiness is its Realtek USB WiFi at ~34% signal, and Ethernet removes it.
-**But `usb_cam_host.py` has NO Linux camera-identity path.** Name resolution is implemented for
-macOS (`_resolve_verified_device_index`, picture test) and Windows (DirectShow), and every one of
-those functions returns early on `sys.platform != "darwin"` / `!= "win32"`. On a Pi the service
-falls back to raw `USB_CAM_DEVICE_INDEX` — identifying a camera **by position**, which is exactly
-what this repo says must never be trusted and what caused the 04-Aug collision. Capture itself is
-fine (OpenCV picks V4L2 automatically); it is only *identity* that is missing. **Add a V4L2
-name-resolution path before putting more than one camera on the Pi.** On Linux this is easier than
-either existing platform — `/sys/class/video4linux/video*/name` maps a device node to a camera name
-directly, and udev `by-id` symlinks carry the USB serial, which is a far stronger identity key than
-any picture test.
+**✅ DONE — Birdcatraz Pi migration complete (v2.62.0 bring-up 05-Aug-2026, v2.63.0 Linux camera
+host 06-Aug-2026).** This section used to describe a coming plan and an open identity gap; both
+are closed. `farm-pi5` (Raspberry Pi 5, Ethernet) is live, and a dedicated
+`tools/camera-host-linux/camera_host.py` gives each camera **structural** identity via
+serial-derived `/dev/v4l/by-id/` paths — no index, no name-matching, no picture-comparison
+fallback at all, which is a stronger guarantee than either the macOS or Windows identity paths
+this section originally asked for. Both `usb-webcam-1080p` and `jieli-dashcam` run there today,
+confirmed healthy in this session's live audit (10-Aug-2026: both `/health` endpoints return
+`ok:true`, `camera_open:true`). systemd (`Restart=always`) replaces the macOS watchdog stack for
+these two cameras. See `docs/05-Aug-2026-birdcatraz-pi5-camera-host-architecture-plan.md` and
+`docs/05-Aug-2026-birdcatraz-pi5-bringup-log.md`.
 
 ## Hardware Inventory — READ THIS BEFORE TOUCHING ANY CAMERA
 
@@ -495,10 +483,12 @@ Runbooks capture the how-to for cross-agent operations on this repo. Any agent p
 
 - **`docs/skills-farm-2026-discord-post.md`** — how to post a camera frame from Guardian to the `#farm-2026` Discord channel. Webhook wiring, channel ID, a copy-paste-ready `post.sh`, failure modes, what not to post. **No credentials in the doc** — the webhook URL lives in `.env` (gitignored).
 - **`~/bubba-workspace/skills/farm-pi5-camera-host/SKILL.md`** — **READ THIS BEFORE TOUCHING THE BIRDCATRAZ PI OR ITS CAMERAS.** How to reach `farm-pi5`, the `by-id` identity model and why no fallback is permitted, systemd service management, adding a camera, the 30-second triage table, the one-source-frame proof that settles "are you processing the image?", the **IR-cut filter diagnosis** for a camera that is perfect at night and washed out by day, and the traps that have already cost time (`custom.toml` silently does nothing on this image — use `userconf.txt`; never build a `$6$` hash through a shell; a card-less Pi still answers TCP; orphaned `ffmpeg` probes hold cameras open).
-- **`docs/skills-s7-adb-operations.md`** — **PERMANENTLY INAPPLICABLE as of 2026-08-01 (was "currently" inapplicable since 2026-05-06).** ADB-via-GWTC was the recovery path on the 2026-05-02 → 2026-05-06 GWTC-USB setup. The phone then went back to a standalone wall brick, and on 2026-08-01 it moved to a Qi pad because water killed its micro-USB port for both power and data. Power-chain history: MBA-USB → standalone (2026-04-26) → GWTC-USB (2026-05-02) → standalone again (≤2026-05-06) → Qi pad (2026-08-01). **The runbook can no longer be revived by re-tethering — the port does not enumerate, so no USB host is possible on this phone at all.** In the meantime the on-phone failure-mode notes (IP Webcam on Configuration screen = server stopped, etc.) are still useful when walking to the phone. For "S7 not broadcasting" diagnosis in the current standalone configuration, use the watchdog log + `/status.json` probe path.
+- **`docs/skills-s7-adb-operations.md`** — **⚠️ CORRECTED 10-Aug-2026 (v2.70.0): ADB works again**
+  on the replacement S7 handset (SM-G930V, healthy USB port) — see Camera 2 (s7-cam) below.
+  Everything in this bullet describes the **retired** SM-G930F only. **PERMANENTLY INAPPLICABLE as of 2026-08-01 (was "currently" inapplicable since 2026-05-06) — for that phone.** ADB-via-GWTC was the recovery path on the 2026-05-02 → 2026-05-06 GWTC-USB setup. The phone then went back to a standalone wall brick, and on 2026-08-01 it moved to a Qi pad because water killed its micro-USB port for both power and data. Power-chain history: MBA-USB → standalone (2026-04-26) → GWTC-USB (2026-05-02) → standalone again (≤2026-05-06) → Qi pad (2026-08-01). **The runbook can no longer be revived by re-tethering — the port does not enumerate, so no USB host is possible on this phone at all.** In the meantime the on-phone failure-mode notes (IP Webcam on Configuration screen = server stopped, etc.) are still useful when walking to the phone. For "S7 not broadcasting" diagnosis in the current standalone configuration, use the watchdog log + `/status.json` probe path.
 - **`docs/16-Apr-2026-s7-ipwebcam-frozen-incident.md`** — the incident post-mortem those two runbooks reference. 30-second human recovery recipe.
 - **Instagram posting to `@pawel_and_pawleen`** — **READ FIRST: [`docs/20-Apr-2026-ig-scheduled-posting-architecture.md`](docs/20-Apr-2026-ig-scheduled-posting-architecture.md) plus [`docs/SOCIAL_MEDIA_MAP.md`](docs/SOCIAL_MEDIA_MAP.md).** Those docs describe how Instagram posting works right now — LaunchAgent-based publishing, Discord reactions as the mixed-lane quality gate, zero CLI for Boss, the explicit S7 exception, and the disabled throwback/on-this-day paths. Earlier plan docs are still correct for account voice / hashtag rules / history but don't describe the live flow.
-  - **Current architecture (verified 2026-07-22 against the live plists):** `discord-reaction-sync` scrapes `#farm-2026` reactions into `image_archive.discord_reactions` every 30 min; `social-publisher` handles hourly reacted-gem stories only; archive/on-this-day fallback is DISABLED (`tools/social/config.json::archive_fallback_enabled=false`); per-cycle auto-posting is DEAD (`instagram.enabled=false`) — do not re-enable. Live daily schedule (updated 28-Jul-2026): **house-yard reel 09:00, carousel 12:30, duo2 reel 15:00, mixed `ig-daily-reel` 18:00, s7 dawn-to-dusk reel 21:00, **dashcam reel 21:30**, insights-fetch 23:30, chicken-daily-pick weekdays 09:30, nextdoor 18:30; weekly — s7 gems reel Sun 10:30, house-yard weekly time-lapse Sun 11:00, duo2 weekly time-lapse Sun 11:15, digest Sun 20:00; monthly (1st) — house-yard time-lapse 08:00, duo2 time-lapse 08:15.** The two weekly/monthly time-lapse pairs (added 03-Aug-2026, see [`docs/03-Aug-2026-multi-day-timelapse-reels-plan.md`](docs/03-Aug-2026-multi-day-timelapse-reels-plan.md)) are **daylight-hours-only**, unlike the all-hours daily house-yard/duo2 reels — that's deliberate and does not contradict the all-hours directive on the daily lanes (different reel shape, see `docs/SOCIAL_MEDIA_MAP.md`'s shared-infrastructure notes). duo2's two new lanes have no historical backlog and will skip silently until ~7/~30 days of the new permanent keyframe capture have accrued. The 4×/day `s7-backlog` lane is retired (see the S7 exception above). The mixed reel **auto-publishes** (`approval_required=False` in `daily_reel_runner.py`) — the old "Boss must react to approve" gate is gone. Full lane table: [`docs/SOCIAL_MEDIA_MAP.md`](docs/SOCIAL_MEDIA_MAP.md).
+  - **Current architecture (re-verified 10-Aug-2026 against the live plists — 29 loaded `com.farmguardian.*` LaunchAgents, cross-checked filename-vs-`launchctl list` with an exact 1:1 match):** `discord-reaction-sync` scrapes `#farm-2026` reactions into `image_archive.discord_reactions` every 30 min; `social-publisher` handles hourly reacted-gem stories only; archive/on-this-day fallback is DISABLED (`tools/social/config.json::archive_fallback_enabled=false`); per-cycle auto-posting is DEAD (`instagram.enabled=false`) — do not re-enable. Live daily schedule: **house-yard reel 09:00, carousel 12:30, duo2 reel 15:00, mixed `ig-daily-reel` 18:00, s7 dawn-to-dusk reel 21:00, **dashcam reel 21:30**, insights-fetch 23:30, chicken-daily-pick weekdays 09:30, nextdoor throwback (mostly no-op) 08:00, nextdoor today 18:30; weekly — s7 gems reel Sun 10:30, house-yard weekly time-lapse Sun 11:00, duo2 weekly time-lapse Sun 11:15, digest Sun 20:00; monthly (1st) — house-yard time-lapse 08:00, duo2 time-lapse 08:15.** The two weekly/monthly time-lapse pairs (added 03-Aug-2026, see [`docs/03-Aug-2026-multi-day-timelapse-reels-plan.md`](docs/03-Aug-2026-multi-day-timelapse-reels-plan.md)) are **daylight-hours-only**, unlike the all-hours daily house-yard/duo2 reels — that's deliberate and does not contradict the all-hours directive on the daily lanes (different reel shape, see `docs/SOCIAL_MEDIA_MAP.md`'s shared-infrastructure notes). duo2's two new lanes have no historical backlog and will skip silently until ~7/~30 days of the new permanent keyframe capture have accrued. The 4×/day `s7-backlog` lane is retired (see the S7 exception above). The mixed reel **auto-publishes** (`approval_required=False` in `daily_reel_runner.py`) — the old "Boss must react to approve" gate is gone. Full lane table: [`docs/SOCIAL_MEDIA_MAP.md`](docs/SOCIAL_MEDIA_MAP.md).
   - **Zero-loss backstop:** `select_all_unposted_story_gems` in `tools/pipeline/ig_selection.py` has NO time window. If a gem got a Discord reaction but wasn't published (agent down, API error, whatever), the next hourly `social-publisher` tick picks it up. That's the whole point — Boss's reaction is a commitment to publish. Large backlogs drain at the configured social-publisher success cap (`tools/social/config.json`, currently 5/tick), with bounded look-ahead over failing old rows. Only local file/path-style permanent failures get marked `story-permanent-skip` so dead rows stop poisoning the FIFO queue; transient API/git errors remain retryable.
   - **Reacted Story priority invariant:** on-this-day/archive fallback stories are currently disabled. If they are redesigned later, they are allowed only when the reacted Story queue depth is zero. Do not use `gems_posted == 0` as a proxy for "queue empty"; failed gem attempts still mean the queue exists and must block archive fallback.
   - **IG publish quota — SHARED across every IG publishing lane, 25 per rolling 24h.** Instagram's Graph API hard-caps Business accounts at 25 `media` publishes per rolling 24-hour window, and this counts reacted stories, daily carousels, mixed Reels, S7 time-lapse Reels, and any future re-enabled on-this-day fallback stories. When you hit the cap, Graph 403s every subsequent container-status poll until the oldest publishes age past 24h. The publisher/reel runners detect the 403 and stop cleanly so the next tick resumes when a slot frees. **Do not "fix" the 403 by cranking up timeouts or retrying with new tokens — it's a hard quota, not an auth problem.** `scripts/pipeline-digest.py` reports this as rolling-24h usage, not local calendar-day usage.
@@ -521,7 +511,22 @@ Runbooks capture the how-to for cross-agent operations on this repo. Any agent p
   - **If a future agent suggests "we need to request `pages_manage_posts` from Meta" or "the scope is deprecated, we need X instead" or "add a FB token to Railway env vars" — they are wrong.** The capability is settled. Point them at `~/bubba-workspace/skills/farm-facebook-crosspost/SKILL.md`. Meta's Dashboard UI reshuffles every few months; the regen recipe in that doc is archaeology, not a forward-looking script.
   - **Deep dive:** `~/bubba-workspace/skills/farm-facebook-crosspost/SKILL.md`. **Source:** [`tools/pipeline/fb_poster.py`](tools/pipeline/fb_poster.py). **Plan doc:** [`docs/20-Apr-2026-facebook-crosspost-plan.md`](docs/20-Apr-2026-facebook-crosspost-plan.md). **Toggle (rarely needed):** `FB_CROSSPOST_ENABLED` env var — default `"1"`; set to `"0"` to disable dual-post without touching code.
 - **Instagram ENGAGEMENT automation (distinct from posting) — `tools/ig-engage/`** — scrolls `@pawel_and_pawleen`'s feed + targeted hashtags, likes selectively, reacts to friends' stories, leaves short VLM-written contextual comments on OTHER accounts' content. The engagement side is what this tool does; the posting side (IG Graph API) is separate. Session bootstrap is a zero-login cookie lift from Boss's existing Chrome session on the Mac Mini (decrypted via the macOS keychain "Chrome Safe Storage" entry, seeded into a dedicated Playwright Chromium persistent profile at `~/Library/Application Support/farm-ig-engage/profile/`). Do NOT re-invent the session flow — Meta's DevTools self-XSS block rejects console cookie reads, and Boss has no memorized IG password. **Kill switch:** `touch /tmp/ig-engage-off`. **Hard constraints:** no follow/unfollow, no DM primitives, daily caps 30 likes + 10 comments + 20 story reactions. **Deep dive:** `~/bubba-workspace/skills/farm-instagram-engage/SKILL.md`. **Plan:** `docs/23-Apr-2026-ig-engage-plan.md`. **CHANGELOG:** v2.36.8, v2.36.9.
-- **Nextdoor automation (planned 2026-04-23, in progress) — `tools/nextdoor/`** — same architectural pattern as IG engagement, extended to Boss's Hampton CT neighborhood. Two lanes: inbound engagement (like/comment on neighbors' posts) and outbound cross-posting (one reaction-gated farm post per week, Sunday mornings). Boss logs in via Apple Sign-In — 21 Nextdoor cookies including the 820-char `ndbr_idt` session JWT verified 2026-04-23 to decrypt cleanly with the IG bootstrap's exact crypto path. Shared cookie-decrypt module planned at `tools/chrome_session/decrypt.py` so IG and Nextdoor share one crypto implementation. **Kill switch:** `touch /tmp/nextdoor-off`. **Hard constraints:** no neighbor-request/friend automation, no DMs, 10 likes + 3 comments/day, 1 post/week, audience floor "just my neighborhood" only. **Deep dive:** `~/bubba-workspace/skills/farm-nextdoor-engage/SKILL.md`. **Plan:** `docs/23-Apr-2026-nextdoor-plan.md`.
+- **Nextdoor automation — shipped, not "in progress."** `tools/nextdoor/` — same architectural
+  pattern as IG engagement, extended to Boss's Hampton CT neighborhood. **⚠️ CORRECTED
+  10-Aug-2026: outbound cross-posting is not "one reaction-gated post per week, Sunday
+  mornings"** — the original 23-Apr-2026 plan below describes intent, not what shipped. Live
+  LaunchAgent `com.farmguardian.nextdoor-crosspost` fires **twice daily**, confirmed against
+  the loaded plist (`StartCalendarInterval`: 08:00 and 18:30) and `scripts/nextdoor-crosspost.py`
+  → `tools/nextdoor/crosspost.py`'s own header: **18:30 is the `today` lane** (1 reacted
+  LIVE-CAM gem/day, per-lane daily cap via `budget.py`), **08:00 is the `throwback` lane**
+  (disabled unless `FARM_NEXTDOOR_THROWBACK_ENABLED=1`, per the Throwback/on-this-day section
+  above — so it fires but no-ops most days). Boss logs in via Apple Sign-In — 21 Nextdoor
+  cookies including the 820-char `ndbr_idt` session JWT verified 2026-04-23 to decrypt cleanly
+  with the IG bootstrap's exact crypto path. Shared cookie-decrypt module: `tools/chrome_session/decrypt.py`.
+  **Kill switch:** `touch /tmp/nextdoor-off`. **Hard constraints:** no neighbor-request/friend
+  automation, no DMs, 10 likes + 3 comments/day, audience floor "just my neighborhood" only.
+  **Deep dive:** `~/bubba-workspace/skills/farm-nextdoor-engage/SKILL.md`. **Original plan
+  (intent, not final shape):** `docs/23-Apr-2026-nextdoor-plan.md`.
 - **Browser automation stack on this Mini — FOUR tools enabled, all of them always on the table** (2026-04-23, CHANGELOG v2.37.1):
   1. **Playwright + persistent profiles** — the workhorse. `farm-guardian/venv/`. Cookie lift via `tools/chrome_session/decrypt.py`; per-track profiles under `~/Library/Application Support/farm-*/profile/`. Powers the IG + Nextdoor tracks.
   2. **`playwright codegen` wrapper** — `tools/chrome_session/codegen.py --profile {ig|nextdoor}`. Attaches codegen to an already-bootstrapped profile so you're logged in when the recorder window opens. Add new profiles by extending the `PROFILES` dict.
@@ -710,7 +715,7 @@ ssh -i ~/.ssh/id_ed25519 markb@192.168.0.50 'c -p "Granular task description her
 | Mac Mini (Bubba) | local — you're already here | yes (this is the orchestrator most of the time) |
 | MacBook Air | `ssh -i ~/.ssh/id_ed25519 markb@192.168.0.50` | yes — `c` alias, OAuth-logged-in |
 | **`farm-pi5`** (Birdcatraz camera host) | `ssh -i ~/.ssh/id_ed25519 markb@192.168.0.17` | not installed — bare OS as of 05-Aug-2026. Debian 13 trixie, Pi 5 4 GB. sudo needs the password (`echo 12345 \| sudo -S …`). **Both USB cameras live here now.** See [`docs/05-Aug-2026-birdcatraz-pi5-bringup-log.md`](docs/05-Aug-2026-birdcatraz-pi5-bringup-log.md) |
-| Gateway laptop (GWTC) | `ssh -o StrictHostKeyChecking=no markb@192.168.0.69` (IP moved from `.68`; rediscover via /24 sweep on `:8554`) | yes — pinned `c.cmd`. **Verified reachable + healthy 23-Jul-2026**; only its webcam is dead (see Camera 4) |
+| Gateway laptop (GWTC) | `ssh -o StrictHostKeyChecking=no markb@192.168.0.69` (IP moved from `.68`; rediscover via /24 sweep on `:8554`) | yes — pinned `c.cmd`. **🔴 Its camera is fully retired from Guardian (10-Aug-2026, see Camera 4) — Boss no longer wants it, unrelated to the dead-webcam hardware issue.** Also currently unreachable at the network level (confirmed 10-Aug-2026: SSH and MediaMTX both closed, ARP-incomplete, no host on the /24 answering :8554) — a separate, likely transient issue from the permanent camera retirement |
 | MSI Katana 15 HX (Boss's machine) | `ssh markb@192.168.0.4` — **IP drifted from `.3` to `.4`** (MAC `fc:6d:77:b8:e8:db`, verified 23-Jul-2026). Windows: default shell is cmd.exe, so wrap commands in `powershell -NoProfile -Command "..."` | yes |
 | Larry's MSI laptop (Dominator) | `ssh -o StrictHostKeyChecking=no user@192.168.0.194` | box answers SSH, but its camera services are down (likely sitting at the Windows login screen — AtLogOn tasks need an interactive login). Verify before relying on it |
 | Egon's Linode | ~~`ssh … euclid@172.104.147.157`~~ | **DECOMMISSIONED per Boss.** The IP still answered SSH on 2026-07-22 — if the instance was actually deleted, that address now belongs to a stranger. **Do not SSH credentials at it** until someone confirms in the Linode dashboard |
@@ -765,27 +770,58 @@ Linux** — that is the specific thing the plan says not to do.
 > ```
 > When a camera moves, the ONLY things that must change are the URL in **both** config files and, on the new host, the `usb-cam-host` service. Then reload both LaunchAgents.
 
-**Camera roster — SIX cameras, verified against both config files 2026-08-10.** Earlier versions of this section described only four, then seven; that was stale. `enabled` is Guardian's view (`config.json`); the pipeline (`tools/pipeline/config.json`) has its own flags and is noted where the two disagree.
+**Camera roster — SIX cameras, config-entry count and dashboard-visible count now agree, verified
+2026-08-10 (after both `dominator-cam` and `gwtc` were retired the same day).** `config.json`
+and `tools/pipeline/config.json` both carry exactly six camera entries, and Guardian's live
+`GET /api/cameras` returns the same six: `house-yard`, `s7-cam`, `usb-webcam-1080p`,
+`macbook-air-facetime`, `jieli-dashcam`, `duo2`. (Earlier the same day this line went through
+several wrong counts in quick succession — six, then seven, with a "seven configured but six
+visible because `gwtc` is disabled" split in between — before `gwtc` itself was retired and the
+split became moot. If you ever see a config-entry count differ from what the dashboard shows
+again, it means a disabled-but-still-configured camera exists; check for one before trusting
+either number blindly.) `enabled` is Guardian's view (`config.json`); the pipeline
+(`tools/pipeline/config.json`) has its own flags and is noted where the two disagree.
 
 | # | camera | source | detection | state |
 |---|---|---|---|---|
 | 1 | `house-yard` | Reolink E1 Outdoor Pro, HTTP snapshot `192.168.0.88` | **ON** | live |
 | 2 | `s7-cam` | Galaxy S7 IP Webcam, HTTP snapshot `192.168.0.249:8080` | off | live |
 | 3 | `usb-webcam-1080p` | **`farm-pi5`** (Raspberry Pi 5 at Birdcatraz), `http://farm-pi5.local:8090` | off | ✅ **WORKING, and it was never broken.** Daylight-confirmed 06-Aug-2026: 1920x1080, mean 128.9, 0% clipped. Its V4L2 `gain` had been pinned at **0** (default 32), which blackens output on any host — that single fact explains the black frames on GWTC and the dead video interface on the Air. Fix is `gain=32` in `/etc/farmcam/usb-webcam-1080p.env`. **Ignore older "intermittent / needs a replug" notes about this camera** |
-| 4 | `gwtc` | Gateway laptop MediaMTX `rtsp://192.168.0.69:8554/gwtc` | off | **disabled in both configs** |
 | 5 | `macbook-air-facetime` | MacBook Air `192.168.0.50:8089` — the built-in **FaceTime HD @ 1280x720** (was `mba-cam`) | off | live, enabled in both. **Can disappear from the system entirely with the lid still open** (verified 01-Aug-2026 via `ioreg -r -k AppleClamshellState`) — re-seating the USB hub restores it, since the built-in sits on the same USB controller. The service 503s rather than substituting another camera, which is correct. ⚠️ archive rows from 21-Jul 13:31Z to 23-Jul 12:55Z are actually USB-camera footage — see HARDWARE_INVENTORY.md |
 | 5b | `jieli-dashcam` | **`farm-pi5`** (Raspberry Pi 5 at Birdcatraz), `http://farm-pi5.local:8091` — car dashcam in PC-camera mode, Jieli "USB PHY 2.0", 1280x720 wide-angle | off | **Moved to the Pi 05-Aug-2026** (was MacBook Air `:8091`). Time-lapse material, never a gem. **Re-aimed frequently by Boss — never record what it points at, in config, docs, or code.** The old bus-power constraint is gone: it has a powered hub on the Pi |
 | 7 | `duo2` | Reolink Duo 2 WiFi, `rtsp://…@192.168.0.155:554` | **ON** | live |
 
 **🔴 `dominator-cam` RETIRED 10-Aug-2026 — do not re-add it.** Boss doesn't want it anymore; it's out of both config files (`scripts/add-camera.py remove dominator-cam`) and its `dominator-cam-bisoncam` scheduled task on the Dominator (`192.168.0.194`) is disabled, not just stopped. Its companion `usb-cam` role on that same box already moved to the Birdcatraz Pi on 05-Aug-2026 (`usb-webcam-1080p`) and is unaffected. See `docs/10-Aug-2026-dominator-cam-retirement-plan.md`.
 
-✅ **The old usb-cam/mba-cam config divergence is FIXED (23-Jul-2026).** Both files now agree: `usb-cam` → `192.168.0.69:8089` (GWTC), `mba-cam` → the MacBook Air, both enabled.
+**🔴 `gwtc` ALSO RETIRED 10-Aug-2026, same reason — do not re-add it.** Boss: with the Birdcatraz
+Pi (`farm-pi5`) now covering camera duty out there, neither laptop-hosted camera is needed. Out
+of both config files (`scripts/add-camera.py remove gwtc` + a hand-fix for a
+`timelapse_reel_daylight_only_cameras` list reference the removal tool doesn't reach). **Unlike
+the Dominator, GWTC's on-box services (`mediamtx`, `farmcam`, both watchdogs) are NOT yet
+disabled** — the laptop was unreachable (off the LAN, confirmed by a full `/24` port-8554 sweep)
+at retirement time, so there was nothing to SSH into. Not urgent — nothing in Guardian consumes
+its feed anymore either way — but don't assume it's fully torn down if you ever do reach the
+box. See `docs/10-Aug-2026-gwtc-retirement-plan.md`.
+
+(The old note that used to sit here — "usb-cam/mba-cam config divergence, usb-cam → GWTC,
+23-Jul-2026" — described ids and a hosting arrangement that no longer exist on either count;
+removed rather than corrected a third time, since the roster table above is the actual source
+of truth for current camera hosting.)
 
 **🔴 CAMERAS RENAMED 01-Aug-2026 — `usb-cam` and `mba-cam` DO NOT EXIST.** They are now
 `usb-webcam-1080p` (the generic 1920x1080 USB webcam) and `macbook-air-facetime` (the Air's
-built-in 1280x720), and a third camera `jieli-dashcam` was added. All three sit on one USB hub
-on the MacBook Air, each served by its own `usb-cam-host` instance on ports 8089 / 8090 / 8091
-(LaunchAgents `com.farmguardian.cam-<name>`). 44,525 archive rows were migrated to the new ids.
+built-in 1280x720), and a third camera `jieli-dashcam` was added. 44,525 archive rows were
+migrated to the new ids.
+
+**✅ SUPERSEDED 05/06-Aug-2026 (v2.62.0/v2.63.3) — the "all three on one USB hub on the Air" part
+above is no longer true.** `usb-webcam-1080p` and `jieli-dashcam` both moved off the MacBook Air
+to `farm-pi5` (the Birdcatraz Pi), and the Air was deliberately reduced to exactly one camera —
+`macbook-air-facetime` — to remove the multi-camera identity-collision risk this section's
+"do not identify by position" warning below was written about. Confirmed live and healthy in
+this session's audit (10-Aug-2026): both Pi cameras respond `ok:true` on `farm-pi5.local:8090`
+and `:8091`. See the roster table above and `docs/05-Aug-2026-birdcatraz-pi5-bringup-log.md`.
+The identity-collision lesson below is still correct and still applies — just not to three
+cameras on the Air anymore, since there's only one there now.
 
 **⚠️ DO NOT identify a camera by its position in a device list, and DO NOT use resolution as
 proof of identity.** ffmpeg and OpenCV number the same cameras *differently on the same machine
@@ -824,18 +860,39 @@ camera, pull `/photo.jpg` and look at it. Plan:
   - **⚠️ `EXIF Orientation=1` on `s7-cam` after a reboot is EXPECTED and is NOT a fault.** `photo_rotation` reverts on every boot; `force_portrait` rotates any wider-than-tall frame 90° CW regardless of EXIF, so the pictures are correct even while the tag says landscape. I misdiagnosed exactly this on 10-Aug-2026 — read a metadata tag, declared the frames sideways, and started "fixing" a camera that was working. **Judge this camera by the picture, not the metadata**, same rule as the Reolink above.
 
   **Everything from here down describes the RETIRED handset** (SM-G930F) and is kept because its failure modes and the portrait decision still govern how `s7-cam` works. **Note its many statements that the 10-minute watchdog is the re-assertion or recovery layer are now historical — that job is retired (see above).** **Power & host: Qi WIRELESS CHARGING PAD (state of the OLD phone as of 2026-08-01).** Power-chain history: MBA-USB → standalone brick (2026-04-26) → GWTC-USB (2026-05-02, ADB-authorised so the watchdog could remotely restart IP Webcam) → standalone brick again (≤2026-05-06) → **Qi pad (2026-08-01)**. The phone got wet and its micro-USB port stopped working for BOTH power and data; confirmed 2026-08-01 with a known-good DATA cable directly in the Mac mini, the phone does not enumerate on the USB bus at all (no Samsung vendor ID 1256 / 0x04E8 in `ioreg -rc IOUSBHostDevice`). Qi is now the only working charging path. **This is permanent unless the port is repaired: there is no ADB host of any kind and no way to create one.** adb-over-USB needs a working port; adb-over-network is refused (5555 closed) because Android 8.0.0 predates wireless-debugging pairing and `adb tcpip` would itself need one working USB session. Do not plan any recovery, cleanup or settings sweep around ADB on this phone. Diagnostic: `tools/s7-charge-diagnose.sh`. Caveat: Qi on an SM-G930F is ~5W and this phone has a documented history of browning out on weak power — keep the screen off/dim and treat power as the first suspect on any new stall. **Confirmed by Boss 02-Aug-2026: running the phone (camera app + WiFi + screen) while it rests on the Qi pad drains it net-negative — the pad can't keep up with active draw.** To actually charge it, Boss powers the phone off, which takes s7-cam fully offline for a stretch. **⛔ This is ROUTINE — do not report it as an incident.** The phone is carried indoors to charge, so an s7-cam outage of a few hours, and archive frames showing a room, a desk or the farm dog instead of the flock, are both completely expected. Boss 06-Aug-2026: "It comes inside to charge. That's not even worth noting to me." Do not open an investigation, do not flag the indoor frames as mislabeled, and do not ask him about it. The VLM prompt explicitly permits describing the dog or an indoor scene — a good photo of the dog is worth surfacing, not discarding. **Before treating an s7-cam outage as an incident, check whether it's simply a charging window** — a clean `ConnectionError: ... Host is down` in `/tmp/pipeline.err.log` (ports closed, no partial responses) is consistent with the phone being off; this is a different signature from the known HTTP-wedge mode above (`/photoaf.jpg` returning 0 bytes while the phone is still on the network). Phone reachable only over WiFi at `192.168.0.249:8080` (HTTP) / `:5554` (RTSP). **Cold-boot black-screen: FIXED 2026-05-21 (v2.40.16)** by disabling the phone's swipe lock screen — the keyguard was blocking camera init on boot. Focus (`Aggressive`/continuous-picture) and orientation (Portrait) are now persisted in the IP Webcam app menu (HTTP `/settings/` are runtime-only and do NOT survive reboot), so a power-cycle now self-heals to green + sharp + portrait with zero intervention. A mid-run HTTP-server wedge (rare) may still need a hands-on Stop/Start at the phone — there is no remote ADB escape hatch in the current standalone configuration. **Orientation is PORTRAIT (fixed on phone, deliberate decision 2026-04-21, v2.35.2).** IP Webcam's `orientation=portrait` + `photo_rotation=90` settings drive an EXIF Orientation=6 tag on the JPEG; `capture.py:_apply_exif_rotation` bakes the rotation in at the capture boundary before `cv2.imdecode` (which ignores EXIF). Every downstream consumer sees 1080×1920 portrait pixels. Physical phone rotation does NOT change orientation — it's set via `http://192.168.0.249:8080/settings/orientation?set=...` (values: `portrait`, `landscape`, `upsidedown`, `upsidedown_portrait`). Portrait is the conscious choice because the s7-cam's primary content destination is IG stories + reels, which are native 9:16. Backend helper is adaptive (reads whatever EXIF says), so flipping back to landscape later only requires flipping the phone-side setting; the pipeline follows. **Settings re-assertion:** `com.farmguardian.s7-settings-watchdog` ticks every 10 min and re-curls `/settings/orientation?set=portrait` + `/settings/photo_rotation?set=90` + `/settings/focusmode?set=continuous-picture` as a WiFi backup. Since focus + orientation are now persisted in-app (2026-05-21), the watchdog is redundant for those; `photo_rotation` is the one still applied only over HTTP. **White balance is no longer pushed (v2.40.16, 2026-05-22):** the old `whitebalance=incandescent` GET was a brooder heat-lamp compensation, but the S7 moved to the nesting box and the lamp is gone, so it now cool/blue-shifts an already-neutral scene (the washed-out, oddly-colored look). The phone keeps its default auto WB — do NOT re-add the incandescent push in `config.json` or the watchdog plist. **Known wedge mode:** if IP Webcam's HTTP server stalls (`/photoaf.jpg` returns 0 bytes), the three settings re-curls in the same tick will also fail (`fm=0 or=0 pr=0` in the watchdog log) and the camera serves landscape until the app self-recovers — the 2026-05-06 incident captured in CHANGELOG. The deployed plist still carries an SSH-to-GWTC ADB-recovery branch from before the standalone-power switch; it is harmless dead code (left in place during the v2.40.16 WB-only edit to keep that change surgical; safe to delete whenever the plist is next reworked). **⛔ Before doing ANY app cleanup / `pm disable-user` on this phone, read `docs/skills-s7-adb-operations.md` → "DO NOT DISABLE Google Play Services" (07-Jul-2026): IP Webcam depends on `com.google.android.gms` and disabling it kills the camera (recovery = full reboot); disabling `com.sec.imsservice` triggers an undismissable OS crash-loop. Only pure consumer apps (FB/IG/WhatsApp/Office) are safe to disable, and Boss wants location/Bluetooth/NFC left ON.** (That rule was learned on a 07-Jul-2026 bench session with the S7 temporarily USB-tethered to the Mac Mini for ADB — a temporary hookup, NOT a permanent power/host change. That tethering option is now GONE — as of 2026-08-01 the micro-USB port no longer enumerates at all, so the Qi-pad state above stands and no future bench session can use ADB.)
-- **Camera 3 (usb-cam):** Generic USB webcam (1920×1080), **host-portable as of v2.26.0**. Frames flow through the `usb-cam-host` FastAPI snapshot service (`tools/usb-cam-host/usb_cam_host.py`) running on whichever machine the camera is plugged into. **The move off the Mac Mini happened** — Guardian now points at the MacBook Air (`http://Marks-MacBook-Air.local:8089`), and the Mini's own `com.farmguardian.usb-cam-host` plist has been suffixed `.idle-24apr2026` since April. Guardian consumes it via `HttpUrlSnapshotSource` (`snapshot_method: "http_url"`); the pipeline consumes it via `capture_ip_webcam` (`capture_method: "ip_webcam"`). Detection disabled. **White balance (23-Jul-2026):** on GWTC this camera runs `USB_CAM_AUTO_WB=false` / `WB_STRENGTH=0` — gray-world WB is correct under a heat lamp but posterises a bright daylight scene into cyan/purple/yellow, so it is OFF here. Do NOT turn it back on for this daylight camera; see `docs/16-Apr-2026-heat-lamp-orange-cast-investigation.md` → "Daylight is the OPPOSITE of the heat-lamp case". **Known recovery:** if it ever serves a pure-black frame (device open, grabs incrementing, Guardian still shows it online), restart the grabber with `C:\farm-services\restart-usbcam.ps1` on GWTC — verified 23-Jul-2026.
+- **Camera 3 — see the roster table above, row `usb-webcam-1080p` (this bullet's old id was
+  `usb-cam`, renamed 01-Aug-2026).** This bullet described its pre-05-Aug-2026 history hosted on
+  the Mac Mini, then the MacBook Air, then GWTC, with GWTC-specific white-balance settings and
+  recovery commands. All superseded by the Birdcatraz Pi migration (v2.62.0/v2.63.0) — it now
+  runs on `farm-pi5` with structural `/dev/v4l/by-id/` identity, confirmed healthy in this
+  session's audit. The historical gray-world-WB-off note doesn't transfer to the Pi's own
+  capture path; don't assume it still applies without checking `tools/camera-host-linux/` first.
 
   **🔴 MOVED TO THE MACBOOK AIR 05-Aug-2026 — both configs now point at `192.168.0.50:8090`, NOT GWTC.** The camera was physically on the Air while both config files still polled GWTC `192.168.0.69:8089`, which is **serving a pure-black 1920x1080 frame** from something that is not this camera (GWTC's own webcam is disabled; OBS Virtual Camera is installed on that box). That black feed is what appeared on the dashboard as "the USB webcam is back up." **GWTC `:8089` is a black-frame trap — do not point anything at it.** The Air's service (`com.farmguardian.cam-usb-webcam-1080p`, port 8090, `USB_CAM_START_DELAY=25`) is un-parked and loaded.
 
   **Current state: `/health` returns `ok:false` + 503 with `acquire_stalled_s: 0.0`.** Per the 30-second triage table above that means the camera is genuinely **absent from the video bus** — hands-on replug, no software fix. It is enumerated on the USB bus with its serial and drawing power, but its *video interface* is not in the AVFoundation list. **This is correct, honest behaviour and needs no action beyond a replug** — the service is loaded and will bind the moment the camera returns. Do NOT re-point it at GWTC to make the tile look alive.
-- **Camera 4 (gwtc):** Gateway laptop (Windows 11) built-in webcam, **currently `enabled: false` in both config files** — the lane is off, not merely unreachable.
-  - **⚠️ State verified 23-Jul-2026: the laptop is FINE, the camera is DEAD.** GWTC is fully reachable at `192.168.0.69` (SSH 22 + MediaMTX 8554 both open), up since 20-Jul, and all three services (`farmcam`, `farmcam-watchdog`, `mediamtx`) report Running. `Get-PnpDevice` shows `Hy-HD-Camera` as not present, and `ffmpeg -list_devices` sees only an "OBS Virtual Camera" (OBS has been installed on the box at some point). So `start-camera.bat`, which opens `video="Hy-HD-Camera"`, exits instantly and Shawl respawns it forever.
+- **Camera 4 (gwtc) — RETIRED 10-Aug-2026.** Removed from both config files entirely (was
+  previously just `enabled: false`); Boss doesn't want it, the Birdcatraz Pi covers this duty
+  now. See `docs/10-Aug-2026-gwtc-retirement-plan.md`. **The hardware/troubleshooting detail
+  below is kept as historical reference, not a live runbook** — it's genuinely useful if anyone
+  ever has hands on this laptop again (it documents a real electrical trap: don't reset its USB
+  root hub remotely, it takes the WiFi NIC down with it) but none of it describes an active
+  Guardian camera anymore.
+  - **⚠️ State verified 23-Jul-2026 (historical): the laptop is FINE, the camera is DEAD.** GWTC is fully reachable at `192.168.0.69` (SSH 22 + MediaMTX 8554 both open), up since 20-Jul, and all three services (`farmcam`, `farmcam-watchdog`, `mediamtx`) report Running. `Get-PnpDevice` shows `Hy-HD-Camera` as not present, and `ffmpeg -list_devices` sees only an "OBS Virtual Camera" (OBS has been installed on the box at some point). So `start-camera.bat`, which opens `video="Hy-HD-Camera"`, exits instantly and Shawl respawns it forever.
   - **🔧 CORRECTION 25-Jul-2026 — the webcam is NOT "off the bus"; it is failing USB enumeration, and it was taking the network down with it.** The earlier claim above ("not on the device bus at all") was wrong. The camera is electrically present on **`Port_#0008.Hub_#0001`** and retrying enumeration in a permanent loop; it cannot return its device descriptor, so Windows labels it `Unknown USB Device (Device Descriptor Request Failed)` / `VID_0000&PID_0002` / `CM_PROB_FAILED_POST_START` instead of by name. Port-location mapping proves identity: `Hy-HD-Camera`'s last location is that same `Port_#0008.Hub_#0001`. It died between **4 and 7 June 2026**. **Why this matters far beyond the camera:** the **Realtek 8723DU WiFi NIC is a USB device on `Port_#0007` of the same root hub** — one port away — so the failed device's endless enumeration retries disturb the bus the network depends on. That is the mechanism behind the recurring "GWTC vanished off the LAN" dropouts, and it is why re-plugging the USB hub on port 6 *restores the network*: it forces a root-hub re-enumeration that bounces the WiFi NIC. **The dead webcam has been disabled** (`Disable-PnpDevice -InstanceId 'USB\VID_0000&PID_0002\5&2FF55CF5&0&8'` → `CM_PROB_DISABLED`, verified WiFi and `usb-cam` unaffected) to stop the bus noise. **⛔ NEVER reset the USB root hub or the Intel xHCI controller on GWTC remotely — the WiFi NIC is a child of it, so you would kill the only way back in, on a box with no screen and no keyboard.** Disable/reset individual leaf devices by exact InstanceId only. Full topology and evidence: [`docs/24-Jul-2026-gwtc-offline-incident.md`](docs/24-Jul-2026-gwtc-offline-incident.md).
   - **This is a CRASH LOOP, not the documented dshow zombie — do not confuse them.** The zombie is ffmpeg *alive but wedged*, and `farmcam-watchdog` fixes it in ~90s. Here ffmpeg **dies in 0-1s**, so the watchdog correctly logs `only alive 0s -- within startup grace, no action` every 30s and never intervenes. **Waiting 3 minutes will not help and neither will restarting anything from the Mac Mini.** Symptom from here: port 8554 open but `rtsp://192.168.0.69:8554/gwtc` returns `404 Not Found`.
   - **Screen: black BY DESIGN — do not try to "fix" it.** GWTC is a **touchscreen** laptop (panel `NV116WHM-T16`, the T = touch), and the chickens kept touching it, so Boss deliberately disabled the screen at the hardware level. Evidence that it is intentional and not failed: Windows still enumerates the panel and reports it active/full-power/brightness 90, but the display stays dark, and there is **no active HID touch-screen device** in `Get-PnpDevice` (the digitizer was disabled). It runs headless perfectly — SSH, the camera host, and the watchdogs are all up regardless of the screen. **Do not diagnose this as a dead backlight or replace the panel.** (Two earlier writeups got this wrong: first "brightness pinned low", then "fried backlight" — both incorrect. The brightness value *does* take in software; the panel is simply disabled on purpose.) If a future need ever requires the screen back, the thing to re-enable is the touch digitizer + display, and the anti-chicken concern comes back with it. A `farmcam-screen-on` scheduled task was created on the wrong "brightness" theory and then removed 23-Jul-2026 as pointless; `deploy/gwtc/screen-on.ps1` + `register-screen-task.ps1` remain in the repo as dead artifacts only.
   - **Fix needs hands on the laptop:** the camera is absent at the hardware/driver level. Check for a function-key camera toggle or physical shutter first (the MSI Dominator has exactly this trap — see `HARDWARE_INVENTORY.md`), then Device Manager, then whether OBS grabbed or replaced the device. Nothing on the Mini can restore a camera that Windows cannot enumerate. Streams via ffmpeg → MediaMTX at `rtsp://192.168.0.69:8554/gwtc` (**IP moved from `.68` to `.69`**; DHCP is not pinned, so it can hop again — rediscover with the port-8554 sweep in the Network section). 1280x720, 15fps, H.264. Services auto-start via Shawl, with the `farmcam-watchdog` Shawl service handling post-reboot recovery. Detection disabled. In the chicken coop.
-- **Camera 5 (mba-cam):** MacBook Air built-in webcam via the same `usb-cam-host` service on `192.168.0.50:8089`. `enabled: false` for Guardian, `enabled: true` for the pipeline — so it still captures raw frames (~2 GB/day) that no publishing lane currently consumes. Detection disabled. **KEEP IT CAPTURING — Boss wants to re-enable the turkey-pen reel lane (`com.farmguardian.ig-mba-cam-timelapse-reel.plist.disabled`) at some point (23-Jul-2026), and the stockpile is what that lane will draw on.** Do not "reclaim disk" by turning this capture off; the ~2 GB/day and the per-cycle `ConnectTimeout` noise when the Air sleeps are both expected and accepted.
+- **Camera 5 (`macbook-air-facetime`, this bullet's old id was `mba-cam`, renamed 01-Aug-2026):**
+  MacBook Air built-in FaceTime HD via `usb-cam-host` on `192.168.0.50:8089`. **⚠️ CORRECTED
+  10-Aug-2026 — no longer the optional/toggled "brooder monitor" this bullet used to describe.**
+  As of v2.63.3 (06-Aug-2026) the Air was deliberately reduced to exactly this one
+  permanently-loaded camera (to remove the identity-collision precondition — see the CAMERAS
+  RENAMED banner above), and the roster table shows it `enabled: true` in both configs, live,
+  no load/unload toggle. **Live-probe note (10-Aug-2026):** the box itself answers (ARP + ping
+  succeed), but port 8089 was closed/unreachable during this session's audit — worth a
+  `launchctl kickstart -k` check on that LaunchAgent if it's still down when you read this,
+  rather than assuming it's fine because the host is up.
 - **Camera 6 (dominator-cam) — RETIRED 10-Aug-2026.** Was the built-in webcam on the MSI "Dominator" laptop at `192.168.0.194:8089`. Boss no longer wants it; removed from both config files and its `dominator-cam-bisoncam` scheduled task disabled on the Dominator. Not a fault, not offline-by-design anymore — gone on purpose. See `docs/10-Aug-2026-dominator-cam-retirement-plan.md`. Do not re-add it without a fresh ask from Boss.
 - **Camera 7 (duo2):** Reolink Duo 2 WiFi, dual-lens, RTSP at `192.168.0.155:554` with credentials embedded in the config URL. **Detection enabled.** Feeds the 15:00 daily time-lapse reel and is the largest archive consumer (~50 GB rolling raw window at ~5.9 MB/frame — bounded by design, not a leak).
 - **Network:** All devices on same local WiFi network. Reolink IPs are DHCP and have drifted before (`config.json` says `.88`/`.155`; other docs have claimed `.89`/`.156`) — verify against the router or Guardian's API before believing any hardcoded address.
