@@ -132,8 +132,8 @@
   "house-yard": {
    "cycle_seconds": 45,
    "capture_method": "reolink_snapshot",
-   "reolink_base": "http://192.168.0.89",
-   "context": "Reolink E1 Outdoor Pro 4K PTZ camera (192.168.0.89); currently aimed at the yard, sky, and coop approach",
+   "reolink_base": "http://192.168.0.88",
+   "context": "Reolink E1 Outdoor Pro 4K PTZ camera (192.168.0.88); currently aimed at the yard, sky, and coop approach",
    "burst_size": 1,
    "motion_gate": false,
    "vlm_bypass": true,
