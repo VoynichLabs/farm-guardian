@@ -1305,7 +1305,30 @@ def select_multiday_timelapse_gems(
     longitude = float(mt_cfg.get("longitude", -71.9789))
 
     now = _ensure_timezone(now)
-    cutoff_iso = (now - timedelta(days=since_days)).isoformat()
+
+    # WHOLE local days, not a rolling `now - N days` (09-Aug-2026, v2.69.1).
+    # The rolling form opened partway through the day N days ago and closed
+    # partway through today, so a "week" was 6 whole days bookended by two
+    # fragments — it began mid-afternoon and stopped mid-morning. Same defect
+    # the daily lanes had, and the same fix Boss asked for: complete days only.
+    #
+    # The window runs to the last COMPLETE day (today if this runs after
+    # sunset, else yesterday) and back since_days-1 further, so a weekly reel
+    # is exactly 7 whole days and a monthly one exactly 30. is_daylight()
+    # below then trims each of those days to its own sunrise->sunset, which is
+    # what leaves the nights out as clean gaps.
+    tz = ZoneInfo(tz_name)
+    local_now = now.astimezone(tz)
+    last_day = local_now.date()
+    today_sunset = sunset_minute(last_day, latitude, longitude, tz_name)
+    if today_sunset is not None and (local_now.hour * 60 + local_now.minute) < today_sunset:
+        last_day = last_day - timedelta(days=1)
+    first_day = last_day - timedelta(days=since_days - 1)
+
+    start_local = datetime.combine(first_day, time(0), tzinfo=tz)
+    end_local = datetime.combine(last_day, time(0), tzinfo=tz) + timedelta(days=1)
+    cutoff_iso = start_local.astimezone(timezone.utc).isoformat()
+    end_iso = end_local.astimezone(timezone.utc).isoformat()
 
     with sqlite3.connect(str(db_path)) as c:
         c.row_factory = sqlite3.Row
@@ -1316,15 +1339,16 @@ def select_multiday_timelapse_gems(
                AND image_tier = 'keyframe'
                AND image_path IS NOT NULL
                AND ts >= ?
+               AND ts < ?
              ORDER BY ts ASC
             """,
-            (camera_id, cutoff_iso),
+            (camera_id, cutoff_iso, end_iso),
         ).fetchall()
 
     if not rows:
         log.info(
-            "select_multiday_timelapse: no keyframes for %s in last %dd",
-            camera_id, since_days,
+            "select_multiday_timelapse: no keyframes for %s over %s..%s "
+            "(%d whole days)", camera_id, first_day, last_day, since_days,
         )
         return []
 
@@ -1374,7 +1398,8 @@ def select_multiday_timelapse_gems(
     ids = [r["id"] for r in daylight_rows]
     log.info(
         "select_multiday_timelapse: picked %d/%d daylight keyframes for %s "
-        "(last %dd)", len(ids), len(rows), camera_id, since_days,
+        "(%s..%s, %d whole days)", len(ids), len(rows), camera_id,
+        first_day, last_day, since_days,
     )
     return ids
 

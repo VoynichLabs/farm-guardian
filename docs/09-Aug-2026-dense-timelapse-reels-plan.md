@@ -161,3 +161,32 @@ the key rather than reporting an empty day.
 | jieli-dashcam-timelapse | 772 | 05:50 → 19:30 | 43s |
 
 Last frame of the duo2 build: 19:41, full evening colour, no IR.
+
+### Weekly + monthly: the same whole-day fix
+
+`select_multiday_timelapse_gems` had the matching defect in its own form:
+`ts >= now - timedelta(days=since_days)`, no upper bound. A "week" was six
+whole days bookended by two fragments — opening partway through the day seven
+days ago, closing partway through today.
+
+The window now runs to the last COMPLETE day (today if the lane runs after
+sunset, else yesterday) and back `since_days - 1` further: exactly 7 or 30
+whole days, with a real upper bound on the SQL.
+
+No night handling was needed here. Keyframe capture is daylight-gated at the
+source, and `is_daylight()` trims each day to its own sunrise→sunset, so the
+nights are simply the gaps between days.
+
+Measured at 21:29 local (after sunset, so today counts):
+
+| lane | frames | span |
+|---|---|---|
+| duo2-weekly-timelapse | 114 | 03-Aug → 09-Aug 19:53 |
+| house-yard-weekly-timelapse | 113 | 03-Aug → 09-Aug 19:56 |
+| duo2-monthly-timelapse | 114 | 03-Aug → 09-Aug 19:53 |
+| house-yard-monthly-timelapse | 179 | 11-Jul → 09-Aug 19:56 |
+
+All four sit below the 200-frame floor today because dense capture began at
+11:47, so they will skip until the archive fills — the guard working as
+designed. Note the monthly window (30 days) against keyframe retention (32
+days) leaves only 2 days of margin; do not lower `retention_hours` below 768.

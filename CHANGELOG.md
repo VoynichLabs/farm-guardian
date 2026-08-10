@@ -122,6 +122,23 @@ Measured after the change: **05:50 → 19:58 local, 849 frames, 47s**, last fram
 is now skipped in single-day mode — the window *is* the daylight window, and
 two mechanisms clipping the same range is a trap for the next reader.
 
+**Weekly and monthly lanes given the same whole-day treatment.**
+`select_multiday_timelapse_gems` had the matching defect in its own form:
+`ts >= now - timedelta(days=since_days)` with no upper bound, so a "week" was
+six whole days bookended by two fragments — it opened partway through the day
+seven days ago and closed partway through today. Now the window runs to the
+last COMPLETE day (today if the lane runs after sunset, else yesterday) and
+back `since_days - 1` further, giving exactly 7 or 30 whole days with a real
+upper bound on the SQL.
+
+These lanes needed no night handling: keyframe capture is already
+daylight-gated at the source, and `is_daylight()` trims each day to its own
+sunrise→sunset, so the nights fall out as clean gaps between days. Measured at
+21:29 local (after sunset, so today counts): weekly spans 03-Aug→09-Aug,
+monthly reaches back to 11-Jul, both ending at 19:53/19:56. Frame counts are
+113–179 today because dense capture only began at 11:47 — all four correctly
+sit below the 200-frame floor and will skip until the archive fills.
+
 **Timing:** capture accrues from now — **09-Aug-2026 11:47 EDT**, confirmed
 live in the pipeline log on the `(interval)` path for both cameras. The
 existing 17 keyframes stay and simply become the oldest entries. The first
