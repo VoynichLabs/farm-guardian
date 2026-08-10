@@ -3,8 +3,9 @@
 **Author:** Claude Opus 5 (Bubba)
 **Status:** ✅ **LIVE and verified.** `s7-cam` is serving from the new handset at
 `192.168.0.249:8080`. Guardian logs `Camera 's7-cam' online (http_url snapshot)`, the pipeline
-wrote 534 archive rows in the first 20 minutes with VLM enrichment completing, and the
-10-minute settings watchdog logs `frame_ok` + `fm=1 or=1 pr=1` after weeks of `STALL`.
+wrote 534 archive rows in the first 20 minutes with VLM enrichment completing.
+**Note:** the `s7-settings-watchdog` referenced below was subsequently RETIRED the same day —
+see [`10-Aug-2026-s7-settings-watchdog-retired.md`](10-Aug-2026-s7-settings-watchdog-retired.md).
 **Plan this executes:** [`10-Aug-2026-s7-galaxy-replacement-plan.md`](10-Aug-2026-s7-galaxy-replacement-plan.md).
 
 ---
@@ -173,12 +174,25 @@ depends on it; noted so nobody "fixes" a conflict that isn't there.
 
 ## Open items — deliberately NOT done
 
-- **The VLM `context` string was NOT edited.** It claims a "Sony IMX260 sensor … f/1.7". The
-  Galaxy S7 shipped with *either* a Sony IMX260 *or* a Samsung ISOCELL S5K2L1 depending on the
-  unit, so this is genuinely unknown for this handset. The phone left the USB cable before the
-  sensor node could be read, and the plan warns explicitly against casual edits to that
-  scoring-calibrated prompt. **To settle it, re-tether and run:**
-  `adb shell cat /sys/devices/virtual/camera/rear/rear_sensorid` (also `rear_camtype`).
+- **✅ RESOLVED — the sensor is a Samsung ISOCELL S5K2L1, NOT a Sony IMX260.** The VLM `context`
+  string claimed the Sony; corrected. **The sysfs nodes are root-only** (`rear_sensorid_exif`,
+  `rear_camtype` etc. all return `Permission denied` to the shell user, with an SELinux
+  `avc: denied` in logcat), so read it from the kernel ring buffer instead — this works
+  unprivileged:
+
+  ```bash
+  adb -s 4fad774d shell 'dmesg | grep -iE "imx|s5k|2l1|sensor_match_id"'
+  # msm_sensor_match_id: s5k2l1sx read id: 0x20c1 expected id 0x20c1
+  ```
+
+  `s5k2l1sx`, chip id `0x20c1`. The S7 shipped with either sensor interchangeably and they
+  are the same spec (12 MP, f/1.7, dual-pixel AF), so the prompt's substance — "the best
+  camera in the fleet, judge it on its own merits" — still holds and was left untouched. Only
+  the sensor name changed. Pipeline restarted; enrichment continues at ~4.2 s and
+  `image_quality` is now returning `sharp`.
+  ⚠ The same string still says "on a Qi charging pad", which may no longer be true now that
+  this phone's USB port works — left alone because its power source at Birdcatraz isn't
+  decided yet, and it has no bearing on how the VLM judges a photo.
 - **Gem-tier baseline not yet compared.** Every frame so far is `share_worth=skip` with
   `image_quality=soft`/`blurred` — expected, because the phone was on a desk indoors pointed at
   nothing, not at birds. Per the plan's Verification #5, sample `share_worth` / `image_quality`
