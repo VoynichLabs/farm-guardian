@@ -4,6 +4,48 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.70.2 — `s7-settings-watchdog` retired: all three of its pushes were already redundant (Claude Opus 5) — 10-Aug-2026
+
+**What:** `com.farmguardian.s7-settings-watchdog` is disabled — booted out and its plist renamed
+`.disabled-10Aug2026` (a `bootout` alone reloads at next login). Nothing replaces it. The script
+is left in place in both the repo and `~/Library/Application Support/farm-guardian/`.
+
+**Why:** Boss's call, from watching the new phone boot — *"it looks like it's coming back up on
+its own."* Measured, and he was right.
+
+**How — the evidence, from a clean power-cycle with the watchdog switched off:**
+
+- `/photo.jpg` polled every 2 s across the boot. Phone off at `18:10:35`; back on the LAN at
+  `18:15:25` (errors go `Host is down` → `Connection refused`, so TCP is up but 8080 isn't bound);
+  **first frame at `18:15:39` — 851,668 bytes, stddev 66.7, a real image.** ~14 s from network-up
+  to a good frame, **no black-frame window and no zero-byte window**, with no watchdog running.
+  The old SM-G930F's cold-boot black-camera bug does not reproduce on the SM-G930V.
+- `orientation`, `focusmode`, `video_size` and `quality` all came back correct unaided — they
+  persist in the app, so re-pushing them is a no-op.
+- `photo_rotation` **does** revert to `-1` on every boot, but that is already handled per-frame in
+  code: `force_portrait` at `capture.py:81` and its mirror in `tools/pipeline/capture.py` rotate
+  any wider-than-tall frame 90° CW regardless of EXIF, and both configs set it for `s7-cam`. The
+  docstring at `capture.py:59` says it was added (05-Jul-2026) for exactly this reason.
+- The liveness half had **no recovery path at all** and logged `STALL … bytes=00` every 10 min for
+  weeks; a June revision had it on `.250` instead of `.249`, producing 1,907 consecutive false
+  STALLs. A detector that cries wolf on a timer and cannot act is negative value.
+- Recovery is genuinely better now regardless: the new phone's USB port works, so a wedged IP
+  Webcam is fixable from the Mini with `adb shell am force-stop com.pas.webcam` — the escape hatch
+  the watchdog never had.
+
+**⚠️ Honest limit:** this proves the watchdog was **unnecessary**, not that it was **harmful**. The
+plausible harm mechanism (IP Webcam restarts its video pipeline when `orientation` is set, so a
+tick could interrupt a healthy camera) was **not** tested. Retirement rests on redundancy.
+
+**Also recorded, because it cost time in this session:** `EXIF Orientation=1` on `s7-cam` after a
+reboot is **expected and not a fault** — `force_portrait` corrects the pixels while the tag still
+says landscape. I misread that tag as a defect and began "fixing" a camera that was working
+correctly. Judge this camera by the picture, not the metadata. Noted in CLAUDE.md and
+`HARDWARE_INVENTORY.md`. Also corrected there: `s7-cam` is no longer nesting-box-specific — it
+moves around Birdcatraz and is aimed at the flock generally.
+
+Full detail: `docs/10-Aug-2026-s7-settings-watchdog-retired.md`.
+
 ### v2.70.0 — `s7-cam` is a different phone: SM-G930V swapped in, stripped to one app, ADB back (Claude Opus 5) — 10-Aug-2026
 
 **What:** The water-damaged S7 was retired and a replacement Galaxy S7 took over the `s7-cam`
