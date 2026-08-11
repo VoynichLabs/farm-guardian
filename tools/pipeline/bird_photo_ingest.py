@@ -24,6 +24,16 @@
 #          never names the bird; it only supplies count/composition for the
 #          ambiguity gate and a free-text descriptor for the filename slug.
 #
+#          11-Aug-2026 (Claude Opus 5): when the Boss's caption carries a real
+#          plumage/colour description, it is now appended to that bird's
+#          `color_observations[]` as a DATED entry stamped with the run date
+#          (and the age in weeks where hatch_date is known and not estimated),
+#          instead of an agent hand-typing an undated `color_description`.
+#          `color_description`/`color_description_as_of` stay in sync as a
+#          derived mirror of the newest entry. The VLM's own caption_draft is
+#          deliberately NOT a source — see the warning above _PLUMAGE_TERMS.
+#          Plan: farm-2026/docs/plans/2026-08-11-bird-observation-timestamps.md
+#
 #          Deliberate scope limits (v1): never writes stories/carousel/
 #          birdcatraz; never edits content/hatches/2026/*.md (ornitharch birds
 #          get a hatch_file_needs_update flag instead); never sends Discord
@@ -74,6 +84,7 @@ from tools.pipeline.git_helper import (  # noqa: E402
     farm_2026_root,
 )
 from tools.pipeline.roster import get_all_names  # noqa: E402
+from tools.pipeline.validate_flock_profiles import _sort_key, age_weeks  # noqa: E402
 from tools.pipeline.vlm_enricher import (  # noqa: E402
     EnricherError,
     ModelNotLoaded,
@@ -271,6 +282,165 @@ def _run_vlm(image_bytes: bytes) -> Optional[dict]:
         return None
 
 
+# --- plumage observations ---------------------------------------------------
+#
+# Added 11-Aug-2026 per farm-2026/docs/plans/2026-08-11-bird-observation-
+# timestamps.md. Before this, every plumage note in the roster was hand-typed by
+# an agent into an undated `color_description` string, which is how a description
+# written weeks earlier came to outrank a correct leg-band match. New sightings
+# now get dated automatically, at the source.
+#
+# ⚠️ THE SOURCE IS THE BOSS'S CAPTION, NEVER THE VLM. Do not "improve" this by
+# feeding `caption_draft` in. `roster.format_named_individuals_block()` renders
+# each bird's `color_description` into the prompt of EVERY subsequent VLM call.
+# If the model's own caption became an observation, and the observation became
+# the derived `color_description`, the model would be writing its own future
+# identification guidance — a closed loop that would launder VLM guesses into
+# the farm's written record within a couple of runs. That is a worse version of
+# the exact bug this file is fixing. The module's existing doctrine is "Boss's
+# caption IS the identity signal; the VLM never names the bird" (v2.38.2); this
+# extends it to "the VLM never describes the bird for the roster either."
+
+# Colour and pattern vocabulary. A caption must contain at least one of these to
+# count as a plumage observation at all — "Ingebird in the run" is a location
+# note, not a description, and must not overwrite a careful one.
+_PLUMAGE_TERMS = {
+    # colours
+    "black", "white", "grey", "gray", "slate", "blue", "blue-grey", "blue-gray",
+    "red", "rust", "rusty", "copper", "chestnut", "auburn", "ginger", "gold",
+    "golden", "buff", "cream", "tan", "brown", "mahogany", "charcoal", "silver",
+    "bronze", "green", "yellow", "orange", "speckled", "pale", "dark", "light",
+    # patterns / feather structure
+    "barred", "barring", "laced", "lacing", "ticking", "ticked", "stippled",
+    "mottled", "scalloped", "scaled", "streaked", "spotted", "blotches",
+    "blotched", "peppered", "frosted", "flecked", "flecking", "banded",
+    "plumage", "feathered", "feathering", "hackle", "cape", "saddle", "down",
+    "molt", "molted", "moulting", "molting", "comb", "wattles", "sheen",
+}
+
+# Below this, a caption is a passing remark rather than a description worth
+# putting on the permanent record and mirroring into color_description.
+_MIN_OBSERVATION_CHARS = 40
+
+# A new observation becomes the derived color_description (newest wins), and
+# that description is what the website shows and what roster.py feeds the VLM.
+# So a chatty caption must not be allowed to evict a curated one: a caption is
+# only accepted as a replacement if it is at least this fraction of the length
+# of the description already on file.
+#
+# Measured against the real record 11-Aug-2026: Henridotta's current entry is a
+# ~400-char Boss-confirmed write-up ("classic bold black-and-white barred
+# plumage, evenly banded... purple leg band #12 clearly visible on the left
+# leg"). The caption "Henridotta out in the yard, barred black and white as
+# ever, comb bright red" clears every vocabulary check — it names five plumage
+# terms — and would have replaced that write-up with 64 characters of chat.
+# That is a milder form of the bug this whole change exists to fix, with the
+# Boss as the source instead of the VLM, so the length floor is deliberate
+# rather than incidental. A genuinely richer re-description still passes.
+_MIN_REPLACEMENT_RATIO = 0.6
+
+
+def plumage_observation_from_caption(
+    caption: str,
+    bird_names: list[str],
+    existing_description: str = "",
+) -> Optional[str]:
+    """Extract a plumage description from the BOSS's caption, or None.
+
+    Returns None — the common and expected answer — unless the caption carries
+    real colour/pattern vocabulary, enough of it to be worth recording, and
+    enough substance to stand in for the description already on file. A None
+    result means the ingest files the photo and leaves the bird's existing
+    description completely alone, which is the safe default.
+    """
+    text = (caption or "").strip()
+    if not text:
+        return None
+
+    # Drop the bird's own name: "Ingebird" contains no plumage information, and
+    # leaving it in makes the stored description read like a caption.
+    for name in bird_names:
+        core = _core_name(name)
+        if core:
+            text = re.sub(r"\b" + re.escape(core) + r"\b", "", text, flags=re.I)
+    text = re.sub(r"\s{2,}", " ", text).strip(" \t\n-–—,;:")
+
+    if len(text) < _MIN_OBSERVATION_CHARS:
+        return None
+    # A hedge word means the Boss is unsure; an unsure description is exactly
+    # what must not become the authoritative mirror.
+    lowered = text.lower()
+    if any(re.search(r"\b" + w + r"\b", lowered) for w in _FORBIDDEN_DESCRIPTOR_WORDS):
+        return None
+    tokens = set(re.findall(r"[a-z][a-z-]+", lowered))
+    if not (tokens & _PLUMAGE_TERMS):
+        return None
+    # Never let a passing remark evict a curated description — see the note on
+    # _MIN_REPLACEMENT_RATIO. The observation is dropped entirely rather than
+    # recorded-but-not-mirrored, because the derived mirror is defined as the
+    # newest entry and a split would make color_description stop meaning
+    # "the latest thing we know".
+    existing = (existing_description or "").strip()
+    if existing and len(text) < _MIN_REPLACEMENT_RATIO * len(existing):
+        return None
+    return text[:600]
+
+
+def _append_color_observation(
+    bird: dict, description: str, observed_date: str, source: str
+) -> bool:
+    """Append a dated observation to `bird` and re-derive the mirror fields.
+
+    Returns True if anything changed. Appends rather than overwrites — that is
+    the entire point — and keeps `color_description` /
+    `color_description_as_of` consistent with the newest entry so the website's
+    /flock cards and roster.py's prompt block keep working unchanged.
+    """
+    observations = bird.get("color_observations")
+    if not isinstance(observations, list):
+        # Bird predates the backfill: fold its undated description in first so
+        # the history isn't silently dropped. date_unknown, never invented.
+        observations = []
+        existing = (bird.get("color_description") or "").strip()
+        if existing:
+            observations.append({
+                "date": None,
+                "date_unknown": True,
+                "description": existing,
+                "source": "roster-legacy",
+                "note": "Undated color_description folded in on first dated observation.",
+            })
+
+    # Same description on the same day = nothing new to record.
+    if any(
+        o.get("date") == observed_date and (o.get("description") or "").strip() == description
+        for o in observations
+    ):
+        return False
+
+    entry: dict = {
+        "date": observed_date,
+        "date_unknown": False,
+        "description": description,
+        "source": source,
+    }
+    weeks = (
+        age_weeks(bird.get("hatch_date"), observed_date)
+        if bird.get("hatch_date") and not bird.get("hatch_date_estimated")
+        else None
+    )
+    if weeks is not None:
+        entry["age_weeks"] = weeks
+    observations.append(entry)
+    observations.sort(key=_sort_key)
+
+    bird["color_observations"] = observations
+    newest = observations[-1]
+    bird["color_description"] = newest["description"]
+    bird["color_description_as_of"] = newest["date"]
+    return True
+
+
 # --- roster JSON write ------------------------------------------------------
 def _find_record(bird_name: str) -> Optional[dict]:
     try:
@@ -290,6 +460,7 @@ def _set_photo_and_commit(
     commit_message: str,
     photo_date: Optional[str] = None,
     caption: Optional[str] = None,
+    color_observation: Optional[str] = None,
 ) -> bool:
     """Set flock_birds[name].photo = photo_value (the current hero portrait) AND
     append the shot to that bird's append-only photos[] history (the aging
@@ -326,6 +497,17 @@ def _set_photo_and_commit(
                     key=lambda p: (p.get("date") is None, p.get("date") or "", p.get("file", ""))
                 )
                 changed = True
+            # Append the plumage note as a DATED observation rather than
+            # overwriting the flat color_description (11-Aug-2026). Stamped with
+            # the actual run date, so nothing on the record is ever undated again.
+            if color_observation:
+                if _append_color_observation(
+                    bird,
+                    color_observation,
+                    observed_date=photo_date or datetime.now().strftime("%Y-%m-%d"),
+                    source="boss-caption",
+                ):
+                    changed = True
             break
     if not changed:
         return False
@@ -426,6 +608,7 @@ def ingest(image_path: str, caption: str) -> dict:
         "filename": None,
         "raw_url": None,
         "roster_updated": False,
+        "color_observation": None,
         "hatch_file_needs_update": False,
         "image_verified": False,
         "roster_verified": False,
@@ -552,16 +735,28 @@ def ingest(image_path: str, caption: str) -> dict:
         bird_name = matched[0]
         record = _find_record(bird_name)
         photo_value = f"birds/{filename}"  # base is relative to public/photos/
+
+        # Plumage note comes from the BOSS's caption only — never meta[
+        # "caption_draft"]. See the warning above _PLUMAGE_TERMS: the VLM's own
+        # words must not become the roster description it is later prompted with.
+        observation = plumage_observation_from_caption(
+            caption, matched, existing_description=(record or {}).get("color_description") or ""
+        )
+        result["color_observation"] = observation
+
         try:
             roster_updated = _set_photo_and_commit(
                 bird_name,
                 photo_value,
                 commit_message=(
                     f"content/flock-profiles.json: set {bird_name} photo to "
-                    f"{photo_value} + append to history (discord drop auto)"
+                    f"{photo_value} + append to history"
+                    + (" + dated plumage observation" if observation else "")
+                    + " (discord drop auto)"
                 ),
                 photo_date=datetime.now().strftime("%Y-%m-%d"),
                 caption=((meta.get("caption_draft") or "").strip()[:450] or None),
+                color_observation=observation,
             )
         except GitHelperError as exc:
             # Image already landed; the JSON commit didn't. Report honestly —
@@ -610,6 +805,11 @@ def ingest(image_path: str, caption: str) -> dict:
             + (" (roster already had it)" if not roster_updated else "")
             + "."
         )
+        if observation:
+            msg += (
+                f" Logged a dated plumage observation for "
+                f"{datetime.now().strftime('%d-%b-%Y')}."
+            )
         if result["hatch_file_needs_update"]:
             msg += f" Heads up: {bird_name} is an ornitharch — the hatch .md may want the new photo too."
         if sanity:

@@ -19,9 +19,18 @@
 #          We render only the *confirmed*-band fact here; the anti-confabulation
 #          rules (report only a band you can SEE, never infer one from plumage)
 #          live globally in prompt.md.
+#
+#          11-Aug-2026 (Claude Opus 5): added `is_ornitharch()` /
+#          `get_ornitharchs_for_year()` (the year-scoped definition, computed
+#          from hatch_date + left-leg band instead of remembered) and
+#          `identify()`, which makes band-beats-plumage-text an actual
+#          precedence rule rather than a convention an agent can talk itself
+#          out of — as happened twice on 11-Aug-2026. See
+#          farm-2026/docs/plans/2026-08-11-bird-observation-timestamps.md.
 # SRP/DRY check: Pass — single responsibility is loading + caching the
 #                roster; callers (prompt-building, discord sync, reel
-#                captions) own their own use of it.
+#                captions) own their own use of it. identify() composes the
+#                existing resolve_band() rather than duplicating band lookup.
 from __future__ import annotations
 
 import json
@@ -293,6 +302,119 @@ def resolve_band(
         return None  # this colour exists but not with that number
 
     return candidates[0]["name"] if len(candidates) == 1 else None
+
+
+# --- Ornitharch: year-scoped, computed, not remembered ----------------------
+#
+# Added 11-Aug-2026 per farm-2026/docs/plans/2026-08-11-bird-observation-
+# timestamps.md. "Ornitharch" was tribal knowledge read off SOUL.md prose
+# ("left leg = hatched on farm") with NO year attached, so a bird that hatched
+# here in 2025 still counted toward a 2026 total. The definition of record now
+# lives in farm-2026/content/flock_bands.json -> ornitharch_definition, and this
+# is its executable form.
+#
+#   Ornitharch (year Y): a bird with a LEFT-leg band whose hatch_date falls
+#   within calendar year Y.
+#
+# Both halves are required. Left leg alone is "hatched here, some year"; a
+# hatch_date in year Y alone can describe a bird bought as a chick.
+
+def is_ornitharch(bird: dict, year: int) -> bool:
+    """True if `bird` is an Ornitharch for calendar `year`.
+
+    ⚠️ Reads the band side from the ROSTER's own `leg_band.side`. Two traps this
+    deliberately avoids:
+
+    1. **`side` vs `leg`.** flock-profiles.json spells the side `side`;
+       config/flock_bands.json spells it `leg` (see `_local_bands` above). This
+       function takes a flock-profiles-shaped bird dict, so it reads `side`.
+    2. **Never the VLM's observed `band_leg`.** The vision model got the leg
+       wrong on 5 of 5 measured birds (see `resolve_band`'s warning), so an
+       observed leg must never decide anything, least of all whether a bird
+       counts as hatched on the farm.
+
+    Returns False rather than raising on a missing/unbanded/undated bird — an
+    unknown is not an Ornitharch.
+    """
+    if not isinstance(bird, dict):
+        return False
+    band = bird.get("leg_band")
+    if not isinstance(band, dict):
+        return False
+    if (band.get("side") or "").strip().lower() != "left":
+        return False
+    hatch = (bird.get("hatch_date") or "").strip()
+    if len(hatch) < 4 or not hatch[:4].isdigit():
+        return False
+    return int(hatch[:4]) == year
+
+
+def get_ornitharchs_for_year(year: int, *, include_deceased: bool = False) -> list[dict]:
+    """Every roster bird that is an Ornitharch for `year`.
+
+    Note this is NOT the same thing as `get_active_ornitharchs()`, which is
+    deliberately left alone: that one keys off the legacy unscoped `ornitharch`
+    boolean and feeds the VLM prompt block, where every named individual belongs
+    regardless of hatch year. This one answers "how many birds hatched here in
+    year Y", which is a different question.
+    """
+    birds = _load_raw()
+    if not include_deceased:
+        birds = [b for b in birds if b.get("status") != "deceased" and not b.get("deceased_date")]
+    return [b for b in birds if is_ornitharch(b, year)]
+
+
+# --- Identification precedence: the band wins, full stop ---------------------
+
+def identify(
+    band_color: Optional[str] = None,
+    band_number: Optional[int] = None,
+    band_leg: Optional[str] = None,
+    plumage_text_match: Optional[str] = None,
+) -> tuple[Optional[str], str]:
+    """Resolve a photographed bird to a name, applying the ONE precedence rule
+    this module exists to make mechanical:
+
+        **A legible band outranks a plumage-text match. Always.**
+
+    Returns (name_or_None, reason).
+
+    On 11-Aug-2026 a green band correctly resolved to Ingebird (#2), but her
+    stored `color_description` — "near-black with fine irregular white ticking",
+    undated and written weeks earlier — didn't match the bird in the photo, and
+    the agent talked itself out of the correct band match on the strength of
+    stale prose. That is the failure this function removes the opportunity for:
+    when a band resolves, the plumage text does not get a vote. It cannot
+    downgrade the answer to "unknown", and it cannot substitute its own.
+
+    Plumage text is a FALLBACK, used only when no band resolves. It is reported
+    as such in `reason` so a caller never presents a description match with the
+    confidence of a band match.
+
+    A conflict is not an error and is not suppressed — it is a signal that the
+    bird's `color_observations` are stale and want a fresh dated entry. The
+    reason string says so, and says which bird to re-look at.
+    """
+    banded = resolve_band(band_color, leg=band_leg, number=band_number)
+
+    if banded:
+        if plumage_text_match and plumage_text_match != banded:
+            return banded, (
+                f"band ({band_color}"
+                + (f" #{band_number}" if band_number is not None and band_number >= 0 else "")
+                + f") resolves to {banded}; the plumage text instead suggested "
+                f"{plumage_text_match} — BAND WINS. {banded}'s color_observations "
+                f"are likely stale and want a fresh dated entry."
+            )
+        return banded, f"band resolves to {banded}"
+
+    if plumage_text_match:
+        return plumage_text_match, (
+            f"no band resolved; {plumage_text_match} is a PLUMAGE-TEXT match only "
+            f"— weaker than a band and possibly based on a stale description"
+        )
+
+    return None, "neither a band nor a plumage description resolved a bird"
 
 
 def _format_band(leg_band: Optional[dict]) -> str:
