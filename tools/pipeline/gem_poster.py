@@ -1,4 +1,4 @@
-# Author: Claude Opus 4.7 (1M context); Claude Sonnet 4.6 (09-May-2026 — gwtc/usb-cam/dominator-cam disabled); Claude Fable 5 (02-Jul-2026 — tier+score gate restored, trim_caption added, v2.44.5); Claude Opus 4.8 (Bubba) (12-Jul-2026 — score floor 7→80 for the 0-100 component scale, v2.45.0; 13-Jul-2026 — floor 80→70, v2.45.2); Claude Fable 5 (16-Jul-2026 — brooder-era Discord usernames retired for the Birdcatraz move, v2.46.0); Claude Sonnet 5 (02-Aug-2026 — should_post docstring's stale "overall_score < 80" corrected to match the v2.45.2 constant, v2.59.0); Claude Opus 5 (07-Aug-2026 — transient-failure retry so a 503 stops destroying gems, v2.67.1; score floor 70→65 per Boss + docstring now names the constant instead of restating it, v2.67.2)
+# Author: Claude Opus 4.7 (1M context); Claude Sonnet 4.6 (09-May-2026 — gwtc/usb-cam/dominator-cam disabled); Claude Fable 5 (02-Jul-2026 — tier+score gate restored, trim_caption added, v2.44.5); Claude Opus 4.8 (Bubba) (12-Jul-2026 — score floor 7→80 for the 0-100 component scale, v2.45.0; 13-Jul-2026 — floor 80→70, v2.45.2); Claude Fable 5 (16-Jul-2026 — brooder-era Discord usernames retired for the Birdcatraz move, v2.46.0); Claude Sonnet 5 (02-Aug-2026 — should_post docstring's stale "overall_score < 80" corrected to match the v2.45.2 constant, v2.59.0); Claude Opus 5 (07-Aug-2026 — transient-failure retry so a 503 stops destroying gems, v2.67.1; score floor 70→65 per Boss + docstring now names the constant instead of restating it, v2.67.2); Claude Opus 5 (12-Aug-2026 — score floor 65→80 per Boss, justified against the post-S7-swap score distribution; docstring history table completed and the stale "(this)" marker moved, v2.70.6)
 # Date: 23-April-2026
 # PURPOSE: Post strong-tier frames to the #farm-2026 Discord channel as they
 #          land. Called from orchestrator.run_cycle whenever store returns
@@ -67,17 +67,55 @@ _GEM_POST_DISABLED_CAMERAS = frozenset({
 # run: tier must be "strong" AND overall_score must clear this floor. Boss
 # declined a posting cooldown (02-Jul) — quality gating only, no rate limit.
 #
-# v2.67.2 (07-Aug-2026, per Boss — "drop the gate"): 70 -> 65. After the S7 was
-# re-placed in Birdcatraz the VLM began returning a near-stereotyped
-# largest_subject_pct=30, which yields dominance 30*30/50 = 18 and, with a
-# typical expression 15 + detail 20 + technical 15, lands frame after frame on
-# exactly 68 — two points under the old floor. Manually reviewed: those 68s
-# include genuinely good shots (birds crowding the lens, sharp, well lit), so
-# the cutoff was landing in the middle of a dense cluster of real gems rather
-# than between good and bad ones. Boss's goal is throughput into #farm-2026.
+# v2.67.2 (07-Aug-2026, per Boss — "drop the gate"): 70 -> 65. The old S7
+# handset returned a near-stereotyped largest_subject_pct=30, which yields
+# dominance 30*30/50 = 18 and, with a typical expression 15 + detail 20 +
+# technical 15, landed frame after frame on exactly 68 — two points under the
+# then-current floor. Those 68s included genuinely good shots, so the cutoff was
+# sitting in the middle of a dense cluster of real gems rather than between good
+# and bad ones. Dropping to 65 cleared that cluster.
+#
+# v2.70.6 (12-Aug-2026, per Boss — "it's a little too generous"): 65 -> 80.
+# THE 68-CLUSTER RATIONALE ABOVE NO LONGER HOLDS. It was a property of the
+# water-damaged SM-G930F, and that handset was replaced on 10-Aug-2026 (see
+# docs/10-Aug-2026-s7-galaxy-replacement-swap-log.md). Measured over
+# data/guardian.db, strong-tier s7-cam frames, 7 days either side of the swap:
+#
+#     band     pre-swap (03-09 Aug)   post-swap (10-12 Aug)
+#     65-69            154                    58
+#     70-79            203                   438
+#     80+              168                   243
+#
+# The cluster the 65 floor existed to rescue collapsed 154 -> 58 while the 80+
+# population grew, so 80 is no longer the "only near-perfect ones" cut it was in
+# July — it now falls above a thinning tail rather than through a dense mass.
+# (The swap is the most likely cause of that shift but not a proven one — commit
+# c1f8ced touched the pipeline in the same window.)
+#
+# Judge the impact on POSTED rows, not on this band table: the bands count every
+# frame with share_worth='strong', which is a much larger population than the
+# frames should_post is actually called on (orchestrator gates the call on the
+# storage tier, and s7 additionally requires sharp + face). Measured on posted
+# rows over 09-12 Aug: 47 gems -> 34 surviving at 80 (-28%, ~8.5/day -> ~6/day).
+# Raising a floor can only remove candidates, never add them, so -28% is an
+# upper bound on the loss.
+#
+# Note this is -28% of everything Boss can react to, not just Discord volume: a
+# Discord post is the only way a frame becomes reactable, and reactions feed the
+# hourly IG story lane, the Sunday s7 gems reel, the mixed daily reel, and the
+# Nextdoor 'today' lane (which needs 1 reacted gem/day). ~6/day still clears all
+# four comfortably — see docs/SOCIAL_MEDIA_MAP.md if that margin ever tightens.
+#
+# ⚠️ This value has been walked back twice before (80 -> 70 on 13-Jul, 70 -> 65
+# on 07-Aug), both times because it was cutting through a dense band of real
+# gems. If #farm-2026 goes quiet, re-run the band query above BEFORE assuming
+# the gate is wrong — a distribution shift (new handset, new camera placement,
+# prompt change) moves the population out from under a fixed floor, and the
+# floor is the symptom rather than the cause.
+#
 # tier=="strong" remains the primary filter and the floor-pecking caps (30/40)
-# still hold routine frames far below 65.
-_MIN_OVERALL_SCORE = 65
+# still hold routine frames far below 80.
+_MIN_OVERALL_SCORE = 80
 
 # Non-s7 cameras rejected at these activity/composition tags even when the
 # VLM self-approves them as strong. Huddle/sleep/empty frames are the
@@ -158,7 +196,10 @@ def should_post(vlm_metadata: dict, tier: str, camera_id: Optional[str] = None) 
       v2.36.4           per-camera sharpness tolerance       's7 strict; others allow soft+face'
       v2.37.2           non-s7 activity/composition/caption  'huddle blobs + generic captions'
       v2.44.5           tier gate RESTORED + overall_score>=7 'sub-7 posts flooding after 4b swap'
-      v2.45.0  (this)   0-100 component score + overall_score>=80 'Boss wants only 80+ gems'
+      v2.45.0           0-100 component score + overall_score>=80 'Boss wants only 80+ gems'
+      v2.45.2           floor 80 -> 70                         'only near-perfect ones posting'
+      v2.67.2           floor 70 -> 65                         'drop the gate' (old-S7 68-cluster)
+      v2.70.6  (this)   floor 65 -> 80                         'a little too generous' (post-swap)
 
     v2.37.2 additions (non-s7 only; s7-cam logic unchanged — it's already
     strict and Boss trusts its output):

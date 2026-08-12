@@ -1,4 +1,4 @@
-# Author: Claude Opus 4.7 (1M context); Claude Fable 5 (02-Jul-2026 — v2.44.5 tier/score gate + trim_caption cases; 06-Jul-2026 — stale accept cases moved to synthetic "test-cam", usb-cam is gem-disabled); Claude Opus 4.8 (Bubba) (12-Jul-2026 — score fixtures rescaled to the 0-100 / 80-floor gate, v2.45.0)
+# Author: Claude Opus 4.7 (1M context); Claude Fable 5 (02-Jul-2026 — v2.44.5 tier/score gate + trim_caption cases; 06-Jul-2026 — stale accept cases moved to synthetic "test-cam", usb-cam is gem-disabled); Claude Opus 4.8 (Bubba) (12-Jul-2026 — score fixtures rescaled to the 0-100 / 80-floor gate, v2.45.0); Claude Opus 5 (12-Aug-2026 — stale floor-history comment brought up to date for the 65→80 move, v2.70.6; no case logic changed, the boundary cases already track the constant)
 # Date: 23-April-2026
 # PURPOSE: Self-contained assertion suite for gem_poster.should_post. Runs
 #          the v2.37.2 gate against synthetic VLM metadata dicts covering
@@ -78,7 +78,9 @@ def run_synthetic_cases() -> int:
                          should_post(_meta(image_quality="blurred"), "strong", "macbook-air-facetime"), False)
 
     # v2.45.0 tier + score gate on the 0-100 scale (12-Jul-2026, per Boss).
-    # Floor history: 80 (v2.45.0) -> 70 (v2.45.2) -> 65 (v2.67.2, per Boss).
+    # Floor history: 80 (v2.45.0) -> 70 (v2.45.2) -> 65 (v2.67.2, per Boss)
+    # -> 80 (v2.70.6, per Boss — the old-S7 68-cluster that justified 65 died
+    # with the 10-Aug handset swap; see the rationale block on the constant).
     # Cases are expressed RELATIVE to _MIN_OVERALL_SCORE rather than against
     # hardcoded numbers: the v2.67.2 drop broke a literal "score=69 rejects"
     # case that was only ever asserting where the floor happened to sit, not

@@ -4,6 +4,67 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.70.6 — Discord gem floor 65 → 80: the 68-cluster that justified 65 died with the old S7 (Claude Opus 5) — 12-Aug-2026
+
+**What:** `_MIN_OVERALL_SCORE` in `tools/pipeline/gem_poster.py` raised from 65 to 80. This is
+the score half of the `#farm-2026` gem gate; `tier == "strong"` remains the primary filter and
+is unchanged, as are the caption-hygiene, activity/composition, and subject-size gates. No
+other gate moved.
+
+**Why:** Boss — "it's a little too generous." The number he named is the same 80 that was set
+in v2.45.0 and walked back twice (80 → 70 on 13-Jul, 70 → 65 on 07-Aug), so it was worth
+checking whether the reasons for those walk-backs still applied. They don't. The 65 floor
+existed specifically to rescue a dense cluster of ~68-scoring frames produced by the old
+water-damaged SM-G930F, whose VLM output stereotyped on `largest_subject_pct=30`. That handset
+was replaced on 10-Aug-2026 (v2.70.0). Measured over `data/guardian.db`, strong-tier `s7-cam`
+frames, 7 days either side of the swap:
+
+| band | pre-swap (03–09 Aug) | post-swap (10–12 Aug) |
+|---|---|---|
+| 65–69 | 154 | 58 |
+| 70–79 | 203 | 438 |
+| 80+ | 168 | 243 |
+
+The cluster the 65 floor was protecting collapsed 154 → 58 while the 80+ population grew. 80
+now falls above a thinning tail rather than through a dense mass of real gems, which is the
+condition that made it wrong in July. (The swap is the most likely cause of that shift but not
+a proven one — `c1f8ced` touched the pipeline in the same window.)
+
+**How / measured impact:** measured on posted rows, not on the band table above — over 09–12
+Aug, 47 posted gems → 34 surviving at 80, roughly −28% (~8.5/day → ~6/day). The band table
+counts every `share_worth='strong'` frame, a much larger population than the frames
+`should_post` is actually called on (the orchestrator gates the call on the *storage* tier, and
+s7 additionally requires sharp + face), so the −61% eligible-pool shift is the wrong number to
+quote as volume impact. Because raising a floor can only remove candidates, −28% is an upper
+bound.
+
+**Blast radius beyond Discord — considered, no action needed:** a Discord gem post is the only
+way a frame becomes reactable, so this is −28% of everything Boss can react to, which feeds the
+hourly `social-publisher` IG story lane, `ig-s7-weekly-gems-reel`, the mixed `ig-daily-reel`,
+and the Nextdoor `today` lane (1 reacted LIVE-CAM gem/day). At ~6/day all four still clear
+their needs comfortably. Noted here because the next agent debugging a thin weekly reel will
+land on this version bump.
+
+**Also in this change:** the `should_post` docstring's version-history table had been left at
+`v2.45.0 (this)` through two subsequent floor moves — the same drift v2.59.0 fixed once
+already. Added the missing v2.45.2 / v2.67.2 rows and moved the `(this)` marker. The
+rationale comment on the constant now carries the band query and an explicit warning that a
+quiet `#farm-2026` should prompt re-measuring the distribution before assuming the floor is
+wrong — every walk-back so far has been a distribution shift, not a bad number.
+
+**Verification:** `python -m tools.pipeline.test_gem_poster_gate` — 0 failures. Its boundary
+cases are expressed relative to `_MIN_OVERALL_SCORE` (deliberately, since v2.67.2), so they
+followed the change and now assert reject-at-79 / accept-at-80. Pipeline LaunchAgent
+kickstarted so the new constant is live.
+
+**⛔ Do NOT gate the `discord-drop` rows.** 8 posted rows in the last 14 days have a NULL
+`overall_score` and clear this floor by not having one. They are all `camera_id='discord-drop'`
+— the manual `bird_photo_ingest` path, i.e. photos Boss dropped in himself. Ruled on by Boss
+12-Aug-2026 when this change flagged them: *"If they're a direct drop, I obviously think
+they're worthwhile."* A hand-picked photo has already passed the only quality gate that
+matters. Scoring them, or making them fail closed for a missing score, would be a regression —
+this is deliberate, not an oversight in the gate.
+
 ### v2.70.5 — `gwtc` retired, same day and same reason as `dominator-cam` (Claude Sonnet 5) — 10-Aug-2026
 
 **What:** Removed `gwtc` (Gateway laptop's built-in webcam, "Hy-HD-Camera") from Guardian
