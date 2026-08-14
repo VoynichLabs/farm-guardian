@@ -1,6 +1,20 @@
 #!/usr/bin/env python3
-# Author: Claude Opus 4.8 (1M)
-# Date: 23-Jul-2026
+# Author: Claude Opus 4.8 (1M); Claude Opus 5 (14-Aug-2026 — reactions never expire)
+# Date: 23-Jul-2026; 14-Aug-2026
+#
+# ⚠️ 14-Aug-2026 (v2.71.1) — REACTIONS NEVER EXPIRE. DO NOT REINTRODUCE A
+#          SCAN WINDOW AS THE ELIGIBILITY TEST. This job used to find diary
+#          posts by scanning #farm-2026 back a fixed 72h. React on day 4 and
+#          the post fell outside the scan permanently — nothing else ever
+#          looked at it again, and the loss was silent. Measured cost: 44
+#          diary entries written, 3 ever promoted.
+#          Each post's Discord message id is now remembered in the state file
+#          and re-checked directly by id, so a reaction added weeks later is
+#          still honoured. The channel scan survives only to DISCOVER new
+#          posts; it is no longer what decides eligibility. It widens once to
+#          seed ids for older un-reacted entries, then narrows again — days
+#          proven to have no post are recorded in `no_post` so the seeding
+#          pass converges instead of re-reading history every 30 minutes.
 # PURPOSE: Make the daily farm diary VISIBLE. The nightly writer
 #          (farm-diary-from-discord.py) posts each day's entry to
 #          #farm-2026 and asks the Boss to react "if this is worth
@@ -38,6 +52,7 @@ import time
 import urllib.parse
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from typing import Optional
 
 import requests
 
@@ -80,43 +95,134 @@ log = logging.getLogger("diary-promote")
 # State
 # ---------------------------------------------------------------------------
 
-def load_promoted() -> set[str]:
+def load_state() -> dict:
+    """Load the promotion ledger.
+
+    Schema (14-Aug-2026 — `known` and `no_post` added so reactions never expire):
+      promoted : [iso_day]        already published as a field note
+      known    : {iso_day: msg_id} the Discord post for that day, remembered
+                                   forever so its reactions stay checkable
+      no_post  : [iso_day]        a full-history scan found NO Discord post for
+                                   this day; stops the seeding scan re-widening
+                                   for it on every run
+
+    Back-compatible: an old file carrying only `promoted` loads fine and the new
+    keys start empty.
+    """
+    state = {"promoted": [], "known": {}, "no_post": []}
     if STATE_FILE.exists():
         try:
-            return set(json.loads(STATE_FILE.read_text()).get("promoted", []))
+            loaded = json.loads(STATE_FILE.read_text())
+            state["promoted"] = list(loaded.get("promoted", []))
+            state["known"] = dict(loaded.get("known", {}))
+            state["no_post"] = list(loaded.get("no_post", []))
         except (ValueError, OSError):
             log.warning("state file unreadable; treating as empty")
-    return set()
+    return state
 
 
-def save_promoted(promoted: set[str]) -> None:
+def save_state(state: dict) -> None:
     STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
     STATE_FILE.write_text(
-        json.dumps({"promoted": sorted(promoted),
+        json.dumps({"promoted": sorted(set(state.get("promoted", []))),
+                    "known": dict(sorted(state.get("known", {}).items())),
+                    "no_post": sorted(set(state.get("no_post", []))),
                     "updated": datetime.now(timezone.utc).isoformat(timespec="seconds")},
                    indent=2) + "\n"
     )
+
+
+def pending_days(promoted: set[str]) -> list[str]:
+    """ISO days that have a diary file on disk but no published field note yet.
+
+    This is the work-list the seeding scan sizes itself against — the promoter
+    only ever needs to look back as far as the oldest entry still awaiting a
+    reaction, not a fixed number of hours.
+    """
+    days: set[str] = set()
+    if not DIARY_DIR.is_dir():
+        return []
+    for p in DIARY_DIR.glob("*.md"):
+        d = drr._diary_date(p)
+        if d is None:
+            continue
+        iso_day = d.isoformat()
+        if iso_day in promoted:
+            continue
+        if any(FIELD_NOTES_DIR.glob(f"{iso_day}-*.mdx")):
+            continue
+        days.add(iso_day)
+    return sorted(days)
 
 
 # ---------------------------------------------------------------------------
 # Discord
 # ---------------------------------------------------------------------------
 
-def fetch_recent_messages(token: str, hours: int) -> list[dict]:
-    """Newest-first pagination over #farm-2026 back to the cutoff. Diary posts
-    needing promotion are always recent, so a bounded lookback is enough."""
+def fetch_message(token: str, message_id: str) -> Optional[dict]:
+    """Fetch ONE message by id, with its current reactions. None if it is gone.
+
+    This is what makes reactions non-expiring: once a diary post's id is
+    remembered, it stays checkable forever for the cost of a single request,
+    with no dependence on how far back a channel scan happens to reach.
+    """
+    url = f"{dh.DISCORD_API}/channels/{dh.CHANNEL_ID}/messages/{message_id}"
+    resp = _discord_get(url, dh.discord_headers(token), allow_404=True)
+    return None if resp is None else resp.json()
+
+
+def _discord_get(url: str, headers: dict, *, allow_404: bool = False,
+                 max_attempts: int = 6):
+    """GET with Discord rate-limit handling.
+
+    ⚠️ REQUIRED, not defensive padding. Discord 429s on sustained pagination and
+    the seeding scan can now run for hundreds of pages, so an unhandled 429
+    aborts the whole run — which is exactly what happened on the first live
+    attempt (14-Aug-2026). The response carries `retry_after` in seconds; honour
+    it and retry the SAME page rather than skipping it, or the scan silently
+    loses a window of history and entries look like they have no post.
+
+    Returns the response, or None for a 404 when allow_404.
+    """
+    for attempt in range(max_attempts):
+        resp = requests.get(url, headers=headers, timeout=20)
+        if resp.status_code == 429:
+            try:
+                wait = float(resp.json().get("retry_after", 1.0))
+            except ValueError:
+                wait = 1.0
+            # Escalate slightly per attempt so a persistently throttled bucket
+            # backs off instead of hammering at the minimum interval.
+            wait = min(30.0, max(0.5, wait) * (attempt + 1))
+            log.info("discord rate-limited; sleeping %.1fs then retrying", wait)
+            time.sleep(wait)
+            continue
+        if allow_404 and resp.status_code == 404:
+            return None
+        if resp.status_code != 200:
+            raise RuntimeError(f"discord {resp.status_code}: {resp.text[:200]}")
+        return resp
+    raise RuntimeError(f"discord: still rate-limited after {max_attempts} attempts")
+
+
+def fetch_recent_messages(token: str, hours: int, max_pages: int = 15) -> list[dict]:
+    """Newest-first pagination over #farm-2026 back to the cutoff.
+
+    `hours` is normally short (discovery of NEW posts only) — the promoter no
+    longer depends on this reaching far enough, because known message ids are
+    re-checked directly by fetch_message(). It only widens on the one-time
+    seeding pass for entries whose message id isn't remembered yet, and
+    max_pages is sized to match so the widened scan isn't silently truncated.
+    """
     cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
     headers = dh.discord_headers(token)
     out: list[dict] = []
     before = None
-    for _page in range(15):  # hard stop
+    for _page in range(max_pages):  # hard stop
         url = f"{dh.DISCORD_API}/channels/{dh.CHANNEL_ID}/messages?limit=100"
         if before:
             url += f"&before={before}"
-        resp = requests.get(url, headers=headers, timeout=20)
-        if resp.status_code != 200:
-            raise RuntimeError(f"discord {resp.status_code}: {resp.text[:200]}")
-        page = resp.json()
+        page = _discord_get(url, headers).json()
         if not page:
             break
         stop = False
@@ -261,7 +367,8 @@ def commit_push_file(path: Path, message: str) -> bool:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--hours", type=int, default=72,
-                    help="How far back to scan #farm-2026 for diary posts (default 72).")
+                    help="How far back to scan for NEW diary posts (default 72). "
+                         "Known posts are re-checked by id regardless of this.")
     ap.add_argument("--dry-run", action="store_true",
                     help="Show what would be promoted; write and push nothing.")
     args = ap.parse_args()
@@ -269,37 +376,98 @@ def main() -> int:
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
     token = dh.load_bot_token()
-    promoted = load_promoted()
-    messages = fetch_recent_messages(token, args.hours)
+    state = load_state()
+    promoted = set(state["promoted"])
+    known: dict[str, str] = state["known"]
+    no_post = set(state["no_post"])
 
+    # ---- Scan span -------------------------------------------------------
+    # Normally short: the scan only has to DISCOVER new posts, because anything
+    # already known is re-checked by id below and therefore never expires. It
+    # widens only for entries still awaiting a reaction whose message id we
+    # have never recorded — the one-time seeding pass. Days proven to have no
+    # post are remembered in `no_post` so they cannot hold the scan wide
+    # forever; without that the seeding pass would degrade into a full-history
+    # re-read every 30 minutes.
+    awaiting = pending_days(promoted)
+    unseeded = [d for d in awaiting if d not in known and d not in no_post]
+    hours, max_pages = args.hours, 15
+    if unseeded:
+        span_days = (datetime.now(timezone.utc).date() - date.fromisoformat(min(unseeded))).days
+        hours = max(args.hours, (span_days + 2) * 24)
+        # ~170 messages/day observed in #farm-2026 => ~1.7 pages/day. Triple it
+        # for headroom and floor at the old 15 so a short scan is unchanged.
+        max_pages = max(15, min(400, int((span_days + 2) * 5.1) + 1))
+        log.info("seeding: %d entr(ies) awaiting a reaction have no known post id "
+                 "(oldest %s) — widening scan to %dh / %d pages",
+                 len(unseeded), min(unseeded), hours, max_pages)
+
+    messages = fetch_recent_messages(token, hours, max_pages=max_pages)
     diary_posts = [
         m for m in messages
         if str((m.get("author") or {}).get("id", "")) == BUBBA_BOT_ID
         and DIARY_TITLE_RE.search(m.get("content") or "")
     ]
     log.info("scanned %d messages, found %d diary posts in the last %dh",
-             len(messages), len(diary_posts), args.hours)
+             len(messages), len(diary_posts), hours)
+
+    # ---- Remember every post we can see, keyed by its diary day ----------
+    def day_of(msg: dict) -> Optional[str]:
+        """The diary day a post refers to. The date is the stable key: the
+        writer's slug drifts on --force and its filename format changed
+        (ISO -> DD-Mon-YYYY in v2.51.11), so the post stem can be either form.
+        Parsed with the caption path's own parser so both behave identically."""
+        match = DIARY_TITLE_RE.search(msg.get("content") or "")
+        if not match:
+            return None
+        parsed = drr._diary_date(Path(f"{match.group(1).strip()}.md"))
+        return parsed.isoformat() if parsed else None
+
+    for m in diary_posts:
+        iso_day = day_of(m)
+        if iso_day:
+            known[iso_day] = str(m["id"])
+
+    # A widened scan covered the full span, so anything still unseeded genuinely
+    # has no post — record that once instead of re-scanning for it forever.
+    if unseeded:
+        for day in unseeded:
+            if day not in known:
+                no_post.add(day)
+                log.info("%s has a diary file but no Discord post; will not re-scan for it", day)
+
+    # ---- Candidates: every unpublished day whose post we know about ------
+    # This is the fix. Eligibility comes from HAVING a remembered post, not from
+    # that post still falling inside a scan window, so a reaction added weeks
+    # later is still honoured.
+    candidates: list[tuple[str, dict]] = []
+    for iso_day in pending_days(promoted):
+        message_id = known.get(iso_day)
+        if not message_id:
+            continue
+        msg = next((m for m in diary_posts if str(m["id"]) == message_id), None)
+        if msg is None:
+            try:
+                msg = fetch_message(token, message_id)
+            except RuntimeError as exc:
+                log.warning("could not re-check %s (%s); leaving for a later run", iso_day, exc)
+                continue
+            if msg is None:
+                log.warning("post for %s no longer exists on Discord; dropping it", iso_day)
+                known.pop(iso_day, None)
+                no_post.add(iso_day)
+                continue
+            time.sleep(0.25)  # be polite; this loop is small but runs every 30 min
+        candidates.append((iso_day, msg))
+
+    log.info("%d entr(ies) awaiting a reaction; %d have a checkable post",
+             len(awaiting), len(candidates))
 
     published = 0
-    for m in diary_posts:
-        stem = DIARY_TITLE_RE.search(m["content"]).group(1).strip()
-        # The date is the stable key; the writer's slug drifts on --force and its
-        # filename format changed (ISO -> DD-Mon-YYYY in v2.51.11), so the post
-        # stem can be either form. Parse it with the caption path's own parser so
-        # both are handled identically.
-        d = drr._diary_date(Path(f"{stem}.md"))
-        if d is None:
-            log.info("post title %r carries no parseable date; skipping", stem)
-            continue
-        iso_day = d.isoformat()
-        if iso_day in promoted:
-            continue
-        if any(FIELD_NOTES_DIR.glob(f"{iso_day}-*.mdx")):
-            promoted.add(iso_day)  # already published (earlier this run, or by hand)
-            continue
+    for iso_day, m in candidates:
         diary_file = find_diary_file_for_day(iso_day)
         if diary_file is None:
-            log.info("no diary file on disk for %s (post stem %s); skipping", iso_day, stem)
+            log.info("no diary file on disk for %s; skipping", iso_day)
             continue
         if not boss_reacted(m, token):
             log.info("%s not yet Boss-reacted; leaving for a later run", iso_day)
@@ -324,7 +492,9 @@ def main() -> int:
                 pass
 
     if not args.dry_run:
-        save_promoted(promoted)
+        # Saved even when nothing published: `known`/`no_post` are what make the
+        # next run cheap and non-expiring, so they must persist regardless.
+        save_state({"promoted": sorted(promoted), "known": known, "no_post": sorted(no_post)})
     log.info("done: %d newly published", published)
     return 0
 

@@ -532,30 +532,53 @@ def select_daily_reel_gems(
     cfg: dict,
     now: Optional[datetime] = None,
 ) -> list[int]:
-    """Return ALL reacted gem_ids from the past 24h for the daily reel,
-    oldest-first. No diversity bucketing — every reacted gem comes through.
+    """Return reacted gem_ids that have never been used in a reel, newest-first
+    by reaction eligibility, then sorted chronologically for playback.
+
+    ⚠️ REACTIONS NEVER EXPIRE (14-Aug-2026, per Boss). This used to filter
+    `ts >= now - daily_reel_window_hours`, where `ts` is when the PHOTO WAS
+    TAKEN — not when Boss reacted. Since `discord-reaction-sync` only runs
+    every 30 minutes, even a same-evening reaction on a morning frame could
+    miss the window, and a reaction on anything older than 24h could never be
+    seen at all. The reaction was then discarded silently: no log line, no
+    retry, nothing to notice. Boss's reaction is a commitment to publish, so
+    frame age is now irrelevant to eligibility.
+
+    Eligibility is instead bounded by CONSUMPTION: `reel_posted_at IS NULL`.
+    A reacted frame stays selectable until it has actually been published in
+    a reel, at which point `ig_poster.mark_reel_posted` stamps that column and
+    it leaves the pool. Same idea as select_all_unposted_story_gems, which has
+    been the zero-loss backstop for the Story lane since 23-Apr-2026.
+
+    ⚠️ NEWEST-FIRST IS DELIBERATE — do not "restore" oldest-first for FIFO
+    tidiness. There are ~1,800 reacted-but-never-reeled frames going back to
+    21-Mar-2026. Draining that oldest-first would build reels out of March
+    content for weeks, which is precisely the degradation
+    select_s7_weekly_gems_reel_gems' docstring warns about. Newest-first picks
+    a late reaction up on the very next run while the older pool stays
+    available rather than dominating. The kept set is re-sorted chronologically
+    before returning so the reel still reads forward in time.
 
     Criteria:
       - discord_reactions >= 1
+      - reel_posted_at IS NULL  (not already published in a reel)
       - has_concerns false
       - image_path populated
-      - ts >= now - daily_reel_window_hours
 
     Capped at daily_reel_max_frames (default 90) to stay within Instagram's
     90s reel limit (90 frames × 1s/frame − 89 × 0.15s xfade ≈ 77s).
 
     cfg keys (all under instagram.scheduled):
-      daily_reel_window_hours (int, default 24)
       daily_reel_max_frames   (int, default 90)
       daily_reel_min_frames   (int, default 6)
+      daily_reel_window_hours — RETIRED, no longer read. Left undocumented in
+                                config rather than removed so an existing key
+                                is simply inert instead of raising.
 
-    Returns [] if fewer than daily_reel_min_frames candidates — quiet day.
+    Returns [] if fewer than daily_reel_min_frames candidates.
     """
-    window_h = int(cfg.get("daily_reel_window_hours", 24))
     max_frames = int(cfg.get("daily_reel_max_frames", 90))
     min_frames = int(cfg.get("daily_reel_min_frames", 6))
-    now = _ensure_timezone(now)
-    cutoff_iso = (now - timedelta(hours=window_h)).isoformat()
 
     with sqlite3.connect(str(db_path)) as c:
         c.row_factory = sqlite3.Row
@@ -564,27 +587,30 @@ def select_daily_reel_gems(
             SELECT id, camera_id, ts, share_worth, image_quality, bird_count,
                    discord_reactions
               FROM image_archive
-             WHERE ts >= ?
-               AND (has_concerns = 0 OR has_concerns IS NULL)
+             WHERE (has_concerns = 0 OR has_concerns IS NULL)
                AND image_path IS NOT NULL
                AND discord_reactions >= 1
-             ORDER BY ts ASC
+               AND reel_posted_at IS NULL
+             ORDER BY ts DESC
              LIMIT ?
             """,
-            (cutoff_iso, max_frames),
+            (max_frames,),
         ).fetchall()
 
     if len(rows) < min_frames:
         log.info(
-            "select_daily_reel: only %d reacted gems in last %dh (need >=%d); quiet day",
-            len(rows), window_h, min_frames,
+            "select_daily_reel: only %d unused reacted gems (need >=%d); quiet day",
+            len(rows), min_frames,
         )
         return []
 
-    ids = [row["id"] for row in rows]
+    # Newest-first above chose WHICH frames; chronological order here decides
+    # how they play. Both matter and they are not the same sort.
+    kept = sorted((dict(r) for r in rows), key=lambda r: r["ts"])
+    ids = [row["id"] for row in kept]
     log.info(
-        "select_daily_reel: %d gem_ids in last %dh (cap=%d)",
-        len(ids), window_h, max_frames,
+        "select_daily_reel: %d unused reacted gem_ids (cap=%d, %s -> %s)",
+        len(ids), max_frames, kept[0]["ts"][:10], kept[-1]["ts"][:10],
     )
     return ids
 

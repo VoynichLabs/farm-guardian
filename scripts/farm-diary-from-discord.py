@@ -1,6 +1,22 @@
 #!/usr/bin/env python3
-# Author: Claude Fable 5
-# Date: 23-Jul-2026
+# Author: Claude Fable 5; Claude Opus 5 (14-Aug-2026 — cameras are the source, not the chatroom)
+# Date: 23-Jul-2026; 14-Aug-2026
+#
+# ⚠️ 14-Aug-2026 (v2.71.2) — THE CAMERAS ARE THE PRIMARY SOURCE. DO NOT REVERT
+#          THIS TO A CHAT-ONLY SUMMARY. Until now the only input was the Discord
+#          transcript, so the entry was a summary of a CHATROOM, not a farm: it
+#          reported Doom soundtrack trivia, Latin, e-waste and Raspberry Pi RAM
+#          sizing as the day's news, and on 12-Aug opened "Nothing to report from
+#          the birds today" — a day with 7,910 VLM-described frames, 395
+#          strong-tier photos and 14 human reactions sitting unread in the DB.
+#          Boss: "most of the time it's really bad." Only 6 of 44 entries ever
+#          earned a reaction.
+#          gather_camera_day() now supplies what the cameras saw — reacted
+#          photos first (a human vote is the best signal of what mattered),
+#          then strong-tier scenes thinned per hour — and the prompt makes that
+#          the spine, with the conversation demoted to supporting detail and
+#          chatroom trivia explicitly banned. A quiet chat no longer means a
+#          quiet farm: the run only skips when BOTH sources are thin.
 # PURPOSE: Write the daily farm diary entry by distilling the day's
 #          #meet-the-lobsters Discord conversation, then post it to
 #          #farm-2026 for Boss's reaction. Implements
@@ -29,6 +45,7 @@ import argparse
 import json
 import logging
 import re
+import sqlite3
 import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
@@ -57,6 +74,10 @@ SOURCE_CHANNEL_ID = "1471632572953006337"   # #meet-the-lobsters
 from tools.discord_harvester import CHANNEL_ID as FARM_CHANNEL_ID  # noqa: E402
 
 DIARY_DIR = Path.home() / "GitHub" / "farm-2026" / "content" / "diary"
+
+# Read-only source for what the cameras saw. Opened with mode=ro so a diary run
+# can never contend for a write lock with the pipeline, which writes constantly.
+GUARDIAN_DB = REPO_ROOT / "data" / "guardian.db"
 
 MARK_DISCORD_USER_ID = "293569238386606080"
 
@@ -126,30 +147,131 @@ def render_transcript(messages: list[dict], char_cap: int = 14000) -> str:
     return text
 
 
-def build_prompt(transcript: str, sample_entry: str, day: str) -> str:
+def gather_camera_day(day: str, max_reacted: int = 14, max_scene: int = 18) -> str:
+    """What the CAMERAS saw today, as diary source material.
+
+    ⚠️ THIS IS THE SPINE OF THE ENTRY, and its absence was the root defect.
+    Until 14-Aug-2026 the diary's only source was the Discord transcript, so it
+    was a summary of a CHATROOM rather than of a farm: it reported Doom
+    soundtrack trivia, Latin, e-waste and Raspberry Pi RAM sizing as the day's
+    news, and on 12-Aug it opened "Nothing to report from the birds today" —
+    on a day the cameras captured 7,910 VLM-described frames, produced 395
+    strong-tier photos, and Boss reacted to 14 of them. Boss's verdict on the
+    result was "most of the time it's really bad," and only 6 of 44 entries
+    ever earned a reaction.
+
+    Two streams, in priority order:
+      1. Photos BOSS REACTED TO. His reaction is his own vote that the moment
+         mattered, which makes these the single best signal available for what
+         the day was actually about — better than any scoring the VLM does.
+      2. Strong-tier scene descriptions across cameras, thinned across the day
+         so the entry reads morning-to-evening instead of fixating on whichever
+         hour was busiest.
+    """
+    lines: list[str] = []
+    try:
+        with sqlite3.connect(f"file:{GUARDIAN_DB}?mode=ro", uri=True, timeout=20) as conn:
+            conn.row_factory = sqlite3.Row
+
+            def captions(rows) -> list[str]:
+                out = []
+                for row in rows:
+                    try:
+                        meta = json.loads(row["vlm_json"] or "{}") or {}
+                    except json.JSONDecodeError:
+                        continue
+                    text = (meta.get("caption_draft") or "").strip()
+                    if text:
+                        out.append(f"  [{row['ts'][11:16]} {row['camera_id']}] {text}")
+                return out
+
+            reacted = conn.execute(
+                """SELECT ts, camera_id, vlm_json FROM image_archive
+                    WHERE date(ts) = ? AND discord_reactions >= 1
+                      AND vlm_json IS NOT NULL
+                    ORDER BY discord_reactions DESC, ts ASC LIMIT ?""",
+                (day, max_reacted),
+            ).fetchall()
+            if reacted:
+                lines.append("PHOTOS BOSS (or another human) REACTED TO TODAY — "
+                             "these are the moments he thought worth keeping:")
+                lines.extend(captions(reacted))
+
+            # Thinned across the day: take the strongest frame per hour rather
+            # than the strongest N overall, which would otherwise all land in
+            # one busy hour and misrepresent the day.
+            scene = conn.execute(
+                """SELECT ts, camera_id, vlm_json FROM image_archive
+                     WHERE date(ts) = ? AND share_worth = 'strong'
+                       AND vlm_json IS NOT NULL
+                       AND (has_concerns = 0 OR has_concerns IS NULL)
+                     GROUP BY strftime('%H', ts), camera_id
+                     ORDER BY ts ASC LIMIT ?""",
+                (day, max_scene),
+            ).fetchall()
+            if scene:
+                lines.append("")
+                lines.append("WHAT THE CAMERAS SAW THROUGH THE DAY:")
+                lines.extend(captions(scene))
+
+            total = conn.execute(
+                "SELECT count(*) FROM image_archive WHERE date(ts) = ?", (day,)
+            ).fetchone()[0]
+            if total:
+                lines.append("")
+                lines.append(f"({total} frames captured across the farm's cameras today.)")
+    except sqlite3.Error as exc:
+        # Best-effort: a locked or missing DB must not stop the diary being
+        # written from the conversation alone.
+        log.warning("could not read camera data for %s (%s); "
+                    "entry will rely on conversation only", day, exc)
+        return ""
+    return "\n".join(lines)
+
+
+def build_prompt(transcript: str, sample_entry: str, day: str,
+                 camera_day: str = "") -> str:
+    camera_block = camera_day.strip() or "(no camera data available today)"
     return f"""You write the daily farm diary for a small rare-breed poultry farm. \
-You are Bubba, the farm's AI assistant. Below is today's conversation from the \
-farm's Discord channel. Distill ONLY the farm-relevant substance into one short \
-diary entry.
+You are Bubba, the farm's AI assistant.
+
+You have TWO sources. The cameras are the primary one.
+
+1. WHAT THE CAMERAS SAW — the farm's own record of the day. This is the SPINE of \
+the entry. Lead with the birds.
+2. The Discord conversation — supporting detail only: what the humans did, \
+decided, fixed, named, or noticed.
 
 HARD RULES:
-- Report only what was actually said. Invent nothing — no bird names, events, \
-counts, or outcomes that do not appear in the conversation.
-- If something is uncertain in the conversation, say so plainly, the way the \
-sample entry hedges IDs. Never resolve an ambiguity by guessing.
-- If the conversation contains nothing about the farm, birds, coop, cameras, \
-weather, or equipment, reply with exactly: NO-ENTRY
-- Summarize. Never quote or paste the raw chat.
+- Write about THE FARM AND THE BIRDS, never about the chat channel. The reader \
+does not care what was discussed — they care what happened outdoors.
+- NEVER report chatroom trivia as farm news. Jokes, politics, music, Latin, \
+e-waste, hardware specifications and idle banter are NOT farm events. Omit them \
+entirely — do not even note that they occurred.
+- NEVER say the day was quiet, uneventful, or that there is nothing to report \
+when camera material is present below. If the humans were silent, the birds \
+still had a day: write THAT.
+- Photos the humans reacted to are the day's highlights. Prefer them.
+- Report only what the sources actually contain. Invent nothing — no bird names, \
+events, counts, or outcomes that do not appear. Where a source hedges, hedge.
+- Do not list what is missing ("no weather, no bird counts"). Write what IS there.
+- Summarize. Never quote or paste raw chat.
 - No talk of the farm as a security or predator-detection system.
 - Markdown. Open with "# <short title> — {day}". Close with "-Bubba" on its own \
-line. Bold the genuinely notable facts. Aim for 80-180 words.
+line. Bold the genuinely notable facts. Aim for 120-200 words.
+- Reply with exactly NO-ENTRY only if BOTH sources below are empty.
 
 Here is a previous entry, for voice and shape only — do not reuse its content:
 ---
 {sample_entry}
 ---
 
-Today's conversation ({day}):
+WHAT THE CAMERAS SAW ({day}):
+---
+{camera_block}
+---
+
+Today's conversation ({day}) — supporting detail only:
 ---
 {transcript}
 ---
@@ -237,15 +359,22 @@ def main() -> int:
     messages = fetch_recent_messages(token, SOURCE_CHANNEL_ID, args.hours)
     log.info("fetched %d messages from the last %dh", len(messages), args.hours)
     transcript = render_transcript(messages)
-    if len(transcript) < 200:
-        log.info("not enough conversation to distill (%d chars); skipping",
-                 len(transcript))
+    camera_day = gather_camera_day(day)
+    log.info("camera material for %s: %d chars", day, len(camera_day))
+
+    # A quiet chat is NOT a quiet farm. This used to bail out below 200 chars of
+    # conversation, which is how days with thousands of camera frames produced
+    # either nothing or a "nothing to report" entry. Only skip when BOTH sources
+    # are thin.
+    if len(transcript) < 200 and len(camera_day) < 200:
+        log.info("nothing to distill (chat %d chars, camera %d chars); skipping",
+                 len(transcript), len(camera_day))
         return 0
 
     samples = sorted(DIARY_DIR.glob("*.md"))
     sample_entry = samples[-1].read_text(encoding="utf-8")[:1200] if samples else ""
 
-    body = distill(build_prompt(transcript, sample_entry, day))
+    body = distill(build_prompt(transcript, sample_entry, day, camera_day))
     if body is None:
         return 1
     if body.strip().upper().startswith("NO-ENTRY"):

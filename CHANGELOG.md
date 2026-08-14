@@ -4,6 +4,216 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.71.2 — the diary writes about the farm, and the carousel caption reads the whole set (Claude Opus 5) — 14-Aug-2026
+
+**What:** Two lanes were writing from the wrong source.
+
+- `scripts/farm-diary-from-discord.py` — new `gather_camera_day()` makes **what the cameras saw**
+  the primary source; the Discord transcript is demoted to supporting detail.
+- `scripts/ig-daily-carousel.py::_build_caption` — now calls
+  `daily_reel_runner._generate_reel_caption()` instead of pasting one gem's `caption_draft`.
+
+**Why — the carousel:** Boss looked at the daily post: *"the caption wasn't even correct. It was
+just a random caption for one of the pictures. It was stupid."* He was right. `_build_caption`
+picked the gem with the highest `bird_count` and used **that one photo's** draft as the caption
+for all seven; the other six were never consulted. The farm already owned a good caption writer
+— `_generate_reel_caption` synthesizes across every frame on the local VLM and folds in the farm
+diary and living-flock roster, and five reel lanes already used it. This deletes the bad local
+implementation rather than improving it.
+
+**Why — the diary:** Boss: *"most of the time it's really bad."* Only **6 of 44** entries ever
+earned a reaction, so v2.71.1's promotion fix was necessary but not sufficient — a pipeline for
+entries nobody wants is worth nothing. Root cause: the transcript was the *only* source, so the
+diary summarised a **chatroom, not a farm**. It reported Doom soundtrack trivia, Latin, e-waste
+and Raspberry Pi RAM sizing as farm news, and on 12-Aug opened **"Nothing to report from the
+birds today"** — a day on which the database held **7,910 VLM-described frames, 395 strong-tier
+photos and 14 human reactions**, all unread. The entries Boss liked were simply the days the
+chatter happened to be about birds.
+
+**How:**
+- `gather_camera_day()` supplies **photos Boss reacted to first** — a human reaction is the best
+  available signal of what mattered that day, better than any VLM score — then strong-tier
+  scenes **thinned to one per hour** (`GROUP BY strftime('%H', ts), camera_id`) so the entry
+  reads morning-to-evening instead of fixating on the busiest hour. Opened `mode=ro` so a diary
+  run can never contend for a write lock with the pipeline; a DB error degrades to
+  conversation-only rather than failing.
+- The prompt makes camera material the spine, bans chatroom trivia outright ("jokes, politics,
+  music, Latin, e-waste, hardware specifications… are NOT farm events"), and forbids declaring
+  the day quiet whenever camera material exists.
+- **A quiet chat is not a quiet farm:** the old bail-out under 200 chars of conversation now
+  requires *both* sources to be thin.
+- Carousel: hashtags still key off the single richest frame — hashtags describe subject matter,
+  so one representative scene is correct there. Only the caption needed the whole set.
+
+**Verified live:**
+
+| | Before | After |
+|---|---|---|
+| Carousel caption (same 7 gems) | *"A golden-brown rooster with bright red comb and wattle stares directly into the…"* (picture #4) | *"Today's flock was busy pecking pumpkins and watching the sun dip low—some rooste…"* |
+| Diary | *"Nothing to report from the birds today… Doom soundtrack trivia, Latin, and a wholly imaginary giraffe-riding itinerary"* | *"**almost every reacted frame was a bird looking straight down the lens**… **The afternoon's news was a large pumpkin in the run.**"* |
+
+2,876 chars of camera material gathered for 14-Aug; hedging preserved where the source hedged.
+Detail, the liked-vs-ignored entry comparison, and the 12-Aug proof table:
+[`docs/14-Aug-2026-carousel-caption-plan.md`](docs/14-Aug-2026-carousel-caption-plan.md).
+
+**Left alone deliberately:** the 12:30 slot stays a **carousel**, not a Reel. The gems are ~7
+still photos a day; a Reel of them is a 7-second slideshow — exactly the 18:00 lane Boss retired
+yesterday for being 8 frames long. The account already posts four time-lapse Reels a day; the
+carousel is the only lane showing curated photographs.
+
+### v2.71.1 — reactions never expire: diary promotion + daily-reel selection (Claude Opus 5) — 14-Aug-2026
+
+**What:** Two lanes stopped deciding eligibility by "how old is the thing?" and started asking
+"has Boss reacted, and has it been used yet?"
+
+- `scripts/diary-promote-on-reaction.py` — the fixed 72h `#farm-2026` scan is no longer the
+  eligibility test. Each diary post's Discord message id is remembered in
+  `data/diary-promote-state.json` (`known`) and re-checked directly by id, forever.
+- `select_daily_reel_gems` in `tools/pipeline/ig_selection.py` — dropped the `ts >= now - 24h`
+  filter for `reel_posted_at IS NULL`, ordered newest-first, then re-sorted chronologically
+  for playback.
+
+**Why:** Boss, after seeing the numbers: *"fix both windows so the reactions never expire. We
+want to save the good ones."* His reaction is a commitment to publish; both lanes were
+discarding late ones **silently** — no log line, no retry, nothing to notice.
+
+- The promoter scanned back a fixed 72h. React on day 4 and the post was outside the scan
+  **permanently**, because nothing else ever looked at it again. Measured cost: **44 diary
+  entries written, 3 ever promoted.** That ratio was structural, not Boss under-reacting — and
+  the fix immediately recovered **3 reacted entries** (31-Jul, 09-Aug, 10-Aug) that had been
+  lost this way.
+- `select_daily_reel_gems` windowed on `ts`, which is when the **photo was taken**, not when
+  Boss reacted. `discord-reaction-sync` runs every 30 minutes, so even a same-evening reaction
+  on a morning frame could miss; anything older than 24h could never be seen.
+
+**How:**
+- **Promoter:** the channel scan now only DISCOVERS new posts. It widens once to seed ids for
+  older un-reacted entries, then narrows permanently — days proven to have no post are recorded
+  in `no_post` so the seeding pass converges instead of re-reading history every 30 minutes.
+  Measured: first run 19,655 messages / ~3 min, second run **473 messages / 13 s**, still
+  re-checking all 15 known posts by id. A message that 404s is dropped rather than retried
+  forever. State schema is back-compatible — an old file with only `promoted` loads fine.
+- **Selector:** `reel_posted_at` is a real, populated column (1,122 rows, written by
+  `ig_poster.mark_reel_posted`), so a reacted frame stays eligible until it is actually
+  published. This copies `select_all_unposted_story_gems`, the Story lane's zero-loss backstop
+  since 23-Apr-2026. **Newest-first is deliberate:** there are ~1,800 reacted-but-never-reeled
+  frames back to 21-Mar, and draining that oldest-first would build reels of March content for
+  weeks — the exact degradation `select_s7_weekly_gems_reel_gems` warns about.
+
+**⚠️ Deliberately NOT changed — `select_s7_weekly_gems_reel_gems`' 7-day window is correct.**
+It looks like the same bug and is not: eligible gems arrive at ~112/week against a 60-frame
+reel, so an oldest-first pool drains slower than it fills and would re-grow the 1,746-gem
+backlog that lane just finished clearing. Nothing is lost by leaving it — a late-reacted gem is
+still picked up by the windowless Story backstop on the next hourly tick (re-verified live).
+
+**⚠️ Trap: Discord 429s a long scan.** The first live run died on an unhandled 429. The old code
+slept a flat 0.4s per page and had simply never scanned far enough to be throttled — making the
+scan able to run long made the limit reachable for the first time. `_discord_get()` now honours
+`retry_after` and retries the **same** page; retrying a later one would silently skip a window
+of history and those entries would be written off into `no_post` permanently. Nine 429s were
+absorbed during seeding.
+
+**Verified live:** selector 8 → 90 frames; promoter recovered and published 3 lost entries
+(farm-2026 `62df640`, `b3ab476`, `7a6da71`, all pushed; field notes 10 → 13); convergence
+measured on the following run. Plan and full tables:
+[`docs/14-Aug-2026-reactions-never-expire-plan.md`](docs/14-Aug-2026-reactions-never-expire-plan.md).
+
+### v2.71.0 — Birdcatraz power watchdog: alert when the Pi goes quiet (Claude Opus 5) — 13-Aug-2026
+
+**What:** New `tools/birdcatraz-watchdog/watchdog.py` + `com.farmguardian.birdcatraz-watchdog`
+LaunchAgent (every 5 min, `RunAtLoad`). Probes `farm-pi5`'s two camera `/health` endpoints;
+after 2 consecutive failures (~10 min) it posts ONE Discord alert to `#farm-2026` as username
+`farm-power`, mentioning Mark, then stays silent for the rest of the outage and posts ONE
+un-mentioned recovery notice when the Pi returns. Stdlib only — runs on `/usr/bin/python3`,
+not the repo venv, so it keeps reporting even if the venv is broken. Nothing else changed.
+
+**Why:** Boss asked for it after tonight's outage. The Pi went down at 19:37 and was found
+only because he happened to ask at ~20:40 — **70 minutes of silence discovered by luck.**
+`farm-pi5` has **no battery backup**, so "Pi unreachable" is the cheapest reliable proxy for
+"the Birdcatraz outdoor circuit lost power," which takes several cameras with it. Boss's
+framing: *"if it's offline, a whole bunch of the other cameras are."* Nothing in the stack
+watched for a camera host going silent; CLAUDE.md's own top banner records a 3¼-hour overnight
+outage from the same circuit on 07-Aug-2026, also unnoticed until morning.
+
+**How:**
+- **Addressing is belt-and-braces on purpose.** The Pi is DHCP with no static lease reserved
+  (open TODO in the bring-up log), so the watchdog probes `farm-pi5.local` *and*
+  `192.168.0.17`, and declares it down only if both fail. Tonight's pipeline errors were mDNS
+  resolution failures; a name-only probe would false-alarm the first time mDNS alone got flaky.
+- **Classifies the outage instead of just reporting it.** On failure it TCP-probes the other
+  *outdoor* devices — `house-yard`, `duo2`, `s7-cam`, addresses read from `config.json` so
+  there's no second copy of an IP to drift. Others also dark → "the circuit tripped, the
+  breaker needs flipping by hand." Others fine → "just the Pi, check its adapter and cable."
+  Indoor hosts are deliberately excluded: per CLAUDE.md, indoor gear staying up is what
+  distinguishes a tripped circuit from a house-wide outage, so including them would break the
+  inference.
+- **One alert per outage.** A JSON state file latches `alerted`, modelled on the existing
+  `tools/s7-battery-monitor/monitor.py` pattern rather than inventing a new one. A failed
+  Discord post deliberately leaves the latch open so the next tick retries instead of
+  swallowing the outage. State lives in a file, not the DB, so it works when the DB is locked.
+- **Cannot pollute the gem quality gate.** It posts text only under an unmapped webhook
+  username; `discord-reaction-sync` ingests only messages carrying an image attachment and
+  maps gem reactions by username → camera_id.
+
+**⚠️ Trap found in verification — `HTTP 403 Forbidden` from Discord is a User-Agent problem.**
+The first real delivery attempt 403'd. **Discord's edge rejects urllib's default
+`Python-urllib/3.x` User-Agent** — proven by posting an identical body with a custom UA
+(`200 OK`) and without one (`403`). Every other Discord caller in this repo uses `requests`,
+which sets its own UA, so this only bites stdlib callers — and it would have failed silently
+during a real outage. `watchdog.py` now sends an explicit `User-Agent` with a do-not-remove
+comment. **`tools/s7-battery-monitor/monitor.py` has the same latent bug**; it is disabled so
+it has never surfaced, but anyone reviving it must add the header first.
+
+**Verified live, not reasoned about:** healthy Pi → silent; tick 1 silent, tick 2 alerts once,
+ticks 3–4 stay silent; recovery posts once with duration; classification probed the real
+outdoor devices; runs clean under launchd with the `.env` webhook fallback in a minimal
+environment; and one labelled test alert was delivered end-to-end and confirmed on Boss's
+phone. Plan and full verification table:
+[`docs/13-Aug-2026-birdcatraz-power-watchdog-plan.md`](docs/13-Aug-2026-birdcatraz-power-watchdog-plan.md).
+
+### v2.70.7 — the 18:00 mixed daily Reel lane is retired (Claude Opus 5) — 13-Aug-2026
+
+**What:** `com.farmguardian.ig-daily-reel` booted out of launchd and its plist renamed to
+`com.farmguardian.ig-daily-reel.plist.disabled-13Aug2026`. Nothing now publishes at 18:00.
+No Python changed — `MIXED_DAILY_REEL_LANE` (`tools/pipeline/daily_reel_runner.py`),
+`select_daily_reel_gems` (`tools/pipeline/ig_selection.py`) and `scripts/ig-daily-reel.py`
+are all left in place and working. This is a scheduling retirement, not a code removal.
+
+**Why:** Boss watched the 13-Aug run and asked what was going on — it was **8 frames, ~7
+seconds**. That is the lane behaving exactly as written, not a fault: `select_daily_reel_gems`
+returns *only* rows with `discord_reactions >= 1` in the last 24h, with **no filler of any
+kind**, so the reel's length is literally Boss's Discord tap count for the day. Measured run
+lengths: 31 (08-Aug) → 10 → 20 → 11 → 12 → 8 frames.
+
+Two things made it unrecoverable in its current shape rather than merely thin:
+
+1. **It was never "mixed."** `_GEM_POST_DISABLED_CAMERAS` in `gem_poster.py` blocks
+   `macbook-air-facetime`, `usb-webcam-1080p`, `jieli-dashcam` (plus the retired `gwtc` and
+   `dominator-cam`), and those cameras also run `vlm_bypass`. Confirmed empirically: every
+   `share_worth = 'strong'` row since 06-Aug (1,939 of them) is `s7-cam`, and every reacted
+   frame for the last nine days is `s7-cam`. So the lane drew from the same pool as the 21:00
+   S7 lane — which takes those reacted gems *and* buckets filler around them (90 frames /
+   ~77s on 12-Aug) — making the 18:00 lane a strictly worse duplicate publishing three hours
+   earlier and burning one of the 25 daily IG publish slots to do it.
+2. **v2.70.6 (12-Aug) moves it the wrong way.** Raising the Discord gem floor 65 → 80 reduces
+   how many frames reach `#farm-2026` at all, which reduces how many Boss can react to, which
+   shortens this lane further. Note the floor change is *not* the cause of the shrink — the
+   decline starts 09-Aug — but it is a headwind against any recovery.
+
+**How:** `launchctl bootout gui/$(id -u)/com.farmguardian.ig-daily-reel` then renamed the
+plist (a bootout alone reloads at next login). Verified `launchctl list` no longer carries the
+label. `CLAUDE.md`'s live daily schedule line and the lane table in `docs/SOCIAL_MEDIA_MAP.md`
+both updated, each with a do-not-re-enable marker so a future agent doesn't "restore" 18:00
+from an older schedule line.
+
+**Boss's intent:** the 18:00 slot is deliberately left empty for a smarter replacement, to be
+designed later. This is not a permanent judgement that nothing should post at 18:00.
+
+**Latent trap recorded for whoever reuses the selector:** `select_daily_reel_gems` filters on
+`ts >= now - 24h`, where `ts` is the **frame's** capture time, not the reaction time — and
+`discord-reaction-sync` only runs every 30 minutes. A reaction Boss adds to a frame older than
+24 hours therefore never reached this reel at all. Fix that before rebuilding on this selector.
+
 ### v2.70.6 — Discord gem floor 65 → 80: the 68-cluster that justified 65 died with the old S7 (Claude Opus 5) — 12-Aug-2026
 
 **What:** `_MIN_OVERALL_SCORE` in `tools/pipeline/gem_poster.py` raised from 65 to 80. This is

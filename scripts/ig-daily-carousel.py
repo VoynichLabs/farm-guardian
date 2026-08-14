@@ -67,15 +67,29 @@ def _load_config() -> dict:
     return json.loads(cfg_path.read_text())
 
 
-def _build_caption(gems: list[dict]) -> str:
-    """Pick the highest-scoring gem's VLM caption_draft as the journal
-    body; append hashtags from the library (brooder-scene defaults)
-    via pick_hashtags. If no gem has a usable caption_draft, fall
-    back to a generic day-summary line."""
-    from tools.pipeline.ig_poster import build_caption, pick_hashtags, _load_hashtag_library
+def _build_caption(gems: list[dict], db_path: Path, cfg: dict, log) -> str:
+    """Synthesize one caption across the WHOLE carousel, then append hashtags.
 
-    # Pick the representative gem for the caption — highest bird_count
-    # in the set (richer scenes -> better caption material).
+    ⚠️ 14-Aug-2026 — DO NOT GO BACK TO CAPTIONING FROM A SINGLE GEM. This used
+    to pick the gem with the highest bird_count and paste that ONE photo's
+    `caption_draft` on as the caption for all 7 pictures. Boss's verdict on the
+    result: "the caption wasn't even correct. It was just a random caption for
+    one of the pictures. It was stupid." He was exactly right — the other six
+    photos were never consulted.
+
+    The farm already had a good caption writer: `_generate_reel_caption` reads
+    every frame's draft, synthesizes across the set on the local VLM, and folds
+    in the farm diary and the living-flock roster so real events and real bird
+    names appear. Five reel lanes use it. The carousel simply never called it.
+    This deletes the bad local implementation rather than improving it — the
+    shared path handles LM Studio being unreachable and falls back on its own.
+    """
+    from tools.pipeline.ig_poster import build_caption, pick_hashtags, _load_hashtag_library
+    from tools.pipeline.daily_reel_runner import _generate_reel_caption
+
+    # Metadata for hashtag selection still comes from the richest single scene —
+    # hashtags describe subject matter, so one representative frame is the right
+    # input there. Only the CAPTION needed to see the whole set.
     representative = max(gems, key=lambda g: g.get("bird_count") or 0)
     meta = {}
     try:
@@ -83,13 +97,18 @@ def _build_caption(gems: list[dict]) -> str:
     except json.JSONDecodeError:
         meta = {}
 
-    journal = (meta.get("caption_draft") or "").strip()
-    if not journal:
-        n = len(gems)
-        journal = (
-            f"A day at the brooder — {n} moments from today's watch."
-            if n > 1 else "A moment from today's brooder watch."
-        )
+    n = len(gems)
+    fallback = (
+        f"A day at the farm — {n} moments from today's watch."
+        if n > 1 else "A moment from today's watch."
+    )
+    journal = _generate_reel_caption(
+        db_path=db_path,
+        gem_ids=[g["id"] for g in gems],
+        fallback=fallback,
+        cfg=cfg,
+        log=log,
+    ).strip() or fallback
 
     # Hashtags from the library, scene-driven.
     library = _load_hashtag_library(REPO_ROOT / "tools" / "pipeline" / "hashtags.yml")
@@ -155,7 +174,9 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     try:
-        caption = _build_caption(gems)
+        # sched_cfg carries lm_studio_base / model keys the shared caption
+        # generator reads; it is the same dict the reel lanes hand it.
+        caption = _build_caption(gems, db_path, sched_cfg, log)
     except Exception as e:
         log.exception("daily-carousel: caption build failed: %s", e)
         return 1
