@@ -48,7 +48,7 @@ if str(REPO_ROOT) not in sys.path:
 from tools import discord_harvester as dh  # noqa: E402  (token/API/CHANNEL_ID/git plumbing)
 from tools.pipeline import daily_reel_runner as drr  # noqa: E402  (_diary_date == caption path)
 
-FARM_2026 = Path.home() / "Documents" / "GitHub" / "farm-2026"
+FARM_2026 = Path.home() / "GitHub" / "farm-2026"
 DIARY_DIR = FARM_2026 / "content" / "diary"
 FIELD_NOTES_DIR = FARM_2026 / "content" / "field-notes"
 CAROUSEL_DIR = FARM_2026 / "public" / "photos" / "carousel"

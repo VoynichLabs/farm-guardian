@@ -56,7 +56,7 @@ SOURCE_CHANNEL_ID = "1471632572953006337"   # #meet-the-lobsters
 # so take it from there and let there be exactly one source of truth.
 from tools.discord_harvester import CHANNEL_ID as FARM_CHANNEL_ID  # noqa: E402
 
-DIARY_DIR = Path.home() / "Documents" / "GitHub" / "farm-2026" / "content" / "diary"
+DIARY_DIR = Path.home() / "GitHub" / "farm-2026" / "content" / "diary"
 
 MARK_DISCORD_USER_ID = "293569238386606080"
 
