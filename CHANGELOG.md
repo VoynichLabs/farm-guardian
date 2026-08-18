@@ -4,6 +4,23 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.71.3 — diary timestamps converted from UTC to farm-local time (Claude Sonnet 5) — 17-Aug-2026
+
+**What:** `scripts/farm-diary-from-discord.py` labeled every `[HH:MM]` shown to the model — Discord
+transcript lines and camera captions alike — with the raw UTC hour from the stored ISO timestamp,
+and filtered "today's" camera rows with `date(ts) = ?` against that same UTC value.
+
+**Why:** Boss: the diary entries "are using UTC time and not EST." Guardian DB timestamps and
+Discord message timestamps are both stored/reported UTC; nothing converted them before they hit
+the prompt, so an event at 9pm EDT read as 01:00 the next day. That's not just cosmetic — the
+`date(ts) = ?` day filter used the same unconverted value, so anything after ~8pm EDT (UTC has
+already rolled to tomorrow) was being pulled into the *next* day's entry instead of today's.
+
+**Fix:** Added `_local_hhmm()` (via `zoneinfo.ZoneInfo("America/New_York")`) for every displayed
+timestamp, and added SQLite's `'localtime'` modifier (matches the box's own America/New_York
+timezone) to the three `date(ts)`/`strftime('%H', ts)` queries in `gather_camera_day()` so day and
+hour bucketing follow the farm's actual clock, not UTC.
+
 ### v2.71.2 — the diary writes about the farm, and the carousel caption reads the whole set (Claude Opus 5) — 14-Aug-2026
 
 **What:** Two lanes were writing from the wrong source.

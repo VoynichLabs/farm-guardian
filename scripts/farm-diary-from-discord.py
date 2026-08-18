@@ -1,6 +1,16 @@
 #!/usr/bin/env python3
-# Author: Claude Fable 5; Claude Opus 5 (14-Aug-2026 — cameras are the source, not the chatroom)
-# Date: 23-Jul-2026; 14-Aug-2026
+# Author: Claude Fable 5; Claude Opus 5 (14-Aug-2026 — cameras are the source, not the chatroom);
+#         Claude Sonnet 5 (17-Aug-2026 — UTC-to-local timestamp fix)
+# Date: 23-Jul-2026; 14-Aug-2026; 17-Aug-2026
+#
+# 17-Aug-2026 (v2.71.3) — All stored timestamps (Discord + guardian.db) are
+#          UTC. Every [HH:MM] shown to the model, and the "today" day filter
+#          in gather_camera_day(), used that raw UTC value with no
+#          conversion, so entries read in UTC instead of the farm's actual
+#          America/New_York clock, and events after ~8pm EDT got misfiled
+#          into tomorrow's entry. Fixed via _local_hhmm() (zoneinfo) for
+#          display and SQLite's 'localtime' modifier for the day/hour
+#          queries — see CHANGELOG.
 #
 # ⚠️ 14-Aug-2026 (v2.71.2) — THE CAMERAS ARE THE PRIMARY SOURCE. DO NOT REVERT
 #          THIS TO A CHAT-ONLY SUMMARY. Until now the only input was the Discord
@@ -50,8 +60,21 @@ import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import requests
+
+# All timestamps in the DB and from Discord are UTC. The diary is written for
+# a human on the farm, so every HH:MM shown to the model (and the "today"
+# day boundary used to select camera rows) must be converted to the farm's
+# own timezone first — otherwise late-evening EDT/EST events land on the
+# wrong calendar day and get labeled with the wrong hour (17-Aug-2026: Boss
+# flagged diary entries reading in UTC, not EST/EDT).
+FARM_TZ = ZoneInfo("America/New_York")
+
+
+def _local_hhmm(ts_iso: str) -> str:
+    return datetime.fromisoformat(ts_iso.replace("Z", "+00:00")).astimezone(FARM_TZ).strftime("%H:%M")
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -138,7 +161,7 @@ def render_transcript(messages: list[dict], char_cap: int = 14000) -> str:
         is_bot = bool((m.get("author") or {}).get("bot"))
         content = re.sub(r"<@!?\d+>", "@someone", content)
         content = re.sub(r"https?://\S+", "[link]", content)
-        stamp = m["timestamp"][11:16]
+        stamp = _local_hhmm(m["timestamp"])
         lines.append(f"[{stamp}] {author}{' (bot)' if is_bot else ''}: {content}")
     text = "\n".join(lines)
     if len(text) > char_cap:                       # keep the END of the day
@@ -182,12 +205,15 @@ def gather_camera_day(day: str, max_reacted: int = 14, max_scene: int = 18) -> s
                         continue
                     text = (meta.get("caption_draft") or "").strip()
                     if text:
-                        out.append(f"  [{row['ts'][11:16]} {row['camera_id']}] {text}")
+                        out.append(f"  [{_local_hhmm(row['ts'])} {row['camera_id']}] {text}")
                 return out
 
+            # ts is stored UTC; 'localtime' converts using the box's own
+            # timezone (America/New_York) before taking the date/hour, so
+            # evening EDT/EST frames aren't misfiled into tomorrow's UTC date.
             reacted = conn.execute(
                 """SELECT ts, camera_id, vlm_json FROM image_archive
-                    WHERE date(ts) = ? AND discord_reactions >= 1
+                    WHERE date(ts, 'localtime') = ? AND discord_reactions >= 1
                       AND vlm_json IS NOT NULL
                     ORDER BY discord_reactions DESC, ts ASC LIMIT ?""",
                 (day, max_reacted),
@@ -202,10 +228,10 @@ def gather_camera_day(day: str, max_reacted: int = 14, max_scene: int = 18) -> s
             # one busy hour and misrepresent the day.
             scene = conn.execute(
                 """SELECT ts, camera_id, vlm_json FROM image_archive
-                     WHERE date(ts) = ? AND share_worth = 'strong'
+                     WHERE date(ts, 'localtime') = ? AND share_worth = 'strong'
                        AND vlm_json IS NOT NULL
                        AND (has_concerns = 0 OR has_concerns IS NULL)
-                     GROUP BY strftime('%H', ts), camera_id
+                     GROUP BY strftime('%H', ts, 'localtime'), camera_id
                      ORDER BY ts ASC LIMIT ?""",
                 (day, max_scene),
             ).fetchall()
@@ -215,7 +241,7 @@ def gather_camera_day(day: str, max_reacted: int = 14, max_scene: int = 18) -> s
                 lines.extend(captions(scene))
 
             total = conn.execute(
-                "SELECT count(*) FROM image_archive WHERE date(ts) = ?", (day,)
+                "SELECT count(*) FROM image_archive WHERE date(ts, 'localtime') = ?", (day,)
             ).fetchone()[0]
             if total:
                 lines.append("")
