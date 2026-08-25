@@ -69,9 +69,22 @@ adb shell ip -4 addr show wlan0                  # .249 = right net, anything el
 adb shell ping -c2 192.168.0.10                  # 100% loss to the Mini = CLIENT ISOLATION
 ```
 
-**Fix: FORGET the guest network so Private is the only saved SSID.** The static `.249` is stored
-**per saved network** on the Private entry, so it returns by itself — recovery took under 4
-seconds. **`svc wifi disable/enable` does NOT work** — Android re-selected Guest every time
+**✅ ROOT CAUSE FIXED 25-Aug-2026 (v2.71.6) — this should not recur.** The reason `.249` was ever
+held by a fragile static-IP-on-the-phone is that the router's reservation pointed at the
+**retired** handset's MAC. It now points at the live phone (`2C-0E-3D-09-77-A4`), the phone is on
+**DHCP**, and the guest SSID is forgotten. **Verified by rebooting the phone**: it rejoined
+Private unattended, took `.249` by reservation in ~5s, and IP Webcam auto-started. See
+[`docs/25-Aug-2026-router-dhcp-reservation-fix.md`](docs/25-Aug-2026-router-dhcp-reservation-fix.md).
+
+**⛔ ROUTER WORK IS OURS, NOT BOSS'S.** He is non-technical and has said so explicitly — never
+hand him a router procedure or wait on his approval for one. Use
+`tools/router/dhcp_reservations.py`. **Password is `Bubba123`; the older
+`~/bubba-workspace/tools/router/` scripts hardcode `118Oplas`, which is WRONG, and ten failed
+logins lock the router for two hours.**
+
+**Historical fix (if it somehow recurs): FORGET the guest network so Private is the only saved
+SSID.** The static `.249` used to be stored **per saved network** on the Private entry, so it
+returned by itself — recovery took under 4 seconds. **`svc wifi disable/enable` does NOT work** — Android re-selected Guest every time
 across 44s despite Private having the higher `PRIO`; priority does not decide this, do not waste
 time toggling.
 

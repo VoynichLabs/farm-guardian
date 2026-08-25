@@ -4,6 +4,32 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.71.6 — router DHCP reservations fixed; s7-cam off its static IP (Claude Opus 5) — 25-Aug-2026
+
+**What:** the AX55 reserved `192.168.0.249` for `8C-F5-A3-B6-5A-E5` — the S7 handset **retired
+10-Aug-2026**. The live phone is `2C-0E-3D-09-77-A4`, so the reservation governed nothing. That
+mismatch is the root of the whole week: with no working reservation, `.249` could only be held by
+a static IP typed into the phone, and on Android that is stored per-saved-network — so a reboot
+onto the guest SSID lost it and took `s7-cam` down for 16.5 hours.
+
+**Fix:** repointed the reservation at the live MAC (via the GUI's Modify dialog, not
+delete-then-add, so `.249` is never briefly unclaimed), deleted the retired GWTC reservation
+(`F0-35-75-81-2C-45` → `.69`), and switched the phone from Static to **DHCP**. Two unidentified
+Reolink-OUI reservations (`.2`, `.14`) were deliberately left alone — do not delete what you
+cannot identify.
+
+**New tool `tools/router/dhcp_reservations.py`** (`list` / `update-mac` / `delete`), driving the
+AX55 GUI via Playwright. Always prints the resulting table rather than claiming success blind.
+
+**Verified by rebooting the phone** — the exact scenario that broke it: rejoined Private
+unattended, took `.249` by reservation in ~5s, IP Webcam auto-started, `:8080` open 8s later,
+orientation and focus survived, Guardian 6/6.
+
+**⚠️ Traps recorded:** router password is `Bubba123` — the older `~/bubba-workspace/tools/router/`
+scripts hardcode `118Oplas`, which is wrong, and **ten failed logins lock the router for 2 hours**.
+Playwright is not in this repo's venv; use `/opt/homebrew/bin/python3`. MAC entry is six separate
+one-octet inputs.
+
 ### v2.71.5 — camera liveness tells the truth, and a watchdog now says so (Claude Opus 5) — 25-Aug-2026
 
 **What:** the two bugs exposed by v2.71.4's guest-Wi-Fi outage are fixed.
