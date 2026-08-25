@@ -82,7 +82,14 @@ def create_app() -> FastAPI:
             return {"online": False}
         uptime = time.time() - _service._start_time if _service._start_time else 0
         cameras = _service._discovery.cameras
-        online_count = sum(1 for c in cameras.values() if c.online)
+        # v2.71.5: count cameras actually producing frames, not merely discovered.
+        # Shares CaptureManager.liveness() with /api/cameras so the tile and the
+        # count can never disagree. See the s7-cam guest-wifi incident 25-Aug-2026.
+        _live = _service._capture_manager.liveness(
+            cameras.keys(),
+            _service._capture_manager.intervals_from_config(_config),
+        )
+        online_count = sum(1 for v in _live.values() if v["is_live"])
 
         today_str = date.today().isoformat()
 
@@ -169,35 +176,31 @@ def create_app() -> FastAPI:
         # Pull per-camera snapshot intervals from the running config so the
         # staleness threshold adapts to cadence. 60s and 5s cameras should
         # not share one threshold.
-        interval_by_name: dict[str, float] = {}
-        for cam_cfg in (_config.get("cameras") or []):
-            nm = cam_cfg.get("name")
-            if not nm:
-                continue
-            interval_by_name[nm] = float(
-                cam_cfg.get("snapshot_interval")
-                or cam_cfg.get("poll_interval")
-                or 30.0
-            )
+        # v2.71.5: staleness math lives in CaptureManager.liveness() (single
+        # source of truth, shared with /api/status).
+        liveness = _service._capture_manager.liveness(
+            cameras.keys(),
+            _service._capture_manager.intervals_from_config(_config),
+        )
 
-        now = time.time()
         result = []
         for name, cam in cameras.items():
-            last_frame = _service._capture_manager.get_latest_frame(name, allow_stale=True)
-            if last_frame is not None:
-                age = max(0.0, now - float(last_frame.timestamp))
-            else:
-                age = None
-            interval = interval_by_name.get(name, 30.0)
-            # Allow one missed cycle of slack, floor at 30s so 3s cameras
-            # don't flap on a single dropped frame.
-            stale_after = max(30.0, 3.0 * interval)
-            is_live = age is not None and age <= stale_after
+            live = liveness[name]
+            age = live["age"]
+            stale_after = live["stale_after"]
+            is_live = live["is_live"]
             result.append({
                 "name": cam.name,
                 "ip": cam.ip,
                 "type": cam.camera_type,
-                "online": cam.online,
+                # v2.71.5: `online` now means "discovered AND actually producing
+                # frames". It used to be pure discovery state and reported True
+                # for s7-cam through 2,830 consecutive capture failures.
+                # `discovered` preserves the old meaning for callers that need
+                # "is this camera configured and was it ever found" (e.g. the PTZ
+                # control list, which must not vanish on a brief frame gap).
+                "online": bool(cam.online) and is_live,
+                "discovered": bool(cam.online),
                 "capturing": name in active,
                 "rtsp_url": cam.rtsp_url or "",
                 "supports_motion": cam.supports_motion_events,

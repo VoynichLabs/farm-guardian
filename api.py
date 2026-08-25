@@ -48,7 +48,15 @@ def create_api_router() -> APIRouter:
         import time
         uptime = time.time() - _service._start_time if _service._start_time else 0
         cameras = _service._discovery.cameras
-        online_count = sum(1 for c in cameras.values() if c.online)
+        # v2.71.5: count cameras actually producing frames. Shares
+        # CaptureManager.liveness() with /api/cameras and /api/status — see the
+        # s7-cam guest-wifi incident 25-Aug-2026, where discovery-state `online`
+        # reported a dead camera as healthy for 16.5 hours.
+        _live = _service._capture_manager.liveness(
+            cameras.keys(),
+            _service._capture_manager.intervals_from_config(_service._config),
+        )
+        online_count = sum(1 for v in _live.values() if v["is_live"])
         return {
             "online": True,
             "uptime_seconds": round(uptime),

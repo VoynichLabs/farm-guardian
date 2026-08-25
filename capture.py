@@ -1014,3 +1014,58 @@ class FrameCaptureManager:
     def active_cameras(self) -> list[str]:
         """Return names of cameras currently being captured."""
         return [name for name, cap in self._captures.items() if cap.is_running]
+
+    def liveness(
+        self,
+        camera_names,
+        interval_by_name: dict,
+        now: Optional[float] = None,
+    ) -> dict:
+        """Return per-camera liveness derived from ACTUAL FRAME ARRIVAL.
+
+        SINGLE SOURCE OF TRUTH for "is this camera working right now?" — both
+        /api/cameras and /api/status consume this, so the dashboard tile and the
+        cameras_online count can never disagree again.
+
+        Why this exists (25-Aug-2026, v2.71.5): `CameraInfo.online` is set once at
+        DISCOVERY and never re-checked against capture. During the s7-cam guest-wifi
+        outage the API reported the camera online through its 2,830th consecutive
+        failure. Discovery state answers "did we ever find it"; only frame age
+        answers "is it working".
+
+        Returns {name: {"age": float|None, "stale_after": float, "is_live": bool}}.
+        `age` is None when no frame has ever been captured — which is NOT live.
+        """
+        now = time.time() if now is None else now
+        result = {}
+        for name in camera_names:
+            frame = self.get_latest_frame(name, allow_stale=True)
+            age = max(0.0, now - float(frame.timestamp)) if frame is not None else None
+            # Allow one missed cycle of slack, floored at 30s so a 3s camera does
+            # not flap offline on a single dropped frame.
+            stale_after = max(30.0, 3.0 * float(interval_by_name.get(name, 30.0)))
+            result[name] = {
+                "age": age,
+                "stale_after": stale_after,
+                "is_live": age is not None and age <= stale_after,
+            }
+        return result
+
+    @staticmethod
+    def intervals_from_config(config: dict) -> dict:
+        """Map camera name -> its configured capture interval, for liveness().
+
+        Kept beside liveness() so the two halves of the staleness rule cannot
+        drift apart. A 3s camera and a 60s camera must not share one threshold.
+        """
+        intervals: dict = {}
+        for cam_cfg in (config.get("cameras") or []):
+            name = cam_cfg.get("name")
+            if not name:
+                continue
+            intervals[name] = float(
+                cam_cfg.get("snapshot_interval")
+                or cam_cfg.get("poll_interval")
+                or 30.0
+            )
+        return intervals

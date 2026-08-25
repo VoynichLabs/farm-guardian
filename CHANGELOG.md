@@ -4,6 +4,44 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.71.5 — camera liveness tells the truth, and a watchdog now says so (Claude Opus 5) — 25-Aug-2026
+
+**What:** the two bugs exposed by v2.71.4's guest-Wi-Fi outage are fixed.
+
+**1. `online` was discovery state, not liveness.** `CameraInfo.online` is set once at discovery
+and never re-checked against capture, so `/api/cameras` reported `s7-cam online=true` through its
+2,830th consecutive failure — the dashboard actively said a dead camera was fine.
+
+New `CaptureManager.liveness()` (`capture.py`) derives liveness from actual frame arrival and is
+now the **single source of truth**, consumed by `/api/cameras`, `/api/status` and `/api/v1/status`
+so the tile and the `cameras_online` count can never disagree again. `online` now means
+"discovered AND producing frames"; a new additive **`discovered`** field preserves the old
+meaning for callers that need it (the dashboard's PTZ list gates on `discovered`, so controls do
+not vanish on a brief frame gap). Threshold is `max(30s, 3 × interval)` — unchanged from the
+`is_live` logic that already existed, now shared rather than inlined.
+
+*Safe for farm-2026:* its camera components already gate on `is_live`; the `online` in
+`types.ts` is `GuardianStatus.online` (service up), not the per-camera field. Verified by reading
+`GuardianCameraStage.tsx` / `GuardianCameraFeed.tsx` before changing anything.
+
+**2. Nothing alerted on a stale camera.** New `tools/camera-staleness-watchdog/` +
+`com.farmguardian.camera-staleness-watchdog` (5 min, `RunAtLoad`), modelled on
+`birdcatraz-watchdog`. It consumes Guardian's own liveness verdict rather than recomputing
+thresholds — deliberate DRY. One alert per outage, one recovery notice, never a stream; escalates
+once if the outage grows. Mentions Boss only on a **total** blackout or an unreachable Guardian; a
+single dead camera posts without a mention. A configured-but-undiscovered camera is not treated as
+an outage.
+
+**Verified end-to-end, not just unit-tested:** force-stopped IP Webcam on the real S7 — `online`
+held `true` at 16.5s age (no flapping), flipped to `false` at 36.9s, `cameras_online` went 6/6 →
+5/6, and both recovered on restart. Watchdog exercised against healthy / one-dead / all-dead /
+undiscovered / Guardian-unreachable; 3 outage ticks produced exactly 1 alert.
+
+**⚠️ Trap added: `--dry-run`.** `load_webhook()` falls back to `.env`, so clearing
+`DISCORD_WEBHOOK_URL` does **not** make a test run safe — it silently posts to the real
+`#farm-2026`. That happened during this tool's own verification and needed a retraction. Always
+test with `--dry-run`.
+
 ### v2.71.4 — `s7-cam` restored: the phone was on the GUEST Wi-Fi (Claude Opus 5) — 25-Aug-2026
 
 **What:** `s7-cam` served nothing from 24-Aug 19:42 EDT to 25-Aug 12:06 EDT — 16½ hours, 3,284

@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.farmguardian.camera-staleness-watchdog</string>
+
+    <!-- Alerts when ANY camera stops producing frames. Fills the gap found by the
+         25-Aug-2026 s7-cam guest-wifi incident: birdcatraz-watchdog watches farm-pi5
+         only, so a dead camera went unnoticed for 16.5 hours. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/macmini/GitHub/farm-guardian/venv/bin/python3</string>
+        <string>/Users/macmini/GitHub/farm-guardian/tools/camera-staleness-watchdog/watchdog.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/macmini/GitHub/farm-guardian</string>
+
+    <!-- 5 min, matching birdcatraz-watchdog. With FAIL_THRESHOLD=2 a real alert
+         lands ~10 minutes in, which is fast enough to matter and slow enough not
+         to fire on a camera restart. -->
+    <key>StartInterval</key>
+    <integer>300</integer>
+
+    <!-- Run at load so a Mini reboot re-establishes camera state immediately
+         rather than waiting out the first interval. -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/camera-staleness-watchdog.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/camera-staleness-watchdog.err.log</string>
+</dict>
+</plist>

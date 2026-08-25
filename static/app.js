@@ -589,7 +589,10 @@ async function loadPTZ() {
 
         const select = document.getElementById('ptz-camera-select');
         if (select) {
-            const ptzCameras = cameras.filter(c => c.type === 'ptz' && c.online);
+            // v2.71.5: `online` now means "producing frames right now". PTZ controls
+        // must NOT vanish on a brief frame gap, so gate on `discovered`
+        // (the old discovery-state meaning), falling back for older payloads.
+        const ptzCameras = cameras.filter(c => c.type === 'ptz' && (c.discovered ?? c.online));
             select.innerHTML = ptzCameras.length
                 ? ptzCameras.map(c => `<option value="${c.name}">${c.name}</option>`).join('')
                 : '<option value="">--</option>';
