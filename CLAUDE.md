@@ -37,6 +37,55 @@ ssh markb@192.168.0.17 'uptime -s'; sysctl -n kern.boottime
 the LAN — tell Boss the Birdcatraz breaker needs flipping. Do NOT confuse it with the Reolink
 power-adapter trap below: that one is a *single* camera absent from the network.
 
+## `s7-cam` IS DARK BUT THE PHONE LOOKS FINE — CHECK WHICH SSID IT IS ON
+
+**On 24-Aug-2026 the S7 rebooted and reconnected to `653 Pudding Hill 2G Guest` instead of
+`653 Pudding Hill 2G Private`. The guest SSID has CLIENT ISOLATION, so the phone had working
+internet while being firewalled off from every device on the farm LAN. `s7-cam` was dark for
+16½ hours. Nothing was broken — not the phone, not the app, not the camera, not the network.**
+
+**⛔ A LAN SWEEP CANNOT DETECT THIS, AND ITS SILENCE IS NOT EVIDENCE.** A full `/24` ping sweep
+did not surface the phone's MAC, and a threaded probe of port 8080 across all 254 addresses
+found nothing. **Both results were correct and both were misleading** — an isolated guest client
+is invisible to LAN scanning *even while holding an address in the same `192.168.0.0/24` range*
+(it had `.89`, right beside `house-yard` at `.88`). **Absent from ARP ≠ off the network. It may
+be one SSID away.**
+
+**⛔ Do not conclude "the phone is off" from a clean `Host is down` with all ports closed.** That
+guidance elsewhere in this file is incomplete. It matches a phone that is off *and* a phone on
+the guest network, and those need opposite responses.
+
+**The guest SSID is the SAME PHYSICAL ROUTER** — guest BSSID `5e:a6:e6:16:f1:0f` vs the AX55's
+`5c:a6:e6:16:f1:10`, locally-administered bit set. It is not a second box and does not look
+like one.
+
+**Diagnosis needs ADB, which now works** (SM-G930V, serial `4fad774d` — the replacement handset
+has a healthy USB port; every "no ADB path exists" note in this repo describes the retired
+SM-G930F). Plug into the Mini and ask:
+
+```bash
+adb shell dumpsys wifi | grep -m1 mWifiInfo      # which SSID?
+adb shell ip -4 addr show wlan0                  # .249 = right net, anything else = wrong net
+adb shell ping -c2 192.168.0.10                  # 100% loss to the Mini = CLIENT ISOLATION
+```
+
+**Fix: FORGET the guest network so Private is the only saved SSID.** The static `.249` is stored
+**per saved network** on the Private entry, so it returns by itself — recovery took under 4
+seconds. **`svc wifi disable/enable` does NOT work** — Android re-selected Guest every time
+across 44s despite Private having the higher `PRIO`; priority does not decide this, do not waste
+time toggling.
+
+**⚠️ Driving this phone's UI over ADB: the screen is LANDSCAPE** (`mCurrentOrientation=1`), so
+`screencap` returns **2560x1440** while `wm size` reports native portrait `1440x2560`. `input
+tap` uses the landscape space — screenshot first and compute coordinates from the image, or
+every tap misses.
+
+**🔴 NOTHING ALERTED FOR 16½ HOURS, AND THE DASHBOARD LIED.** `birdcatraz-watchdog` watches
+`farm-pi5` only and stayed green (135 clean ticks). Worse, Guardian's `/api/cameras` reported
+`s7-cam online=true` while the capture layer logged its 2,830th consecutive failure — **do not
+trust that `online` flag to mean a camera is working.** Both are open follow-ups. Full detail:
+[`docs/25-Aug-2026-s7-guest-network-incident.md`](docs/25-Aug-2026-s7-guest-network-incident.md).
+
 ## A Reolink camera is serving nothing but "snapshot returned None" — CHECK THE PORTS FIRST
 
 **Do not trust the log line `not found on LAN by name — camera is probably powered off`. It is

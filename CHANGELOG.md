@@ -4,6 +4,39 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.71.4 — `s7-cam` restored: the phone was on the GUEST Wi-Fi (Claude Opus 5) — 25-Aug-2026
+
+**What:** `s7-cam` served nothing from 24-Aug 19:42 EDT to 25-Aug 12:06 EDT — 16½ hours, 3,284
+consecutive `Host is down` failures. Root cause: the phone rebooted Monday evening and
+reconnected to `653 Pudding Hill 2G Guest` instead of `653 Pudding Hill 2G Private`. The guest
+SSID has client isolation, so the phone had working internet while being firewalled off from the
+farm LAN. No code was at fault and nothing was broken — not the phone, not IP Webcam (pid 4278,
+`:::8080 LISTEN` throughout), not the camera, not the network.
+
+**Why it hid so well:** a full `/24` ARP sweep and a 254-address probe of port 8080 both found
+nothing, and both were *correct* — an isolated guest client is invisible to LAN scanning even
+while holding an address in the same range (it had `.89`, beside `house-yard` at `.88`). The
+guest network is the same physical AX55 (BSSID `5e:a6:e6:16:f1:0f` vs LAN `5c:a6:e6:16:f1:10`).
+This also invalidates the standing shortcut that a clean `Host is down` means the phone is off.
+
+**Fix:** forgot the guest network over ADB so Private is the only saved SSID. The static
+`192.168.0.249` is stored per-saved-network on the Private entry, so it returned by itself —
+re-association took under 4 seconds. Note `svc wifi disable/enable` does NOT work: Android
+re-selected Guest across 44s of retries despite Private holding the higher `PRIO`.
+
+**Verified:** `snapshots resumed after 3284 failures`; 4 new archive rows in 45s at 1080x1920
+portrait; `status.json` reports `orientation=portrait`, `ip_address=192.168.0.249`,
+`focusmode=continuous-picture`; one saved SSID remains.
+
+**No code changed.** Docs only: [`docs/25-Aug-2026-s7-guest-network-incident.md`](docs/25-Aug-2026-s7-guest-network-incident.md)
+plus a CLAUDE.md triage section.
+
+**🔴 Two open bugs this exposed, deliberately NOT fixed here (each needs its own plan):**
+1. Guardian's `/api/cameras` reported `s7-cam online=true` through its 2,830th consecutive
+   failure. The dashboard actively said the camera was fine.
+2. Nothing alerted for 16½ hours — `birdcatraz-watchdog` watches `farm-pi5` only and stayed
+   green (135 clean ticks). No camera-level staleness alert exists.
+
 ### v2.71.3 — diary timestamps converted from UTC to farm-local time (Claude Sonnet 5) — 17-Aug-2026
 
 **What:** `scripts/farm-diary-from-discord.py` labeled every `[HH:MM]` shown to the model — Discord
