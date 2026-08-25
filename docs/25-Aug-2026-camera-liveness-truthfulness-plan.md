@@ -1,6 +1,6 @@
 # 25-Aug-2026 — Make camera liveness tell the truth, and alert when it doesn't
 
-**Status: PLAN, awaiting Boss approval. Not implemented.** Written immediately after the
+**Status: ✅ BOTH DELIVERED in v2.71.5, 25-Aug-2026.** Boss approved on the spot ("obviously I want you to improve those things"), so the four open decisions below were made with the defaults this doc proposed: threshold `max(30s, 3 x interval)`; a stale camera reads as offline; per-camera thresholds derived from each camera's configured interval; Boss mentioned only on a total blackout. See CHANGELOG v2.71.5 for what shipped and how it was verified. Written immediately after the
 `s7-cam` guest-network incident ([`docs/25-Aug-2026-s7-guest-network-incident.md`](docs/25-Aug-2026-s7-guest-network-incident.md)),
 which was invisible for 16½ hours because of the two defects below.
 
