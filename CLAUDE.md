@@ -774,7 +774,7 @@ Linux** — that is the specific thing the plan says not to do.
 
 ## Environment
 
-- **Machine:** Mac Mini M4 Pro, 14-core, 64GB RAM, macOS 26.3. **LAN IP `192.168.0.217`** (drifted 05-Aug-2026; was `.54`, and `.71` before that — grep any doc still citing either. Verify with `ifconfig | grep "inet 192"` rather than trusting this line).
+- **Machine:** Mac Mini M4 Pro, 14-core, 64GB RAM, macOS 26.3. **LAN IP `192.168.0.10`** (drifted 22-Aug-2026 during the new-internet install; was `.217`, `.54`, and `.71` before that — grep any doc still citing those. Verify with `ifconfig | grep "inet 192"` rather than trusting this line.)
 - **Python:** 3.13 (Homebrew)
 
 > ⚠️ **Cameras and hosts move around constantly.** Boss rearranges hardware whenever it suits him — there is no "final setup" and this table is a point-in-time snapshot, not a contract. **Always verify against the live configs and a probe before trusting any row here.** Fast check:
