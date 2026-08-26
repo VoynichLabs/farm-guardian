@@ -37,6 +37,42 @@ ssh markb@192.168.0.17 'uptime -s'; sysctl -n kern.boottime
 the LAN — tell Boss the Birdcatraz breaker needs flipping. Do NOT confuse it with the Reolink
 power-adapter trap below: that one is a *single* camera absent from the network.
 
+## `s7-cam` KEEPS DROPPING AND COMING BACK — READ THE UPTIME SEGMENTS, IT IS THE BATTERY
+
+**COLLAPSING uptime is a dying battery, and it is the ONLY thing that produces that shape.**
+Measured 26-Aug-2026: **3h42m → 2h20m → 8.8min → 3.7min → dead.** The phone runs, browns out,
+takes just enough charge to boot, runs shorter, dies again. Nothing about WiFi, DHCP or Guardian
+degrades in that pattern — a network fault drops and returns at *random* lengths, not
+monotonically shrinking ones.
+
+**The fix is physical: check the 3 A charger, its cable, and that the outlet has power.** The
+phone MUST be on a proper 3 A USB wall charger (not Qi, not a low-amp brick) — see Camera 2.
+
+**Run this before theorising.** It answers the question in one shot:
+
+```bash
+sqlite3 data/guardian.db "SELECT ts FROM image_archive WHERE camera_id='s7-cam' AND ts >= '<start>' ORDER BY ts;" \
+  | python3 -c "
+import sys;from datetime import datetime,timedelta
+ts=[datetime.fromisoformat(l.strip()) for l in sys.stdin if l.strip()]
+segs=[[ts[0],ts[0]]]
+for a,b in zip(ts,ts[1:]):
+    (segs.append([b,b]) if (b-a).total_seconds()>300 else segs[-1].__setitem__(1,b))
+for s,e in segs: print(f'UP {s} -> {e}  ({(e-s).total_seconds()/60:.1f} min)')"
+```
+
+**Rule these out FIRST with three cheap probes so you don't chase the wrong fault:**
+
+| Check | Command | If it passes |
+|---|---|---|
+| Birdcatraz circuit | `nc -z -w3 192.168.0.17 22` | `farm-pi5` up = outdoor circuit fine, **not** a breaker trip |
+| Guest-SSID trap | phone absent from the router's **client list** | it is not on the guest network — it is not radiating at all |
+| Router reservation | `tools/router/dhcp_reservations.py list` | `2C-0E-3D-09-77-A4 → .249` present = DHCP is fine |
+
+**⚠️ Do NOT re-diagnose this as the guest-network fault below.** That one leaves the phone
+*associated and serving* on a different segment; this one leaves it **absent from the router's
+client list entirely**, because the radio is off. Opposite evidence, opposite fix.
+
 ## `s7-cam` IS DARK BUT THE PHONE LOOKS FINE — CHECK WHICH SSID IT IS ON
 
 **On 24-Aug-2026 the S7 rebooted and reconnected to `653 Pudding Hill 2G Guest` instead of
