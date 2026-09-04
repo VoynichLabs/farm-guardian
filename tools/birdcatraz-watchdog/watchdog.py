@@ -1,5 +1,5 @@
 # Author: Claude Opus 5
-# Date: 13-August-2026
+# Date: 04-September-2026
 # PURPOSE: Alert on Discord when the Birdcatraz Raspberry Pi (`farm-pi5`) goes
 #          quiet. The Pi has NO battery backup, so "Pi unreachable" is the
 #          cheapest reliable proxy for "the Birdcatraz outdoor circuit lost
@@ -20,6 +20,14 @@
 #          classification is the point of the alert — Boss's stated reason for
 #          wanting it was that the Pi tells him whether everything else is down.
 #
+#          ⚠️ 04-Sep-2026: that classification WAS WRONG ONCE AND COST A TRIP.
+#          On 03-Sep it declared a circuit trip while house-yard and duo2 were
+#          both serving normally — duo2 archived a frame at the exact second it
+#          was called down. Cause: a single un-retried TCP probe decided the
+#          verdict. A device is now considered powered if EITHER it archived a
+#          frame recently OR its port answers; only the absence of BOTH counts
+#          as down. See docs/04-Sep-2026-watchdog-circuit-verdict-fix-plan.md.
+#
 #          DELIBERATELY NOT a remediation tool. A power cut cannot be fixed
 #          from the Mini; the only correct output is telling a human sooner.
 #
@@ -34,9 +42,14 @@
 #            username -> camera_id. So this cannot pollute the gem quality gate.
 #          - State lives in a JSON file, NOT the database — the watchdog must
 #            keep working when the DB is locked or the pipeline is down.
+#          - READS data/guardian.db (read-only, short timeout) purely to ask
+#            "did this camera archive a frame recently?" as corroborating
+#            evidence of power. Any DB failure degrades to TCP-only rather than
+#            raising — a broken DB must never suppress an alert.
 #
 # SRP/DRY check: Pass. Single responsibility: is the Pi alive, and tell someone
-#          if not. Alert/state/recovery shape is deliberately modelled on the
+#          if not. Frame-recency corroboration reuses the existing image_archive
+#          table rather than adding a second liveness store. Alert/state/recovery shape is deliberately modelled on the
 #          existing tools/s7-battery-monitor/monitor.py rather than invented —
 #          same one-shot-latch-in-a-JSON-file idea, same post_discord shape.
 #          Stdlib only, so it runs even if the venv is broken.
@@ -47,10 +60,12 @@ import json
 import logging
 import os
 import socket
+import sqlite3
 import sys
 import time
 import urllib.error
 import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
@@ -58,6 +73,13 @@ from urllib.parse import urlparse
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = REPO_ROOT / "config.json"
 ENV_PATH = REPO_ROOT / ".env"
+DB_PATH = REPO_ROOT / "data" / "guardian.db"
+
+# Median seconds between archived frames per outdoor camera, measured 04-Sep-2026.
+# A frame newer than FRAME_FRESH_MULTIPLIER x this proves the device had power when
+# it was written, which is stronger evidence than any single TCP connect.
+FRAME_CADENCE_S = {"house-yard": 45.0, "duo2": 10.0, "s7-cam": 5.0}
+FRAME_FRESH_MULTIPLIER = 3.0
 
 SERVICE_ROOT = Path(
     os.environ.get(
@@ -198,6 +220,65 @@ def load_outdoor_devices() -> dict[str, tuple[str, int]]:
     return devices
 
 
+def last_frame_age_s(camera_id: str) -> Optional[float]:
+    """Seconds since this camera's newest archived frame, or None if unknown.
+
+    Read-only, short timeout. ANY failure (DB missing, locked, corrupt, unparsable
+    timestamp) returns None so the caller falls back to the TCP probe. A broken
+    database must never be able to suppress a power alert.
+    """
+    try:
+        con = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True, timeout=3.0)
+        try:
+            row = con.execute(
+                "SELECT MAX(ts) FROM image_archive WHERE camera_id = ?", (camera_id,)
+            ).fetchone()
+        finally:
+            con.close()
+    except Exception as exc:  # sqlite3.Error, OSError — all degrade the same way
+        log.debug("frame-age lookup failed for %s: %s", camera_id, exc)
+        return None
+
+    if not row or not row[0]:
+        return None
+    try:
+        ts = datetime.fromisoformat(row[0])
+    except ValueError:
+        log.debug("unparsable ts for %s: %r", camera_id, row[0])
+        return None
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - ts).total_seconds()
+
+
+def device_has_power(name: str, host: str, port: int) -> tuple[bool, str]:
+    """Is this outdoor device powered? Returns (powered, evidence).
+
+    TWO independent sources of POSITIVE evidence, either of which is sufficient:
+
+      1. It archived a frame within FRAME_FRESH_MULTIPLIER x its median cadence.
+         Local SQLite read — immune to the network contention that produced the
+         03-Sep-2026 false "circuit tripped" alert.
+      2. Its TCP port answers (retried once — a single refusal decided that alert).
+
+    Only the absence of BOTH means no power. The OR is deliberate and not
+    symmetric: on 03-Sep `s7-cam` had power and answered TCP while producing no
+    frames (its charging lane), whereas `house-yard`/`duo2` were producing frames
+    while a probe was refused. Each source covers the other's blind spot.
+    """
+    age = last_frame_age_s(name)
+    if age is not None:
+        fresh_within = FRAME_FRESH_MULTIPLIER * FRAME_CADENCE_S.get(name, 60.0)
+        if age <= fresh_within:
+            return True, f"frame {age:.0f}s old"
+
+    # Retry once: the 03-Sep misfire hung on a single un-retried probe.
+    for _ in range(2):
+        if tcp_open(host, port):
+            return True, "port open"
+    return False, f"no port, no frame (age={age if age is None else f'{age:.0f}s'})"
+
+
 def classify_outage() -> tuple[str, list[str], list[str]]:
     """Work out whether the whole outdoor circuit is down or only the Pi.
 
@@ -206,7 +287,9 @@ def classify_outage() -> tuple[str, list[str], list[str]]:
     down: list[str] = []
     up: list[str] = []
     for name, (host, port) in load_outdoor_devices().items():
-        (up if tcp_open(host, port) else down).append(name)
+        powered, evidence = device_has_power(name, host, port)
+        log.info("outage probe: %s -> %s (%s)", name, "UP" if powered else "DOWN", evidence)
+        (up if powered else down).append(name)
     # Any other outdoor device also dark => shared cause => the circuit.
     verdict = "circuit" if down else "pi-only"
     return verdict, down, up

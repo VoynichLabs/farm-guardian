@@ -13,6 +13,9 @@ bubba-workspace/secrets/
 events/
 models/
 *.log
+# Rotated logs: '*.log' does NOT match 'guardian.log.1' (the extension is .1),
+# which is how 50MB rotated logs got committed by accident. Keep both rules.
+*.log.[0-9]*
 guardian.db
 
 # Hand-rolled backup copies — use git commits instead of file copies.

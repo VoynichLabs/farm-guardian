@@ -4,6 +4,72 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.71.8 — watchdog no longer sends Boss to flip a healthy breaker (Claude Opus 5) — 04-Sep-2026
+
+**What:** `classify_outage()` in `tools/birdcatraz-watchdog/watchdog.py` decided "the outdoor
+circuit tripped" from a single un-retried TCP probe (`verdict = "circuit" if down else
+"pi-only"`). On 03-Sep-2026 that sent Boss out to flip a breaker that was fine.
+
+**Why:** the probe result was simply wrong — `duo2` archived a frame at the exact second it was
+declared down, `house-yard` never gapped beyond its normal 46s cadence, and both kept serving
+for the next 27h with no breaker touched. A false alarm that costs a physical trip destroys
+trust in every subsequent alert, which is the one thing this watchdog exists to provide. Note a
+longer timeout would NOT have helped (timing shows a fast refusal, not packet loss) and neither
+would a ">=2 devices down" quorum (two devices were reported down).
+
+**How:** a device now counts as powered on **either** of two independent positive signals — it
+archived an `image_archive` frame within 3x its median cadence (house-yard 45s, duo2 10s,
+s7-cam 5s), **or** its TCP port answers (now retried once). Only the absence of both counts as
+down. The OR is deliberate and asymmetric: on 03-Sep `s7-cam` had power and answered TCP while
+producing no frames (charging lane), while `house-yard`/`duo2` were producing frames while a
+probe was refused — each signal covers the other's blind spot. The DB is read **read-only with
+a 3s timeout and every failure degrades to TCP-only**, so a locked or missing database can never
+suppress an alert; stdlib-only is preserved (`sqlite3`). Each probe now logs its evidence.
+
+**Verified** by replaying the 03-Sep failure with all TCP probes forced to fail: `house-yard`
+and `duo2` are held UP by frame evidence and the verdict is `pi-only` (was `circuit`). A
+simulated true trip — all three unreachable with stale frames — still yields `circuit`. DB-
+unreadable falls back to TCP cleanly. Plan:
+`docs/04-Sep-2026-watchdog-circuit-verdict-fix-plan.md`.
+
+**Also:** `jieli-dashcam` replugged and re-enabled on `farm-pi5`; both Pi cameras live.
+
+### v2.71.7 — farm-pi5 SD card went blank; card rebuilt, camera host restored (Claude Opus 5) — 04-Sep-2026
+
+**What:** `farm-pi5` died Thu 03-Sep 10:26 local and stayed down 27h. Root cause was the **SD
+card losing its entire contents** — sector 0 and the whole first GB read back `0xFF` (erased
+flash), no partition table, no FAT32 `bootfs`. The card read with zero I/O errors, so the
+hardware is likely fine; the data was simply gone. It stayed down after Boss's reboot only
+because the card was out of the Pi at the time.
+
+**Why it matters beyond the card:** `birdcatraz-watchdog` classified this as a **circuit trip
+and told Boss to go flip the Birdcatraz breaker. That was wrong** — the circuit never tripped
+and he made the trip for nothing. `duo2` archived a frame at *exactly* the second it was
+declared down (max gap that hour: 13s); `house-yard` never gapped beyond its normal 46s cadence.
+Cause is `classify_outage()`: `verdict = "circuit" if down else "pi-only"` — **any one outdoor
+device failing a single un-retried TCP probe flips the verdict.** Timing proves the mechanism
+was a *fast refusal*, not packet loss (6.018s for three probes at a 6.0s timeout, so at most one
+timed out), which means **raising the timeout would not have helped**, and a ">=2 devices down"
+quorum would not have either since two were reported down. Fix is NOT yet implemented — it needs
+a plan doc. Proposed: a device is UP if EITHER it produced an `image_archive` frame within ~3x
+its cadence OR its port answers; only the absence of both means no power. **CLAUDE.md's
+instruction to trust the watchdog's verdict is amended accordingly.**
+
+**How:** wrote `2026-06-18-raspios-trixie-arm64-lite` (checksum-verified) behind a size +
+Removable + USB guard so it could not touch the co-resident 2 TB SSD; seeded `userconf.txt` +
+`ssh` with Python and verified the `$6$` hash by re-deriving it with openssl; set hostname
+`farm-pi5` **and** the matching `/etc/hosts` `127.0.1.1` entry; restarted avahi so
+`farm-pi5.local` resolves. `usb-webcam-1080p` is live at 1920x1080 with `gain=32` applied and
+archiving again. **`jieli-dashcam` is physically unplugged** — absent from `lsusb`, its last
+frame predates the card failure by ~16h, so it is a separate earlier fault; its service is
+deliberately left disabled until someone replugs it.
+
+**Two doc traps found and recorded:** the bring-up log's firstboot `cmdline.txt` grep is stale
+for trixie images (they use `resize`) and now yields a false "bad image write" on a good card;
+and `camera_host.py` requires `fastapi` + `uvicorn`, which no requirements file in this repo
+records — installing only opencv/numpy leaves the service in a `ModuleNotFoundError` restart
+loop. Detail: `docs/04-Sep-2026-farm-pi5-sd-card-failure-and-rebuild.md`.
+
 ### v2.71.6 — router DHCP reservations fixed; s7-cam off its static IP (Claude Opus 5) — 25-Aug-2026
 
 **What:** the AX55 reserved `192.168.0.249` for `8C-F5-A3-B6-5A-E5` — the S7 handset **retired
