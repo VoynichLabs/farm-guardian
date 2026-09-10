@@ -1,10 +1,16 @@
 #!/bin/sh
 # Farm Guardian — LM Studio VLM watchdog
 #
-# Auto-recovers the pipeline's VLM when qwen/qwen3.5-9b drops out of LM
-# Studio. Addresses the recurring "model not loaded -> pipeline silently
-# skips every cycle" failure mode that has hit Boss many times (and the
-# 814 MB log bloat called out in CHANGELOG v2.40.14).
+# Loads qwen/qwen3-vl-4b when LM Studio has NO model loaded at all.
+# Addresses the recurring "model not loaded -> pipeline silently skips
+# every cycle" failure mode that has hit Boss many times (and the 814 MB
+# log bloat called out in CHANGELOG v2.40.14).
+#
+# If ANY other model is loaded it does nothing, and that is correct. Since
+# v2.72.0 (10-Sep-2026) the pipeline and Guardian's night verifier use
+# whatever vision model is loaded, so Boss's LM Studio experiments keep
+# the farm running without this script fighting them for the slot. See
+# docs/10-Sep-2026-any-loaded-vlm-plan.md.
 #
 # Plan:      docs/16-May-2026-lmstudio-watchdog-plan.md
 # Reference: docs/13-Apr-2026-lm-studio-reference.md (Safe model swap pattern)
@@ -13,7 +19,7 @@
 #   - Never restart, quit, or touch LM Studio itself — only the loaded-
 #     model state. If the server is unreachable, log and exit.
 #   - Never unload another model (co-tenant rule from the reference doc).
-#   - Always load via /api/v1/models/load with explicit context_length=8192,
+#   - Always load via /api/v1/models/load with explicit context_length=16384,
 #     flash_attention=true, parallel=1 (matches the pipeline's expectation
 #     per the 2026-05-04 doc note on post-UI-swap slowness).
 #   - Free-memory gate before loading: free+speculative+inactive pages
@@ -26,9 +32,9 @@
 # files there (exit 126 "Operation not permitted").
 
 HOST="http://localhost:1234"
-MODEL="qwen/qwen3.5-9b"
-CONTEXT=8192
-MODEL_GB=6.55
+MODEL="qwen/qwen3-vl-4b"
+CONTEXT=16384
+MODEL_GB=3.33
 LOG=/tmp/lmstudio-watchdog.log
 
 ts() { date '+%Y-%m-%d %H:%M:%S'; }

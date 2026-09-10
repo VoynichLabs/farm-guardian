@@ -1,18 +1,22 @@
-# Author: Claude Opus 4.7 (1M context); Claude Sonnet 4.6 (edits 27-April-2026 — vlm_bypass mode: run_raw_cycle, dedicated raw threads, raw retention sweep, v2.37.13; 28-April-2026 — sharpness gate wired in, v2.37.14; 04-May-2026 — Birds preset as prompt/schema source, v2.40.0); GPT-5.5 Codex (edits 08-May-2026 — static floor-pecking score calibration); Claude Opus 4.8 (1M context) (edits 03-June-2026 — VLM input downscale via _downscale_for_vlm + vlm_input_long_edge_px config, to cut per-frame latency, v2.40.17); Claude Opus 4.8 (Bubba sub-agent) (edits 14-June-2026 — golden-window raw capture: per-iteration thick/sparse cadence for usb-cam/dominator-cam via offpeak_cycle_seconds + timelapse_golden_windows); Claude Sonnet 4.6 (edits 27-June-2026 — run_raw_cycle quality gates + laplacian storage, v2.44.1); Claude Fable 5 (edits 02-July-2026 — Discord caption trim via gem_poster.trim_caption, v2.44.5); Claude Opus 4.8 (Bubba) (edits 12-July-2026 — _compute_overall_score 0-100 weighted-component scoring, floor-pecking cap + caption rescaled, v2.45.0; 13-July-2026 — dominance recalibrated (full at ~50% coverage) so real gems clear the 80 gate + BIRD SELFIE ping 95->90, v2.45.1); Claude Fable 5 (edits 16-July-2026 — IG-hook hashtag rotation fed from posted-caption ledger, v2.47.0); Claude Sonnet 5 Extra (edits 03-Aug-2026 — keyframe-promotion hook in run_raw_cycle for the permanent weekly/monthly time-lapse archive, v2.60.0); Claude Opus 5 (edits 09-Aug-2026 — keyframe capture switched from 3 fixed daily slots to a daylight-gated interval via _keyframe_interval_due, v2.69.0)
-# Date: 17-April-2026 (last touched 03-Aug-2026)
+# Author: Claude Opus 4.7 (1M context); Claude Sonnet 4.6 (edits 27-April-2026 — vlm_bypass mode: run_raw_cycle, dedicated raw threads, raw retention sweep, v2.37.13; 28-April-2026 — sharpness gate wired in, v2.37.14; 04-May-2026 — Birds preset as prompt/schema source, v2.40.0); GPT-5.5 Codex (edits 08-May-2026 — static floor-pecking score calibration); Claude Opus 4.8 (1M context) (edits 03-June-2026 — VLM input downscale via _downscale_for_vlm + vlm_input_long_edge_px config, to cut per-frame latency, v2.40.17); Claude Opus 4.8 (Bubba sub-agent) (edits 14-June-2026 — golden-window raw capture: per-iteration thick/sparse cadence for usb-cam/dominator-cam via offpeak_cycle_seconds + timelapse_golden_windows); Claude Sonnet 4.6 (edits 27-June-2026 — run_raw_cycle quality gates + laplacian storage, v2.44.1); Claude Fable 5 (edits 02-July-2026 — Discord caption trim via gem_poster.trim_caption, v2.44.5); Claude Opus 4.8 (Bubba) (edits 12-July-2026 — _compute_overall_score 0-100 weighted-component scoring, floor-pecking cap + caption rescaled, v2.45.0; 13-July-2026 — dominance recalibrated (full at ~50% coverage) so real gems clear the 80 gate + BIRD SELFIE ping 95->90, v2.45.1); Claude Fable 5 (edits 16-July-2026 — IG-hook hashtag rotation fed from posted-caption ledger, v2.47.0); Claude Sonnet 5 Extra (edits 03-Aug-2026 — keyframe-promotion hook in run_raw_cycle for the permanent weekly/monthly time-lapse archive, v2.60.0); Claude Opus 5 (edits 09-Aug-2026 — keyframe capture switched from 3 fixed daily slots to a daylight-gated interval via _keyframe_interval_due, v2.69.0; edits 10-Sep-2026 — store the VLM model that actually answered, v2.72.0)
+# Date: 17-April-2026 (last touched 10-Sep-2026)
 # PURPOSE: Main entry point for the multi-cam image pipeline. Schedules per-
 #          camera capture cycles at their configured cadences, runs each
 #          frame through a four-stage pre-VLM filter (trivial std-dev gate,
 #          exposure gate, per-camera motion gate), enriches passing frames
 #          via the VLM, persists to SQLite + disk. Single in-flight VLM call
 #          (enforced in vlm_enricher via a module-level lock). Per-cycle LM
-#          Studio coordination is read-only: if the wrong model is loaded (or
-#          nothing is loaded), the cycle is logged and skipped — we do not
+#          Studio coordination is read-only: frames go to the configured
+#          model if it is loaded, else to whatever vision model IS loaded
+#          (vlm_enricher.resolve_loaded_vlm, v2.72.0); only when no vision
+#          model is loaded is the cycle logged and skipped — we do not
 #          auto-load mid-loop, to avoid contention with G0DM0D3 sweeps, per
 #          docs/13-Apr-2026-lm-studio-reference.md. The ONE exception is a
 #          single controlled ensure_model_loaded() at daemon startup (checks
-#          first, never stacks) so a reboot can't leave the model JIT-loaded
-#          at a too-small context.
+#          first, never stacks, and loads nothing when another vision model
+#          is already loaded) so a reboot can't leave the model JIT-loaded
+#          at a too-small context. Rows record vlm_result["model_id"], the
+#          model that actually answered, never the configured preference.
 #
 #          Motion gate is opt-in per camera via `motion_gate: true` in the
 #          camera's config block. Outdoor/coop cameras (house-yard, gwtc)
@@ -944,7 +948,9 @@ def run_cycle(camera_name: str, camera_cfg: dict, cfg: dict, schema: dict,
             jpeg_bytes=jpeg_bytes,
             gate_metrics=last_gate_metrics,
             vlm_result=vlm_result,
-            vlm_model=cfg["vlm_model_id"],
+            # The model that ACTUALLY answered: under v2.72.0 fallback it can
+            # differ from cfg["vlm_model_id"], and provenance must not lie.
+            vlm_model=vlm_result["model_id"],
             retention_days_strong=cfg.get("retention_days_strong", 90),
             retention_days_decent=cfg.get("retention_days_decent", 90),
             retention_days_concerns=cfg.get("retention_days_concerns"),

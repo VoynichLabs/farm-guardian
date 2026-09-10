@@ -28,8 +28,10 @@
 #
 #          LM Studio safety rules from docs/13-Apr-2026-lm-studio-reference.md
 #          still apply:
-#            - verify the right model is loaded before any call
-#            - never auto-load via the chat endpoint (skip cycle instead)
+#            - only ever call a model LM Studio already has loaded
+#              (resolve_loaded_vlm, v2.72.0)
+#            - never auto-load via the chat endpoint (skip the cycle when
+#              no vision model is loaded at all)
 #            - single in-flight via module-level threading.Lock
 #
 #          03-June-2026 (Claude Opus 4.8, 1M context): added
@@ -38,8 +40,31 @@
 #          context (16k) after a reboot/LM Studio restart. Checks what's
 #          loaded first, never stacks, parallel=1 + flash_attention per
 #          docs/13-Apr-2026-lm-studio-reference.md.
-# SRP/DRY check: Pass — single responsibility is VLM round-trip + the
-#                startup ensure-load for the model it talks to.
+#          08-Sep-2026 (Claude Sonnet 5, Bubba): added resolve_loaded_vlm() —
+#          enrich() now runs with whatever vision-capable model is actually
+#          loaded instead of hard-skipping every frame when a different job
+#          (bench run, ad-hoc chat) has LM Studio's slot. Per Boss after
+#          qwen3.8-27b sat loaded all day and zero of ~14k frames got scored,
+#          starving the carousel of candidates. vlm_model_id is now a
+#          preference, not a hard requirement.
+#          10-Sep-2026 (Claude Opus 5, v2.72.0): finished that change.
+#          Model state now comes from ONE reader, _loaded_instances(), on
+#          the native /api/v1/models API. It decides vision support from
+#          `capabilities.vision`, NOT from v0's `type == "vlm"`: v1
+#          reports `type: "llm"` for every model, and v0's label for the
+#          qwen3_5-arch models Boss swaps in (qwen3.8-27b) was never checked.
+#          The resolver returns the loaded INSTANCE id and logs substitutions
+#          on change only (the old per-call warning meant thousands of lines
+#          a day). enrich() returns the model that actually answered so
+#          callers record true provenance, and ensure_model_loaded() no
+#          longer loads ours next to a different vision model that is
+#          already loaded. list_loaded_models() removed (no callers left).
+#          Plan: docs/10-Sep-2026-any-loaded-vlm-plan.md.
+# SRP/DRY check: Pass — single responsibility is VLM round-trip, choosing
+#                which loaded model to talk to, and the startup ensure-load.
+#                _loaded_instances() is the one reader of LM Studio model
+#                state for every consumer in the repo (pipeline, Guardian's
+#                llm_verify, reel captions, bird_photo_ingest).
 
 from __future__ import annotations
 
@@ -71,10 +96,116 @@ class ValidationFailed(EnricherError):
     pass
 
 
-def list_loaded_models(lm_base: str, timeout: int = 5) -> list[str]:
-    r = requests.get(f"{lm_base}/v1/models", timeout=timeout)
+def _loaded_instances(lm_base: str, timeout: int = 5) -> list[dict]:
+    """Every model instance LM Studio currently has loaded, with its vision flag.
+
+    This is the ONE reader of LM Studio model state in this repo. The
+    pipeline, Guardian's llm_verify, reel caption synthesis and
+    bird_photo_ingest all go through it (via resolve_loaded_vlm or
+    ensure_model_loaded).
+
+    Uses the native GET /api/v1/models because that is the endpoint that
+    reports vision support: it lists every downloaded model with
+    `capabilities.vision` and `loaded_instances`. Do NOT go back to
+    /api/v0/models `type == "vlm"`. v1 reports `type: "llm"` for every
+    model (verified live 10-Sep-2026), and v0's label for the qwen3_5-arch
+    models (qwen3.8-27b, bonsai-27b, qwen3.5-9b) was never checked, so a
+    v0 filter can silently skip exactly the model Boss has loaded.
+
+    Returns [{"model", "instance_id", "context_length", "vision"}, ...] in LM
+    Studio's listing order. `instance_id` is what /v1/chat/completions
+    accepts; it differs from the model key once a second instance of the
+    same model exists (e.g. "qwen/qwen3-vl-4b:2"). Raises requests
+    exceptions on transport/HTTP failure. Each caller decides what
+    "LM Studio unreachable" means for it.
+    """
+    r = requests.get(f"{lm_base}/api/v1/models", timeout=timeout)
     r.raise_for_status()
-    return [m["id"] for m in r.json().get("data", [])]
+    instances: list[dict] = []
+    for model in r.json().get("models", []):
+        vision = (model.get("capabilities") or {}).get("vision") is True
+        for inst in model.get("loaded_instances") or []:
+            instances.append({
+                "model": model.get("key"),
+                "instance_id": inst.get("id") or model.get("key"),
+                "context_length": int((inst.get("config") or {}).get("context_length") or 0),
+                "vision": vision,
+            })
+    return instances
+
+
+def _matches(instance: dict, model_id: str) -> bool:
+    """True when `model_id` names this instance, by model key or instance id."""
+    return model_id in (instance["model"], instance["instance_id"])
+
+
+# The last (preferred, resolved) pair resolve_loaded_vlm logged. Substitutions
+# are logged when the choice CHANGES, never per call: at the S7 cadence a
+# per-call warning is thousands of lines a day, and this repo already has an
+# 814 MB log-bloat entry (CHANGELOG v2.40.14). Threads can race on it; the
+# worst case is one duplicate log line.
+_last_resolution: tuple[str, str] | None = None
+
+
+def resolve_loaded_vlm(
+    lm_base: str,
+    preferred_model_id: str,
+    timeout: int = 5,
+    allowed_models: list[str] | tuple[str, ...] | None = None,
+) -> str:
+    """Return the instance id of a loaded vision-capable model to call.
+
+    `preferred_model_id` is a preference, not a requirement (Boss,
+    08/09-Sep-2026: "Farm Guardian should just work with whatever model is
+    loaded"). LM Studio is shared with his experiments, which swap the loaded
+    model. It is used when loaded. Otherwise the first loaded vision-capable
+    instance is used instead of skipping. On 08-Sep, qwen3.8-27b sat loaded
+    all day, ~14k frames went unscored, and Guardian's night verifier failed
+    open.
+
+    Every id returned comes from LM Studio's own loaded_instances list, so a
+    /v1/chat/completions call with it can never auto-load a model (reference
+    doc rule 3, the 2026-04-13 incident; JIT loading is also off).
+
+    `allowed_models` (model keys or instance ids) restricts the candidates when
+    given. Guardian's night verifier passes llm_verification.validated_models.
+    Choosing *which* model decides whether to wake Boss is a safety call, and
+    an untested model can be confidently wrong: measured 10-Sep-2026,
+    qwen3.5-9b suppressed 14 of 20 real positives, calling a real person at
+    the coop "spider web on lens". Scoring photos has no such stakes, so the
+    pipeline passes no list and takes any vision model.
+
+    Raises ModelNotLoaded when no eligible model is loaded: no vision model at
+    all, or none from `allowed_models`. Either way there is nothing this
+    caller may ask.
+    """
+    global _last_resolution
+    loaded = _loaded_instances(lm_base, timeout=timeout)
+    vision = [i for i in loaded if i["vision"]]
+    if allowed_models is not None:
+        vision = [i for i in vision if any(_matches(i, a) for a in allowed_models)]
+    preferred = next((i for i in vision if _matches(i, preferred_model_id)), None)
+    chosen = preferred or (vision[0] if vision else None)
+    if chosen is None:
+        wanted = ("vision-capable model" if allowed_models is None
+                  else f"model from {list(allowed_models)!r}")
+        raise ModelNotLoaded(
+            f"no {wanted} loaded in LM Studio (preferred {preferred_model_id!r}; "
+            f"loaded: {[i['instance_id'] for i in loaded]!r})"
+        )
+
+    resolved = chosen["instance_id"]
+    pair = (preferred_model_id, resolved)
+    if pair != _last_resolution:
+        if chosen is not preferred:
+            log.warning(
+                "vlm: preferred model %r is not loaded; using loaded vision model %r "
+                "(logged on change only)", preferred_model_id, resolved,
+            )
+        elif _last_resolution is not None:
+            log.info("vlm: preferred model %r is loaded again; using it", resolved)
+        _last_resolution = pair
+    return resolved
 
 
 def ensure_model_loaded(
@@ -83,8 +214,8 @@ def ensure_model_loaded(
     context_length: int,
     timeout: int = 180,
 ) -> str:
-    """Make sure model_id is loaded with at least context_length tokens of
-    context, loading it via LM Studio's native API if needed.
+    """Make sure a vision model is available, loading model_id via LM Studio's
+    native API only when no vision-capable model is loaded at all.
 
     The per-cycle path is deliberately read-only (it skips when the model
     isn't loaded — see this module's header and docs/13-Apr-2026-lm-studio-
@@ -95,26 +226,32 @@ def ensure_model_loaded(
     instances, and loads with parallel=1 (the pipeline is single-in-flight) +
     flash_attention, exactly as the reference doc prescribes.
 
-    Returns one of: "already-loaded", "loaded", "reloaded-for-context".
-    Raises on API failure — the caller treats that as non-fatal and lets the
-    per-cycle read-only skip handle a still-unloaded model.
+    10-Sep-2026 (v2.72.0): if a DIFFERENT vision-capable model is already
+    loaded (typically Boss's experiment), this returns "co-tenant-vlm-loaded"
+    and loads nothing. Every consumer resolves to whatever vision model is
+    loaded (resolve_loaded_vlm), so loading ours as well would only put a
+    second model in memory. Before this, the check only looked for model_id
+    itself, so a pipeline restart mid-experiment loaded a second model
+    beside Boss's. A text-only co-tenant still gets ours loaded next to it,
+    because nothing else could look at an image.
+
+    Returns one of: "already-loaded", "loaded", "reloaded-for-context",
+    "co-tenant-vlm-loaded". Raises on API failure; the caller treats that as
+    non-fatal and lets the per-cycle skip handle a still-unloaded model.
     """
-    info = requests.get(f"{lm_base}/api/v0/models", timeout=10)
-    info.raise_for_status()
-    loaded = next(
-        (m for m in info.json().get("data", [])
-         if m.get("id") == model_id and m.get("state") == "loaded"),
-        None,
-    )
+    vision = [i for i in _loaded_instances(lm_base, timeout=10) if i["vision"]]
+    mine = next((i for i in vision if _matches(i, model_id)), None)
+    if mine is None and vision:
+        return "co-tenant-vlm-loaded"
     outcome = "loaded"
-    if loaded is not None:
-        if (loaded.get("loaded_context_length") or 0) >= context_length:
+    if mine is not None:
+        if mine["context_length"] >= context_length:
             return "already-loaded"
-        # Loaded but at too small a context — unload before reloading so we
-        # don't stack a second instance on top.
+        # Our own model, loaded at too small a context. Unload that exact
+        # instance before reloading so we don't stack a second one on top.
         requests.post(
             f"{lm_base}/api/v1/models/unload",
-            json={"instance_id": model_id}, timeout=30,
+            json={"instance_id": mine["instance_id"]}, timeout=30,
         ).raise_for_status()
         time.sleep(6)  # let VRAM actually free (2s was too short per the doc)
         outcome = "reloaded-for-context"
@@ -237,19 +374,23 @@ def enrich(
     """Single VLM round-trip via LM Studio's /v1/chat/completions endpoint
     with response_format=json_schema grammar sampling.
 
-    Raises ModelNotLoaded if the wrong model (or nothing) is loaded — caller
-    should skip the cycle rather than auto-load. Returns a schema-conforming
-    metadata dict plus meta fields (inference_ms, prompt_hash, raw_response,
-    reasoning_output_tokens).
+    model_id is a preference, not a requirement (08-Sep-2026, per Boss):
+    runs against model_id when it's loaded, otherwise falls back to whatever
+    vision-capable model IS loaded (resolve_loaded_vlm) rather than skip.
+    Raises ModelNotLoaded only when nothing vision-capable is loaded at all
+    — caller should skip the cycle rather than auto-load. Returns a
+    schema-conforming metadata dict plus meta fields (model_id, inference_ms,
+    prompt_hash, raw_response, reasoning_output_tokens). `model_id` in the
+    result is the instance that ACTUALLY answered. Callers must store that,
+    not their configured preference, or a fallback-scored frame is recorded
+    under the wrong model.
 
     context_length is accepted for API compatibility but ignored — the
     OpenAI-compat endpoint uses the model's loaded context length. The
     daemon configures context at load time via vlm_load_context_length.
     """
     del context_length  # accepted for API compat; see docstring
-    loaded = list_loaded_models(lm_base)
-    if model_id not in loaded:
-        raise ModelNotLoaded(f"want {model_id!r}, loaded: {loaded!r}")
+    model_id = resolve_loaded_vlm(lm_base, model_id)
 
     b64 = base64.b64encode(image_bytes).decode("ascii")
     data_url = f"data:image/jpeg;base64,{b64}"
@@ -371,6 +512,7 @@ def enrich(
 
     return {
         "metadata": obj,
+        "model_id": model_id,
         "inference_ms": inference_ms,
         "prompt_hash": prompt_hash,
         "raw_response": content,
@@ -406,5 +548,6 @@ if __name__ == "__main__":
         timeout=cfg.get("vlm_timeout_seconds", 180),
         context_length=cfg.get("vlm_load_context_length", 8192),
     )
-    print(f"inference_ms={result['inference_ms']} reasoning_tokens={result['reasoning_output_tokens']}")
+    print(f"model={result['model_id']} inference_ms={result['inference_ms']} "
+          f"reasoning_tokens={result['reasoning_output_tokens']}")
     print(json.dumps(result["metadata"], indent=2))

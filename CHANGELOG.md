@@ -4,6 +4,78 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.72.0 — photos get scored by whatever model is loaded; night alerts stay on tested models (Claude Opus 5) — 10-Sep-2026
+
+**What:** Boss, 09-Sep: *"Farm Guardian should just work with whatever model is loaded."* LM
+Studio is shared with his experiments, and every consumer hard-pinned `qwen/qwen3-vl-4b`. On
+08-Sep, with `qwen3.8-27b` loaded, the pipeline left ~14k frames unscored and the night
+verifier failed open. Now:
+- **Pipeline, reel captions, bird_photo_ingest** use the preferred model if loaded, otherwise
+  **any** loaded vision-capable model, and skip only when none is loaded.
+- **Guardian's night verifier** uses only `llm_verification.validated_models` (new config key,
+  default `["qwen/qwen3-vl-4b"]`) and fails open otherwise. This is a deliberate deviation from
+  "any model"; see Why.
+- `ensure_model_loaded()` no longer loads ours next to a different loaded VLM.
+- `image_archive.vlm_model` (and JSON sidecars) record the model that actually answered.
+
+**Why the verifier is different:** measured on 40 real Guardian cases (20 the verifier had
+confirmed real, 20 suppressions, frames still on disk). With `qwen/qwen3.5-9b` answering, **14
+of 20 real positives were suppressed**, including Boss in a hi-vis shirt at the coop (06-Sep
+21:48, 07-Sep 06:42, confirmed by looking at the frames), which it called "spider web on lens"
+and "IR glare". An untested model's failure mode is silence on a real person. A missing model's
+failure mode is fail-open, which is debounced (900s per camera+class): **1–3 UNVERIFIED alerts
+on a typical night, 24 on the worst recent night (08-Sep, 367 verifier calls)**. An earlier
+estimate in chat of ~200/night ignored the debounce and was wrong. Consequence: while an
+experiment model holds LM Studio, photos keep getting scored but night alerts go out
+UNVERIFIED. Keeping `qwen3-vl-4b` loaded alongside (3.3 GB at 16k) gives both.
+
+**How:** built on an uncommitted 08-Sep change by Claude Sonnet 5 (Bubba), which added
+`resolve_loaded_vlm()` to `vlm_enricher.py`. It had the right idea, but:
+(a) it decided vision support from `/api/v0/models` `type == "vlm"`, while the native
+`/api/v1/models` reports `type: "llm"` for every model and carries vision as
+`capabilities.vision` (nobody had checked v0's label for the qwen3_5-arch models Boss uses);
+(b) callers still stored `cfg["vlm_model_id"]` as the scorer;
+(c) it warned on every call, thousands of lines a day.
+Now `_loaded_instances()` (native v1) is the one reader of model state. The resolver returns
+the loaded **instance** id, takes an optional `allowed_models` list (the verifier's only
+difference), and logs substitutions on change only. `enrich()` returns `model_id`. Consumers
+switched: `llm_verify.py`, `daily_reel_runner.py` (captions), `orchestrator.py` +
+`iphone_lane/ingest.py` (provenance). `bird_photo_ingest.py` is fixed by the
+`ensure_model_loaded` change with no edit. `list_loaded_models()` removed (no callers). The
+health notice now explains the tested-model rule. The lmstudio-watchdog repo copy had drifted
+(`qwen3.5-9b`/8192 vs the installed `qwen3-vl-4b`/16384). It is synced, byte-identical to the
+installed script, and its co-tenant skip is unchanged.
+
+**Also fixed — the resident model was at 262,144 context × 4 slots.** Not from any code here:
+a bare `lms load qwen/qwen3-vl-4b` (no `--context-length`) on 08-Sep 13:23, during that day's
+recovery, took LM Studio's global `defaultContextLength: max`. Verifier latency went from
+~1.4s mean (≤07-Sep) to 2.3–3.1s (08–10 Sep). The pipeline never corrected it because
+262144 ≥ its 16k floor. Reloaded via the documented pattern at 16384 / parallel 1 (8.7s
+without a model, one instance after): verifier mean **1.3s** on the 40 cases. The global
+`defaultContextLength: max` setting is left alone. It's Boss's app default and it affects his
+experiments, so it's his call. Load with `--context-length 16384` to avoid a repeat.
+
+**Verified** against the live LM Studio with real frames, no mocks:
+- resolver: preferred loaded → itself; incident model preferred → falls back to `qwen3-vl-4b`,
+  one warning; allow-list naming an unloaded model while `qwen3-vl-4b` is loaded → refuses;
+  allow-list fallback among validated models works.
+- `ensure_model_loaded(preferred=qwen3.5-9b)` with `qwen3-vl-4b` resident →
+  `co-tenant-vlm-loaded`, `lms ps` unchanged.
+- `enrich()` on a real S7 frame via fallback → valid 23-field result, `model_id` correct.
+  Loaded as `qwen3.5-9b` (reasoning-default-on qwen3_5 arch, like the 27Bs): valid result, 0
+  reasoning tokens, 18s. So scoring works on a different model family.
+- Verifier on the 40 cases through Guardian's config path: 40/40 agreement, 20/20 real
+  positives still alert.
+- Guardian + pipeline restarted; see the plan doc for the startup lines.
+
+**⚠️ The named regression harness is currently vacuous.** `scripts/replay-artifact-filter.py
+--with-vlm` reports FAIL identically on committed and patched code. Retention deleted its July
+frames (oldest `events/` dir is 2026-08-11), so it made **0 VLM calls**, and CASE 2's "1 alert"
+is fail-open on a missing frame. The 40-case set above is what was run instead. A follow-up to
+rebuild the harness on pinned frames was queued.
+
+Plan + full results: `docs/10-Sep-2026-any-loaded-vlm-plan.md`.
+
 ### v2.71.8 — watchdog no longer sends Boss to flip a healthy breaker (Claude Opus 5) — 04-Sep-2026
 
 **What:** `classify_outage()` in `tools/birdcatraz-watchdog/watchdog.py` decided "the outdoor

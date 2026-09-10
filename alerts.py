@@ -1,8 +1,10 @@
-# Author: Claude Opus 5 (v2.53.0 — unverified alert lane + verifier health notice),
+# Author: Claude Opus 5 (v2.53.0 — unverified alert lane + verifier health notice;
+#         v2.72.0 — health notice explains the validated-model rule),
 #         Claude Opus 4.7 — Bubba coding sub-agent (motion-alert separate debounce),
 #         Claude Opus 4.8 (1M context) — Bubba coding sub-agent (motion-alert add),
 #         Claude Opus 4.6 (updated), Cascade (Claude Sonnet 4) (original)
-# Date: 25-July-2026 (v2.53.0 — send_unverified_alert + send_verifier_health_notice);
+# Date: 10-Sep-2026 (v2.72.0 — verifier health-notice wording);
+#       25-July-2026 (v2.53.0 — send_unverified_alert + send_verifier_health_notice);
 #       22-June-2026 (v2.43.0 — separate motion_alert.cooldown_seconds debounce);
 #       12-June-2026 (v2.41.0 — send_motion_alert for camera-hardware motion)
 # PURPOSE: Discord alert manager for Farm Guardian. Posts webhook messages to the
@@ -411,7 +413,10 @@ class AlertManager:
                 "Detections can no longer be checked against the local vision model, so "
                 "predator alerts are going out **unfiltered** and marked UNVERIFIED. "
                 "Expect false alarms from lens artifacts until this is fixed.\n\n"
-                "Usual cause: LM Studio is not running, or `qwen/qwen3-vl-4b` is not loaded."
+                "Usual cause: LM Studio is not running, or a different model is loaded that "
+                "hasn't been tested for this job (e.g. during an LM Studio experiment). Only "
+                "tested models may hide an alert — an untested one mistook a real person for a "
+                "spider web. Keeping `qwen/qwen3-vl-4b` loaded alongside fixes it."
             ),
             "color": _UNVERIFIED_ALERT_COLOR,
             "timestamp": datetime.now().isoformat(),

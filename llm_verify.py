@@ -1,6 +1,6 @@
-# Author: Claude Opus 5 (v2.53.0 — local-only rewrite),
+# Author: Claude Opus 5 (v2.53.0 — local-only rewrite; v2.72.0 — validated-model list),
 #         Claude Sonnet 4.6 (Bubba) (v2.52.1 original, remote OpenAI/OpenRouter)
-# Date: 25-July-2026
+# Date: 25-July-2026 (v2.72.0 edit: 10-Sep-2026)
 # PURPOSE: Second-opinion verifier for borderline YOLO predator detections (gate ③ of
 #          docs/25-Jul-2026-night-alert-artifact-suppression-plan.md). Asks the vision model
 #          already loaded in LM Studio on this Mac Mini whether a detection is a real animal
@@ -17,13 +17,26 @@
 #          from inside this repo, they have already taken a wrong turn: qwen/qwen3-vl-4b is
 #          loaded on localhost:1234, costs nothing, and answers in ~1.2s (measured).
 #
+#          v2.72.0 (10-Sep-2026): the rest of Farm Guardian now runs on whatever vision model
+#          is loaded (Boss: "Farm Guardian should just work with whatever model is loaded"),
+#          but THIS gate deliberately does not. Only models in llm_verification.validated_models
+#          (default: just the configured model) may answer. Measured on 40 real cases:
+#          qwen3.5-9b suppressed 14 of the 20 real positives, calling Boss in a hi-vis shirt at
+#          the coop "spider web on lens" / "IR glare". That is silence on a real person, the one
+#          failure this subsystem must never have. With no tested model loaded it fails OPEN
+#          instead: UNVERIFIED alerts on a 900s per-camera+class debounce (1-3 a night
+#          typically, 24 on the worst recent night) plus one health notice. A model joins the
+#          list only after it keeps every real positive in the regression set alerting.
+#
 #          LM Studio safety rules (docs/13-Apr-2026-lm-studio-reference.md, and the 2026-04-13
 #          incident that took the whole machine down) are enforced here:
-#            - the loaded-model check runs before EVERY call, reusing
-#              tools.pipeline.vlm_enricher.list_loaded_models rather than a second copy;
+#            - the model is resolved before EVERY call via
+#              tools.pipeline.vlm_enricher.resolve_loaded_vlm, restricted to validated_models
+#              (preferred first, never an unloaded one), not a second copy;
 #            - Guardian NEVER loads a model. No /api/v1/models/load, ever. The pipeline's
 #              ensure_model_loaded() at daemon startup remains this repo's only load path.
-#              A model that is not loaded returns "unavailable", never an auto-load;
+#              When no VALIDATED model is loaded it returns "unavailable" — never an
+#              auto-load;
 #            - a module-level lock keeps Guardian to one in-flight request, mirroring the
 #              pipeline's _VLM_LOCK, because both processes share one LM Studio.
 #
@@ -38,7 +51,7 @@
 #          this module reports availability honestly via VerificationResult.available and never
 #          decides on its own to drop a detection it could not see.
 # SRP/DRY check: Pass — single responsibility is one VLM round-trip and its verdict. Reuses
-#                vlm_enricher.list_loaded_models (loaded-model check) and mirrors its
+#                vlm_enricher.resolve_loaded_vlm (which model to ask) and mirrors its
 #                response_format grammar-sampling pattern rather than reimplementing either.
 
 import base64
@@ -46,13 +59,13 @@ import logging
 import threading
 import time
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Sequence
 
 import cv2
 import numpy as np
 import requests
 
-from tools.pipeline.vlm_enricher import list_loaded_models
+from tools.pipeline.vlm_enricher import ModelNotLoaded, resolve_loaded_vlm
 
 log = logging.getLogger("guardian.llm_verify")
 
@@ -110,6 +123,7 @@ class VerificationResult:
     what_it_is: str = ""
     latency_ms: int = 0
     error: Optional[str] = None
+    model: str = ""  # the loaded instance that actually answered ("" if none was asked)
 
     @property
     def suppressed(self) -> bool:
@@ -147,17 +161,32 @@ def verify_detection(
     lm_base: str = "http://localhost:1234",
     model: str = "qwen/qwen3-vl-4b",
     timeout_s: int = 10,
+    validated_models: Optional[Sequence[str]] = None,
 ) -> VerificationResult:
     """Ask the local VLM whether this detection is worth alerting on.
 
+    `model` is the preferred model. Only models in `validated_models` (default: `[model]`)
+    may answer; if none of them is loaded this reports unavailable and the caller fails open,
+    even when some other vision model is loaded. See the v2.72.0 note in the header for why.
     Returns a VerificationResult. Never raises. An `available=False` result means the caller
     must decide (graduated fail-open); it does NOT mean "suppress".
     """
+    allowed = list(validated_models) if validated_models else [model]
     try:
-        # Loaded-model guard. Guardian is a read-only consumer of LM Studio — if the model
-        # is not up we report unavailable and let the caller fail open. We never load it.
+        # Model choice. Guardian is a read-only consumer of LM Studio and never loads a model.
+        # It asks a loaded VALIDATED model (preferred first). If none is loaded, even while
+        # some other vision model is, we report unavailable and the caller fails open:
+        # debounced UNVERIFIED alerts, never silence on an untested model's say-so.
         try:
-            loaded = list_loaded_models(lm_base, timeout=5)
+            model = resolve_loaded_vlm(lm_base, model, timeout=5, allowed_models=allowed)
+        except ModelNotLoaded as exc:
+            log.warning(
+                "LLM verify: %s — reporting unavailable (fail-open). Only validated models may "
+                "verify; Guardian never auto-loads.", exc,
+            )
+            return VerificationResult(
+                available=False, alert_worthy=True, error="no-validated-model-loaded"
+            )
         except Exception as exc:
             log.warning(
                 "LLM verify: cannot reach LM Studio at %s (%s) — reporting unavailable",
@@ -165,16 +194,6 @@ def verify_detection(
             )
             return VerificationResult(
                 available=False, alert_worthy=True, error=f"lm-studio-unreachable: {exc}"
-            )
-
-        if model not in loaded:
-            log.warning(
-                "LLM verify: model %r is not loaded (loaded: %s) — reporting unavailable. "
-                "Guardian never auto-loads; the pipeline's ensure_model_loaded() owns that.",
-                model, loaded,
-            )
-            return VerificationResult(
-                available=False, alert_worthy=True, error="model-not-loaded"
             )
 
         b64 = _annotate_and_encode(frame, bbox)
@@ -225,21 +244,25 @@ def verify_detection(
             alert_worthy = True
 
         log.info(
-            "LLM verify: %s @ %.2f -> %s (%s) -> %s [%dms]",
+            "LLM verify: %s @ %.2f -> %s (%s) -> %s [%dms, %s]",
             class_name, confidence, verdict, what_it_is or "no description",
-            "ALERT" if alert_worthy else "SUPPRESS", latency_ms,
+            "ALERT" if alert_worthy else "SUPPRESS", latency_ms, model,
         )
         return VerificationResult(
             available=True, alert_worthy=alert_worthy, verdict=verdict,
-            what_it_is=what_it_is, latency_ms=latency_ms,
+            what_it_is=what_it_is, latency_ms=latency_ms, model=model,
         )
 
     except requests.Timeout:
+        # Naming the model matters here: a large model swapped in by an experiment is the
+        # likeliest reason to blow the timeout, and the fix for that is not in this file.
         log.warning(
-            "LLM verify: timed out after %ss for %s — reporting unavailable",
-            timeout_s, class_name,
+            "LLM verify: %s timed out after %ss for %s — reporting unavailable",
+            model, timeout_s, class_name,
         )
-        return VerificationResult(available=False, alert_worthy=True, error="timeout")
+        return VerificationResult(
+            available=False, alert_worthy=True, error=f"timeout ({model})", model=model,
+        )
     except Exception as exc:
         log.warning(
             "LLM verify: error for %s (%s) — reporting unavailable", class_name, exc

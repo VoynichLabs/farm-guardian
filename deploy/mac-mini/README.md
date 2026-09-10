@@ -39,7 +39,7 @@ done
 
 ## `com.farmguardian.lmstudio-watchdog.plist`
 
-Auto-recovers the pipeline's VLM when `qwen/qwen3.5-9b` drops out of LM Studio. Solves the recurring "no model loaded → pipeline silently skips every cycle → human has to load it manually in the LM Studio UI" failure mode (the same one called out in CHANGELOG v2.40.14 where it ballooned `/tmp/pipeline.err.log` to 814 MB). Runs as a user LaunchAgent under `macmini`.
+Loads `qwen/qwen3-vl-4b` when LM Studio has no model loaded at all; does nothing when any other model is loaded (since v2.72.0 the pipeline and Guardian use whatever vision model is loaded). Solves the recurring "no model loaded → pipeline silently skips every cycle → human has to load it manually in the LM Studio UI" failure mode (the same one called out in CHANGELOG v2.40.14 where it ballooned `/tmp/pipeline.err.log` to 814 MB). Runs as a user LaunchAgent under `macmini`.
 
 **Plan:** `docs/16-May-2026-lmstudio-watchdog-plan.md`. **Reference (Safe model swap pattern + the JIT-stays-OFF rule + the 2026-04-13 watchdog-reset incident):** `docs/13-Apr-2026-lm-studio-reference.md`.
 

@@ -1,5 +1,5 @@
-# Author: Claude Sonnet 4.6; Claude Opus 4.7 (22-June-2026 — duo2 timelapse lane); Claude Fable 5 (16-Jul-2026 — mba-cam lane relabeled brooder→turkey pen, v2.46.0; Codex captions for vlm_bypass lanes + posted-caption dedup + tag rotation from ledger + chicks bucket retired, v2.47.0; D8 codex_reel_curator wired into the s7-daily lane + opener pacing hook, D10 CAMERA_OF_THE_DAY_POOL/pick_camera_of_the_day rotation, v2.48.0); Claude Opus 4.8 (22-Jul-2026 — per-lane seconds_per_frame override so the two Reolink time-lapse lanes play fast without speeding up the s7/mixed lanes, v2.50.1); Claude Fable 5 (23-Jul-2026 — Codex subscription lapsed: all caption synthesis moved to the local VLM, timelapse lanes no longer short-circuit to a literal, BRAND_RULES extracted to caption_brand.py, s7 Codex frame-curation removed, v2.51.5); Claude Opus 5 (28-Jul-2026 — S7 daily lane rebuilt dawn-to-dusk: per-frame gem holds via _s7_daily_frame_holds, frame-0 duplication hack deleted, covered-day state key, s7-backlog lane converted to S7_WEEKLY_GEMS_REEL_LANE, v2.54.0); Claude Sonnet 5 Extra (03-Aug-2026 — 4 new lanes: house-yard/duo2 weekly + monthly daylight time-lapse Reels, v2.60.0); Claude Opus 5 (09-Aug-2026 — those 4 lanes moved to the dense fixed-fps stitch path via timelapse_fps/timelapse_min_frames, v2.69.0)
-# Date: 09-May-2026 (updated 09-May-2026 — landscape mode + LM Studio caption synthesis + 4 timelapse lanes; 10-May-2026 — GWTC approval gate; 22-June-2026 — DUO2_TIMELAPSE_LANE; 16-Jul-2026 — D8/D10; 22-Jul-2026 — per-lane pacing override; 28-Jul-2026 — per-frame durations for reacted gems + weekly gems lane; 03-Aug-2026 — weekly/monthly multi-day lanes)
+# Author: Claude Sonnet 4.6; Claude Opus 4.7 (22-June-2026 — duo2 timelapse lane); Claude Fable 5 (16-Jul-2026 — mba-cam lane relabeled brooder→turkey pen, v2.46.0; Codex captions for vlm_bypass lanes + posted-caption dedup + tag rotation from ledger + chicks bucket retired, v2.47.0; D8 codex_reel_curator wired into the s7-daily lane + opener pacing hook, D10 CAMERA_OF_THE_DAY_POOL/pick_camera_of_the_day rotation, v2.48.0); Claude Opus 4.8 (22-Jul-2026 — per-lane seconds_per_frame override so the two Reolink time-lapse lanes play fast without speeding up the s7/mixed lanes, v2.50.1); Claude Fable 5 (23-Jul-2026 — Codex subscription lapsed: all caption synthesis moved to the local VLM, timelapse lanes no longer short-circuit to a literal, BRAND_RULES extracted to caption_brand.py, s7 Codex frame-curation removed, v2.51.5); Claude Opus 5 (28-Jul-2026 — S7 daily lane rebuilt dawn-to-dusk: per-frame gem holds via _s7_daily_frame_holds, frame-0 duplication hack deleted, covered-day state key, s7-backlog lane converted to S7_WEEKLY_GEMS_REEL_LANE, v2.54.0); Claude Sonnet 5 Extra (03-Aug-2026 — 4 new lanes: house-yard/duo2 weekly + monthly daylight time-lapse Reels, v2.60.0); Claude Opus 5 (09-Aug-2026 — those 4 lanes moved to the dense fixed-fps stitch path via timelapse_fps/timelapse_min_frames, v2.69.0); Claude Opus 5 (10-Sep-2026 — caption synthesis uses whatever vision model is loaded, v2.72.0)
+# Date: 09-May-2026 (updated 09-May-2026 — landscape mode + LM Studio caption synthesis + 4 timelapse lanes; 10-May-2026 — GWTC approval gate; 22-June-2026 — DUO2_TIMELAPSE_LANE; 16-Jul-2026 — D8/D10; 22-Jul-2026 — per-lane pacing override; 28-Jul-2026 — per-frame durations for reacted gems + weekly gems lane; 03-Aug-2026 — weekly/monthly multi-day lanes); 10-Sep-2026 — any-loaded-VLM caption synthesis
 # PURPOSE: Shared runner for scheduled Instagram Reel lanes. The
 #          existing mixed-camera daily Reel uses the approval-gated
 #          flow: build MP4, upload a Discord preview, wait for a human
@@ -1105,15 +1105,15 @@ def _generate_reel_caption(
 
     Falls back to _build_reel_caption()'s literal only when:
       - LM Studio is unreachable
-      - The expected VLM model isn't loaded
+      - No vision-capable model is loaded (any loaded one is used, v2.72.0)
       - The chat call itself fails
 
     This is strictly better-effort: the caption pipeline always succeeds
     and the pipeline never blocks on LM Studio availability.
 
-    Per docs/13-Apr-2026-lm-studio-reference.md: always check /v1/models
-    before calling /v1/chat/completions; never auto-load; pass
-    reasoning_effort=none to suppress thinking budget on Qwen3.
+    Per docs/13-Apr-2026-lm-studio-reference.md: only call a model LM Studio
+    already has loaded (vlm_enricher.resolve_loaded_vlm); never auto-load;
+    pass reasoning_effort=none to suppress thinking budget on Qwen3.
     """
     import requests as _req
 
@@ -1138,25 +1138,16 @@ def _generate_reel_caption(
     # now synthesize on the local VLM, and the no-drafts case is handled by
     # the scene-hint prompt below rather than by an early return.
     lm_base = cfg.get("lm_studio_base", "http://localhost:1234")
-    # Default must track the live production VLM. If it drifts stale and the
-    # config key ever goes missing, the guard below sees "not loaded" and falls
-    # back — but a stale name here is one edit away from requesting an unloaded
-    # model, which /v1/chat/completions silently auto-loads (the 2026-04-13
-    # incident that took the box down).
-    vlm_model = cfg.get("vlm_model_id", "qwen/qwen3-vl-4b")
-
-    # Verify LM Studio is up and the right model is loaded before calling.
+    # vlm_model_id is a PREFERENCE (v2.72.0): the preferred model if it is
+    # loaded, else whatever vision model IS loaded. resolve_loaded_vlm only
+    # ever returns an id LM Studio already holds, so the chat call below can
+    # never auto-load a model (the 2026-04-13 incident that took the box down).
     try:
-        resp = _req.get(f"{lm_base}/v1/models", timeout=5)
-        if resp.status_code != 200:
-            raise RuntimeError(f"http={resp.status_code}")
-        loaded_ids = [m.get("id") for m in resp.json().get("data", [])]
-        if vlm_model not in loaded_ids:
-            log.info(
-                "lm_studio: %s not loaded (loaded=%s); using fallback caption",
-                vlm_model, loaded_ids,
-            )
-            return _build_reel_caption(db_path, gem_ids, fallback)
+        from tools.pipeline.vlm_enricher import ModelNotLoaded, resolve_loaded_vlm
+        vlm_model = resolve_loaded_vlm(lm_base, cfg.get("vlm_model_id", "qwen/qwen3-vl-4b"))
+    except ModelNotLoaded as exc:
+        log.info("lm_studio: %s; using fallback caption", exc)
+        return _build_reel_caption(db_path, gem_ids, fallback)
     except Exception as exc:
         log.info("lm_studio: unreachable (%s); using fallback caption", exc)
         return _build_reel_caption(db_path, gem_ids, fallback)

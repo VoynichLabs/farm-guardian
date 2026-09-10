@@ -1,5 +1,6 @@
 # Author: Claude Opus 4.7 (1M context)
-# Date: 26-April-2026
+# Date: 26-April-2026 (edit 10-Sep-2026, Claude Opus 5 — store the VLM model that
+#       actually answered, not the configured preference, v2.72.0)
 # PURPOSE: Find iPhone photos added to the local Photos.app library in the
 #          last N hours, run the VLM pipeline on each new one, persist into
 #          image_archive (camera_id="iphone"), and post strong-tier results
@@ -322,7 +323,9 @@ def run(
                 jpeg_bytes=jpeg_bytes,
                 gate_metrics=gate_metrics,
                 vlm_result=vlm_result,
-                vlm_model=cfg["vlm_model_id"],
+                # v2.72.0: the model that actually answered, which can differ
+                # from cfg["vlm_model_id"] when another vision model is loaded.
+                vlm_model=vlm_result["model_id"],
                 retention_days_strong=cfg.get("retention_days_strong", 365),
                 retention_days_decent=cfg.get("retention_days_decent", 90),
                 retention_days_concerns=cfg.get("retention_days_concerns"),

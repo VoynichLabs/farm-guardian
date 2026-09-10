@@ -461,11 +461,12 @@ param is the reliable cross-model solution.
 **Fix:** unload and reload via the native API with explicit `context_length=8192`:
 
 ```bash
-# 1. Identify the model ID currently loaded
-curl -s http://localhost:1234/api/v1/models | python3 -c "import sys,json; [print(m['id']) for m in json.load(sys.stdin)['data'] if m.get('state')=='loaded']"
+# 1. Identify the loaded INSTANCE ids (native v1 shape, verified 10-Sep-2026:
+#    top-level "models", each with "loaded_instances" and "capabilities.vision")
+curl -s http://localhost:1234/api/v1/models | python3 -c "import sys,json; [print(i['id'], m['key'], 'vision' if (m.get('capabilities') or {}).get('vision') else '') for m in json.load(sys.stdin)['models'] for i in m.get('loaded_instances') or []]"
 
-# 2. Unload it
-curl -s -X DELETE "http://localhost:1234/api/v1/models/<model-id>/unload"
+# 2. Unload it (POST with the instance id — same call ensure_model_loaded() makes)
+curl -s -X POST http://localhost:1234/api/v1/models/unload -H "Content-Type: application/json" -d '{"instance_id":"<instance-id>"}'
 
 # 3. Wait for VRAM to flush (6 seconds is sufficient)
 sleep 6
@@ -544,11 +545,11 @@ Same docs page, verbatim:
 > "Calls to OpenAI-compatible `/v1/models` will return only the models loaded into memory"
 > "You have to first load the model into memory before being able to use it"
 
-**For Farm Guardian, JIT stays OFF.** Auto-loading via the chat endpoint is exactly the path that crashed the box on 2026-04-13 (see incident section above). The pipeline's `vlm_enricher.py` explicitly checks `list_loaded_models()` before each call and refuses if the wrong model is loaded — that is the correct, doc-compliant behaviour. Do not turn JIT on as a "convenience fix" for the recurring model-not-loaded issue; use the watchdog instead.
+**For Farm Guardian, JIT stays OFF.** Auto-loading via the chat endpoint is exactly the path that crashed the box on 2026-04-13 (see incident section above). Since v2.72.0 (10-Sep-2026) every consumer picks its model with `vlm_enricher.resolve_loaded_vlm()`, which only ever returns an instance id taken from LM Studio's own `loaded_instances`. The preferred model is used if loaded, otherwise any loaded vision-capable model, and the call is skipped only when none is loaded. **Exception: Guardian's night alert verifier** passes `llm_verification.validated_models` as an allow-list, so only tested models can decide an alert is an artifact. `qwen3.5-9b` called a real person a spider web in testing; with no validated model loaded the verifier fails open instead. A chat call therefore can never name an unloaded model, JIT or not. (Before v2.72.0 the pipeline refused whenever the *configured* model wasn't loaded, which starved the farm whenever Boss had a different model loaded for experiments.) Do not turn JIT on as a "convenience fix" for the recurring model-not-loaded issue; use the watchdog instead.
 
 ### What we actually use to keep the model loaded
 
-`docs/16-May-2026-lmstudio-watchdog-plan.md` documents a tiny LaunchAgent + bash script that re-loads `qwen/qwen3.5-9b` via the documented Safe model swap pattern (above) any time it goes missing. It is the canonical answer to "how do I stop having to manually load the model after every LM Studio restart?" on this machine. If you are about to write your own auto-loader, read that plan first — the watchdog already covers it, and reinventing it (without the co-tenant skip rule, without the free-memory gate, etc.) is exactly the kind of avoidable mistake the reference doc exists to prevent.
+`docs/16-May-2026-lmstudio-watchdog-plan.md` documents a tiny LaunchAgent + bash script that loads `qwen/qwen3-vl-4b` (at 16k context) via the documented Safe model swap pattern (above) whenever **no** model is loaded; it does nothing while any other model is loaded (the co-tenant rule). The plan doc still names `qwen/qwen3.5-9b`, which was the model at the time; the installed script and `deploy/mac-mini/lmstudio-watchdog.sh` are the truth. It is the canonical answer to "how do I stop having to manually load the model after every LM Studio restart?" on this machine. If you are about to write your own auto-loader, read that plan first — the watchdog already covers it, and reinventing it (without the co-tenant skip rule, without the free-memory gate, etc.) is exactly the kind of avoidable mistake the reference doc exists to prevent.
 
 ### Sources (LM Studio docs as of 2026-05-16)
 

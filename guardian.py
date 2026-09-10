@@ -1,4 +1,7 @@
-# Author: Claude Opus 5 — refuse to register a Reolink snapshot poller with no connection
+# Author: Claude Opus 5 — night verifier restricted to llm_verification.validated_models
+#         (v2.72.0, 10-Sep-2026: the rest of the stack uses whatever vision model is
+#         loaded; this gate only trusts tested models — see llm_verify.py),
+#         Claude Opus 5 — refuse to register a Reolink snapshot poller with no connection
 #         (v2.66.0, 07-Aug-2026: a failed connect_camera used to register the poller anyway,
 #         which put the camera into active_cameras and permanently disabled the 300s reconnect
 #         path — duo2 stayed dark after the Birdcatraz circuit was restored. See
@@ -8,7 +11,8 @@
 #         Claude Opus 4.7 — Bubba coding sub-agent (dormant motion-siren deterrent),
 #         Claude Opus 4.8 (1M context) — Bubba coding sub-agent (motion-alert wiring),
 #         Claude Opus 4.6 (updated), OpenAI Codex GPT-5.4 Mini (prior)
-# Date: 25-July-2026 (v2.53.0 — the alert path is now four gates: alert-cooldown pre-check ->
+# Date: 10-Sep-2026 (v2.72.0 — validated_models passed to the verifier);
+#       25-July-2026 (v2.53.0 — the alert path is now four gates: alert-cooldown pre-check ->
 #       static-region artifact filter -> LOCAL VLM second opinion -> graduated fail-open. Plan:
 #       docs/25-Jul-2026-night-alert-artifact-suppression-plan.md. Also: rotated log handler);
 #       23-July-2026 (v2.52.1 — borderline predator detections get an OpenAI vision second opinion
@@ -810,6 +814,10 @@ class GuardianService:
                     upper = llm_cfg.get("confidence_upper", 0.85)
                     lm_base = llm_cfg.get("lm_studio_base", "http://localhost:1234")
                     model = llm_cfg.get("model", "qwen/qwen3-vl-4b")
+                    # Only these models may decide an alert is an artifact (v2.72.0). Absent
+                    # key = just `model`. Add one only after it keeps every real positive in
+                    # the regression set alerting.
+                    validated_models = llm_cfg.get("validated_models")
                     timeout_s = llm_cfg.get("timeout_seconds", 10)
 
                     for det in predator_dets:
@@ -825,6 +833,7 @@ class GuardianService:
                         verdict = verify_detection(
                             result.frame, det.class_name, det.confidence, det.bbox,
                             lm_base=lm_base, model=model, timeout_s=timeout_s,
+                            validated_models=validated_models,
                         )
                         if not verdict.available:
                             # Could not look. Gate ④ decides — never treated as "suppress".
