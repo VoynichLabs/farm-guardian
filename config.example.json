@@ -119,7 +119,6 @@
     "confidence_upper": 0.85,
     "lm_studio_base": "http://localhost:1234",
     "model": "qwen/qwen3-vl-4b",
-    "validated_models": ["qwen/qwen3-vl-4b"],
     "timeout_seconds": 10,
     "unverified_cooldown_seconds": 900,
     "health_notice_cooldown_seconds": 21600

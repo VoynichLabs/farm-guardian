@@ -1,7 +1,10 @@
 #!/bin/sh
 # Farm Guardian — LM Studio VLM watchdog
 #
-# Loads qwen/qwen3-vl-4b when LM Studio has NO model loaded at all.
+# Loads qwen/qwen3-vl-4b only when LM Studio has had NO model loaded for
+# 10 minutes straight. v2.72.1 grace: swapping models leaves LM Studio
+# empty for a moment, and Boss does not want the chicken model slipped into
+# that gap while he experiments.
 # Addresses the recurring "model not loaded -> pipeline silently skips
 # every cycle" failure mode that has hit Boss many times (and the 814 MB
 # log bloat called out in CHANGELOG v2.40.14).
@@ -36,6 +39,8 @@ MODEL="qwen/qwen3-vl-4b"
 CONTEXT=16384
 MODEL_GB=3.33
 LOG=/tmp/lmstudio-watchdog.log
+STATE=/tmp/lmstudio-watchdog.empty-since   # epoch when LM Studio was first seen empty
+EMPTY_GRACE_S=600
 
 ts() { date '+%Y-%m-%d %H:%M:%S'; }
 
@@ -61,11 +66,29 @@ except Exception:
 
 if printf '%s' "$LOADED_IDS" | tr ' ' '\n' | grep -qx -- "$MODEL"; then
     echo "$(ts) ok — $MODEL already loaded" >> "$LOG"
+    rm -f "$STATE"
     exit 0
 fi
 
 if [ -n "$LOADED_IDS" ]; then
     echo "$(ts) co-tenant: other model(s) loaded ($LOADED_IDS) — skipping per reference-doc coordination rule" >> "$LOG"
+    rm -f "$STATE"
+    exit 0
+fi
+
+# 2b. Grace period. Nothing is loaded — but that is also what a model swap
+#     looks like for a minute. Only proceed once it has stayed empty for
+#     EMPTY_GRACE_S straight; a real LM Studio restart/crash stays empty.
+NOW=$(date +%s)
+SINCE=$(cat "$STATE" 2>/dev/null)
+case "$SINCE" in
+    ''|*[!0-9]*)
+        echo "$NOW" > "$STATE"
+        echo "$(ts) nothing loaded — starting ${EMPTY_GRACE_S}s grace (could be a model swap)" >> "$LOG"
+        exit 0 ;;
+esac
+if [ $((NOW - SINCE)) -lt "$EMPTY_GRACE_S" ]; then
+    echo "$(ts) nothing loaded for $((NOW - SINCE))s — waiting for ${EMPTY_GRACE_S}s" >> "$LOG"
     exit 0
 fi
 
@@ -91,6 +114,7 @@ LOAD_RESP=$(curl -s --max-time 120 -X POST "$HOST/api/v1/models/load" \
     -H "Content-Type: application/json" \
     -d "$LOAD_BODY")
 echo "$(ts) load response: $LOAD_RESP" >> "$LOG"
+rm -f "$STATE"
 
 # 5. Verify and log the final loaded set.
 sleep 2

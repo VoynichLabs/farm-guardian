@@ -60,6 +60,11 @@
 #          longer loads ours next to a different vision model that is
 #          already loaded. list_loaded_models() removed (no callers left).
 #          Plan: docs/10-Sep-2026-any-loaded-vlm-plan.md.
+#          10-Sep-2026 (Claude Opus 5, v2.72.1, per Boss): allow-list removed —
+#          the night verifier uses whatever vision model is loaded too.
+#          ensure_model_loaded() now loads NOTHING while any other model
+#          is loaded ("make sure that you're not loading that stupid chicken
+#          image judging model while I'm trying to do experiments").
 # SRP/DRY check: Pass — single responsibility is VLM round-trip, choosing
 #                which loaded model to talk to, and the startup ensure-load.
 #                _loaded_instances() is the one reader of LM Studio model
@@ -147,12 +152,7 @@ def _matches(instance: dict, model_id: str) -> bool:
 _last_resolution: tuple[str, str] | None = None
 
 
-def resolve_loaded_vlm(
-    lm_base: str,
-    preferred_model_id: str,
-    timeout: int = 5,
-    allowed_models: list[str] | tuple[str, ...] | None = None,
-) -> str:
+def resolve_loaded_vlm(lm_base: str, preferred_model_id: str, timeout: int = 5) -> str:
     """Return the instance id of a loaded vision-capable model to call.
 
     `preferred_model_id` is a preference, not a requirement (Boss,
@@ -167,31 +167,21 @@ def resolve_loaded_vlm(
     /v1/chat/completions call with it can never auto-load a model (reference
     doc rule 3, the 2026-04-13 incident; JIT loading is also off).
 
-    `allowed_models` (model keys or instance ids) restricts the candidates when
-    given. Guardian's night verifier passes llm_verification.validated_models.
-    Choosing *which* model decides whether to wake Boss is a safety call, and
-    an untested model can be confidently wrong: measured 10-Sep-2026,
-    qwen3.5-9b suppressed 14 of 20 real positives, calling a real person at
-    the coop "spider web on lens". Scoring photos has no such stakes, so the
-    pipeline passes no list and takes any vision model.
+    Every consumer uses this, Guardian's night verifier included (v2.72.1,
+    Boss: "If there's a different model loaded, just use that"). Do not add
+    an allow-list back; v2.72.0 had one and Boss removed it.
 
-    Raises ModelNotLoaded when no eligible model is loaded: no vision model at
-    all, or none from `allowed_models`. Either way there is nothing this
-    caller may ask.
+    Raises ModelNotLoaded only when no vision-capable model is loaded at all.
     """
     global _last_resolution
     loaded = _loaded_instances(lm_base, timeout=timeout)
     vision = [i for i in loaded if i["vision"]]
-    if allowed_models is not None:
-        vision = [i for i in vision if any(_matches(i, a) for a in allowed_models)]
     preferred = next((i for i in vision if _matches(i, preferred_model_id)), None)
     chosen = preferred or (vision[0] if vision else None)
     if chosen is None:
-        wanted = ("vision-capable model" if allowed_models is None
-                  else f"model from {list(allowed_models)!r}")
         raise ModelNotLoaded(
-            f"no {wanted} loaded in LM Studio (preferred {preferred_model_id!r}; "
-            f"loaded: {[i['instance_id'] for i in loaded]!r})"
+            f"no vision-capable model loaded in LM Studio (preferred "
+            f"{preferred_model_id!r}; loaded: {[i['instance_id'] for i in loaded]!r})"
         )
 
     resolved = chosen["instance_id"]
@@ -214,8 +204,8 @@ def ensure_model_loaded(
     context_length: int,
     timeout: int = 180,
 ) -> str:
-    """Make sure a vision model is available, loading model_id via LM Studio's
-    native API only when no vision-capable model is loaded at all.
+    """Load model_id via LM Studio's native API, but ONLY when LM Studio has no
+    model loaded at all.
 
     The per-cycle path is deliberately read-only (it skips when the model
     isn't loaded — see this module's header and docs/13-Apr-2026-lm-studio-
@@ -226,23 +216,21 @@ def ensure_model_loaded(
     instances, and loads with parallel=1 (the pipeline is single-in-flight) +
     flash_attention, exactly as the reference doc prescribes.
 
-    10-Sep-2026 (v2.72.0): if a DIFFERENT vision-capable model is already
-    loaded (typically Boss's experiment), this returns "co-tenant-vlm-loaded"
-    and loads nothing. Every consumer resolves to whatever vision model is
-    loaded (resolve_loaded_vlm), so loading ours as well would only put a
-    second model in memory. Before this, the check only looked for model_id
-    itself, so a pipeline restart mid-experiment loaded a second model
-    beside Boss's. A text-only co-tenant still gets ours loaded next to it,
-    because nothing else could look at an image.
+    10-Sep-2026 (v2.72.1), Boss: "make sure that you're not loading that
+    stupid chicken image judging model while I'm trying to do experiments...
+    If there's a different model loaded, just use that." So if ANY other model
+    is loaded (any type: LLM, VLM, embedding) this returns
+    "other-model-loaded" and touches nothing, not even our own instance.
+    Every consumer uses whatever vision model is loaded (resolve_loaded_vlm).
 
     Returns one of: "already-loaded", "loaded", "reloaded-for-context",
-    "co-tenant-vlm-loaded". Raises on API failure; the caller treats that as
+    "other-model-loaded". Raises on API failure; the caller treats that as
     non-fatal and lets the per-cycle skip handle a still-unloaded model.
     """
-    vision = [i for i in _loaded_instances(lm_base, timeout=10) if i["vision"]]
-    mine = next((i for i in vision if _matches(i, model_id)), None)
-    if mine is None and vision:
-        return "co-tenant-vlm-loaded"
+    loaded = _loaded_instances(lm_base, timeout=10)
+    if any(not _matches(i, model_id) for i in loaded):
+        return "other-model-loaded"
+    mine = next((i for i in loaded if _matches(i, model_id)), None)
     outcome = "loaded"
     if mine is not None:
         if mine["context_length"] >= context_length:

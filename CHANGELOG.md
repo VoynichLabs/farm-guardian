@@ -4,6 +4,38 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.72.1 — use whatever model is loaded, everywhere; never load the chicken model over Boss's (Claude Opus 5) — 10-Sep-2026
+
+**What / why:** Boss, reacting to v2.72.0: *"none of this is critical. This is chicken
+pictures... make sure that you're not loading that stupid chicken image judging model while I'm
+trying to do experiments... If there's a different model loaded, just use that."*
+- **Night alert verifier** now uses whatever vision model is loaded, like everything else. The
+  v2.72.0 `llm_verification.validated_models` allow-list is gone: config key (both config
+  files), the resolver's `allowed_models` parameter, and the guardian.py pass-through
+  (guardian.py is back to its pre-v2.72.0 content). Accepted trade-off, recorded in CLAUDE.md
+  so nobody re-adds it: in testing, `qwen3.5-9b` called some real people "spider web on lens".
+- **`ensure_model_loaded()`** (pipeline startup, bird_photo_ingest) loads nothing while **any**
+  other model is loaded (was: any other *vision* model), and then doesn't touch our own
+  instance either. It returns `other-model-loaded`.
+- **lmstudio-watchdog** loads the chicken model only after LM Studio has had no model loaded
+  for **10 minutes straight** (state file `/tmp/lmstudio-watchdog.empty-since`). Before, it
+  loaded on the first empty 2-minute tick, which could land in the gap while Boss swaps models.
+- **CLAUDE.md:** agents must never load, unload or swap LM Studio models to fix the farm (an
+  agent unloaded Boss's `qwen3.8-27b` on 08-Sep). Health notice reworded.
+- Dropped the queued "rebuild the replay harness" follow-up. Not wanted.
+
+**Verified (no models loaded or unloaded):**
+- `ensure_model_loaded` asked for an unloaded model while another is resident →
+  `other-model-loaded`, `lms ps` unchanged; with only ours loaded → `already-loaded`.
+- Verifier with an unloaded preferred model → answered by the loaded one.
+- Watchdog grace logic on a scratch copy against a stand-in server:
+  - empty → starts the 600s grace; still empty → waits;
+  - empty past 600s → exactly one load;
+  - another model present → stands down and clears the timer;
+  - corrupt state file → restarts the grace.
+- Installed watchdog is byte-identical to the repo copy; a real tick → `ok`.
+- Guardian + pipeline restarted 11:18: pipeline `already-loaded`, Guardian up, no errors.
+
 ### v2.72.0 — photos get scored by whatever model is loaded; night alerts stay on tested models (Claude Opus 5) — 10-Sep-2026
 
 **What:** Boss, 09-Sep: *"Farm Guardian should just work with whatever model is loaded."* LM

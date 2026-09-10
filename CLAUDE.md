@@ -330,35 +330,33 @@ Discord gem lane, the IG gem-reaction pipeline, and the FB cross-post.
 **If LM Studio goes down, the whole gem/caption/curation stack stops
 producing.**
 
-**✅ 10-Sep-2026 (v2.72.0): THE PIPELINE RUNS ON WHATEVER VISION MODEL IS LOADED — THE NIGHT
-ALERT VERIFIER DELIBERATELY DOES NOT.** Boss's requirement (09-Sep-2026): *"Farm Guardian should
-just work with whatever model is loaded."* He uses LM Studio for his own experiments (e.g.
-`qwen/qwen3.8-27b`). Before this, everything hard-pinned `qwen/qwen3-vl-4b`, so on 08-Sep the
-pipeline left ~14k frames unscored.
-- **Scoring photos (pipeline, reel captions, bird_photo_ingest): any loaded vision model.**
-  `vlm_model_id` is a preference. `vlm_enricher.resolve_loaded_vlm()` returns the preferred
-  model if loaded, otherwise any model LM Studio reports as vision-capable, and skips only when
-  none is loaded. `image_archive.vlm_model` records the model that actually answered.
-  `ensure_model_loaded()` won't load ours next to a different loaded VLM, and the
-  lmstudio-watchdog loads ours only when *nothing* is loaded.
-- **Deciding whether to wake Boss (`llm_verify.py`): only `llm_verification.validated_models`**
-  (default `["qwen/qwen3-vl-4b"]`). **⛔ Do not widen this to "any model".** Measured 10-Sep on 40
-  real cases: `qwen/qwen3.5-9b` suppressed **14 of 20 real positives**, including Boss in a
-  hi-vis shirt at the coop, which it called "spider web on lens" and "IR glare". An untested
-  model's mistake is *silence on a real person*. A missing model only means fail-open:
-  ⚠️ UNVERIFIED alerts on a 15-minute per-camera+class debounce, **1–3 a night typically, 24 on
-  the worst recent night** (not a flood), plus one health notice. Add a model to the list only
-  after it keeps every real positive in the regression set alerting.
-- **Consequence Boss should know:** while an experiment model holds LM Studio, photos still get
-  scored but night alerts go out UNVERIFIED. Keeping `qwen/qwen3-vl-4b` loaded alongside
-  (3.3 GB at 16k context) gives both.
-- **Vision support comes from `capabilities.vision` on the native `/api/v1/models`, NOT
-  `/api/v0/models` `type == "vlm"`.** v1 reports `type: "llm"` for every model.
-- **Load it at 16k context, never bare.** On 08-Sep a plain `lms load qwen/qwen3-vl-4b` (no
-  `--context-length`) got LM Studio's global default `defaultContextLength: max`, which is
-  262,144 × 4 parallel slots. The verifier ran at 2.3–3.1s mean until it was reloaded at
-  16k / parallel 1 (1.3s). Use `lms load qwen/qwen3-vl-4b --context-length 16384`, or let the
-  watchdog / `ensure_model_loaded()` do it.
+**✅ 10-Sep-2026 (v2.72.1): FARM GUARDIAN USES WHATEVER MODEL IS LOADED, AND NEVER LOADS ITS
+OWN OVER BOSS'S.** Boss: *"Farm Guardian should just work with whatever model is loaded"* and
+*"make sure that you're not loading that stupid chicken image judging model while I'm trying to
+do experiments... If there's a different model loaded, just use that."* He runs his own
+experiments in LM Studio (e.g. `qwen/qwen3.8-27b`). This is chicken pictures, not a critical
+system.
+- **Everything** (pipeline, night alert verifier, reel captions, bird_photo_ingest) goes through
+  `vlm_enricher.resolve_loaded_vlm()`: `qwen/qwen3-vl-4b` if loaded, otherwise any model LM
+  Studio reports as vision-capable. Only when no vision model is loaded does anything skip. The
+  verifier then fails open: UNVERIFIED alerts, debounced, 1–3 a night typically.
+- **Nothing loads the chicken model while any other model is loaded.** `ensure_model_loaded()`
+  returns `other-model-loaded` and touches nothing. The lmstudio-watchdog loads it only after LM
+  Studio has had *no* model loaded for 10 minutes straight, so it can't slip into the gap while
+  Boss swaps models.
+- **⛔ Agents: never load, unload or swap LM Studio models to "fix" the farm.** On 08-Sep an agent
+  unloaded Boss's `qwen3.8-27b` to put the chicken model back. Report LM Studio state; don't
+  change it.
+- **⛔ Do not re-add a "validated models" allow-list to the verifier.** v2.72.0 had one for a few
+  hours and Boss removed it. Known, accepted trade-off: in a test, `qwen3.5-9b` called some real
+  people "spider web on lens", so while an experiment model is loaded a few real night alerts
+  may be suppressed.
+- Vision support comes from `capabilities.vision` on the native `/api/v1/models`, not
+  `/api/v0/models` `type == "vlm"` (v1 reports `type: "llm"` for every model).
+  `image_archive.vlm_model` records the model that actually answered.
+- If the chicken model ever needs loading by hand (only when nothing else is loaded), use
+  `lms load qwen/qwen3-vl-4b --context-length 16384`. A bare `lms load` gets LM Studio's `max`
+  default (262k context × 4 slots), which doubled the verifier's response time on 08–10 Sep.
 
 **Do NOT suggest "freeing resources" by quitting LM Studio.** It looks
 like an idle GUI app holding memory but it is the VLM backend for every
@@ -369,10 +367,9 @@ LM Studio, never quitting the app.
 **⚠️ CORRECTED 25-Jul-2026 (v2.53.0): Guardian NOW CALLS LM STUDIO TOO.**
 The old rule below — "Guardian = detection, no LM Studio" — is no longer
 true and is kept only so the correction is legible. `llm_verify.py` sends
-borderline night predator detections to a loaded model from
-`llm_verification.validated_models` (default `qwen/qwen3-vl-4b`; deliberately
-NOT any loaded model, see v2.72.0 above) for a second opinion before an
-alert fires. Guardian is a **read-only** consumer: resolves the
+borderline night predator detections to whatever vision model is loaded
+(preferring `qwen/qwen3-vl-4b`, see v2.72.1 above) for a second opinion
+before an alert fires. Guardian is a **read-only** consumer: resolves the
 loaded model before every call, **never** loads a model,
 single in-flight via a module lock. `ensure_model_loaded()` in the pipeline
 remains this repo's ONLY load path. See the "Night predator alerts" section
@@ -412,7 +409,7 @@ tool. Use it as the template for any new integration.
 
 **DO NOT put a paid or remote API on the alert path, and do not add a config option for one.** v2.52.1 pointed the verifier at a metered vision API. It made 3,813 calls in two nights, ran the balance to zero at 00:02:20 on 25-Jul-2026, then returned `402 Payment Required` 1,147 times in a row. Because verification is fail-open, the alarm silently degraded to "alert on everything" and posted 139 Discord alerts overnight. `llm_verify.py` now talks to `http://localhost:1234` and nothing else, and holds no key-reading logic to re-point. **If you find yourself shopping for a hosted vision endpoint from inside this repo, you have already taken a wrong turn** — `qwen/qwen3-vl-4b` is loaded on this Mini, free, and answers in ~1.2s.
 
-**Guardian DOES call LM Studio as of v2.53.0.** This corrects the long-standing "Guardian = detection, no LM Studio; pipeline = VLM enrichment" split stated in the LM Studio section below — that line is now wrong for Guardian. Guardian is a strictly **read-only** consumer: it resolves a loaded model from `llm_verification.validated_models` (`vlm_enricher.resolve_loaded_vlm`, v2.72.0 — NOT any loaded model: an untested one called a real person a spider web) before every call, **never** loads a model (the pipeline's `ensure_model_loaded()` at daemon startup remains this repo's only load path), and holds a module-level lock so it is single-in-flight, because both processes share one LM Studio.
+**Guardian DOES call LM Studio as of v2.53.0.** This corrects the long-standing "Guardian = detection, no LM Studio; pipeline = VLM enrichment" split stated in the LM Studio section below — that line is now wrong for Guardian. Guardian is a strictly **read-only** consumer: it uses whatever vision model is loaded (`vlm_enricher.resolve_loaded_vlm`, v2.72.1) before every call, **never** loads a model (the pipeline's `ensure_model_loaded()` at daemon startup remains this repo's only load path), and holds a module-level lock so it is single-in-flight, because both processes share one LM Studio.
 
 The alert path is four gates, cheapest first — alert-cooldown pre-check → static-region artifact filter (`artifact_filter.py`) → local VLM (`llm_verify.py`) → graduated fail-open (⚠️ UNVERIFIED alerts + a health notice, never silence). Replayed against the real 25-Jul night: 136 alerts → **0**, with a real person walking across house-yard still alerting. Verify changes with `scripts/replay-artifact-filter.py --with-vlm` before shipping; **the house-yard 21:44 real-person case is the regression test that matters** — if it goes quiet, the change is wrong no matter how good the duo2 numbers look. Full detail: `docs/25-Jul-2026-night-alert-artifact-suppression-plan.md` and CHANGELOG v2.53.0.
 

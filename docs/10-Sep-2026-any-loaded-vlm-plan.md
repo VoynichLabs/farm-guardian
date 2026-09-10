@@ -1,10 +1,11 @@
 # 10-Sep-2026 — Run on whatever vision model LM Studio has loaded
 
-> **Outcome (read this first):** shipped as v2.72.0 with one deliberate deviation from the
-> original scope. The pipeline, reel captions and bird_photo_ingest run on **any** loaded vision
-> model. **Guardian's night verifier does not.** It uses only `llm_verification.validated_models`,
-> because `qwen3.5-9b` suppressed 14 of 20 real positives in testing, including a real person
-> it called a spider web. See *Approach change* and *Verification results* below.
+> **Outcome (read this first):** v2.72.0 shipped with the night verifier restricted to a list of
+> "validated" models. **Boss reversed that the same day (v2.72.1):** "none of this is critical.
+> This is chicken pictures... If there's a different model loaded, just use that." Everything,
+> the verifier included, now uses whatever vision model is loaded, and nothing loads the chicken
+> model while any other model is loaded. See the v2.72.1 addendum at the bottom. The
+> replay-harness rebuild mentioned below was dropped: not wanted.
 
 Author: Claude Opus 5 · Approved by Boss in chat 10-Sep-2026 ("just do what you need to do …
 I want you to fix things"), after he stated the requirement on 09-Sep: *Farm Guardian should just
@@ -144,3 +145,14 @@ All against the live LM Studio (JIT off) with real frames and real DB rows. No m
 camera that goes through the VLM, and it went dark at 09:40, ten minutes *before* the restart
 (port 8080 closed, `farm-pi5` up, uptime segments not collapsing). That's a separate physical
 fault. The provenance row above stands in until it is back.
+
+## v2.72.1 addendum (Boss, same day)
+
+Boss overruled the verifier allow-list and set the rule plainly: *"If there's a different model
+loaded, just use that"*, and never load the chicken model while he's experimenting. Done:
+- allow-list removed; every consumer uses whatever vision model is loaded;
+- `ensure_model_loaded()` loads nothing while any other model is loaded;
+- the watchdog waits for 10 straight minutes of "nothing loaded" before loading, so a model
+  swap never gets the chicken model slipped into it.
+
+Verification is in CHANGELOG v2.72.1. The replay-harness rebuild was dropped.

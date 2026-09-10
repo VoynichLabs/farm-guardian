@@ -1,4 +1,4 @@
-# Author: Claude Opus 5 (v2.53.0 — local-only rewrite; v2.72.0 — validated-model list),
+# Author: Claude Opus 5 (v2.53.0 — local-only rewrite; v2.72.1 — any loaded vision model),
 #         Claude Sonnet 4.6 (Bubba) (v2.52.1 original, remote OpenAI/OpenRouter)
 # Date: 25-July-2026 (v2.72.0 edit: 10-Sep-2026)
 # PURPOSE: Second-opinion verifier for borderline YOLO predator detections (gate ③ of
@@ -17,25 +17,23 @@
 #          from inside this repo, they have already taken a wrong turn: qwen/qwen3-vl-4b is
 #          loaded on localhost:1234, costs nothing, and answers in ~1.2s (measured).
 #
-#          v2.72.0 (10-Sep-2026): the rest of Farm Guardian now runs on whatever vision model
-#          is loaded (Boss: "Farm Guardian should just work with whatever model is loaded"),
-#          but THIS gate deliberately does not. Only models in llm_verification.validated_models
-#          (default: just the configured model) may answer. Measured on 40 real cases:
-#          qwen3.5-9b suppressed 14 of the 20 real positives, calling Boss in a hi-vis shirt at
-#          the coop "spider web on lens" / "IR glare". That is silence on a real person, the one
-#          failure this subsystem must never have. With no tested model loaded it fails OPEN
-#          instead: UNVERIFIED alerts on a 900s per-camera+class debounce (1-3 a night
-#          typically, 24 on the worst recent night) plus one health notice. A model joins the
-#          list only after it keeps every real positive in the regression set alerting.
+#          v2.72.1 (10-Sep-2026): asks whatever vision model is loaded (preferring the
+#          configured one), same as the rest of Farm Guardian. Boss: "none of this is critical.
+#          This is chicken pictures... If there's a different model loaded, just use that."
+#          Known and accepted: in a test, qwen3.5-9b called some real people "spider web on
+#          lens", so with an experiment model loaded a few real alerts may be suppressed. Do NOT
+#          re-add a "validated models" allow-list; v2.72.0 had one and Boss removed it.
+#          Unavailable (fail-open, debounced UNVERIFIED alerts) only when no vision model is
+#          loaded at all.
 #
 #          LM Studio safety rules (docs/13-Apr-2026-lm-studio-reference.md, and the 2026-04-13
 #          incident that took the whole machine down) are enforced here:
 #            - the model is resolved before EVERY call via
-#              tools.pipeline.vlm_enricher.resolve_loaded_vlm, restricted to validated_models
-#              (preferred first, never an unloaded one), not a second copy;
+#              tools.pipeline.vlm_enricher.resolve_loaded_vlm (preferred model if loaded,
+#              else whatever vision model IS loaded, never an unloaded one), not a second copy;
 #            - Guardian NEVER loads a model. No /api/v1/models/load, ever. The pipeline's
 #              ensure_model_loaded() at daemon startup remains this repo's only load path.
-#              When no VALIDATED model is loaded it returns "unavailable" — never an
+#              When no vision model is loaded it returns "unavailable" — never an
 #              auto-load;
 #            - a module-level lock keeps Guardian to one in-flight request, mirroring the
 #              pipeline's _VLM_LOCK, because both processes share one LM Studio.
@@ -59,7 +57,7 @@ import logging
 import threading
 import time
 from dataclasses import dataclass
-from typing import Optional, Sequence
+from typing import Optional
 
 import cv2
 import numpy as np
@@ -161,31 +159,26 @@ def verify_detection(
     lm_base: str = "http://localhost:1234",
     model: str = "qwen/qwen3-vl-4b",
     timeout_s: int = 10,
-    validated_models: Optional[Sequence[str]] = None,
 ) -> VerificationResult:
     """Ask the local VLM whether this detection is worth alerting on.
 
-    `model` is the preferred model. Only models in `validated_models` (default: `[model]`)
-    may answer; if none of them is loaded this reports unavailable and the caller fails open,
-    even when some other vision model is loaded. See the v2.72.0 note in the header for why.
-    Returns a VerificationResult. Never raises. An `available=False` result means the caller
-    must decide (graduated fail-open); it does NOT mean "suppress".
+    `model` is the preferred model; if it isn't loaded, whatever vision model IS loaded
+    answers (v2.72.1). Returns a VerificationResult. Never raises. An `available=False`
+    result means the caller must decide (graduated fail-open); it does NOT mean "suppress".
     """
-    allowed = list(validated_models) if validated_models else [model]
     try:
-        # Model choice. Guardian is a read-only consumer of LM Studio and never loads a model.
-        # It asks a loaded VALIDATED model (preferred first). If none is loaded, even while
-        # some other vision model is, we report unavailable and the caller fails open:
-        # debounced UNVERIFIED alerts, never silence on an untested model's say-so.
+        # Model choice. Guardian is a read-only consumer of LM Studio and never loads a model:
+        # the preferred model if loaded, else whatever vision model IS loaded. Only when no
+        # vision model is loaded do we report unavailable and let the caller fail open.
         try:
-            model = resolve_loaded_vlm(lm_base, model, timeout=5, allowed_models=allowed)
+            model = resolve_loaded_vlm(lm_base, model, timeout=5)
         except ModelNotLoaded as exc:
             log.warning(
-                "LLM verify: %s — reporting unavailable (fail-open). Only validated models may "
-                "verify; Guardian never auto-loads.", exc,
+                "LLM verify: %s — reporting unavailable (fail-open). Guardian never auto-loads.",
+                exc,
             )
             return VerificationResult(
-                available=False, alert_worthy=True, error="no-validated-model-loaded"
+                available=False, alert_worthy=True, error="no-vision-model-loaded"
             )
         except Exception as exc:
             log.warning(

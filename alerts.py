@@ -1,5 +1,5 @@
 # Author: Claude Opus 5 (v2.53.0 — unverified alert lane + verifier health notice;
-#         v2.72.0 — health notice explains the validated-model rule),
+#         v2.72.1 — health notice: any loaded vision model will do),
 #         Claude Opus 4.7 — Bubba coding sub-agent (motion-alert separate debounce),
 #         Claude Opus 4.8 (1M context) — Bubba coding sub-agent (motion-alert add),
 #         Claude Opus 4.6 (updated), Cascade (Claude Sonnet 4) (original)
@@ -413,10 +413,8 @@ class AlertManager:
                 "Detections can no longer be checked against the local vision model, so "
                 "predator alerts are going out **unfiltered** and marked UNVERIFIED. "
                 "Expect false alarms from lens artifacts until this is fixed.\n\n"
-                "Usual cause: LM Studio is not running, or a different model is loaded that "
-                "hasn't been tested for this job (e.g. during an LM Studio experiment). Only "
-                "tested models may hide an alert — an untested one mistook a real person for a "
-                "spider web. Keeping `qwen/qwen3-vl-4b` loaded alongside fixes it."
+                "Usual cause: LM Studio is not running, or no vision-capable model is loaded "
+                "in it (any one will do)."
             ),
             "color": _UNVERIFIED_ALERT_COLOR,
             "timestamp": datetime.now().isoformat(),

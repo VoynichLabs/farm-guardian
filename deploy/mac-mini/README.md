@@ -39,7 +39,7 @@ done
 
 ## `com.farmguardian.lmstudio-watchdog.plist`
 
-Loads `qwen/qwen3-vl-4b` when LM Studio has no model loaded at all; does nothing when any other model is loaded (since v2.72.0 the pipeline and Guardian use whatever vision model is loaded). Solves the recurring "no model loaded → pipeline silently skips every cycle → human has to load it manually in the LM Studio UI" failure mode (the same one called out in CHANGELOG v2.40.14 where it ballooned `/tmp/pipeline.err.log` to 814 MB). Runs as a user LaunchAgent under `macmini`.
+Loads `qwen/qwen3-vl-4b` only after LM Studio has had no model loaded for 10 minutes straight; does nothing while any other model is loaded (the pipeline and Guardian use whatever vision model is loaded). Solves the recurring "no model loaded → pipeline silently skips every cycle → human has to load it manually in the LM Studio UI" failure mode (the same one called out in CHANGELOG v2.40.14 where it ballooned `/tmp/pipeline.err.log` to 814 MB). Runs as a user LaunchAgent under `macmini`.
 
 **Plan:** `docs/16-May-2026-lmstudio-watchdog-plan.md`. **Reference (Safe model swap pattern + the JIT-stays-OFF rule + the 2026-04-13 watchdog-reset incident):** `docs/13-Apr-2026-lm-studio-reference.md`.
 
@@ -76,7 +76,7 @@ launchctl bootstrap gui/$(id -u) "$PLIST"
 
 1. Never restart, quit, or otherwise touch LM Studio itself — only the loaded-model state. If the server is unreachable, log and exit; this is not in scope to start the server.
 2. Never unload another model. If some model other than `qwen/qwen3.5-9b` is loaded, log "co-tenant" and skip — see the coordination rule.
-3. Always load via `POST /api/v1/models/load` with explicit `context_length=8192`, `flash_attention=true`, `parallel=1` (matches what the pipeline expects per the 2026-05-04 doc note on post-UI-swap slowness — UI loads at default 131k context, which makes inference 3–4× slower).
+3. Always load via `POST /api/v1/models/load` with explicit `context_length=16384`, `flash_attention=true`, `parallel=1` (matches what the pipeline expects per the 2026-05-04 doc note on post-UI-swap slowness — UI loads at default 131k context, which makes inference 3–4× slower).
 4. Free-memory gate before loading: `free + speculative + inactive` pages must clear ~1.4× the model footprint (≈9.2 GB for the 6.55 GB qwen).
 5. Idempotent: on a healthy machine each tick is a `curl` + `grep` no-op.
 
