@@ -114,6 +114,16 @@
     "min_dwell_frames": 3,
     "no_alert_zone": []
   },
+  "llm_verification": {
+    "enabled": true,
+    "confidence_upper": 0.85,
+    "lm_studio_base": "http://localhost:1234",
+    "model": "qwen/qwen3-vl-4b",
+    "validated_models": ["qwen/qwen3-vl-4b"],
+    "timeout_seconds": 10,
+    "unverified_cooldown_seconds": 900,
+    "health_notice_cooldown_seconds": 21600
+  },
   "alerts": {
     "discord_webhook_url": "https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN",
     "include_snapshot": true,
