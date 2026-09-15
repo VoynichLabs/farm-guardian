@@ -1,5 +1,5 @@
-# Author: Claude Opus 4.8
-# Date: 22-July-2026
+# Author: Claude Opus 5
+# Date: 15-September-2026
 # PURPOSE: Bridge to farm-2026's content/flock-profiles.json — the canonical
 #          bird roster (names, breeds, hatch dates, the `ornitharch` named-
 #          individual flag). farm-guardian never read this file before
@@ -27,6 +27,15 @@
 #          precedence rule rather than a convention an agent can talk itself
 #          out of — as happened twice on 11-Aug-2026. See
 #          farm-2026/docs/plans/2026-08-11-bird-observation-timestamps.md.
+#
+#          15-Sep-2026 (Claude Opus 5): `_local_bands()` now honours
+#          `deceased_date`, so the OFFLINE fallback band table retires a dead
+#          bird's band the same way `get_confirmed_bands()` already did from
+#          the live roster. Before this, losing the farm-2026 checkout would
+#          silently resurrect every deceased bird's colour — the exact failure
+#          get_confirmed_bands' docstring refuses to make. Prompted by
+#          Birddor's death (yellow #1), see
+#          docs/15-Sep-2026-birddor-predation-incident.md.
 # SRP/DRY check: Pass — single responsibility is loading + caching the
 #                roster; callers (prompt-building, discord sync, reel
 #                captions) own their own use of it. identify() composes the
@@ -199,7 +208,12 @@ def _local_bands() -> list[dict]:
                 "leg": (b.get("leg") or "").strip().lower() or None,
             }
             for b in raw.get("bands", [])
-            if b.get("confirmed") and (b.get("color") or "").strip()
+            # `deceased_date` retires a band. Without this the offline fallback
+            # would keep resolving a dead bird's colour to their name — exactly
+            # the failure get_confirmed_bands() documents and refuses to make.
+            if b.get("confirmed")
+            and not b.get("deceased_date")
+            and (b.get("color") or "").strip()
         ]
     except Exception as exc:  # noqa: BLE001 — fallback is best-effort by definition
         log.warning("roster: local band fallback unavailable (%s)", exc)

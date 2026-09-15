@@ -4,6 +4,42 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.72.2 — Birddor killed on the pen roof; retire a dead bird's band offline too (Claude Opus 5) — 15-Sep-2026
+
+**What / why:** Birddor — the first bird hatched on the farm in 2026 and the senior ornitharch —
+was killed overnight 14-Sep-2026, taken off the roof of the Birdcatraz pen at **21:32:04 EDT**.
+Body found headless in front of the pen at 07:45. **The strike is on duo2's SD footage**: a large
+bird comes in fast and low from the right, takes him off the roof, cannot lift him, and both
+birds tumble to the ground. Species inferred — great horned owl — from the failure to lift, the
+head-taken/body-left signature, the exposed elevated roost, and total silence with Boss awake.
+Full reasoning and the counter-arguments (coyote, raccoon) in
+[`docs/15-Sep-2026-birddor-predation-incident.md`](docs/15-Sep-2026-birddor-predation-incident.md).
+
+**Records:** `flock-profiles.json` (`status: deceased` + `deceased_date` + `cause_of_death`,
+matching the Little Big Red Junior convention), the per-chick hatch record, and
+`config/flock_bands.json` (yellow #1 retired via `deceased_date`).
+
+**Code:** `roster._local_bands()` now skips entries carrying `deceased_date`. The live path
+(`get_confirmed_bands`) already excluded deceased birds and its docstring explains why — the
+**offline fallback did not**, so any period with the farm-2026 checkout unreadable would have
+resolved yellow #1 to a dead bird. Verified Birddor is now absent from `get_active_ornitharchs()`,
+`get_confirmed_bands()` and `_local_bands()`, so the VLM prompt cannot confabulate sightings of him
+into captions or reels.
+
+**🔴 Operational finding — `house-yard` has NO SD CARD.** `GetHddInfo` returns `[]` while
+`GetRecV20` reports recording enabled on a full 24/7 schedule with nowhere to write. The only
+camera with a usable view of the pen roof gave us 45-second stills of this event. `duo2`'s card is
+healthy (128 GB, continuous, 489 files for 14-Sep) and is the only reason we have the strike at
+all — though at ~85×60 px for the pen the attacker cannot be identified to species from it.
+
+**⚠️ Second trap:** duo2's night exposure flickers frame to frame, and a naive frame-difference
+motion scan ranks that flicker above a real animal — an early scan missed this strike completely.
+Normalise each frame to zero mean / unit variance before differencing.
+
+**⚠️ Trap for the next agent:** `reolink_aio.request_vod_files()` returns **0 files** for any range
+spanning midnight, which reads exactly like "the camera isn't recording." Issue the raw `Search`
+command one calendar day at a time.
+
 ### v2.72.1 — use whatever model is loaded, everywhere; never load the chicken model over Boss's (Claude Opus 5) — 10-Sep-2026
 
 **What / why:** Boss, reacting to v2.72.0: *"none of this is critical. This is chicken

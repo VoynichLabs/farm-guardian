@@ -1,6 +1,6 @@
 {
-  "_updated": "2026-07-28",
-  "_note": "Canonical leg band assignments. left leg = hatched on farm (ornitharch). right leg = purchased. Source of truth: flock-profiles.json leg_band fields.",
+  "_updated": "2026-09-15",
+  "_note": "Canonical leg band assignments. left leg = hatched on farm (ornitharch). right leg = purchased. Source of truth: flock-profiles.json leg_band fields. A band entry carrying `deceased_date` is retired: the bird is dead and the band must not resolve a live sighting (see roster.get_confirmed_bands).",
   "rule": "Trust the band over plumage. A visible leg band uniquely identifies the bird.",
   "bands": [
     {
@@ -9,7 +9,8 @@
       "number": 1,
       "leg": "left",
       "confirmed": true,
-      "confirmed_date": "2026-07-21"
+      "confirmed_date": "2026-07-21",
+      "deceased_date": "2026-09-14"
     },
     {
       "name": "Birdadotta",
