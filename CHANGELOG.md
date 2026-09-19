@@ -4,6 +4,169 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.73.0 — Gem score: frame-fill and bird count are scored again (Claude Opus 5) — 19-Sep-2026
+
+**What / why:** Boss flagged two s7-cam frames: a three-hen shot with faces and leg bands
+readable that scored **80**, and a rooster at a tenth of the frame over wood chips that scored
+**95**. He called the first "a 100% shot" and the second "awful," and asked for the pipeline's
+scoring to be adjusted. Both scores verified from `image_archive.vlm_json` in `data/guardian.db`
+(ids 2825208 and 2838001).
+
+**Cause:** `_compute_overall_score` has scored exactly three axes since v2.68.0 (08-Aug-2026) —
+expression + detail + technical, rescaled by 95/65. Frame-fill was not one of them. The VLM
+emits `subject_coverage_pct` and `largest_subject_pct` on every frame and the store writes them,
+but on `s7-cam` nothing downstream read them: `gem_poster`'s subject-size gate was inside the
+`is_non_s7` branch, and `_calibrate_static_floor_pecking_score` only covers `usb-webcam-1080p`
+and `gwtc`. So on the one camera that produces gems, fill was measured, stored, and fed nothing.
+The rooster frame is the clean demonstration — the model itself reported `largest_subject_pct:
+10`, it *knew* the bird was a tenth of the frame, and still gave 25/25 on both subjective axes,
+landing on the exact raw ceiling of 65 → 95/100.
+
+This was a deliberate removal in v2.68.0, not an oversight: at 0-30 the old dominance axis was
+acting as a *gate* and dragging good frames under the posting floor. That diagnosis still holds.
+What went wrong is that it removed the signal from the *ranking* as well as from the gate — so
+among frames that do post, the score had no opinion at all about whether the bird was near or far.
+
+**How:** Five axes. The VLM is asked the same two questions on the same ranges (`schema.json`
+and `prompt.md` unchanged); the two subjective axes are reweighted down in code.
+
+| axis | max | source |
+|---|---|---|
+| expression | 20 | VLM `expression_score` × 20/30 |
+| detail | 20 | VLM `detail_score` × 20/25 |
+| technical | 15 | `image_quality` + `lighting` (unchanged) |
+| subject fill | 25 | `subject_coverage_pct`: 0 at ≤12%, linear, full at ≥55% |
+| company | 10 | `bird_count`: 1→7, 2→9, 3→10, 4→9, 5→8, 6+→7 |
+
+`_SCORE_RAW_CEILING` 65 → 87 (observed max of the new raw sum, not the theoretical 90 — the 4b
+model never reaches the top of its own ranges). `_SCORE_SCALE_TO` unchanged at 95.
+`_MIN_OVERALL_SCORE` 80 → 82 and the BIRD SELFIE @-mention 90 → 87 (now
+`_BIRD_SELFIE_PING_SCORE`), both re-derived so the new scale does not silently change volume.
+`s7-cam` added to `_LARGEST_SUBJECT_PCT_MIN` at 12 per Boss's explicit ask, and the gate moved
+out of the `is_non_s7` branch so it applies — behaviour-identical for every other camera.
+
+**Coverage, not largest-subject.** The fill axis reads `subject_coverage_pct` (all birds), not
+`largest_subject_pct` (biggest single bird). Mean largest-subject falls monotonically as bird
+count rises — 41.3 / 42.4 / 34.6 / 34.3 / 28.6 for 1–5 birds — so a largest-based axis would
+penalise exactly the multi-bird frames Boss ranks highest. The flagged frame proves it: coverage
+70, largest 30.
+
+**Leg bands are NOT scored.** Boss called the three readable band colours "kind of huge." They
+are, to a human. qwen3-vl-4b resolves `band_color` on 54 of 13,377 strong frames (0.4%) and
+returned `"none"` on the three-band frame itself, so scoring it would reward noise and zero out
+his best picture on the axis he cares most about. Needs a crop-and-reask pass first — filed as
+the next step, not done here.
+
+**Backtest** — run with the edited code, not a reimplementation, over all 13,377 strong-tier
+s7-cam frames since 12-Aug-2026 (start of the current regime: handset swapped 10-Aug, floor set
+12-Aug):
+
+| | before | after |
+|---|---|---|
+| postable (`should_post` = True) | 3,175 (83.6/day) | 3,234 (85.1/day) |
+| BIRD SELFIE @-mentions, of posted frames | 6.1/day | 7.0/day |
+| "100% shot" (id 2825208) | 80 | **87** |
+| "awful" (id 2838001) | 95 | **64** |
+| single bird, coverage ≤30% | 539 | **0** |
+| single bird, coverage ≥46% | 807 | 784 |
+| two birds | 795 | 1,111 |
+| three birds | 418 | 838 |
+
+Volume is held at parity on purpose — the floor moved with the scale, so only the *order*
+changes. Single-bird portraits that fill the frame are untouched (807 → 784); what stops posting
+is the distant-bird-in-wood-chips class, which is the frame Boss called awful.
+
+**Known limitation, unchanged:** qwen3-vl-4b emits ~6 distinct `expression_score` values and ~8
+`detail_score` values. Adding two axes raises the composite from 33 to 58 distinct values, which
+helps, but the floor still lands on a quantisation edge. The real fix is to feed
+`presence.largest_area_pct` (YOLO, continuous) into the fill axis instead of the VLM's guess —
+it is already computed in `_hunt_capture` and handed to `run_cycle` as `hunt_out["presence"]`,
+just never persisted, which is why it could not be backtested. Persist it first, gather a few
+weeks, then swap.
+
+**⚠️ Verified against the archive only.** s7-cam was down while this was written and applied, so
+there are no live frames scored under the new code yet. Re-derive the floor and the ping from a
+week of live rows before trusting them. Existing archived rows keep their old three-axis scores —
+nothing was rescored in place, so `overall_score` values before 19-Sep-2026 are on the old scale.
+
+**Rollback:** `tools/pipeline/orchestrator.py.bak-pre-fillscore-20260919` and
+`tools/pipeline/gem_poster.py.bak-pre-fillscore-20260919`. Analysis:
+`docs/plans/2026-09-19-gem-score-frame-fill.md`.
+
+### v2.72.4 — Pause VLM enrichment while the evolve research job is busy (Claude Opus 5) — 17-Sep-2026
+
+**What / why:** Boss runs `~/kg-lab-runtime/code/kaggriculture/lab/evolve.py` on this Mini; when
+it spawns its multiprocessing workers it takes ~5.2 of 14 cores (measured 17-Sep: six workers at
+~87% each, load average 12.99). He asked that the VLM stop competing with it, with everything
+else left running. New `com.farmguardian.vlm-pause-watchdog` (every 3 min,
+`tools/vlm-pause-watchdog/watchdog.py`) pauses VLM enrichment while that job is actually burning
+CPU and resumes it when the job goes idle.
+
+**How:** It drives the orchestrator's EXISTING `/tmp/farm-pipeline.pause` flag
+(`tools/pipeline/orchestrator.py:125`, from the 29-Apr-2026 control-plane plan) — no new control
+path, no new config key, no code change in the pipeline. While paused, `run_cycle()` returns
+`status="paused"` before the VLM call and `_run_raw_camera_thread` keeps archiving on its own
+thread, so frame capture, archiving, pruning and Guardian are untouched.
+
+**Deliberately NOT done:** (a) `bootout` of the pipeline LaunchAgent — that also stops frame
+archiving, thins the reels, and removes the `image_archive`-freshness leg that
+`birdcatraz-watchdog` uses to corroborate a circuit-trip verdict, which is exactly what v2.71.8
+existed to fix; (b) unloading the model — it stays resident so Guardian's read-only night alert
+verifier (`llm_verify.py`) keeps working, and per the standing rule agents never touch LM Studio
+model state.
+
+**Detector notes (each one a measured trap):** matches by command pattern every tick because the
+PID changes between runs (43622 → 68270 in one day); sums CPU across the whole process tree
+because the parent sits at **0.0%** while its workers burn ~520%; holds state on probe failure
+rather than reading "idle" (a bad `pgrep -c` produced exactly that wrong conclusion on 17-Sep);
+hysteresis of 2 busy ticks to pause / 3 idle to resume; refuses to clear a pause flag it did not
+set; logs a heartbeat every tick so a healthy watchdog is not silent.
+
+**Honest scope:** this buys back roughly **a third of a core**, not the big win it sounds like —
+the pipeline process measured 18–30% of one core and the model sits IDLE between cycles. And
+`s7-cam` is the only camera on the VLM path (every other camera is `vlm_bypass`), so at night its
+frames are already rejected by the darkness gate *before* the pause gate — meaning there is
+close to nothing to save overnight. The saving is a daylight effect.
+
+### v2.72.3 — Photos library moved to the Samsung SSD; guardian backup retention 365d → 14d (Claude Opus 5) — 17-Sep-2026
+
+**What / why:** The Mac Mini's internal disk hit 89% full (104 GB free). The macOS Photos
+library (50,045 assets, 229 GB) was sitting on the internal drive while an identical copy
+already sat on the 2 TB Samsung SSD that was bought to hold it. The SSD copy was refreshed,
+verified, and promoted to primary; the internal copy was deleted. Internal free space went
+104 GB → 443 GB (89% → 51% full).
+
+**Photos paths.** `/Volumes/Samsung 9100 SSD/Mac-Backup/` was renamed `Mac-Photos/` because it
+is no longer a backup — it is the only copy — and its README now says so in the first line.
+- `tools/on_this_day/selector.py` — `PHOTOS_SQLITE` repointed. Added `PHOTOS_LIBRARY` /
+  `LEGACY_PHOTOS_LIBRARY` and `remap_legacy_photo_path()`, applied where catalog rows are
+  read. The 21,639-row master catalog still stores pre-move internal paths; they are remapped
+  on read rather than rewriting the catalog. Re-tested end-to-end: 3/3 candidates resolve.
+- `tools/iphone_lane/ingest.py` — `PHOTOS_LIBRARY` repointed.
+
+**Backup retention.** `config.json` `database.retention_days` 365 → 14. `cleanup_old_backups()`
+was working correctly the whole time; the retention number was the bug. A ~483 MB daily
+snapshot kept for a year had piled up 136 files / 23 GB in `data/backups`. Pruned to 8 —
+the last 7 dailies plus the 2026-09-01 monthly archive, 3.6 GB. The config change only takes
+effect on the next Guardian restart (`retention_days` is read at startup), so a 21-day
+backstop that preserves first-of-month snapshots was added to
+`~/bin/bubba-disk-janitor.sh` to cover a long-running instance. Note: that backstop swept the
+May/Jun/Jul/Aug first-of-month archives (~550 MB) on its first run before the preserve rule
+was added — no data loss of consequence, the live `guardian.db` holds the full history.
+
+**Deliberately untouched:** `data/archive`, `data/gems`, `data/reels` — live code resolves
+`archive/{YYYY-MM}/...` paths out of `guardian.db` (`images_api.py`, `tools/pipeline/store.py`),
+so these are not free space, they are the service's working set.
+
+**Verification before deletion:** rsync found 1,327 files / 3.3 GB had drifted since the 4-Aug
+snapshot — originals were unchanged but the database was not. After sync: 224,155 files both
+sides, 50,638 originals both sides, `integrity_check` ok reporting all 50,045 assets, 40/40
+sampled originals decoded at full resolution, 5/5 sampled originals SHA-256 identical.
+
+**Note:** if the Samsung is unmounted, `on_this_day` raises `FileNotFoundError` per photo and
+its existing retry loop moves on, the same as it already did for cloud-only assets.
+
+
 ### v2.72.2 — Birddor killed on the pen roof; retire a dead bird's band offline too (Claude Opus 5) — 15-Sep-2026
 
 **What / why:** Birddor — the first bird hatched on the farm in 2026 and the senior ornitharch —

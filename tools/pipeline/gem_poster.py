@@ -115,7 +115,30 @@ _GEM_POST_DISABLED_CAMERAS = frozenset({
 #
 # tier=="strong" remains the primary filter and the floor-pecking caps (30/40)
 # still hold routine frames far below 80.
-_MIN_OVERALL_SCORE = 80
+#
+# v2.73.0 (19-Sep-2026): 80 -> 82. NOT a policy change — the score underneath it
+# changed. orchestrator's _compute_overall_score went from three axes to five
+# (subject fill and bird count added back) and _SCORE_RAW_CEILING went 65 -> 87,
+# so every frame moves on the new scale and a floor left at 80 would have been a
+# silent loosening. 82 is the value that holds posting volume at parity,
+# backtested over the same 13,377 strong s7 frames since 12-Aug-2026:
+#
+#     floor      postable
+#     80 (old score)   3,177     <- today
+#     82 (new score)   3,267     +2.8%
+#
+# This is the point v2.68.0 missed in the other direction: it removed the fill
+# signal from the ranking to stop it acting as a gate, instead of moving the
+# floor with it. Fill is a ranking term again AND the floor moved, so volume is
+# unchanged and only the ORDER changes. What actually moves: single-bird frames
+# at <=30% coverage (539 of them, the "distant bird in wood chips" class) stop
+# posting, while single-bird frames at >=46% coverage are untouched (808 -> 785)
+# and two- and three-bird frames roughly double.
+#
+# Same warning as above applies with more force now: this floor is derived from
+# a backtest on archived frames, not from live output, because s7-cam was down
+# when it was set. Re-derive it from a week of live rows before trusting it.
+_MIN_OVERALL_SCORE = 82
 
 # Non-s7 cameras rejected at these activity/composition tags even when the
 # VLM self-approves them as strong. Huddle/sleep/empty frames are the
@@ -131,10 +154,23 @@ _REJECT_COMPOSITIONS_NON_S7 = frozenset({"cluttered", "empty"})
 #   gwtc    = coop, birds are further from the lens — require 25%
 #             because anything smaller reads as "distant coop shot"
 # Cameras not in this dict are NOT gated on subject size.
-# s7-cam is intentionally absent (Boss said don't touch it).
+#
+# v2.73.0 (19-Sep-2026): s7-cam added at 12, reversing the 2026-04-23 "don't
+# touch it" — Boss asked directly for it ("make sure that the bird is filling at
+# least a certain percentage of the frame"). It is set LOW on purpose. The real
+# work is done by the subject-fill axis in the score; this is a floor under the
+# floor, so that a future prompt or model drift that inflates the subjective
+# axes cannot put a bird-at-10%-of-frame back in #farm-2026.
+#
+# Deliberately costs nothing today: backtested over 13,377 strong s7 frames
+# since 12-Aug-2026, it rejects 0 frames that the new score would have posted
+# (every frame with largest_subject_pct <= 12 already scores below the 82
+# floor). If it ever starts rejecting frames on its own, the score drifted —
+# investigate that, do not raise this.
 _LARGEST_SUBJECT_PCT_MIN = {
     "macbook-air-facetime": 15,
     "gwtc":    25,
+    "s7-cam":  12,
 }
 
 # Caption hygiene. The prompt already lists "bad captions to avoid"; the
@@ -278,19 +314,24 @@ def should_post(vlm_metadata: dict, tier: str, camera_id: Optional[str] = None) 
         if not clean:
             return _reject(camera_id, f"{why}: {caption[:60]!r}")
 
-        # Subject-size gate (added 2026-04-23 per Boss — "I'm seeing
-        # images where a bird is 20% of the frame and the other 80%
-        # is empty coop"). Uses the VLM's largest_subject_pct field.
-        # Missing field (pre-v2.38 VLM output) → treated as pass so
-        # we don't mass-reject while the schema rolls out.
-        threshold = _LARGEST_SUBJECT_PCT_MIN.get(camera_id)
-        if threshold is not None:
-            largest = vlm_metadata.get("largest_subject_pct")
-            if isinstance(largest, int) and largest < threshold:
-                return _reject(
-                    camera_id,
-                    f"largest_subject_pct={largest} < {threshold}",
-                )
+    # Subject-size gate (added 2026-04-23 per Boss — "I'm seeing
+    # images where a bird is 20% of the frame and the other 80%
+    # is empty coop"). Uses the VLM's largest_subject_pct field.
+    # Missing field (pre-v2.38 VLM output) → treated as pass so
+    # we don't mass-reject while the schema rolls out.
+    #
+    # v2.73.0: moved out of the is_non_s7 branch so it applies to every
+    # camera listed in _LARGEST_SUBJECT_PCT_MIN, which now includes s7-cam.
+    # Cameras absent from that dict are still not gated on subject size, so
+    # this is behaviour-identical for every camera except s7.
+    threshold = _LARGEST_SUBJECT_PCT_MIN.get(camera_id)
+    if threshold is not None:
+        largest = vlm_metadata.get("largest_subject_pct")
+        if isinstance(largest, int) and largest < threshold:
+            return _reject(
+                camera_id,
+                f"largest_subject_pct={largest} < {threshold}",
+            )
 
     # Sharpness branch (unchanged from v2.36.4).
     if iq == "sharp":

@@ -173,64 +173,113 @@ def _downscale_for_vlm(jpeg_bytes: bytes, long_edge_px: int) -> bytes:
 def _compute_overall_score(metadata: dict) -> None:
     """Compute the 0-100 farm-gem score. Mutates metadata in place.
 
-    THREE axes since v2.68.0 (08-Aug-2026, per Boss — "the requirement that the
-    bird fill a certain amount of the frame, I think that's just adding extra
-    noise, that's something we want to get rid of"):
+    FIVE axes since v2.73.0 (19-Sep-2026, per Boss — a three-hen frame that
+    filled the frame scored 80 while a rooster at a tenth of the frame scored
+    95: "a good picture is one bird looking at the camera or just crisp and
+    filling up a decent amount of the frame. A doubly good picture is two
+    birds and that three-bird picture is just as good as a picture can get"):
 
-      - expression        (0-30) — how absurd/expressive the bird is (VLM)
-      - notable detail    (0-25) — claws/wings/feet/features in focus (VLM)
+      - expression        (0-20) — how absurd/expressive the bird is (VLM 0-30)
+      - notable detail    (0-20) — claws/wings/feet/features in focus (VLM 0-25)
       - technical quality (0-15) — focus + light, derived from image_quality
                                    + lighting so it can't contradict them
+      - subject fill      (0-25) — subject_coverage_pct (VLM)
+      - company           (0-10) — bird_count (VLM)
 
-    Only the first two are asked of the VLM — small concrete ranges a 4b model
-    can actually rate. Code owns the weighting, and the VLM's own
-    `overall_score` guess is discarded: a small VLM cannot calibrate a single
-    0-100 number, but summing small axes lands on far more distinct totals.
+    The VLM is still asked only the same two subjective questions on the same
+    0-30 / 0-25 ranges, and its own `overall_score` guess is still discarded —
+    a small VLM cannot calibrate a single 0-100 number. The two subjective axes
+    are reweighted down *in code*; schema.json and prompt.md are unchanged.
 
-    WHY DOMINANCE WENT, and the honest caveat. It was 0-30 derived from
-    `largest_subject_pct`. Two things are true at once and worth recording:
+    WHY FILL CAME BACK, and why it is not the same mistake as before. v2.68.0
+    dropped the old 0-30 dominance axis because it was acting as a *gate* —
+    at 30 of 100 points it dragged whole clusters of good frames under the
+    posting floor (the 07-Aug pile-up at exactly 68 against a 70 floor). That
+    diagnosis still stands. What v2.68.0 got wrong was throwing the signal out
+    of the *ranking* as well as out of the gate, and the 19-Sep frames are the
+    proof: the model reported largest_subject_pct=10 on the rooster — it knew
+    the bird was a tenth of the frame — and still handed it 25/25 on both
+    subjective axes, landing it on the raw ceiling at 95/100.
 
-      * Boss's own Discord reactions say frame-fill IS his single best-measured
-        preference — reacted frames have a median largest-box of 31.4% of frame
-        against 19.5% for strong-but-unreacted (measured 08-Aug-2026 by running
-        YOLO over the archive). So the signal is real.
-      * But it was being spent as a GATE, and that is the wrong job for it. At
-        30 of 100 points it dragged whole clusters of good frames under the
-        posting floor — the 07-Aug pile-up of frames scoring exactly 68 against
-        a 70 floor was dominance 18 doing precisely this. Suppressing volume to
-        express a preference is redundant when a human is already curating
-        every frame downstream in Discord.
+    Fill is back as a ranking term, and the floor moved with the scale so it
+    does not become a volume gate again (see _MIN_OVERALL_SCORE in gem_poster).
 
-    So dominance moved rather than died: it is now a *selection* weight in
-    frame_selector, where it picks the best of an already-captured burst and
-    costs no volume at all, instead of a *gate* here. Boss's taste still steers
-    which frame gets sent; it no longer decides whether one gets sent.
+    COVERAGE, NOT LARGEST-SUBJECT. The axis reads `subject_coverage_pct` (all
+    birds) rather than `largest_subject_pct` (biggest single bird). This is
+    load-bearing: across 13,377 strong s7 frames the mean largest-subject falls
+    monotonically as bird count rises (41.3 / 42.4 / 34.6 / 34.3 / 28.6 for
+    1-5 birds), so a largest-based axis would actively penalise the multi-bird
+    frames Boss ranks highest. The 19-Sep frame is the clean case: coverage 70,
+    largest 30. Coverage separates it from the rooster (coverage 10); largest
+    does not separate it nearly as well.
 
-    RESCALING — the number that matters. Dropping dominance leaves a 0-70 raw
-    range, so it is rescaled back to ~0-100. The factor is derived from the
-    OBSERVED ceiling, not the theoretical one: across 495 strong-tier s7 frames
-    the raw sum's max was 65 and its p95 62, because the 4b model never emits
-    the top of its own ranges (it returns expression 15 / detail 20 over and
-    over). Scaling by the theoretical 70 would have quietly preserved the
-    status quo — the exact trap v2.45.1 fell into by calibrating dominance
-    against synthetic scores instead of live output. Re-derive these two
-    constants from real data if the VLM, the prompt, or the camera aim changes.
+    The 12%/55% knees are measured, not chosen: over that same population,
+    single-bird frames below ~30% coverage are the "distant bird in a field of
+    wood chips" class Boss rejected, and 55% is where the coverage histogram's
+    mass sits (modal bucket 60, n=3,057). Zero below 12 also lines up with the
+    08-Aug YOLO measurement that reacted frames ran a median 31.4% largest-box
+    against 19.5% for strong-but-unreacted.
+
+    COMPANY is deliberately small — 10 points, spread of only 3 between a lone
+    bird and a trio. It encodes Boss's stated ranking (1 good, 2 better, 3 best,
+    crowds worse) and nothing else. It has NO empirical backing: `discord_reactions`
+    looked like a taste signal but 502 of 510 posted frames sit at exactly 1, so
+    it is an auto-react and measures nothing. Keeping the term small means
+    coverage does the work and single-bird portraits are not squeezed out — in
+    backtest, single-bird frames at >=46% coverage are essentially untouched
+    (808 postable before, 785 after) while the distant ones (<=30% coverage,
+    539 of them) stop posting. That is the whole intended effect.
+
+    NOT SCORED: leg bands. Boss called the readable band colours "kind of huge"
+    and he is right about the photo, but qwen3-vl-4b resolves `band_color` on
+    54 of 13,377 strong frames (0.4%) and returned "none" on the three-band
+    frame itself. Scoring it would reward noise and give his best-ever picture
+    a zero on the axis he cares most about. It needs a crop-and-reask pass
+    before it can be a score input.
+
+    RESCALING. Raw range is 0-90 theoretical, but as ever the constants are
+    derived from OBSERVED output: across the 13,377 strong s7 frames since
+    12-Aug the new raw sum's max is 87 and its p95 is 81, because the 4b model
+    never emits the top of its own ranges. Scaling by the theoretical 90 would
+    quietly preserve the status quo — the exact trap v2.45.1 fell into by
+    calibrating against synthetic scores. Re-derive _SCORE_RAW_CEILING, both
+    knees and the floor from real data if the VLM, the prompt, or the camera
+    aim changes.
     """
     def _clamp(v, lo, hi):
         return max(lo, min(hi, v)) if isinstance(v, int) and not isinstance(v, bool) else lo
 
-    expression = _clamp(metadata.get("expression_score"), 0, 30)
-    detail = _clamp(metadata.get("detail_score"), 0, 25)
+    expression = round(_clamp(metadata.get("expression_score"), 0, 30) * 20 / 30)
+    detail = round(_clamp(metadata.get("detail_score"), 0, 25) * 20 / 25)
 
     technical = {"sharp": 15, "soft": 8, "blurred": 0}.get(metadata.get("image_quality"), 0)
     if metadata.get("lighting") in {"blown-out", "dim", "backlit"}:
         technical = max(0, technical - 4)
 
-    raw = expression + detail + technical
+    coverage = metadata.get("subject_coverage_pct")
+    if not isinstance(coverage, int) or isinstance(coverage, bool):
+        # Pre-v2.38 rows have no coverage field. Award nothing rather than
+        # guessing — a missing measurement is not evidence of a full frame.
+        fill = 0
+    elif coverage <= _SUBJECT_ZERO_PCT:
+        fill = 0
+    elif coverage >= _SUBJECT_FULL_PCT:
+        fill = _SUBJECT_MAX_POINTS
+    else:
+        fill = round(_SUBJECT_MAX_POINTS * (coverage - _SUBJECT_ZERO_PCT)
+                     / (_SUBJECT_FULL_PCT - _SUBJECT_ZERO_PCT))
+
+    bird_count = metadata.get("bird_count")
+    if not isinstance(bird_count, int) or isinstance(bird_count, bool) or bird_count < 1:
+        company = 0
+    else:
+        company = _COMPANY_POINTS.get(bird_count, _COMPANY_POINTS_CROWD)
+
+    raw = expression + detail + technical + fill + company
     metadata["overall_score"] = min(100, round(raw * _SCORE_SCALE_TO / _SCORE_RAW_CEILING))
     log.debug(
-        "score: expression=%d detail=%d technical=%d raw=%d -> overall=%d",
-        expression, detail, technical, raw, metadata["overall_score"],
+        "score: expression=%d detail=%d technical=%d fill=%d company=%d raw=%d -> overall=%d",
+        expression, detail, technical, fill, company, raw, metadata["overall_score"],
     )
 
 
@@ -614,12 +663,42 @@ def _promote_keyframe_if_due(
 #   miss_streak    — consecutive cycles the presence gate found nothing
 _HUNT_STATE: dict[str, dict] = {}
 
-# Gem-score rescaling after dominance was dropped (v2.68.0). Both derived from
-# LIVE output, not from the schema's theoretical maxima — see
-# _compute_overall_score. Measured 08-Aug-2026 over 495 strong-tier s7 frames:
-# raw (expression + detail + technical) had max 65, p95 62, median 50.
-_SCORE_RAW_CEILING = 65   # observed max of the raw 3-axis sum
+# Gem-score rescaling. Derived from LIVE output, not from the schema's
+# theoretical maxima — see _compute_overall_score. Re-measured 19-Sep-2026 over
+# the 13,377 strong-tier s7 frames since 12-Aug-2026 (the start of the current
+# regime: new handset 10-Aug, floor set 12-Aug): the five-axis raw sum has
+# max 87, p95 81, median 63. Theoretical max is 90; the 4b model never reaches
+# the top of its own subjective ranges, which is why the observed figure is the
+# one used. Was 65 when the score had three axes (v2.68.0 - v2.72.4).
+_SCORE_RAW_CEILING = 87   # observed max of the raw 5-axis sum
 _SCORE_SCALE_TO = 95      # what that ceiling should map to on the 0-100 scale
+
+# Subject-fill axis (v2.73.0), read from the VLM's `subject_coverage_pct` —
+# all birds, NOT `largest_subject_pct`. Largest-subject shrinks as bird count
+# rises (mean 41.3 / 42.4 / 34.6 / 34.3 / 28.6 for 1-5 birds across the same
+# 13,377 frames), so scoring on it would penalise exactly the multi-bird frames
+# Boss ranks highest. Knees measured against the coverage histogram: below 12%
+# is the "distant bird in a field of wood chips" class, and the histogram's
+# mass sits at the 55-60 buckets (modal 60, n=3,057).
+_SUBJECT_ZERO_PCT = 12
+_SUBJECT_FULL_PCT = 55
+_SUBJECT_MAX_POINTS = 25
+
+# Company axis (v2.73.0), from the VLM's `bird_count`. Boss, 19-Sep-2026: "one
+# bird looking at the camera ... a doubly good picture is two birds and that
+# three-bird picture is just as good as a picture can get." Crowd frames read
+# as flock snapshots, so they fall back rather than keep climbing.
+#
+# Kept deliberately small — 10 points, spread of 3 — because this is stated
+# preference with NO measurement behind it (discord_reactions is an auto-react:
+# 502 of 510 posted frames sit at exactly 1). Coverage does the real work. A
+# wider spread squeezes out the single-bird portraits Boss also called good.
+_COMPANY_POINTS = {1: 7, 2: 9, 3: 10, 4: 9, 5: 8}
+_COMPANY_POINTS_CROWD = 7   # 6 or more birds
+
+# Score at or above which a posted gem @-mentions Boss directly. See the
+# BIRD SELFIE block in run_cycle for the derivation.
+_BIRD_SELFIE_PING_SCORE = 87
 
 
 def _hunt_capture(camera_name: str, camera_cfg: dict, cfg: dict,
@@ -987,11 +1066,14 @@ def run_cycle(camera_name: str, camera_cfg: dict, cfg: dict, schema: dict,
             if _score is not None:
                 _caption = f"{_caption}\n⭐ {_score}/100"
             # 99%-er: a frame-filling, ridiculous, claw-out bird (Boss's bar).
-            # v2.45.1: >=90 (was >=95). The real component ceiling is ~92
-            # (dominance 30 + expr ~25 + detail ~22 + technical 15 — the 4b VLM
-            # never emits the full expr 30 / detail 25), so >=95 could never
-            # fire; >=90 restores the @-mention on genuine bird selfies.
-            if isinstance(_score, int) and _score >= 90:
+            # v2.73.0: >=87 (was >=90), re-derived when the score went to five
+            # axes — the same frame scores differently on the new scale, so a
+            # threshold carried over unchanged would silently change how often
+            # this @-mentions Boss. 87 is where the frame he called "a 100%
+            # shot" lands (id 2825208: three hens, coverage 70, 80 on the old
+            # scale), which is the definition of the ping. Backtested at 7.0
+            # @-mentions/day against 6.1/day today — parity, not a firehose.
+            if isinstance(_score, int) and _score >= _BIRD_SELFIE_PING_SCORE:
                 _caption = f"<@293569238386606080> BIRD SELFIE 💯\n{_caption}"
             # v2.67.1: honour the return value. This used to set
             # posted_to_discord=True unconditionally, so a gem that Discord
