@@ -37,9 +37,33 @@ log = logging.getLogger("on_this_day.selector")
 
 # --- Paths (absolute by design: single-host pipeline on the Mac Mini) ---
 
-PHOTOS_SQLITE = Path(
-    "/Users/macmini/Pictures/Photos Library.photoslibrary/database/Photos.sqlite"
+# 17-Sep-2026: the Photos library moved off the Mac Mini's internal disk onto
+# the Samsung 2TB SSD (it is now the primary, not a backup). The catalog CSV
+# still carries ~21,639 rows of the old internal path, so legacy paths are
+# remapped on read rather than rewriting the catalog.
+PHOTOS_LIBRARY = Path(
+    "/Volumes/Samsung 9100 SSD/Mac-Photos/Photos Library.photoslibrary"
 )
+LEGACY_PHOTOS_LIBRARY = Path(
+    "/Users/macmini/Pictures/Photos Library.photoslibrary"
+)
+PHOTOS_SQLITE = PHOTOS_LIBRARY / "database" / "Photos.sqlite"
+
+
+def remap_legacy_photo_path(p: Path) -> Path:
+    """Rewrite a pre-move internal-disk photo path onto the current library.
+
+    Catalog rows written before 17-Sep-2026 point at the internal library,
+    which no longer exists. Paths already under PHOTOS_LIBRARY, and paths
+    unrelated to either root, are returned unchanged.
+    """
+    if not p or not str(p):
+        return p
+    try:
+        rel = p.relative_to(LEGACY_PHOTOS_LIBRARY)
+    except ValueError:
+        return p
+    return PHOTOS_LIBRARY / rel
 CATALOG_CSV = Path(
     "/Users/macmini/bubba-workspace/projects/photos-curation/photo-catalog/master-catalog.csv"
 )
@@ -369,7 +393,7 @@ def select_candidates(
                 ))
             continue
 
-        source_path = Path(row.get("source_path", ""))
+        source_path = remap_legacy_photo_path(Path(row.get("source_path", "")))
         score, reason = _score_row(row)
         if reason is not None:
             if include_rejected:

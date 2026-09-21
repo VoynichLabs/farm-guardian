@@ -240,7 +240,7 @@
     "path": "data/guardian.db",
     "backup_daily": true,
     "backup_dir": "data/backups",
-    "retention_days": 365
+    "retention_days": 14
   },
   "deterrent": {
     "enabled": true,

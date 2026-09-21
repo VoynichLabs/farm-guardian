@@ -53,8 +53,9 @@ from tools.pipeline.vlm_enricher import (
 
 log = logging.getLogger("iphone_lane.ingest")
 
+# 17-Sep-2026: library moved to the Samsung 2TB SSD; it is now the primary.
 PHOTOS_LIBRARY = Path(
-    "/Users/macmini/Pictures/Photos Library.photoslibrary"
+    "/Volumes/Samsung 9100 SSD/Mac-Photos/Photos Library.photoslibrary"
 )
 PHOTOS_SQLITE = PHOTOS_LIBRARY / "database" / "Photos.sqlite"
 ORIGINALS_ROOT = PHOTOS_LIBRARY / "originals"
