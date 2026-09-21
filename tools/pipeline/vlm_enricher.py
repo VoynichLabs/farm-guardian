@@ -317,7 +317,7 @@ def _strip_band_clauses(text: str) -> str:
 def prompt_for(camera_name: str, camera_context: str, prompt_template: str) -> str:
     from datetime import date
 
-    from tools.pipeline.roster import format_named_individuals_block
+    from tools.pipeline.roster import format_flock_age_line, format_named_individuals_block
 
     # v2.47.0: the "Named individuals" section used to hardcode two birds
     # directly in prompt.md — one of them (Birdadette) got renamed Birddor
@@ -331,11 +331,19 @@ def prompt_for(camera_name: str, camera_context: str, prompt_template: str) -> s
     if not named_block:
         named_block = "(No bird currently has a confirmed enough visual profile to name.)"
 
+    # 21-Sep-2026: the flock's current age, computed from the roster, so the
+    # prompt stops calling grown birds chicks. Best-effort like the block above.
+    try:
+        flock_age_line = format_flock_age_line()
+    except Exception:
+        flock_age_line = ""
+
     return (prompt_template
             .replace("{camera_name}", camera_name)
             .replace("{camera_context}", camera_context)
             .replace("{today}", date.today().isoformat())
-            .replace("{named_individuals_block}", named_block))
+            .replace("{named_individuals_block}", named_block)
+            .replace("{flock_age_line}", flock_age_line))
 
 
 _SYSTEM_PROMPT = (

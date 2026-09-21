@@ -1,4 +1,4 @@
-# Author: Claude Opus 4.7 (1M context); Claude Fable 5 (02-Jul-2026 — v2.44.5 tier/score gate + trim_caption cases; 06-Jul-2026 — stale accept cases moved to synthetic "test-cam", usb-cam is gem-disabled); Claude Opus 4.8 (Bubba) (12-Jul-2026 — score fixtures rescaled to the 0-100 / 80-floor gate, v2.45.0); Claude Opus 5 (12-Aug-2026 — stale floor-history comment brought up to date for the 65→80 move, v2.70.6; no case logic changed, the boundary cases already track the constant)
+# Author: Claude Opus 4.7 (1M context); Claude Fable 5 (02-Jul-2026 — v2.44.5 tier/score gate + trim_caption cases; 06-Jul-2026 — stale accept cases moved to synthetic "test-cam", usb-cam is gem-disabled); Claude Opus 4.8 (Bubba) (12-Jul-2026 — score fixtures rescaled to the 0-100 / 80-floor gate, v2.45.0); Claude Opus 5 (12-Aug-2026 — stale floor-history comment brought up to date for the 65→80 move, v2.70.6; no case logic changed, the boundary cases already track the constant); Claude Opus 5 (21-Sep-2026 — fixture uses standout_bird/hen, v2.74.0)
 # Date: 23-April-2026
 # PURPOSE: Self-contained assertion suite for gem_poster.should_post. Runs
 #          the v2.37.2 gate against synthetic VLM metadata dicts covering
@@ -32,9 +32,8 @@ def _meta(**overrides) -> dict:
     base = {
         "scene": "brooder",
         "bird_count": 2,
-        "individuals_visible": ["chick"],
-        "any_special_chick": True,
-        "apparent_age_days": 10,
+        "individuals_visible": ["hen"],
+        "standout_bird": True,
         "activity": "foraging",
         "lighting": "heat-lamp",
         "composition": "portrait",

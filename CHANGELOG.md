@@ -4,6 +4,45 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.74.0 — The VLM stops calling a grown flock "chicks"; temperature 0.5; flock registry refreshed (Claude Opus 5) — 21-Sep-2026
+
+**What / why:** Boss: the output is "talking about chicks and special chicks. That's from months
+ago. Everybody's all grown up now." Also "0.2 is just so boring for the temperature." Measured
+first (s7-cam, 07–21 Sep, 35,077 frames): only 10 captions said "chick". The chick framing
+came from the **form** and the **roster**. `schema.json` asked for `any_special_chick`,
+`individuals_visible ∈ {adult, chick, unknown-bird}` and `apparent_age_days` on every frame (the
+model pinned the age near its 365 cap, mean 352). farm-2026 rendered them as a "special chick"
+badge and a made-up age row. The named-bird descriptions in the prompt still said things like
+"baby down still visible around the eyes" (Birdimir).
+
+**How:**
+- `tools/pipeline/config.json`: `vlm_temperature` 0.2 → **0.5** (Boss's call). Every enum/range is
+  still grammar-enforced; what can move is how many frames clear the 80 gem gate.
+- `schema.json`: `any_special_chick` → **`standout_bird`**; `apparent_age_days` **removed**;
+  `individuals_visible` enum is now `hen`/`rooster`/`turkey`/`unknown-bird`.
+- `prompt.md`: "mixed and grown" wording, hen/rooster cues, and a new `{flock_age_line}` filled by
+  `roster.format_flock_age_line()` from the youngest living `hatch_date`. The line flips back to
+  "some birds are young" by itself when a new hatch lands in the roster, so it can't go stale the way the
+  hardcoded chick wording did. s7-cam `context` string: dropped "bantams" priming and the chick sentence.
+- No DB migration: the `any_special_chick` **column** now stores `standout_bird`
+  (`store.py`); `apparent_age_days` is written NULL. `database.py`/`images_api.py` publish
+  `standout_bird` plus the legacy `any_special_chick` key (same value), and `apparent_age_days: null`
+  for every row, old ones included. `daily_reel_runner`'s caption fact reworded to "a few birds really
+  stood out". `discord-reaction-sync` vlm_json key renamed. Test fixtures updated.
+- farm-2026 (edited, **not pushed**): gem badge "special chick" → "standout"; `types.ts` widened.
+- farm-2026 `content/flock-profiles.json`: new dated `color_observations` (source
+  `claude-photo-review`, append-only, current description mirrored) for the 7 birds with September
+  photos where the band identifies the bird: Birdimir, Adelbird, Ingebird, Henriessa, Henridot,
+  Birdthazar, Birdsilla. Birdadotta, Horstabird, Henriello, Robirda and Bobirda have no photo newer
+  than Jul/Aug and were **not** touched.
+
+**Corrected by Boss same day:** the green-band rooster in the 21-Sep 11:48 S7 frame is **not** Ingebird. Its band is on the RIGHT leg, and right-leg bands mean purchased birds; every ornitharch wears hers on the LEFT. Ingebird's observation now says so, and records that her plumage matches the purchased Barred Rocks, so only the left-leg band tells her apart. **Fixed same day (Boss approved):** `roster.resolve_band` used to name a bird from a "unique" band colour alone, which had named that rooster "Ingebird" 61 times (38 read as right-leg). Colours are not unique: bought birds wear them on the right leg, and two ornitharchs share purple (Birdthazar and Henridot, who look nothing alike). The model can't read the leg, so a band now names a bird **only when its number is readable**. `band_bird` isn't used by anything downstream, so nothing wrong was published. Also restored the full text of Boss's 7-Sep notes on Malt Liquor, Hawk Food, White Rooster and Loud Dumb Bird, whose current description had been left as a shortened copy, so `validate_flock_profiles.py` passes clean. Boss also: Ingebird looks remarkably like Adelbird, and Henridot (formerly Henridotta) is a rooster. Those three barred ornitharchs look like the purchased Barred Rocks, so their descriptions now say plumage can't identify them, and a new `roster._HEDGE_MARKERS` entry ("plumage alone cannot") keeps them out of the prompt's "likely <name>" block. Henriessa is laced blue-grey, not barred.
+
+**Verified:** all 5 pipeline test scripts pass; 3 live calls against qwen3-vl-4b on the 21-Sep
+Ingebird frame returned `rooster`/`standout_bird`/strong 85 with three different captions; the live
+`/api/v1/images/recent` returns `standout_bird` and `apparent_age_days: null`; farm-2026 `tsc`
+clean. Plan: `docs/21-Sep-2026-vlm-form-and-flock-registry-refresh-plan.md`.
+
 ### v2.73.0 — Gem score: frame-fill and bird count are scored again (Claude Opus 5) — 19-Sep-2026
 
 **What / why:** Boss flagged two s7-cam frames: a three-hen shot with faces and leg bands

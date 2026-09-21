@@ -1,4 +1,4 @@
-# Author: Claude Opus 4.6 (1M context); updated GPT-5.5 04-May-2026
+# Author: Claude Opus 4.6 (1M context); updated GPT-5.5 04-May-2026; Claude Opus 5 21-Sep-2026 (standout_bird field, v2.74.0)
 # Date: 14-April-2026
 # PURPOSE: REST API surface for Farm Guardian's image archive (the dataset
 #          produced by tools/pipeline/*). Public endpoints serve curated gems,
@@ -240,7 +240,8 @@ def build_images_router(db: GuardianDB, config: dict) -> APIRouter:
             "composition": d["composition"],
             "image_quality": d["image_quality"],
             "individuals_visible": d["individuals_visible"],
-            "any_special_chick": d["any_special_chick"],
+            "standout_bird": d["standout_bird"],
+            "any_special_chick": d["any_special_chick"],  # legacy key, same value (v2.74.0)
             "apparent_age_days": d["apparent_age_days"],
             "caption_draft": d["caption_draft"],
             "share_reason": d["share_reason"],

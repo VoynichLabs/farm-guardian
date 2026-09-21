@@ -1,5 +1,5 @@
-# Author: Claude Opus 4.6 (1M context)
-# Date: 14-April-2026
+# Author: Claude Opus 4.6 (1M context); Claude Opus 5 (21-Sep-2026 — image rows publish standout_bird, apparent_age_days always null, v2.74.0)
+# Date: 14-April-2026 (last touched 21-Sep-2026)
 # PURPOSE: SQLite abstraction layer for Farm Guardian v2. All database reads/writes
 #          go through this module. Creates and manages the guardian.db schema with
 #          tables for cameras, detections, tracks, alerts, deterrent actions, PTZ presets,
@@ -926,7 +926,7 @@ class GuardianDB:
     def _img_row_to_dict(self, row: sqlite3.Row) -> dict:
         """Shape a raw image_archive row into the API's public row dict.
         Parses caption_draft + share_reason + individuals_visible out of
-        vlm_json; normalizes apparent_age_days sentinel -1 → None; always
+        vlm_json; publishes apparent_age_days as None (retired 21-Sep-2026); always
         omits concerns[] even if present in vlm_json (defense-in-depth #3)."""
         d = dict(row)
         vlm_raw = d.pop("vlm_json", None) or "{}"
@@ -946,11 +946,16 @@ class GuardianDB:
             d["individuals_visible"] = [s for s in csv.split(",") if s]
         else:
             d["individuals_visible"] = list(vlm.get("individuals_visible", []) or [])
-        # Sentinel: -1 means "n/a"; normalize to None for the type contract.
-        if d.get("apparent_age_days") == -1:
-            d["apparent_age_days"] = None
-        # any_special_chick is 0/1 in the DB; publish as bool.
-        d["any_special_chick"] = bool(d.get("any_special_chick", 0))
+        # 21-Sep-2026 (v2.74.0): apparent_age_days is no longer produced, and
+        # the historical values were the VLM guessing near its 365 cap — the
+        # website turned them into a made-up "~11 months old" row. Publish
+        # null for every row; the key stays so farm-2026's typed contract holds.
+        d["apparent_age_days"] = None
+        # The any_special_chick column now holds the VLM's `standout_bird`
+        # (renamed 21-Sep-2026, column name kept). Publish it under the new
+        # name, and under the old key until farm-2026 moves off it.
+        d["standout_bird"] = bool(d.get("any_special_chick", 0))
+        d["any_special_chick"] = d["standout_bird"]
         return d
 
     def _img_row_to_review_dict(self, row: sqlite3.Row) -> dict:

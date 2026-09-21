@@ -1,4 +1,4 @@
-# Author: GPT-5.5 Codex; Claude Opus 4.8 (Bubba) (12-Jul-2026 — cap assertions + inputs rescaled to 0-100, v2.45.0)
+# Author: GPT-5.5 Codex; Claude Opus 4.8 (Bubba) (12-Jul-2026 — cap assertions + inputs rescaled to 0-100, v2.45.0); Claude Opus 5 (21-Sep-2026 — fixture uses standout_bird/hen, v2.74.0)
 # Date: 08-May-2026
 # PURPOSE: Focused synthetic tests for orchestrator post-VLM calibration that
 #          demotes routine brooder/coop floor-pecking frames before storage or
@@ -32,9 +32,8 @@ def _base_metadata(**overrides) -> dict:
     metadata = {
         "scene": "coop",
         "bird_count": 5,
-        "individuals_visible": ["chick"],
-        "any_special_chick": True,
-        "apparent_age_days": 28,
+        "individuals_visible": ["hen"],
+        "standout_bird": True,
         "activity": "alert",
         "lighting": "natural-good",
         "composition": "group",

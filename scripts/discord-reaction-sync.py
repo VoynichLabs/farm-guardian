@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# Author: GPT-5.5; Claude Sonnet 4.6 (04-May-2026 — per-message commit to fix DB lock contention, v2.40.3); Claude Fable 5 (16-Jul-2026 — bird-name reply tagging + retention pinning, v2.47.2)
-# Date: 03-May-2026 (last touched 16-Jul-2026)
+# Author: GPT-5.5; Claude Sonnet 4.6 (04-May-2026 — per-message commit to fix DB lock contention, v2.40.3); Claude Fable 5 (16-Jul-2026 — bird-name reply tagging + retention pinning, v2.47.2); Claude Opus 5 (21-Sep-2026 — vlm_json key any_special_chick -> standout_bird, v2.74.0)
+# Date: 03-May-2026 (last touched 21-Sep-2026)
 # PURPOSE: Two jobs, run in one pass over #farm-2026:
 #
 #          1. GUARDIAN GEMS — for every reacted message whose author is
@@ -538,8 +538,7 @@ def _ingest_drop(
         "composition": "unknown",
         "image_quality": "sharp",
         "share_worth": "strong",
-        "any_special_chick": False,
-        "apparent_age_days": None,
+        "standout_bird": False,  # v2.74.0 name; stored in the any_special_chick column below
         "has_concerns": False,
         "concerns": [],
         "individuals_visible": [],

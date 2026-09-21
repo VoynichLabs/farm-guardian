@@ -6,9 +6,8 @@
     "properties": {
       "scene":              { "type": "string", "enum": ["brooder","yard","coop","nesting-box","birdcatraz","sky","other"] },
       "bird_count":         { "type": "integer", "minimum": 0 },
-      "individuals_visible":{ "type": "array",   "items": { "type": "string", "enum": ["adult","chick","unknown-bird"] } },
-      "any_special_chick":  { "type": "boolean" },
-      "apparent_age_days":  { "type": "integer", "minimum": -1, "maximum": 365 },
+      "individuals_visible":{ "type": "array",   "items": { "type": "string", "enum": ["hen","rooster","turkey","unknown-bird"] } },
+      "standout_bird":      { "type": "boolean" },
       "activity":           { "type": "string", "enum": ["huddling","eating","drinking","dust-bathing","foraging","preening","sleeping","sparring","alert","none-visible","other"] },
       "lighting":           { "type": "string", "enum": ["natural-good","heat-lamp","dim","blown-out","backlit","mixed"] },
       "composition":        { "type": "string", "enum": ["portrait","group","wide","cluttered","empty"] },
@@ -27,7 +26,7 @@
       "band_leg":           { "type": "string", "enum": ["none","left","right","unsure"] },
       "band_number":        { "type": "integer", "minimum": -1, "maximum": 99 }
     },
-    "required": ["scene","bird_count","individuals_visible","any_special_chick","apparent_age_days","activity","lighting","composition","image_quality","bird_face_visible","subject_coverage_pct","largest_subject_pct","share_worth","expression_score","detail_score","overall_score","share_reason","caption_draft","concerns","band_color","band_leg","band_number"],
+    "required": ["scene","bird_count","individuals_visible","standout_bird","activity","lighting","composition","image_quality","bird_face_visible","subject_coverage_pct","largest_subject_pct","share_worth","expression_score","detail_score","overall_score","share_reason","caption_draft","concerns","band_color","band_leg","band_number"],
     "additionalProperties": false
   }
 }

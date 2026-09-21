@@ -1,5 +1,5 @@
 # Author: Claude Opus 5
-# Date: 15-September-2026
+# Date: 21-September-2026
 # PURPOSE: Bridge to farm-2026's content/flock-profiles.json — the canonical
 #          bird roster (names, breeds, hatch dates, the `ornitharch` named-
 #          individual flag). farm-guardian never read this file before
@@ -36,6 +36,15 @@
 #          get_confirmed_bands' docstring refuses to make. Prompted by
 #          Birddor's death (yellow #1), see
 #          docs/15-Sep-2026-birddor-predation-incident.md.
+#
+#          21-Sep-2026 (Claude Opus 5): added `format_flock_age_line()`, the
+#          prompt's "how old is the flock" sentence computed from the youngest
+#          living hatch_date, so the prompt stops calling grown birds chicks.
+#          See docs/21-Sep-2026-vlm-form-and-flock-registry-refresh-plan.md.
+#          Same day: resolve_band() no longer names a bird from colour alone
+#          (bought birds share colours on the right leg); a number is required.
+#          Same day: "plumage alone cannot" added to _HEDGE_MARKERS so birds
+#          that only their band identifies aren't offered for plumage naming.
 # SRP/DRY check: Pass — single responsibility is loading + caching the
 #                roster; callers (prompt-building, discord sync, reel
 #                captions) own their own use of it. identify() composes the
@@ -46,6 +55,7 @@ import json
 import logging
 import re
 import time
+from datetime import date
 from pathlib import Path
 from typing import Optional
 
@@ -147,6 +157,12 @@ def match_name(text: str) -> Optional[str]:
 _HEDGE_MARKERS = (
     "disputed", "flip-flop", "not final", "low confidence",
     "verify visually", "tbd", "uncertain",
+    # 21-Sep-2026 (Boss): the barred ornitharchs (Ingebird, Adelbird, Henridot)
+    # look like each other and like the purchased Barred Rocks. Only the leg
+    # band (colour + LEFT leg) tells them apart, so offering "likely <name>"
+    # from plumage would just name the wrong bird. Their registry descriptions
+    # say this phrase, which keeps them out of the prompt's naming block.
+    "plumage alone cannot",
 )
 
 # Longest description we put in front of the VLM, per bird.
@@ -276,10 +292,14 @@ def resolve_band(
       is the whole key. An impossible pair returns None rather than falling
       back to a looser match: a misread number means the reading is unreliable,
       not something to route around.
-    - **Without a number we still resolve, but only on a unique colour.**
-      Green, red, purple and blue each belong to exactly one living bird, so
-      the colour alone is enough. Orange, pink, white and yellow are each worn
-      by two birds and correctly return None until a number is read.
+    - **Without a number we do NOT resolve (changed 21-Sep-2026, per Boss).**
+      This used to name a bird from a "unique" colour alone. That assumption
+      was false: birds bought in (not hatched here) wear their band on the
+      RIGHT leg, and not all of them are in the roster. A barred rooster with a
+      green band on his right leg was named "Ingebird" 61 times, because
+      Ingebird is the only *registered* green band. The leg would separate
+      them, but the model can't read the leg (below), so colour alone proves
+      nothing. No number, no name.
 
     ⚠️ **`leg` IS DELIBERATELY IGNORED FOR MATCHING. Do not "improve" this by
     filtering on it.** Measured 28-Jul-2026 against qwen3-vl-4b on the six
@@ -315,7 +335,7 @@ def resolve_band(
             return exact[0]["name"]
         return None  # this colour exists but not with that number
 
-    return candidates[0]["name"] if len(candidates) == 1 else None
+    return None  # colour alone never names a bird — see "Without a number" above
 
 
 # --- Ornitharch: year-scoped, computed, not remembered ----------------------
@@ -452,6 +472,42 @@ def _format_band(leg_band: Optional[dict]) -> str:
     call site. The signature stays intact for the same reason.
     """
     return ""
+
+
+# Below this age a bird still reads as a chick on camera (down, no comb, tiny
+# next to adults). Above it the prompt tells the model there are no chicks.
+_CHICK_STAGE_WEEKS = 8
+
+
+def format_flock_age_line(today: Optional[date] = None) -> str:
+    """One sentence for the VLM prompt saying how old the flock is right now,
+    computed from the youngest LIVING roster entry's hatch_date.
+
+    Exists because the chick-era wording in prompt.md/schema.json went stale
+    for months after the flock grew up (21-Sep-2026). Computing the age here
+    means the prompt tracks the roster by itself: when a new hatch is added
+    to flock-profiles.json, the line flips back to "some birds are chicks"
+    with no prompt edit. Returns "" when the roster has no usable dates, so
+    the caller's sentence simply omits it.
+    """
+    today = today or date.today()
+    hatch_dates = []
+    for b in _load_raw():
+        if b.get("status") == "deceased" or b.get("deceased_date"):
+            continue
+        try:
+            hatch_dates.append(date.fromisoformat(b.get("hatch_date") or ""))
+        except ValueError:
+            continue  # undated adults (Not Soup, Malt Liquor, ...) don't bound the youngest age
+    if not hatch_dates:
+        return ""
+    youngest = max(hatch_dates)
+    weeks = max(0, (today - youngest).days // 7)
+    if weeks < _CHICK_STAGE_WEEKS:
+        return (f"Some birds are young: the youngest hatched on {youngest.isoformat()} "
+                f"and are about {weeks} weeks old.")
+    return (f"There are no chicks: the youngest birds hatched on {youngest.isoformat()} "
+            f"and are about {weeks} weeks old, near adult size.")
 
 
 def format_named_individuals_block() -> str:

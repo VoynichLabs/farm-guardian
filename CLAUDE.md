@@ -310,6 +310,39 @@ These should be present in the CLAUDE.md file and the agents.md file.
 - End completed tasks with "done" (or "next" if awaiting instructions).
 
 
+## ⏸️ VLM enrichment pauses itself while Boss's `evolve.py` job is busy — THIS IS NOT A FAULT
+
+**If you find `/tmp/farm-pipeline.pause` present and the pipeline logging `status: "paused"`,
+do NOT "fix" it by deleting the flag or restarting the pipeline.**
+`com.farmguardian.vlm-pause-watchdog` (every 3 min, `tools/vlm-pause-watchdog/watchdog.py`) sets
+it while `~/kg-lab-runtime/code/kaggriculture/lab/evolve.py` is actually burning CPU, and clears
+it within ~9 minutes of that job going idle. Boss wants that research job to have the cores
+(v2.72.4, 17-Sep-2026). Frame capture, archiving, pruning and Guardian all keep running while
+paused — only the VLM call is skipped. The model stays loaded on purpose so the night alert
+verifier keeps working; **do not unload it to "complete" the pause.**
+
+A pause flag whose contents do not say `paused-by-vlm-pause-watchdog` was set by a human, and the
+watchdog deliberately will not clear it. Heartbeat: `/tmp/vlm-pause-watchdog.err.log`, one line
+per tick.
+
+**⚠️ Two measurements to stop you over-estimating this lever:** the pipeline process is only
+**18–30% of one core** and the model sits IDLE between cycles, so pausing buys back about a third
+of a core — evolve's workers were ~5.2 of 14 cores. And **`s7-cam` is the only camera on the VLM
+path** (every other camera is `vlm_bypass`), so overnight its frames are already rejected by the
+darkness gate *before* the pause gate is reached — there is almost nothing to save at night. If
+someone asks for "VLM off at night" on CPU grounds, this is the number to quote back.
+
+## ✅ 21-Sep-2026 (v2.74.0) — the VLM form no longer has "chick" fields; temperature is 0.5 ON PURPOSE
+
+`any_special_chick` is now `standout_bird` and `apparent_age_days` is gone (the flock grew up).
+**The DB column is still named `any_special_chick`, and it holds `standout_bird`.** Do not "fix"
+that name by adding a column. `vlm_temperature` 0.5 is Boss's choice for more varied captions ("0.2 is
+just so boring"). **Do not lower it back.** The prompt's flock-age sentence is computed from the roster
+(`roster.format_flock_age_line`), so **never hardcode "no chicks" or an age into `prompt.md`**. When the
+birds change, update the registry (`farm-2026/content/flock-profiles.json`, dated `color_observations`,
+validate with `tools/pipeline/validate_flock_profiles.py`), not the prompt. See
+[`docs/21-Sep-2026-vlm-form-and-flock-registry-refresh-plan.md`](docs/21-Sep-2026-vlm-form-and-flock-registry-refresh-plan.md).
+
 ## LM Studio — LOAD-BEARING PRODUCTION DEPENDENCY, READ BEFORE TOUCHING
 
 This Mac Mini runs LM Studio (`http://localhost:1234`). **LM Studio is a

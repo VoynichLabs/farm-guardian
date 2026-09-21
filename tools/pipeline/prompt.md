@@ -4,7 +4,7 @@ Snapshot from the {camera_name} camera at a small backyard flock in Hampton CT. 
 
 Good means: a bird is close and sharp, its face or eye is clearly visible, and its colors and feather detail are readable. That's it. You are not writing an essay — you are judging a photograph.
 
-**The flock is mixed.** Chickens of many rare and standard breeds, plus turkeys. Sizes vary a lot: a small bird may be a bantam adult, not a youngster. Turkeys are blockier with thick legs, bare pink facial skin and a snood; chickens are finer-boned with a comb and wattles. **Use plain labels — "hen", "rooster", "chicken", "turkey", "young bird". Only say "bantam" if the bird is genuinely tiny next to others in the same frame.**
+**The flock is mixed and grown.** {flock_age_line} Chickens of many rare and standard breeds, plus turkeys. Sizes vary a lot between breeds, so a smaller bird is a smaller breed, not a baby. Turkeys are blockier with thick legs, bare pink facial skin and a snood; chickens are finer-boned with a comb and wattles. **Use plain labels — "hen", "rooster", "chicken", "turkey". Only say "bantam" if the bird is genuinely tiny next to others in the same frame.** A big red serrated comb, long wattles and flowing tail feathers mean rooster; a small comb means hen.
 
 **Equipment is not a bird.** Waterers, feeders and posts have no head, beak or feathers. Don't count them in `bird_count`.
 
@@ -34,15 +34,14 @@ Don't guess a name. If unsure, use a plain label.
 - `share_reason`: one short sentence about THIS frame. "Close hen, sharp eye, facing camera" or "All birds distant and blurred."
 - `scene`: `birdcatraz` for the outdoor poultry compound, `coop` for the coop or run interior, `nesting-box` for a nest area, `yard` for open ground outside the enclosure, `other` if none fit.
 - `bird_count`: only things with a visible head, beak or feathers.
-- `individuals_visible`: `"adult"`, `"chick"`, or `"unknown-bird"`.
+- `individuals_visible`: one entry per visible bird — `"hen"`, `"rooster"`, `"turkey"`, or `"unknown-bird"` when you can't tell.
 - `activity`: what most visible birds are doing. `none-visible` if no birds.
 - `image_quality`: `sharp`, `soft`, or `blurred`. Judge focus and motion, not resolution — a webcam frame can be sharp. Compression artifacts (banding, smearing, blocky regions) mean `blurred`.
 - `bird_face_visible`: true if any eye, beak or facial profile shows, even side-on.
 - `lighting`: `natural-good` for decent daylight, `dim` if dark, `blown-out` if washed out with lost highlights, `backlit` if the subject is dark against a bright background, `mixed` otherwise. (`heat-lamp` is historical — no camera shows one now.)
 - `composition`: `portrait` for one dominant bird, `group` for several birds as the subject, `wide` for a landscape with small birds, `cluttered` if equipment/ground dominates, `empty` if no birds.
 - `subject_coverage_pct` / `largest_subject_pct`: rough percent of the frame covered by all birds, and by the single biggest bird.
-- `any_special_chick`: true if any bird stands out — striking color, odd size, unusual posture.
-- `apparent_age_days`: rough estimate; `-1` if no birds.
+- `standout_bird`: true if a bird in this frame stands out — striking colors, a real character, a great pose. False for an ordinary frame.
 - `concerns`: only for an injured or dead bird, abnormal posture, real fighting, or a hazard. Empty otherwise.
 
 **Leg bands — almost always `none`.** Some birds wear a small numbered plastic ring. Report it ONLY if you can plainly see a colored band on a leg in this image. Otherwise `band_color: "none"`, `band_leg: "none"`, `band_number: -1`. Never infer a band from plumage or from which bird you think it is, never guess the number, and never mention a band in the caption. `-1` and `none` are the right answers nearly every time.

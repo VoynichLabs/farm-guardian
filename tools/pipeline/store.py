@@ -1,5 +1,5 @@
-# Author: Claude Opus 4.6 (1M context), Claude Opus 4.7 (1M context) — IG columns 20-Apr-2026, story columns 20-Apr-2026 (Phase 2); Claude Sonnet 4.6 (edits 27-April-2026 — store_raw() for vlm_bypass cameras, v2.37.13; 04-May-2026 — sqlite timeout=30 to fix DB lock errors, v2.40.2); Claude Fable 5 (edits 16-July-2026 — reel_permalink/reel_posted_at columns + ig_posted_captions ledger table, v2.47.0); Claude Sonnet 5 Extra (edits 03-Aug-2026 — store_raw refactored onto shared _store_bypass_frame; new store_keyframe() for the permanent multi-day time-lapse tier, v2.60.0)
-# Date: 13-April-2026 (last touched 03-Aug-2026)
+# Author: Claude Opus 4.6 (1M context), Claude Opus 4.7 (1M context) — IG columns 20-Apr-2026, story columns 20-Apr-2026 (Phase 2); Claude Sonnet 4.6 (edits 27-April-2026 — store_raw() for vlm_bypass cameras, v2.37.13; 04-May-2026 — sqlite timeout=30 to fix DB lock errors, v2.40.2); Claude Fable 5 (edits 16-July-2026 — reel_permalink/reel_posted_at columns + ig_posted_captions ledger table, v2.47.0); Claude Sonnet 5 Extra (edits 03-Aug-2026 — store_raw refactored onto shared _store_bypass_frame; new store_keyframe() for the permanent multi-day time-lapse tier, v2.60.0); Claude Opus 5 (edits 21-Sep-2026 — standout_bird stored in the any_special_chick column, apparent_age_days written NULL, v2.74.0)
+# Date: 13-April-2026 (last touched 21-Sep-2026)
 # PURPOSE: Persist a captured + enriched image. Writes JPEG to disk per tier
 #          (full-res for share_worth=strong, downscaled for decent, discard
 #          for skip), writes a sidecar .json next to the JPEG, and inserts a
@@ -375,7 +375,13 @@ def store(
             gate_metrics.get("std_dev"), gate_metrics.get("laplacian_var"), gate_metrics.get("exposure_p50"),
             vlm_model, vlm_result["inference_ms"], vlm_result["prompt_hash"], json.dumps(md),
             md["scene"], md["bird_count"], md["activity"], md["lighting"], md["composition"],
-            md["image_quality"], md["share_worth"], int(md["any_special_chick"]), md["apparent_age_days"],
+            # 21-Sep-2026 (v2.74.0): the VLM field was renamed any_special_chick ->
+            # standout_bird and apparent_age_days was dropped (the flock grew up;
+            # the model pinned the age near its 365 cap anyway). The DB columns
+            # keep their old names — `any_special_chick` now means "standout bird"
+            # — and age is written NULL. .get() also accepts a pre-rename sidecar.
+            md["image_quality"], md["share_worth"],
+            int(bool(md.get("standout_bird", md.get("any_special_chick", False)))), None,
             has_concerns, ",".join(md["individuals_visible"]), retained_until,
         ))
         gem_id = cursor.lastrowid
