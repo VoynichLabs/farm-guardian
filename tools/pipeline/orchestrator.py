@@ -1,5 +1,5 @@
-# Author: Claude Opus 4.7 (1M context); Claude Sonnet 4.6 (edits 27-April-2026 — vlm_bypass mode: run_raw_cycle, dedicated raw threads, raw retention sweep, v2.37.13; 28-April-2026 — sharpness gate wired in, v2.37.14; 04-May-2026 — Birds preset as prompt/schema source, v2.40.0); GPT-5.5 Codex (edits 08-May-2026 — static floor-pecking score calibration); Claude Opus 4.8 (1M context) (edits 03-June-2026 — VLM input downscale via _downscale_for_vlm + vlm_input_long_edge_px config, to cut per-frame latency, v2.40.17); Claude Opus 4.8 (Bubba sub-agent) (edits 14-June-2026 — golden-window raw capture: per-iteration thick/sparse cadence for usb-cam/dominator-cam via offpeak_cycle_seconds + timelapse_golden_windows); Claude Sonnet 4.6 (edits 27-June-2026 — run_raw_cycle quality gates + laplacian storage, v2.44.1); Claude Fable 5 (edits 02-July-2026 — Discord caption trim via gem_poster.trim_caption, v2.44.5); Claude Opus 4.8 (Bubba) (edits 12-July-2026 — _compute_overall_score 0-100 weighted-component scoring, floor-pecking cap + caption rescaled, v2.45.0; 13-July-2026 — dominance recalibrated (full at ~50% coverage) so real gems clear the 80 gate + BIRD SELFIE ping 95->90, v2.45.1); Claude Fable 5 (edits 16-July-2026 — IG-hook hashtag rotation fed from posted-caption ledger, v2.47.0); Claude Sonnet 5 Extra (edits 03-Aug-2026 — keyframe-promotion hook in run_raw_cycle for the permanent weekly/monthly time-lapse archive, v2.60.0); Claude Opus 5 (edits 09-Aug-2026 — keyframe capture switched from 3 fixed daily slots to a daylight-gated interval via _keyframe_interval_due, v2.69.0; edits 10-Sep-2026 — store the VLM model that actually answered, v2.72.0)
-# Date: 17-April-2026 (last touched 10-Sep-2026)
+# Author: Claude Opus 4.7 (1M context); Claude Sonnet 4.6 (edits 27-April-2026 — vlm_bypass mode: run_raw_cycle, dedicated raw threads, raw retention sweep, v2.37.13; 28-April-2026 — sharpness gate wired in, v2.37.14; 04-May-2026 — Birds preset as prompt/schema source, v2.40.0); GPT-5.5 Codex (edits 08-May-2026 — static floor-pecking score calibration); Claude Opus 4.8 (1M context) (edits 03-June-2026 — VLM input downscale via _downscale_for_vlm + vlm_input_long_edge_px config, to cut per-frame latency, v2.40.17); Claude Opus 4.8 (Bubba sub-agent) (edits 14-June-2026 — golden-window raw capture: per-iteration thick/sparse cadence for usb-cam/dominator-cam via offpeak_cycle_seconds + timelapse_golden_windows); Claude Sonnet 4.6 (edits 27-June-2026 — run_raw_cycle quality gates + laplacian storage, v2.44.1); Claude Fable 5 (edits 02-July-2026 — Discord caption trim via gem_poster.trim_caption, v2.44.5); Claude Opus 4.8 (Bubba) (edits 12-July-2026 — _compute_overall_score 0-100 weighted-component scoring, floor-pecking cap + caption rescaled, v2.45.0; 13-July-2026 — dominance recalibrated (full at ~50% coverage) so real gems clear the 80 gate + BIRD SELFIE ping 95->90, v2.45.1); Claude Fable 5 (edits 16-July-2026 — IG-hook hashtag rotation fed from posted-caption ledger, v2.47.0); Claude Sonnet 5 Extra (edits 03-Aug-2026 — keyframe-promotion hook in run_raw_cycle for the permanent weekly/monthly time-lapse archive, v2.60.0); Claude Opus 5 (edits 09-Aug-2026 — keyframe capture switched from 3 fixed daily slots to a daylight-gated interval via _keyframe_interval_due, v2.69.0; edits 10-Sep-2026 — store the VLM model that actually answered, v2.72.0; edits 22-Sep-2026 — VLM pause keeps archiving VLM cameras as throttled raw frames via _archive_while_paused, v2.74.1)
+# Date: 17-April-2026 (last touched 22-Sep-2026)
 # PURPOSE: Main entry point for the multi-cam image pipeline. Schedules per-
 #          camera capture cycles at their configured cadences, runs each
 #          frame through a four-stage pre-VLM filter (trivial std-dev gate,
@@ -42,6 +42,12 @@
 #            --once --camera NAME  : run one camera once, exit
 #            --daemon              : run forever on per-camera cadences
 #            --retention-only      : run the retention sweep and exit
+#
+#          22-Sep-2026: the /tmp/farm-pipeline.pause gate used to return
+#          before any store, so pausing the VLM also stopped s7-cam's archive.
+#          Paused frames now go to image_tier='raw' (one per
+#          paused_archive_interval_seconds) and age out on the camera's
+#          raw_retention_hours, reusing store_raw + sweep_raw.
 # SRP/DRY check: Pass — single responsibility is scheduling + gluing the
 #                other pipeline modules together. The keyframe-promotion
 #                hook reuses store.store_keyframe (Task 1) rather than
@@ -123,6 +129,63 @@ log = logging.getLogger("pipeline.orchestrator")
 
 _STOP = threading.Event()
 _PAUSE_FLAG = Path("/tmp/farm-pipeline.pause")
+
+# While the pause flag is up, VLM cameras (only s7-cam today — every other
+# camera is vlm_bypass and archives through run_raw_cycle regardless) used to
+# return before ANY store call, so a pause silently stopped their archive too.
+# They now keep one raw-tier frame per `paused_archive_interval_seconds`,
+# pruned on the camera's `raw_retention_hours`. Throttled because an S7 frame
+# is ~2 MB and the hunt cadence drops to 0.5 s when birds are present — saving
+# every paused frame would be ~14 GB/day. Keyed by camera; each camera's cycle
+# runs on a single thread, so plain dicts are safe.
+_LAST_PAUSED_ARCHIVE: dict[str, float] = {}
+_LAST_PAUSED_PRUNE: dict[str, float] = {}
+_PAUSED_PRUNE_EVERY_S = 300.0
+
+
+def _archive_while_paused(camera_name: str, camera_cfg: dict, cfg: dict,
+                          db_path: Path, archive_root: Path,
+                          jpeg_bytes: bytes, gate_metrics: dict) -> dict:
+    """Store a gated frame as image_tier='raw' while the VLM is paused.
+
+    Reuses store_raw + retention_sweep_raw, the exact path vlm_bypass cameras
+    use, so the rows look like any other raw frame (vlm_* NULL) and nothing
+    downstream mistakes them for enriched gems. Returns the fields to merge
+    into the cycle result. Never raises: a failed paused-archive must not be
+    reported as anything worse than a missed frame.
+    """
+    now = time.monotonic()
+    interval = float(cfg.get("paused_archive_interval_seconds", 60))
+    last = _LAST_PAUSED_ARCHIVE.get(camera_name)
+    out: dict = {}
+    if last is None or now - last >= interval:
+        try:
+            sr = store_raw(db_path=db_path, archive_root=archive_root,
+                           camera_id=camera_name, jpeg_bytes=jpeg_bytes,
+                           gate_metrics=gate_metrics or {})
+            _LAST_PAUSED_ARCHIVE[camera_name] = now
+            out.update(archived=True, tier=sr["tier"], image_path=sr["image_path"])
+        except Exception as e:
+            log.exception("%s: paused raw archive failed", camera_name)
+            out.update(archived=False, archive_error=f"{type(e).__name__}: {e}")
+    else:
+        out.update(archived=False, archive_skip="throttled")
+
+    # Prune on the same 5-minute rhythm the raw threads use. Without this the
+    # paused frames would never age out, since sweep_raw otherwise runs only
+    # inside _raw_camera_thread for vlm_bypass cameras.
+    if now - _LAST_PAUSED_PRUNE.get(camera_name, 0.0) >= _PAUSED_PRUNE_EVERY_S:
+        _LAST_PAUSED_PRUNE[camera_name] = now
+        hours = int(camera_cfg.get("raw_retention_hours",
+                                   cfg.get("raw_retention_hours", 24)))
+        try:
+            pr = retention_sweep_raw(db_path, archive_root, camera_name,
+                                     retention_hours=hours)
+            if pr.get("deleted"):
+                log.info("%s: paused raw prune %s", camera_name, json.dumps(pr))
+        except Exception:
+            log.exception("%s: paused raw prune raised", camera_name)
+    return out
 
 # Module-level motion gate — holds one 64x64 thumbnail per camera that
 # opts in via `motion_gate: true` in its config block. Lives at module
@@ -961,8 +1024,14 @@ def run_cycle(camera_name: str, camera_cfg: dict, cfg: dict, schema: dict,
 
     # Pause gate: flag-file control plane — touch /tmp/farm-pipeline.pause
     # to skip VLM inference without stopping capture. Resume = remove file.
+    # The frame already cleared every gate above, so it is archived as raw
+    # (throttled) rather than dropped — see _archive_while_paused.
     if _PAUSE_FLAG.exists():
         result.update(status="paused", reason="pipeline paused via flag file")
+        result.update(_archive_while_paused(
+            camera_name, camera_cfg, cfg, db_path, archive_root,
+            jpeg_bytes, last_gate_metrics,
+        ))
         return result
 
     # Enrich via VLM. Send a downscaled copy of the frame — the model only

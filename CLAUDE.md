@@ -318,7 +318,10 @@ do NOT "fix" it by deleting the flag or restarting the pipeline.**
 it while `~/kg-lab-runtime/code/kaggriculture/lab/evolve.py` is actually burning CPU, and clears
 it within ~9 minutes of that job going idle. Boss wants that research job to have the cores
 (v2.72.4, 17-Sep-2026). Frame capture, archiving, pruning and Guardian all keep running while
-paused — only the VLM call is skipped. The model stays loaded on purpose so the night alert
+paused — only the VLM call is skipped. **For `s7-cam` (the one VLM camera) that was false until
+v2.74.1 (22-Sep-2026):** the pause used to drop its frames entirely. It now keeps one raw-tier
+frame per minute (`paused_archive_interval_seconds`), pruned after 7 days (`raw_retention_hours`).
+Those frames carry no VLM score, so they never reach gems, Discord or reels. The model stays loaded on purpose so the night alert
 verifier keeps working; **do not unload it to "complete" the pause.**
 
 A pause flag whose contents do not say `paused-by-vlm-pause-watchdog` was set by a human, and the

@@ -21,6 +21,7 @@
  "retention_days_decent": 7,
  "retention_days_concerns": null,
  "raw_retention_hours": 24,
+ "paused_archive_interval_seconds": 60,
  "keyframe_capture": {
   "cameras": [
    "house-yard",
@@ -152,6 +153,7 @@
    "enabled": true
   },
   "s7-cam": {
+   "raw_retention_hours": 168,
    "cycle_seconds": 7,
    "priority": 1,
    "capture_method": "ip_webcam",

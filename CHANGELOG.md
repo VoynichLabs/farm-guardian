@@ -4,6 +4,32 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.74.1 — Pausing the VLM no longer stops s7-cam's archive (Claude Opus 5) — 22-Sep-2026
+
+**What / why:** Boss paused the VLM (`/tmp/farm-pipeline.pause`) on 21-Sep for local ARC work
+and found `s7-cam` had archived **nothing** since 21-Sep 20:22Z. The pause gate in
+`run_cycle` returned before any store call, so for a VLM camera "pause the VLM" also meant
+"stop archiving". Every other camera is `vlm_bypass` and was unaffected. The CLAUDE.md
+pause note already claimed archiving continued; for s7-cam it did not.
+
+**How:** while paused, `run_cycle` hands the frame (which has already cleared the
+trivial/exposure/sharpness/presence gates) to the new `_archive_while_paused`. That
+function stores it with the existing `store_raw` (`image_tier='raw'`, vlm_* NULL) and
+prunes with the existing `retention_sweep_raw` every 5 minutes. No new store or retention
+code.
+- **Throttled to one frame per `paused_archive_interval_seconds` (60, top-level in
+  `tools/pipeline/config.json`).** An S7 frame is ~2 MB and hunt cadence drops to 0.5 s
+  when birds are present, so keeping every paused frame would be about 14 GB/day. At 60 s
+  it is about 1.6 GB/day.
+- **`s7-cam.raw_retention_hours: 168`** (7 days, about 11 GB at steady state). Without an
+  override it would fall back to the global 24 h.
+- Raw rows cannot leak into S7 publishing. `select_s7_daily_reel_gems` requires
+  `image_quality='sharp'` and the weekly gems reel requires a Discord reaction, and raw
+  rows have neither.
+
+**Verified:** after restarting the pipeline, the first paused cycle stored
+`archive/2026-09/s7-cam/raw/2026-09-22T14-39-00.jpg` (1080x1920, 1.8 MB, laplacian 3333).
+
 ### v2.74.0 — The VLM stops calling a grown flock "chicks"; temperature 0.5; flock registry refreshed (Claude Opus 5) — 21-Sep-2026
 
 **What / why:** Boss: the output is "talking about chicks and special chicks. That's from months
