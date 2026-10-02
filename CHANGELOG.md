@@ -4,6 +4,46 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.75.0 — s7-cam: out-of-focus frames stop scoring 92 and posting (Claude Opus 5.5) — 02-Oct-2026
+
+**What / why:** Boss, with a frame attached: "The VLM pipeline is spamming me with photos that
+are often blurry and out of focus ... That's not 92. That's like 50." The frame is a rooster's
+head defocused to a red smear at the lens. The VLM filed it `image_quality: sharp`,
+`share_reason: "Close rooster, sharp eye, facing camera"`, score 92. That `share_reason` is the
+prompt's own example sentence and was written verbatim on 522 of 1,958 s7 frames that day. The
+model is answering by rote, and every focus signal on the posting path comes from that answer,
+so this is not fixable by re-weighting the score or moving `_MIN_OVERALL_SCORE` again.
+
+**How:** a local pixel verdict now overrules the VLM.
+- New `tools/pipeline/focus_check.py`. Per tile: strongest edge divided by tile contrast
+  (Laplacian variance, whole-frame or inside the YOLO box, was re-measured and does not
+  separate these frames). Counts the soft tiles in the largest out-of-focus region. A slow
+  per-tile running average learns the permanently blurry feed bowl and ignores it; without
+  that the measure is noise. State persists in `data/cache/focus-static-<camera>.npz`.
+- `orchestrator.run_cycle`: `_apply_focus_verdict` sets `image_quality` to `soft`/`blurred`
+  before scoring when the local verdict is worse than the VLM's; `_cap_score_for_focus` caps
+  the score at 60/45, moves `strong` to `decent` and rewrites `share_reason`. It only demotes.
+  Fails open (abstains while warming up, on error, on a frame-shape change).
+- `tools/pipeline/config.json`: `s7-cam.focus_check` (`soft_area_pct` 3.0, `blurred_area_pct`
+  8.0). Opt-in per camera. Verdict is recorded in `vlm_json.focus_check`. No schema/DB change.
+- `should_post`, the prompt, the schema, the score weights and the floor are unchanged.
+
+**Measured:** replayed in order over 01-02 Oct, post-eligible frames split 264 sharp / 61 soft /
+82 blurred, so about a third of what could post was out of focus. Boss's frame: blurred, 11.8%
+of the frame. Counterfactual on what actually posted to Discord on 02-Oct before the fix: of
+49 posted frames in the replay, 29 sharp / 8 soft / 12 blurred, so 20 of 49 would not have
+posted.
+
+**Side effects, both intended:** an overruled frame is stored as `decent`, so it is archived
+downscaled with the decent retention instead of full-size for 90 days, and it leaves the pool
+the 21:00 S7 reel selects from (`image_quality='sharp'`).
+
+**Verified:** `test_focus_check.py` (9 tests) plus the existing floor-pecking and gem-gate
+tests; pipeline restarted 17:34Z and new rows carry `focus_check`. Boss's frame replayed
+through the live seeded map and the real helpers: sharp/92/would post -> blurred/45/decent/would
+not post. No live frame had been overruled yet at the time of writing (birds were quiet). Plan and measurements:
+`docs/02-Oct-2026-s7-local-focus-check-plan.md`.
+
 ### v2.74.1 — Pausing the VLM no longer stops s7-cam's archive (Claude Opus 5) — 22-Sep-2026
 
 **What / why:** Boss paused the VLM (`/tmp/farm-pipeline.pause`) on 21-Sep for local ARC work

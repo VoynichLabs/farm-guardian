@@ -1,5 +1,5 @@
-# Author: Claude Opus 4.7 (1M context); Claude Sonnet 4.6 (edits 27-April-2026 — vlm_bypass mode: run_raw_cycle, dedicated raw threads, raw retention sweep, v2.37.13; 28-April-2026 — sharpness gate wired in, v2.37.14; 04-May-2026 — Birds preset as prompt/schema source, v2.40.0); GPT-5.5 Codex (edits 08-May-2026 — static floor-pecking score calibration); Claude Opus 4.8 (1M context) (edits 03-June-2026 — VLM input downscale via _downscale_for_vlm + vlm_input_long_edge_px config, to cut per-frame latency, v2.40.17); Claude Opus 4.8 (Bubba sub-agent) (edits 14-June-2026 — golden-window raw capture: per-iteration thick/sparse cadence for usb-cam/dominator-cam via offpeak_cycle_seconds + timelapse_golden_windows); Claude Sonnet 4.6 (edits 27-June-2026 — run_raw_cycle quality gates + laplacian storage, v2.44.1); Claude Fable 5 (edits 02-July-2026 — Discord caption trim via gem_poster.trim_caption, v2.44.5); Claude Opus 4.8 (Bubba) (edits 12-July-2026 — _compute_overall_score 0-100 weighted-component scoring, floor-pecking cap + caption rescaled, v2.45.0; 13-July-2026 — dominance recalibrated (full at ~50% coverage) so real gems clear the 80 gate + BIRD SELFIE ping 95->90, v2.45.1); Claude Fable 5 (edits 16-July-2026 — IG-hook hashtag rotation fed from posted-caption ledger, v2.47.0); Claude Sonnet 5 Extra (edits 03-Aug-2026 — keyframe-promotion hook in run_raw_cycle for the permanent weekly/monthly time-lapse archive, v2.60.0); Claude Opus 5 (edits 09-Aug-2026 — keyframe capture switched from 3 fixed daily slots to a daylight-gated interval via _keyframe_interval_due, v2.69.0; edits 10-Sep-2026 — store the VLM model that actually answered, v2.72.0; edits 22-Sep-2026 — VLM pause keeps archiving VLM cameras as throttled raw frames via _archive_while_paused, v2.74.1)
-# Date: 17-April-2026 (last touched 22-Sep-2026)
+# Author: Claude Opus 4.7 (1M context); Claude Sonnet 4.6 (edits 27-April-2026 — vlm_bypass mode: run_raw_cycle, dedicated raw threads, raw retention sweep, v2.37.13; 28-April-2026 — sharpness gate wired in, v2.37.14; 04-May-2026 — Birds preset as prompt/schema source, v2.40.0); GPT-5.5 Codex (edits 08-May-2026 — static floor-pecking score calibration); Claude Opus 4.8 (1M context) (edits 03-June-2026 — VLM input downscale via _downscale_for_vlm + vlm_input_long_edge_px config, to cut per-frame latency, v2.40.17); Claude Opus 4.8 (Bubba sub-agent) (edits 14-June-2026 — golden-window raw capture: per-iteration thick/sparse cadence for usb-cam/dominator-cam via offpeak_cycle_seconds + timelapse_golden_windows); Claude Sonnet 4.6 (edits 27-June-2026 — run_raw_cycle quality gates + laplacian storage, v2.44.1); Claude Fable 5 (edits 02-July-2026 — Discord caption trim via gem_poster.trim_caption, v2.44.5); Claude Opus 4.8 (Bubba) (edits 12-July-2026 — _compute_overall_score 0-100 weighted-component scoring, floor-pecking cap + caption rescaled, v2.45.0; 13-July-2026 — dominance recalibrated (full at ~50% coverage) so real gems clear the 80 gate + BIRD SELFIE ping 95->90, v2.45.1); Claude Fable 5 (edits 16-July-2026 — IG-hook hashtag rotation fed from posted-caption ledger, v2.47.0); Claude Sonnet 5 Extra (edits 03-Aug-2026 — keyframe-promotion hook in run_raw_cycle for the permanent weekly/monthly time-lapse archive, v2.60.0); Claude Opus 5 (edits 09-Aug-2026 — keyframe capture switched from 3 fixed daily slots to a daylight-gated interval via _keyframe_interval_due, v2.69.0; edits 10-Sep-2026 — store the VLM model that actually answered, v2.72.0; edits 22-Sep-2026 — VLM pause keeps archiving VLM cameras as throttled raw frames via _archive_while_paused, v2.74.1); Claude Opus 5.5 (edits 02-Oct-2026 — local pixel focus check overrides the VLM's image_quality and caps the score via _apply_focus_verdict/_cap_score_for_focus, v2.75.0)
+# Date: 17-April-2026 (last touched 02-Oct-2026)
 # PURPOSE: Main entry point for the multi-cam image pipeline. Schedules per-
 #          camera capture cycles at their configured cadences, runs each
 #          frame through a four-stage pre-VLM filter (trivial std-dev gate,
@@ -48,6 +48,12 @@
 #          Paused frames now go to image_tier='raw' (one per
 #          paused_archive_interval_seconds) and age out on the camera's
 #          raw_retention_hours, reusing store_raw + sweep_raw.
+#
+#          02-Oct-2026: cameras with a `focus_check` config block get a local,
+#          pixel-based focus verdict (focus_check.FocusJudge) before the VLM
+#          call. When it finds a large out-of-focus patch it overrides the
+#          VLM's image_quality and caps the score, because the 4b model
+#          reports "sharp" by rote. See focus_check.py.
 # SRP/DRY check: Pass — single responsibility is scheduling + gluing the
 #                other pipeline modules together. The keyframe-promotion
 #                hook reuses store.store_keyframe (Task 1) rather than
@@ -80,6 +86,7 @@ if __package__ in (None, ""):
     from tools.pipeline.quality_gate import passes_trivial_gate, passes_exposure_gate, passes_sharpness_gate, MotionGate
     from tools.pipeline.presence import shared_detector
     from tools.pipeline.frame_selector import Candidate, select_best, subject_laplacian
+    from tools.pipeline.focus_check import judge_for as focus_judge_for
     from tools.pipeline.vlm_enricher import enrich, ensure_model_loaded, ModelNotLoaded, EnricherError, ValidationFailed
     from tools.pipeline.store import ensure_schema, store, store_raw, store_keyframe
     from tools.pipeline.retention import sweep as retention_sweep, sweep_raw as retention_sweep_raw
@@ -104,6 +111,7 @@ else:
     from .quality_gate import passes_trivial_gate, passes_exposure_gate, passes_sharpness_gate, MotionGate
     from .presence import shared_detector
     from .frame_selector import Candidate, select_best, subject_laplacian
+    from .focus_check import judge_for as focus_judge_for
     from .vlm_enricher import enrich, ensure_model_loaded, ModelNotLoaded, EnricherError, ValidationFailed
     from .store import ensure_schema, store, store_raw, store_keyframe
     from .retention import sweep as retention_sweep, sweep_raw as retention_sweep_raw
@@ -343,6 +351,63 @@ def _compute_overall_score(metadata: dict) -> None:
     log.debug(
         "score: expression=%d detail=%d technical=%d fill=%d company=%d raw=%d -> overall=%d",
         expression, detail, technical, fill, company, raw, metadata["overall_score"],
+    )
+
+
+# Score ceilings when the local focus check overrules the VLM. Boss, 02-Oct-2026,
+# on a frame with a defocused rooster head across the top-left that the VLM
+# scored 92: "That's not 92. That's like 50." Both sit far under gem_poster's
+# posting floor, so the caps are about the number being honest in the archive
+# and on the website, not about the gate (image_quality != sharp already
+# blocks an s7 post).
+_FOCUS_SCORE_CAP = {"soft": 60, "blurred": 45}
+# Worst-first, so the local verdict can only ever demote the VLM's answer.
+_QUALITY_RANK = {"sharp": 0, "soft": 1, "blurred": 2}
+
+
+def _apply_focus_verdict(camera_name: str, metadata: dict, verdict) -> bool:
+    """Overrule the VLM's image_quality with the local pixel verdict when the
+    local one is WORSE. Call before _compute_overall_score so the technical
+    axis follows. Returns True when it changed anything.
+
+    One-directional on purpose: the focus check looks for one specific defect
+    (a large out-of-focus region). It finding none is not proof the frame is
+    sharp, so it never promotes a frame the VLM called soft or blurred.
+    """
+    if verdict is None or verdict.verdict is None:
+        return False
+    metadata["focus_check"] = {"verdict": verdict.verdict,
+                               "soft_area_pct": verdict.soft_area_pct}
+    vlm_quality = metadata.get("image_quality")
+    if _QUALITY_RANK.get(verdict.verdict, 0) <= _QUALITY_RANK.get(vlm_quality, 0):
+        return False
+    metadata["focus_check"]["vlm_image_quality"] = vlm_quality
+    metadata["image_quality"] = verdict.verdict
+    log.info("%s: focus check overruled VLM image_quality %s -> %s (%.1f%% of frame out of focus)",
+             camera_name, vlm_quality, verdict.verdict, verdict.soft_area_pct)
+    return True
+
+
+def _cap_score_for_focus(metadata: dict) -> None:
+    """After scoring: hold an overruled frame under the cap, take it out of
+    the strong tier and say why. Only acts on frames _apply_focus_verdict
+    actually overruled (marked by vlm_image_quality)."""
+    focus = metadata.get("focus_check") or {}
+    if "vlm_image_quality" not in focus:
+        return
+    cap = _FOCUS_SCORE_CAP.get(focus.get("verdict"))
+    if cap is None:
+        return
+    score = metadata.get("overall_score")
+    if isinstance(score, int) and not isinstance(score, bool):
+        metadata["overall_score"] = min(score, cap)
+    if metadata.get("share_worth") == "strong":
+        # 'decent', not 'skip': the frame is still archived (downscaled) and
+        # still usable as time-lapse filler; it just is not a gem.
+        metadata["share_worth"] = "decent"
+    metadata["share_reason"] = (
+        f"Out of focus across {focus.get('soft_area_pct')}% of the frame "
+        "(local focus check) - a bird too close to the lens or moving."
     )
 
 
@@ -1034,6 +1099,16 @@ def run_cycle(camera_name: str, camera_cfg: dict, cfg: dict, schema: dict,
         ))
         return result
 
+    # Local focus verdict, from pixels. Runs before the VLM call so the judge's
+    # static (feed bowl) map keeps learning even on cycles where the VLM errors
+    # or is skipped. Abstains (None) while warming up or on any failure.
+    focus_verdict = None
+    focus_cfg = camera_cfg.get("focus_check") or {}
+    if focus_cfg.get("enabled", False):
+        focus_verdict = focus_judge_for(
+            camera_name, focus_cfg, Path(archive_root).parent / "cache"
+        ).judge(img)
+
     # Enrich via VLM. Send a downscaled copy of the frame — the model only
     # judges composition/clarity, not pixel-level detail, so a smaller image
     # is the biggest single cut to per-frame latency. The full-res jpeg_bytes
@@ -1076,8 +1151,13 @@ def run_cycle(camera_name: str, camera_cfg: dict, cfg: dict, schema: dict,
                       reason=f"transient: {type(e).__name__}: {e}")
         return result
 
+    # The focus verdict goes in BEFORE scoring so the technical axis is derived
+    # from the corrected image_quality; the cap comes after.
+    _apply_focus_verdict(camera_name, vlm_result["metadata"], focus_verdict)
+
     # Compute the 0-100 weighted score from components BEFORE any capping.
     _compute_overall_score(vlm_result["metadata"])
+    _cap_score_for_focus(vlm_result["metadata"])
 
     if _calibrate_static_floor_pecking_score(camera_name, vlm_result["metadata"]):
         log.info(

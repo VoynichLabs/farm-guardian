@@ -168,6 +168,11 @@
    "enabled": true,
    "motion_gate": false,
    "laplacian_floor": 60.0,
+   "focus_check": {
+    "enabled": true,
+    "soft_area_pct": 3.0,
+    "blurred_area_pct": 8.0
+   },
    "hunt": {
     "enabled": true,
     "burst_size": 3,

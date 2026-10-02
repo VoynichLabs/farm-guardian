@@ -346,6 +346,19 @@ birds change, update the registry (`farm-2026/content/flock-profiles.json`, date
 validate with `tools/pipeline/validate_flock_profiles.py`), not the prompt. See
 [`docs/21-Sep-2026-vlm-form-and-flock-registry-refresh-plan.md`](docs/21-Sep-2026-vlm-form-and-flock-registry-refresh-plan.md).
 
+## ✅ 02-Oct-2026 (v2.75.0) — blurry s7 frames: the fix is `focus_check.py`, NOT the score or the floor
+
+**If Boss says s7 gems are blurry, do not re-weight `_compute_overall_score` and do not move
+`_MIN_OVERALL_SCORE`.** The 4b VLM answers by rote: it wrote `"Close rooster, sharp eye, facing
+camera"` (the prompt's own example) on 522 of 1,958 frames in one day and calls a defocused bird
+at the lens `sharp`. `image_quality`, `bird_face_visible` and `detail_score` all come from that
+answer. `tools/pipeline/focus_check.py` measures focus from pixels and overrules `image_quality`
+(it only ever demotes). Thresholds live in `tools/pipeline/config.json` → `s7-cam.focus_check`.
+**Do not go back to Laplacian variance** (whole-frame or inside the YOLO box): measured three
+times now, it does not separate these frames. The judge learns the blurry feed bowl by itself
+(`data/cache/focus-static-s7-cam.npz`); deleting that file just costs a 30-frame warm-up.
+Detail: [`docs/02-Oct-2026-s7-local-focus-check-plan.md`](docs/02-Oct-2026-s7-local-focus-check-plan.md).
+
 ## LM Studio — LOAD-BEARING PRODUCTION DEPENDENCY, READ BEFORE TOUCHING
 
 This Mac Mini runs LM Studio (`http://localhost:1234`). **LM Studio is a
@@ -383,6 +396,15 @@ system.
 - **⛔ Agents: never load, unload or swap LM Studio models to "fix" the farm.** On 08-Sep an agent
   unloaded Boss's `qwen3.8-27b` to put the chicken model back. Report LM Studio state; don't
   change it.
+- **22-Sep-2026 — Boss asked for the swap back, and it was done.** `qwen3.8-27b` was resident at a
+  262k context and was the largest single consumer of memory on the Mini. Boss was told that
+  unloading it stops the VLM until the model is replaced, and he asked for the small model back:
+  `lms load qwen/qwen3-vl-4b --context-length 16384`, then a pipeline kickstart. Verified
+  afterwards — s7-cam scoring, gems posting, a large slab of memory returned. **This is not the
+  08-Sep incident repeating.** The rule above stands unchanged: reloading the 27b (or any
+  experiment model) is Boss's call, never an agent's, and no agent should "restore" it on the
+  strength of this note. The kickstart was belt-and-braces — since v2.72.1 the running daemon
+  resolves whatever model is loaded on its next cycle, so a restart is not required for a swap.
 - **⛔ Do not re-add a "validated models" allow-list to the verifier.** v2.72.0 had one for a few
   hours and Boss removed it. Known, accepted trade-off: in a test, `qwen3.5-9b` called some real
   people "spider web on lens", so while an experiment model is loaded a few real night alerts
