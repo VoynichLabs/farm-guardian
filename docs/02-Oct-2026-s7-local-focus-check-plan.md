@@ -1,6 +1,7 @@
 # 02-Oct-2026 — s7-cam local focus check (plan + result)
 
-**Author:** Claude Opus 5.5. **Status:** implemented and live as v2.75.0.
+**Author:** Claude Opus 5.5. **Status:** implemented and live as v2.75.0 (focus) and v2.75.1
+(measured fill, see the last section).
 
 ## The ask
 
@@ -101,3 +102,28 @@ eligible to post was out of focus.
   the distribution before trusting 3% / 8%.
 - The rote `share_reason` and `bird_face_visible` are still rote. This fixes focus, not the
   model's stereotyped answers in general.
+
+## Follow-up the same day: measured fill (v2.75.1)
+
+Boss, on row 3024753 (18:13:20Z), one rooster pecking at the right edge: *"This got 83. This is
+not 83."* In focus, so the focus check rightly passed it. The VLM claimed coverage 60 / largest
+45; the detector's box is 10.4% of the frame. The fill axis (25 of 90 raw points) was reading
+the VLM's claim.
+
+- Compared over 157 sharp post-eligible frames that morning: VLM coverage p10/p50/p90 =
+  45/60/75; measured union of confident boxes = 14/32/65; correlation 0.72. Sorted by the
+  measured value, everything under ~20 is a distant bird in a field of wood chips with a claimed
+  coverage of 45-65.
+- Fix: `PresenceResult.confident_coverage_pct` (union of boxes at conf >= 0.25) is written to
+  metadata as `measured_coverage_pct` and `_compute_overall_score` prefers it, with full marks
+  at 40% (`_MEASURED_FULL_PCT`) instead of 55. No measurement -> the VLM figure, unchanged.
+- Knee choice: a full-body bird at mid distance measures 25-35%. At 40, a frame with top
+  subjective scores needs about 28% measured to post, between the 08-Aug reacted (31.4%) and
+  unreacted (19.5%) medians. Tried 35/40/45/55: 144/119/98/71 post-eligible of 237.
+- The detector found no confident box on 45 of 834 sharp strong frames. The four of those that
+  were post-eligible are all birds too close to recognise, which is why "no box" falls back to
+  the VLM rather than scoring zero.
+
+**Still not measured:** whether a bird is facing the camera. Head-down and rump-to-camera frames
+at decent size still rest on the VLM's `bird_face_visible` and `expression_score`. The honest
+fix for that is a head/eye detector or a better model; model choice is Boss's.

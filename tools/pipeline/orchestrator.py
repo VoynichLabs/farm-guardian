@@ -1,4 +1,4 @@
-# Author: Claude Opus 4.7 (1M context); Claude Sonnet 4.6 (edits 27-April-2026 — vlm_bypass mode: run_raw_cycle, dedicated raw threads, raw retention sweep, v2.37.13; 28-April-2026 — sharpness gate wired in, v2.37.14; 04-May-2026 — Birds preset as prompt/schema source, v2.40.0); GPT-5.5 Codex (edits 08-May-2026 — static floor-pecking score calibration); Claude Opus 4.8 (1M context) (edits 03-June-2026 — VLM input downscale via _downscale_for_vlm + vlm_input_long_edge_px config, to cut per-frame latency, v2.40.17); Claude Opus 4.8 (Bubba sub-agent) (edits 14-June-2026 — golden-window raw capture: per-iteration thick/sparse cadence for usb-cam/dominator-cam via offpeak_cycle_seconds + timelapse_golden_windows); Claude Sonnet 4.6 (edits 27-June-2026 — run_raw_cycle quality gates + laplacian storage, v2.44.1); Claude Fable 5 (edits 02-July-2026 — Discord caption trim via gem_poster.trim_caption, v2.44.5); Claude Opus 4.8 (Bubba) (edits 12-July-2026 — _compute_overall_score 0-100 weighted-component scoring, floor-pecking cap + caption rescaled, v2.45.0; 13-July-2026 — dominance recalibrated (full at ~50% coverage) so real gems clear the 80 gate + BIRD SELFIE ping 95->90, v2.45.1); Claude Fable 5 (edits 16-July-2026 — IG-hook hashtag rotation fed from posted-caption ledger, v2.47.0); Claude Sonnet 5 Extra (edits 03-Aug-2026 — keyframe-promotion hook in run_raw_cycle for the permanent weekly/monthly time-lapse archive, v2.60.0); Claude Opus 5 (edits 09-Aug-2026 — keyframe capture switched from 3 fixed daily slots to a daylight-gated interval via _keyframe_interval_due, v2.69.0; edits 10-Sep-2026 — store the VLM model that actually answered, v2.72.0; edits 22-Sep-2026 — VLM pause keeps archiving VLM cameras as throttled raw frames via _archive_while_paused, v2.74.1); Claude Opus 5.5 (edits 02-Oct-2026 — local pixel focus check overrides the VLM's image_quality and caps the score via _apply_focus_verdict/_cap_score_for_focus, v2.75.0)
+# Author: Claude Opus 4.7 (1M context); Claude Sonnet 4.6 (edits 27-April-2026 — vlm_bypass mode: run_raw_cycle, dedicated raw threads, raw retention sweep, v2.37.13; 28-April-2026 — sharpness gate wired in, v2.37.14; 04-May-2026 — Birds preset as prompt/schema source, v2.40.0); GPT-5.5 Codex (edits 08-May-2026 — static floor-pecking score calibration); Claude Opus 4.8 (1M context) (edits 03-June-2026 — VLM input downscale via _downscale_for_vlm + vlm_input_long_edge_px config, to cut per-frame latency, v2.40.17); Claude Opus 4.8 (Bubba sub-agent) (edits 14-June-2026 — golden-window raw capture: per-iteration thick/sparse cadence for usb-cam/dominator-cam via offpeak_cycle_seconds + timelapse_golden_windows); Claude Sonnet 4.6 (edits 27-June-2026 — run_raw_cycle quality gates + laplacian storage, v2.44.1); Claude Fable 5 (edits 02-July-2026 — Discord caption trim via gem_poster.trim_caption, v2.44.5); Claude Opus 4.8 (Bubba) (edits 12-July-2026 — _compute_overall_score 0-100 weighted-component scoring, floor-pecking cap + caption rescaled, v2.45.0; 13-July-2026 — dominance recalibrated (full at ~50% coverage) so real gems clear the 80 gate + BIRD SELFIE ping 95->90, v2.45.1); Claude Fable 5 (edits 16-July-2026 — IG-hook hashtag rotation fed from posted-caption ledger, v2.47.0); Claude Sonnet 5 Extra (edits 03-Aug-2026 — keyframe-promotion hook in run_raw_cycle for the permanent weekly/monthly time-lapse archive, v2.60.0); Claude Opus 5 (edits 09-Aug-2026 — keyframe capture switched from 3 fixed daily slots to a daylight-gated interval via _keyframe_interval_due, v2.69.0; edits 10-Sep-2026 — store the VLM model that actually answered, v2.72.0; edits 22-Sep-2026 — VLM pause keeps archiving VLM cameras as throttled raw frames via _archive_while_paused, v2.74.1); Claude Opus 5.5 (edits 02-Oct-2026 — local pixel focus check overrides the VLM's image_quality and caps the score via _apply_focus_verdict/_cap_score_for_focus, v2.75.0; the fill axis reads the detector's measured bird coverage instead of the VLM's claim when one is available, v2.75.1)
 # Date: 17-April-2026 (last touched 02-Oct-2026)
 # PURPOSE: Main entry point for the multi-cam image pipeline. Schedules per-
 #          camera capture cycles at their configured cadences, runs each
@@ -254,7 +254,9 @@ def _compute_overall_score(metadata: dict) -> None:
       - notable detail    (0-20) — claws/wings/feet/features in focus (VLM 0-25)
       - technical quality (0-15) — focus + light, derived from image_quality
                                    + lighting so it can't contradict them
-      - subject fill      (0-25) — subject_coverage_pct (VLM)
+      - subject fill      (0-25) — measured_coverage_pct (detector boxes) when
+                                   present, else subject_coverage_pct (VLM);
+                                   see _MEASURED_FULL_PCT
       - company           (0-10) — bird_count (VLM)
 
     The VLM is still asked only the same two subjective questions on the same
@@ -327,18 +329,23 @@ def _compute_overall_score(metadata: dict) -> None:
     if metadata.get("lighting") in {"blown-out", "dim", "backlit"}:
         technical = max(0, technical - 4)
 
-    coverage = metadata.get("subject_coverage_pct")
+    # Measured coverage (detector boxes) wins over the VLM's claim when present.
+    coverage = metadata.get("measured_coverage_pct")
+    full_pct = _MEASURED_FULL_PCT
+    if not isinstance(coverage, int) or isinstance(coverage, bool):
+        coverage = metadata.get("subject_coverage_pct")
+        full_pct = _SUBJECT_FULL_PCT
     if not isinstance(coverage, int) or isinstance(coverage, bool):
         # Pre-v2.38 rows have no coverage field. Award nothing rather than
         # guessing — a missing measurement is not evidence of a full frame.
         fill = 0
     elif coverage <= _SUBJECT_ZERO_PCT:
         fill = 0
-    elif coverage >= _SUBJECT_FULL_PCT:
+    elif coverage >= full_pct:
         fill = _SUBJECT_MAX_POINTS
     else:
         fill = round(_SUBJECT_MAX_POINTS * (coverage - _SUBJECT_ZERO_PCT)
-                     / (_SUBJECT_FULL_PCT - _SUBJECT_ZERO_PCT))
+                     / (full_pct - _SUBJECT_ZERO_PCT))
 
     bird_count = metadata.get("bird_count")
     if not isinstance(bird_count, int) or isinstance(bird_count, bool) or bird_count < 1:
@@ -812,6 +819,30 @@ _SUBJECT_ZERO_PCT = 12
 _SUBJECT_FULL_PCT = 55
 _SUBJECT_MAX_POINTS = 25
 
+# v2.75.1 (02-Oct-2026): the fill axis prefers a MEASURED coverage — the union
+# of confident YOLO animal boxes, written to metadata as `measured_coverage_pct`
+# by run_cycle — over the VLM's `subject_coverage_pct`. Boss, on a frame of one
+# rooster pecking at the right edge that scored 83: "This is not 83." The VLM
+# reported coverage 60 / largest 45 on it; the detector measured 10.4% of the
+# frame. The VLM's coverage is as rote as its focus verdict: across 157 sharp
+# post-eligible frames that morning its p10-p90 was 45-75 while the measured
+# value ran 14-65, and every "distant bird in a field of wood chips" frame sat
+# at a claimed 45-65.
+#
+# A box is a different quantity from a silhouette estimate, so it gets its own
+# upper knee rather than reusing 55. A full-body bird at mid-distance measures
+# 25-35%; frame-fillers 50+. With full marks at 40, a frame with top subjective
+# scores needs roughly 28% measured to clear the posting floor, which sits
+# between the 08-Aug measurement of reacted (median 31.4% largest box) and
+# strong-but-unreacted (19.5%) frames. Backtest over 01-02 Oct on frames the
+# focus check passed: 237 post-eligible -> 119.
+#
+# When there is no measurement (detector abstained, or found no confident box:
+# about 1 frame in 20, usually a bird too close to recognise) the VLM figure
+# and its 55 knee are used unchanged.
+_MEASURED_FULL_PCT = 40
+_MEASURED_MIN_CONFIDENCE = 0.25
+
 # Company axis (v2.73.0), from the VLM's `bird_count`. Boss, 19-Sep-2026: "one
 # bird looking at the camera ... a doubly good picture is two birds and that
 # three-bird picture is just as good as a picture can get." Crowd frames read
@@ -997,6 +1028,9 @@ def run_cycle(camera_name: str, camera_cfg: dict, cfg: dict, schema: dict,
     # 5.2 s VLM call on an empty enclosure.
     hunt_cfg = camera_cfg.get("hunt") or {}
     hunt_enabled = bool(hunt_cfg.get("enabled", False))
+    # How much of the winning frame is bird, measured by the detector. Stays
+    # None outside hunt mode and whenever the detector has nothing confident.
+    measured_coverage = None
     if hunt_enabled:
         hunt_out = _hunt_capture(camera_name, camera_cfg, cfg, hunt_cfg)
         if hunt_out.get("status"):
@@ -1006,6 +1040,9 @@ def run_cycle(camera_name: str, camera_cfg: dict, cfg: dict, schema: dict,
         img = hunt_out["img"]
         last_gate_metrics = hunt_out["gate_metrics"]
         result["hunt"] = hunt_out["hunt"]
+        measured_coverage = hunt_out["presence"].confident_coverage_pct(
+            _MEASURED_MIN_CONFIDENCE
+        )
 
     # Legacy single-capture path — skipped entirely in hunt mode, which has
     # already chosen its winner above.
@@ -1154,6 +1191,9 @@ def run_cycle(camera_name: str, camera_cfg: dict, cfg: dict, schema: dict,
     # The focus verdict goes in BEFORE scoring so the technical axis is derived
     # from the corrected image_quality; the cap comes after.
     _apply_focus_verdict(camera_name, vlm_result["metadata"], focus_verdict)
+
+    if measured_coverage is not None:
+        vlm_result["metadata"]["measured_coverage_pct"] = int(round(measured_coverage))
 
     # Compute the 0-100 weighted score from components BEFORE any capping.
     _compute_overall_score(vlm_result["metadata"])

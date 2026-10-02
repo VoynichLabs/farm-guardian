@@ -4,6 +4,41 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.75.1 — s7-cam: the score's fill axis uses measured bird size, not the VLM's claim (Claude Opus 5.5) — 02-Oct-2026
+
+**What / why:** Boss, an hour after v2.75.0, on a frame of one rooster pecking at the right
+edge with the rest of the picture wood chips: "This got 83. This is not 83." The focus check
+correctly passed it (it is in focus). The VLM reported `subject_coverage_pct: 60`,
+`largest_subject_pct: 45`; the detector measures the bird at 10.4% of the frame. Same disease
+as v2.75.0: the VLM's coverage is rote. Over 157 sharp post-eligible frames that morning its
+p10-p90 was 45-75 while the measured value ran 14-65, and every distant-bird frame sat at a
+claimed 45-65. Fill is 25 of the score's 90 raw points.
+
+**How:**
+- `presence.py`: `Box` now carries `width`/`height`; new
+  `PresenceResult.confident_coverage_pct(min_confidence=0.25)` returns the union of confident
+  animal boxes as a percent of the frame, or `None` when the detector abstained or has nothing
+  confident. The gate's own conf 0.05 is too loose to measure with (it boxed the feed bag).
+- `orchestrator.py`: `run_cycle` writes `measured_coverage_pct` into the metadata from the
+  hunt winner's detector result; `_compute_overall_score` reads it in preference to
+  `subject_coverage_pct`, with its own upper knee (`_MEASURED_FULL_PCT = 40`; a box is a
+  different quantity from a silhouette estimate). Zero knee stays 12. With no measurement
+  (about 1 frame in 20, usually a bird too close for the detector) the VLM figure and the 55
+  knee are used unchanged.
+- The posting floor, the other four axes, the prompt and the schema are unchanged. The VLM's own
+  `subject_coverage_pct` is still stored as it answered.
+
+**Measured:** Boss's frame 83 -> 56. Over 01-02 Oct, of frames the focus check passes, 237 were
+post-eligible before and 119 after (109 the same frames, 10 newly eligible because the VLM
+under-called a large bird). Crisp close frames are untouched (92 -> 92, 85 -> 85); a full-body
+rooster at a third of the frame goes 92 -> 85 and still posts.
+
+**Not fixed:** head-down, rump-to-camera and half-out-of-frame birds. Those turn on
+`bird_face_visible` and `expression_score`, which are the VLM's and there is no local
+measurement for them yet. Size removes most of them; some large ones will still post.
+
+**Verified:** `test_measured_coverage.py` (6 tests) plus the existing three test files.
+
 ### v2.75.0 — s7-cam: out-of-focus frames stop scoring 92 and posting (Claude Opus 5.5) — 02-Oct-2026
 
 **What / why:** Boss, with a frame attached: "The VLM pipeline is spamming me with photos that

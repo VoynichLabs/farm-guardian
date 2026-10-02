@@ -357,6 +357,13 @@ answer. `tools/pipeline/focus_check.py` measures focus from pixels and overrules
 **Do not go back to Laplacian variance** (whole-frame or inside the YOLO box): measured three
 times now, it does not separate these frames. The judge learns the blurry feed bowl by itself
 (`data/cache/focus-static-s7-cam.npz`); deleting that file just costs a 30-frame warm-up.
+**Same story for size (v2.75.1):** the VLM's `subject_coverage_pct` is rote too (it said 60 for a
+bird the detector measured at 10% of the frame). The score's fill axis now reads
+`measured_coverage_pct` (union of confident YOLO boxes, `presence.confident_coverage_pct`) with
+full marks at 40 (`_MEASURED_FULL_PCT`), and falls back to the VLM figure only when the detector
+has nothing confident. **General rule: when Boss says a score is wrong, find which VLM-reported
+field is lying and measure it locally. Do not move the floor.** Still unmeasured: whether the
+bird faces the camera.
 Detail: [`docs/02-Oct-2026-s7-local-focus-check-plan.md`](docs/02-Oct-2026-s7-local-focus-check-plan.md).
 
 ## LM Studio — LOAD-BEARING PRODUCTION DEPENDENCY, READ BEFORE TOUCHING

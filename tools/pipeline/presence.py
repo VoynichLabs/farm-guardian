@@ -1,5 +1,5 @@
-# Author: Claude Opus 5
-# Date: 07-August-2026
+# Author: Claude Opus 5; Claude Opus 5.5 (02-Oct-2026 — Box carries width/height and PresenceResult.confident_coverage_pct measures how much of the frame the birds fill, v2.75.1)
+# Date: 07-August-2026 (last touched 02-Oct-2026)
 # PURPOSE: Cheap "is there actually an animal in this frame?" gate that runs
 #          BEFORE the VLM in the s7-cam gem-hunting path. YOLOv8 inference costs
 #          ~16 ms on MPS; a Qwen3-VL-4B call costs ~5.2 s. Measured over 21 days
@@ -90,6 +90,8 @@ class Box:
     area_pct: float          # % of total frame area
     cx: float                # centre x, 0..1
     cy: float                # centre y, 0..1
+    width: float = 0.0       # box width, 0..1 of frame width
+    height: float = 0.0      # box height, 0..1 of frame height
 
 
 @dataclass
@@ -106,6 +108,39 @@ class PresenceResult:
     @property
     def largest_area_pct(self) -> float:
         return max((b.area_pct for b in self.boxes), default=0.0)
+
+    def confident_coverage_pct(self, min_confidence: float = 0.25) -> float | None:
+        """Share of the frame (percent) covered by the UNION of animal boxes
+        the detector is reasonably sure about, or None when there is nothing
+        to measure (abstained, or no box at that confidence).
+
+        This is a measurement of how much of the picture is bird, for the gem
+        score's fill axis. The gate's own conf (0.05) is tuned for recall and
+        is far too loose for this: at 0.05 a feed bag came back as a "bird"
+        covering a tenth of the frame. Union, not sum, because boxes overlap
+        heavily when birds stand together.
+
+        None means "don't know", and the caller keeps the VLM's own estimate.
+        The detector misses about one bird frame in twenty at this confidence,
+        typically a bird so close it fills the frame, so a miss must not be
+        read as an empty frame.
+        """
+        if self.abstained:
+            return None
+        confident = [b for b in self.boxes
+                     if b.confidence >= min_confidence and b.width > 0 and b.height > 0]
+        if not confident:
+            return None
+        # A coarse occupancy grid is plenty: the score only needs whole percent.
+        grid = 200
+        covered = np.zeros((grid, grid), dtype=bool)
+        for b in confident:
+            x1 = int(max(0.0, b.cx - b.width / 2) * grid)
+            x2 = int(min(1.0, b.cx + b.width / 2) * grid + 0.999)
+            y1 = int(max(0.0, b.cy - b.height / 2) * grid)
+            y2 = int(min(1.0, b.cy + b.height / 2) * grid + 0.999)
+            covered[y1:y2, x1:x2] = True
+        return float(100.0 * covered.mean())
 
 
 class PresenceDetector:
@@ -219,6 +254,8 @@ class PresenceDetector:
                     area_pct=100.0 * (x2 - x1) * (y2 - y1) / frame_area,
                     cx=(x1 + x2) / 2.0 / width,
                     cy=(y1 + y2) / 2.0 / height,
+                    width=(x2 - x1) / width,
+                    height=(y2 - y1) / height,
                 )
             )
         return PresenceResult(
