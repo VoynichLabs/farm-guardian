@@ -50,3 +50,16 @@ this cache must not be able to fill any disk.
 - [ ] Tests: eviction stays under cap and keeps recently used files; unmounted → no writes;
       non-whitelisted size rejected.
 - [ ] Run tests, restart Guardian once (backup/rollback tag first), verify live, CHANGELOG.
+
+## Addendum (same day) — 12-hour expiry (Boss update)
+
+The cache only needs about 12 hours of frames. Added `images.thumb_cache.max_age_seconds`
+(default 43200 = 12 h): resized copies not used for that long are deleted, on top of the size
+cap. "Used" = the file's mtime, set on write and refreshed on a cache hit (hourly throttle),
+so tiles the website keeps showing stay warm. The prune runs at startup and on image access at
+most every 10 minutes. It only ever deletes files inside the cache dir — archive originals,
+gems and anything the social pipelines read are untouched.
+
+- [x] `max_age_seconds` config + default, expiry in the eviction scan, throttled on-access prune.
+- [x] Tests: default is 12 h; startup expires copies past 12 h, keeps younger ones and the
+      original; prune on access; configurable.

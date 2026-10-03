@@ -9,7 +9,9 @@
 #          v2.77.0: proves the cache cannot fill a disk — LRU eviction keeps
 #          it under max_bytes, recently used files survive eviction, an
 #          unmounted SSD / missing volume / low free space means zero disk
-#          writes, and only whitelisted sizes can be cached.
+#          writes, and only whitelisted sizes can be cached. Copies unused
+#          for 12 hours (configurable) expire at startup and on access, and
+#          the archive originals are never touched.
 #          Real Pillow encodes against a real portrait JPEG in a temp dir.
 # SRP/DRY check: Pass — exercises images_thumb only; no DB, no HTTP.
 
@@ -120,7 +122,7 @@ def test_eviction_keeps_cache_under_cap_and_spares_recent_files():
         _setup_cap = {"dir": str(thumbs), "require_mount": None, "min_free_bytes": 0, "max_bytes": cap}
         images_thumb.configure(tmp, _setup_cap)
         keep = "f" * 64
-        now = int(time.time()) - 100_000  # older than any real write below
+        now = int(time.time()) - 3600  # older than any real write, inside the 12 h expiry
         for i in range(40):
             sha = f"{i:064d}"
             images_thumb.get_thumb(sha, "archive/gem.jpg", 720, images_thumb.FORMAT_WEBP)
@@ -232,6 +234,65 @@ def test_non_whitelisted_size_is_refused():
         else:
             raise AssertionError("size 333 should be refused")
         assert not any((tmp / "cache" / "thumbs").iterdir())
+
+
+def _age(path: Path, seconds: float) -> None:
+    t = time.time() - seconds
+    os.utime(path, (t, t))
+
+
+def test_default_expiry_is_twelve_hours():
+    with tempfile.TemporaryDirectory() as d:
+        _setup(Path(d))
+        assert images_thumb.cache_stats()["max_age_seconds"] == 12 * 3600
+
+
+def test_startup_expires_copies_older_than_twelve_hours_but_not_originals():
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        src = _setup(tmp)
+        thumbs = tmp / "cache" / "thumbs"
+        old = thumbs / f"{'1' * 64}-720-webp.webp"
+        fresh = thumbs / f"{'2' * 64}-480.jpg"
+        old.write_bytes(b"x" * 100)
+        fresh.write_bytes(b"x" * 100)
+        _age(old, 12 * 3600 + 60)    # just past 12 hours
+        _age(fresh, 11 * 3600)       # just inside
+        _age(src, 400 * 86400)       # an old archive original
+        images_thumb.configure(tmp, {"dir": str(thumbs), "require_mount": None, "min_free_bytes": 0})
+        assert not old.exists(), "copy older than 12 h survived"
+        assert fresh.exists(), "copy younger than 12 h was deleted"
+        assert src.exists(), "archive original was deleted"
+        assert images_thumb.cache_stats()["bytes"] == _dir_bytes(thumbs)
+
+
+def test_expiry_prunes_on_access():
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        src = _setup(tmp)
+        thumbs = tmp / "cache" / "thumbs"
+        stale = thumbs / f"{'3' * 64}-1920.jpg"
+        stale.write_bytes(b"x" * 100)
+        _age(stale, 13 * 3600)
+        images_thumb._last_prune = 0.0  # pretend the 10-minute prune interval has passed
+        images_thumb.get_thumb(_SHA, "archive/gem.jpg", 720, images_thumb.FORMAT_WEBP)
+        assert not stale.exists(), "stale copy not pruned on access"
+        assert (thumbs / f"{_SHA}-720-webp.webp").exists()
+        assert src.exists()
+
+
+def test_expiry_is_configurable():
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        _setup(tmp)
+        thumbs = tmp / "cache" / "thumbs"
+        f = thumbs / f"{'4' * 64}-480.jpg"
+        f.write_bytes(b"x")
+        _age(f, 120)
+        images_thumb.configure(tmp, {"dir": str(thumbs), "require_mount": None,
+                                     "min_free_bytes": 0, "max_age_seconds": 60})
+        assert images_thumb.cache_stats()["max_age_seconds"] == 60
+        assert not f.exists()
 
 
 if __name__ == "__main__":

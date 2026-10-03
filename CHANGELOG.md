@@ -4,6 +4,22 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.78.0 — gem images: resized copies expire after 12 hours (Claude Opus 5.5) — 03-Oct-2026
+
+**What / why:** Boss update to v2.77.0 — the resized-image cache only needs about 12 hours of
+frames. Size cap alone let copies of old gems sit around until the cap pushed them out.
+
+**How:**
+- `images.thumb_cache.max_age_seconds` (default 43200 = 12 h) in `config.json` /
+  `config.example.json`. Copies whose mtime (set on write, refreshed on a cache hit at most
+  hourly) is older than that are deleted, before the LRU size cap is applied.
+- The prune runs at startup and on image access at most every 10 minutes
+  (`_maybe_prune`); no extra thread.
+- Only files in the cache dir are deleted. Archive originals, gems, and anything the social
+  pipelines read are never touched.
+- Tests: `test_images_thumb.py` now 16 — 12 h default, startup expiry keeps younger copies and
+  the original, prune on access, configurable expiry.
+
 ### v2.77.0 — gem images: the resized-image cache can no longer fill a disk (Claude Opus 5.5) — 03-Oct-2026
 
 **What / why:** Boss directive after v2.76.0. The thumbnail/card cache in `images_thumb.py`

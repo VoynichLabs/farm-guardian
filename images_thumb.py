@@ -23,7 +23,10 @@
 #          the SSD is really mounted and has headroom; otherwise the variant is
 #          encoded in memory and nothing touches disk. Over the cap, least-
 #          recently-used files (mtime, refreshed on hit) are evicted. Only the
-#          whitelisted sizes in ALLOWED_SIZES can be cached.
+#          whitelisted sizes in ALLOWED_SIZES can be cached. Copies not used
+#          for max_age_seconds (default 12 h) expire; the prune runs at
+#          startup and on access at most every 10 minutes. Only resized
+#          copies in the cache dir are ever deleted — never archive originals.
 # SRP/DRY check: Pass — single responsibility is image-bytes delivery.
 
 from __future__ import annotations
@@ -63,11 +66,14 @@ _DATA_ROOT: Path = Path("data")
 # Resized-image cache settings (config: images.thumb_cache). Defaults are the
 # safe production values: cache on the Samsung SSD, never written unless that
 # volume is really mounted, hard-capped at 2 GiB, and never written when the
-# SSD is down to its last 20 GiB.
+# SSD is down to its last 20 GiB. Copies not used for 12 hours expire.
 DEFAULT_CACHE_DIR = "/Volumes/Samsung 9100 SSD/farm-guardian-data/cache/thumbs"
 DEFAULT_REQUIRE_MOUNT = "/Volumes/Samsung 9100 SSD"
 DEFAULT_MAX_BYTES = 2 * 1024 ** 3
 DEFAULT_MIN_FREE_BYTES = 20 * 1024 ** 3
+DEFAULT_MAX_AGE_SECONDS = 12 * 3600
+# Expiry pruning runs on access, at most this often (plus once at startup).
+_PRUNE_INTERVAL_S = 600
 # Eviction runs the cache down to this fraction of the cap so it does not
 # rescan the directory on every single write once it is full.
 _EVICT_TO_FRACTION = 0.9
@@ -83,6 +89,8 @@ _THUMB_CACHE: Path = Path(DEFAULT_CACHE_DIR)
 _REQUIRE_MOUNT: Optional[Path] = Path(DEFAULT_REQUIRE_MOUNT)
 _MAX_BYTES: int = DEFAULT_MAX_BYTES
 _MIN_FREE_BYTES: int = DEFAULT_MIN_FREE_BYTES
+_MAX_AGE_S: int = DEFAULT_MAX_AGE_SECONDS
+_last_prune: float = 0.0
 _cache_lock = threading.Lock()
 _cache_total: int = 0  # running byte total of files in _THUMB_CACHE
 
@@ -106,10 +114,13 @@ def configure(data_root: Path, cache_cfg: Optional[dict] = None) -> None:
                      null disables the check (tests only)
       max_bytes      hard cap on the cache's total size
       min_free_bytes skip writes when the cache volume has less free space
+      max_age_seconds   delete copies not used for this long (default 12 h);
+                        a cache hit counts as use (mtime, refreshed hourly)
 
     Never raises: an unmounted SSD just means every request is resized in
     memory with no disk writes, instead of taking Guardian down."""
-    global _DATA_ROOT, _THUMB_CACHE, _REQUIRE_MOUNT, _MAX_BYTES, _MIN_FREE_BYTES, _cache_total
+    global _DATA_ROOT, _THUMB_CACHE, _REQUIRE_MOUNT, _MAX_BYTES, _MIN_FREE_BYTES, _MAX_AGE_S
+    global _cache_total, _last_prune
     cfg = cache_cfg or {}
     _DATA_ROOT = Path(data_root)
     _THUMB_CACHE = Path(cfg.get("dir") or DEFAULT_CACHE_DIR)
@@ -117,8 +128,10 @@ def configure(data_root: Path, cache_cfg: Optional[dict] = None) -> None:
     _REQUIRE_MOUNT = Path(mount) if mount else None
     _MAX_BYTES = int(cfg.get("max_bytes", DEFAULT_MAX_BYTES))
     _MIN_FREE_BYTES = int(cfg.get("min_free_bytes", DEFAULT_MIN_FREE_BYTES))
+    _MAX_AGE_S = int(cfg.get("max_age_seconds", DEFAULT_MAX_AGE_SECONDS))
     with _cache_lock:
         _cache_total = 0
+        _last_prune = 0.0
         if not _cache_writable():
             log.warning("thumb cache %s unavailable (SSD %s not mounted?) — resizing "
                         "in memory, no disk writes", _THUMB_CACHE, _REQUIRE_MOUNT)
@@ -128,10 +141,10 @@ def configure(data_root: Path, cache_cfg: Optional[dict] = None) -> None:
         except OSError as exc:
             log.warning("thumb cache %s unavailable: %s", _THUMB_CACHE, exc)
             return
-        # Seed the running total and enforce the cap on whatever is there now.
+        # Seed the running total; expire and cap whatever is there now.
         _evict_locked(force_scan=True)
-    log.info("thumb cache %s: %.1f MB of %.1f MB cap", _THUMB_CACHE,
-             _cache_total / 1e6, _MAX_BYTES / 1e6)
+    log.info("thumb cache %s: %.1f MB of %.1f MB cap, %.1f h expiry", _THUMB_CACHE,
+             _cache_total / 1e6, _MAX_BYTES / 1e6, _MAX_AGE_S / 3600)
 
 
 def _cache_writable() -> bool:
@@ -163,13 +176,18 @@ def _enough_free_space() -> bool:
 
 
 def _evict_locked(force_scan: bool = False) -> None:
-    """With _cache_lock held: if the cache is over its cap, delete the least
+    """With _cache_lock held: delete copies not used for _MAX_AGE_S
+    (expiry), then, if the cache is still over its cap, delete the least
     recently used files (oldest mtime) until it is at or below
-    _EVICT_TO_FRACTION of the cap. Re-syncs _cache_total from disk whenever
-    it scans, so out-of-band deletes or crashes cannot make it drift."""
-    global _cache_total
-    if not force_scan and _cache_total <= _MAX_BYTES:
+    _EVICT_TO_FRACTION of the cap. Scans when forced, over the cap, or when
+    the expiry prune is due. Re-syncs _cache_total from disk whenever it
+    scans, so out-of-band deletes or crashes cannot make it drift."""
+    global _cache_total, _last_prune
+    now = time.time()
+    prune_due = now - _last_prune >= _PRUNE_INTERVAL_S
+    if not force_scan and not prune_due and _cache_total <= _MAX_BYTES:
         return
+    _last_prune = now
     try:
         entries = []
         for e in os.scandir(_THUMB_CACHE):
@@ -186,6 +204,23 @@ def _evict_locked(force_scan: bool = False) -> None:
     except OSError as exc:
         log.warning("thumb cache scan failed: %s", exc)
         return
+    if _MAX_AGE_S > 0:
+        cutoff = now - _MAX_AGE_S
+        kept, expired = [], 0
+        for entry in entries:
+            if entry[0] < cutoff:
+                try:
+                    os.unlink(entry[2])
+                    expired += 1
+                    continue
+                except FileNotFoundError:
+                    continue
+                except OSError as exc:
+                    log.warning("thumb cache expire %s failed: %s", entry[2], exc)
+            kept.append(entry)
+        entries = kept
+        if expired:
+            log.info("thumb cache expired %d files unused for %.1f h", expired, _MAX_AGE_S / 3600)
     total = sum(size for _, size, _ in entries)
     if total > _MAX_BYTES:
         target = int(_MAX_BYTES * _EVICT_TO_FRACTION)
@@ -216,6 +251,16 @@ def _touch(path: Path) -> None:
         pass
 
 
+def _maybe_prune() -> None:
+    """Run the expiry prune on access, at most every _PRUNE_INTERVAL_S.
+    Cheap check first so the lock is not taken on every request."""
+    if time.time() - _last_prune < _PRUNE_INTERVAL_S:
+        return
+    with _cache_lock:
+        if _cache_writable():
+            _evict_locked()
+
+
 def _store(cache_path: Path, data: bytes) -> None:
     """Write one variant into the cache if — and only if — it is safe to:
     SSD mounted, enough free space, then enforce the cap. Any failure leaves
@@ -240,7 +285,7 @@ def cache_stats() -> dict:
     """Current cache location, size and cap (for checks and logging)."""
     with _cache_lock:
         return {"dir": str(_THUMB_CACHE), "bytes": _cache_total, "max_bytes": _MAX_BYTES,
-                "writable": _cache_writable()}
+                "max_age_seconds": _MAX_AGE_S, "writable": _cache_writable()}
 
 
 def placeholder() -> tuple[bytes, dict]:
@@ -319,6 +364,7 @@ def get_thumb(
     suffix = f"{size}" if fmt == FORMAT_JPEG else f"{size}-{fmt}"
     cache_path = _THUMB_CACHE / f"{cache_key}-{suffix}.{ext}"
     etag = f'"{cache_key}-{suffix}"'
+    _maybe_prune()
     try:
         data = cache_path.read_bytes()
         _touch(cache_path)
