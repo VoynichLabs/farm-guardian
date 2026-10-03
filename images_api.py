@@ -214,7 +214,7 @@ def build_images_router(db: GuardianDB, config: dict) -> APIRouter:
         if reel_assets_dir.is_absolute()
         else data_root / reel_assets_dir
     )
-    images_thumb.configure(data_root)
+    images_thumb.configure(data_root, images_cfg.get("thumb_cache"))
 
     router = APIRouter(prefix="/api/v1/images", tags=["images"])
 

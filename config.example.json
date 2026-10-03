@@ -133,6 +133,14 @@
     "enabled": false,
     "night_only": true
   },
+  "images": {
+    "thumb_cache": {
+      "dir": "/Volumes/Samsung 9100 SSD/farm-guardian-data/cache/thumbs",
+      "require_mount": "/Volumes/Samsung 9100 SSD",
+      "max_bytes": 2147483648,
+      "min_free_bytes": 21474836480
+    }
+  },
   "storage": {
     "events_dir": "events",
     "exports_dir": "data/exports",
