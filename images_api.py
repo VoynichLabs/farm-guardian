@@ -1,5 +1,5 @@
-# Author: Claude Opus 4.6 (1M context); updated GPT-5.5 04-May-2026; Claude Opus 5 21-Sep-2026 (standout_bird field, v2.74.0)
-# Date: 14-April-2026
+# Author: Claude Opus 4.6 (1M context); updated GPT-5.5 04-May-2026; Claude Opus 5 21-Sep-2026 (standout_bird field, v2.74.0); Claude Opus 5.5 03-Oct-2026 (card image variant, v2.76.0)
+# Date: 14-April-2026 (updated 03-Oct-2026)
 # PURPOSE: REST API surface for Farm Guardian's image archive (the dataset
 #          produced by tools/pipeline/*). Public endpoints serve curated gems,
 #          recent frames, and stats to farm-2026 at
@@ -28,6 +28,14 @@
 #          stream from data/reel-assets/ and are swept after 48h by
 #          ig_poster._sweep_expired_assets. See
 #          farm-2026/docs/01-Aug-2026-reel-hosting-remediation-plan.md.
+#
+#          03-Oct-2026: /gems/{id}/image gained size=card — a 720px-long-edge
+#          WebP for gallery/home-rail tiles — and public rows gained card_url
+#          pointing at it. Recent gems are 1080x1920 portrait, so size=1920 is
+#          a full-frame re-encode (~0.4-0.7 MB) that farm-2026 was showing in
+#          small tiles. thumb/1920/full and full_url are unchanged (GemLightbox
+#          uses full_url). Image responses now cache for 30 days. Plan:
+#          docs/03-Oct-2026-gem-card-image-variant-plan.md.
 # SRP/DRY check: Pass — single responsibility is the /api/v1/images/* HTTP
 #                surface. SQL lives in database.py; thumbnailing in
 #                images_thumb.py; auth in images_auth.py.
@@ -65,13 +73,18 @@ _VALID_ACTIVITIES = {
 _VALID_TIERS_PUBLIC = {"strong", "decent"}
 _VALID_TIERS_REVIEW = {"strong", "decent", "skip"}
 _VALID_ORDERS = {"newest", "oldest", "random"}
-_VALID_IMAGE_SIZES = {"thumb", "1920", "full"}
-_SIZE_PX = {"thumb": 480, "1920": 1920, "full": 0}
+_VALID_IMAGE_SIZES = {"thumb", "card", "1920", "full"}
+_SIZE_PX = {"thumb": 480, "card": 720, "1920": 1920, "full": 0}
+# card is the only WebP variant; every other size keeps its JPEG bytes.
+_SIZE_FORMAT = {"card": images_thumb.FORMAT_WEBP}
 _VALID_STORY_ASSET_EXTENSIONS = {".jpg", ".jpeg", ".png"}
 _VALID_REEL_ASSET_EXTENSIONS = {".mp4"}
 
 _PUBLIC_CACHE_LIST = "public, max-age=60, s-maxage=300"
-_PUBLIC_CACHE_IMAGE = "public, max-age=86400, immutable"
+# 30 days: the ETag/cache key is the source sha256, so bytes behind a URL
+# never change; a demoted gem 404s instead.
+_PUBLIC_CACHE_IMAGE = "public, max-age=2592000, immutable"
+_PUBLIC_CACHE_DEGRADED_IMAGE = "public, max-age=60"
 _PRIVATE_CACHE = "no-store"
 
 
@@ -230,6 +243,7 @@ def build_images_router(db: GuardianDB, config: dict) -> APIRouter:
             "camera_id": d["camera_id"],
             "ts": d["ts"],
             "thumb_url": _public_url(request_base, d["id"], "thumb"),
+            "card_url": _public_url(request_base, d["id"], "card"),
             "full_url": _public_url(request_base, d["id"], "1920"),
             "width": d["width"],
             "height": d["height"],
@@ -361,17 +375,27 @@ def build_images_router(db: GuardianDB, config: dict) -> APIRouter:
         image_path_rel = row["image_path"]
         sha = row["sha256"]
         size_px = _SIZE_PX[size]
+        fmt = _SIZE_FORMAT.get(size, images_thumb.FORMAT_JPEG)
 
-        jpeg_bytes, etag = images_thumb.get_thumb(sha, image_path_rel or "", size_px)
+        img_bytes, etag, media_type = images_thumb.get_thumb(
+            sha, image_path_rel or "", size_px, fmt,
+        )
         # If-None-Match → 304
         inm = request.headers.get("if-none-match")
         if inm and inm == etag:
             return Response(status_code=304, headers={"ETag": etag})
+        # Placeholder / failed-resize fallbacks must not stick in browser
+        # caches for 30 days — a later request should get the real image.
+        cache_control = (
+            _PUBLIC_CACHE_DEGRADED_IMAGE
+            if images_thumb.is_degraded_etag(etag)
+            else _PUBLIC_CACHE_IMAGE
+        )
         return Response(
-            content=jpeg_bytes,
-            media_type="image/jpeg",
+            content=img_bytes,
+            media_type=media_type,
             headers={
-                "Cache-Control": _PUBLIC_CACHE_IMAGE,
+                "Cache-Control": cache_control,
                 "ETag": etag,
             },
         )
