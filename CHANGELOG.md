@@ -4,6 +4,17 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.78.1 — camera watchdog: ignore list for cameras known down on purpose (Claude Sonnet 5.5) — 03-Oct-2026
+
+**What / why:** the staleness watchdog kept re-posting "Camera down" in #farm-2026 every ~10 minutes. Boss knows
+`usb-webcam-1080p` is unplugged at Birdcatraz (the Pi reports `device_present: false`), and
+`macbook-air-facetime` flaps; because the dead set changed between ticks, the watchdog escalated each time.
+
+**How:** `tools/camera-staleness-watchdog/watchdog.py` reads `ignore.txt` in its service dir
+(`~/.local/farm-services/camera-staleness-watchdog/`, one name per line) and `CAMERA_STALENESS_IGNORE`;
+ignored cameras count as neither live nor dead. Read every tick, no restart needed. Currently ignored:
+`usb-webcam-1080p`, `macbook-air-facetime`. Delete a line to resume alerts for that camera.
+
 ### v2.78.0 — gem images: resized copies expire after 12 hours (Claude Opus 5.5) — 03-Oct-2026
 
 **What / why:** Boss update to v2.77.0 — the resized-image cache only needs about 12 hours of

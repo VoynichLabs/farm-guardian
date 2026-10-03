@@ -21,6 +21,11 @@
 #          unreachable), because that means the farm has lost all eyes and is worth waking
 #          someone for. A single dead camera logs + posts WITHOUT a mention.
 #
+# 03-Oct-2026 (Claude Sonnet 5.5): added an IGNORE list (ignore.txt in SERVICE_ROOT, one camera name per
+#          line, or CAMERA_STALENESS_IGNORE) for cameras the Boss knows are down on purpose. A dead
+#          camera that flaps (macbook-air-facetime) or is unplugged (usb-webcam-1080p) re-fired the
+#          alert every ~10 min because the dead SET changed between ticks. Ignored cameras count as
+#          neither live nor dead. Remove a name from the file to resume alerting on it.
 # SRP/DRY check: Pass — reuses Guardian's liveness verdict rather than recomputing it, and
 #          mirrors birdcatraz-watchdog's proven state/alert/recovery structure. Verified no
 #          existing tool watches per-camera staleness: birdcatraz-watchdog probes farm-pi5
@@ -57,6 +62,8 @@ FAIL_THRESHOLD = int(os.environ.get("CAMERA_STALENESS_FAIL_THRESHOLD", "2"))
 HTTP_TIMEOUT_S = float(os.environ.get("CAMERA_STALENESS_TIMEOUT", "10"))
 WEBHOOK_TIMEOUT_S = 10
 
+IGNORE_PATH = SERVICE_ROOT / "ignore.txt"
+
 SERVICE_ROOT.mkdir(parents=True, exist_ok=True)
 logging.basicConfig(
     filename=str(LOG_PATH),
@@ -64,6 +71,24 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(message)s",
 )
 log = logging.getLogger("camera-staleness-watchdog")
+
+
+def load_ignored() -> set[str]:
+    """Camera names to leave out of outage accounting (known-down on purpose).
+
+    Read from CAMERA_STALENESS_IGNORE (comma list) plus ignore.txt in SERVICE_ROOT. The file
+    exists because launchd hands this job a near-empty environment. Lines starting with # are
+    comments. Read every tick so editing the file takes effect with no restart.
+    """
+    names = {n.strip() for n in os.environ.get("CAMERA_STALENESS_IGNORE", "").split(",") if n.strip()}
+    try:
+        for line in IGNORE_PATH.read_text().splitlines():
+            line = line.strip()
+            if line and not line.startswith("#"):
+                names.add(line)
+    except OSError:
+        pass
+    return names
 
 
 def load_webhook() -> str:
@@ -104,9 +129,10 @@ def fetch_camera_state() -> tuple[bool, list[str], list[str]]:
 
     rows = payload if isinstance(payload, list) else payload.get("cameras", [])
     live, dead = [], []
+    ignored = load_ignored()
     for row in rows:
         name = row.get("name")
-        if not name:
+        if not name or name in ignored:
             continue
         # `online` is v2.71.5 liveness (discovered AND producing frames). A camera that is
         # configured but was never discovered is NOT counted as an outage — that is a
