@@ -1,4 +1,4 @@
-# Author: Claude Opus 4.6 (1M context); updated GPT-5.5 04-May-2026; Claude Opus 5 21-Sep-2026 (standout_bird field, v2.74.0); Claude Opus 5.5 03-Oct-2026 (card image variant, v2.76.0)
+# Author: Claude Opus 4.6 (1M context); updated GPT-5.5 04-May-2026; Claude Opus 5 21-Sep-2026 (standout_bird field, v2.74.0); Claude Opus 5.5 03-Oct-2026 (card image variant, v2.76.0; thumb_cache config, v2.77.0)
 # Date: 14-April-2026 (updated 03-Oct-2026)
 # PURPOSE: REST API surface for Farm Guardian's image archive (the dataset
 #          produced by tools/pipeline/*). Public endpoints serve curated gems,

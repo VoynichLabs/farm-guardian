@@ -4,6 +4,33 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.77.0 — gem images: the resized-image cache can no longer fill a disk (Claude Opus 5.5) — 03-Oct-2026
+
+**What / why:** Boss directive after v2.76.0. The thumbnail/card cache in `images_thumb.py`
+was unbounded (2,685 files, ~934 MB on 03-Oct and growing with every gem), and the internal
+drive has filled twice this month. Plan: `docs/03-Oct-2026-thumb-cache-cap-plan.md`.
+
+**How:**
+- New config block `images.thumb_cache` (`dir`, `require_mount`, `max_bytes`,
+  `min_free_bytes`) in `config.json` / `config.example.json`. Safe defaults if absent:
+  `/Volumes/Samsung 9100 SSD/farm-guardian-data/cache/thumbs`, mount
+  `/Volumes/Samsung 9100 SSD`, 2 GiB cap, 20 GiB free-space floor.
+- Writes only happen when the required mount is a real mount, the cache dir's real path
+  (after symlinks) sits under it, its parent already exists (no `mkdir -p`, so a missing
+  volume is never recreated as internal-drive folders), and the volume has at least
+  `min_free_bytes` free. Otherwise the variant is encoded in memory and returned with the
+  same bytes and ETag; nothing is written.
+- Hard cap with LRU eviction: a running byte total (seeded by a scan at startup); once over
+  `max_bytes` the oldest-mtime files are deleted down to 90% of the cap. Cache hits refresh
+  mtime (at most hourly) so popular images survive. Stale `.tmp` files are swept.
+- Only sizes 480 / 720 / 1920 (API `thumb` / `card` / `1920`) can be cached; any other size
+  raises. `full` is still the untouched original, never cached. API sizes unchanged.
+- Note: with caching disabled (SSD unmounted or under the free-space floor) every request
+  re-encodes — safe for disk, slower per request.
+- Tests: `test_images_thumb.py` (12) — eviction stays under the cap on every write and
+  spares recently used files, startup trims an oversized cache, unmounted SSD / missing
+  volume / symlink off the mount / low free space all write nothing, odd sizes refused.
+
 ### v2.76.0 — gem images: a small WebP "card" size for the website's photo tiles (Claude Opus 5.5) — 03-Oct-2026
 
 **What / why:** farm-2026's SEO audit found the home page heavy on phones, almost all of it
