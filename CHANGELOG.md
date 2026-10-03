@@ -4,6 +4,41 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.76.0 — gem images: a small WebP "card" size for the website's photo tiles (Claude Opus 5.5) — 03-Oct-2026
+
+**What / why:** farm-2026's SEO audit found the home page heavy on phones, almost all of it
+gem photos. Its recent-gems rail shows each gem through `GemCard`, which loads `full_url`
+(`size=1920`). Every recent gem is a 1080x1920 portrait s7-cam frame, and `size=1920` fits
+inside a 1920 box — so it is not downscaled at all, just a full-frame JPEG re-encode of about
+0.4-0.7 MB shown in a tile a couple of hundred pixels tall. Measured with a phone-emulated
+headless Chromium on the live home page: the 12 gem requests were 6.9 MB of 12.3 MB.
+
+**How:**
+- `GET /api/v1/images/gems/{id}/image?size=card` — 720 px long edge, WebP quality 78,
+  encoded once with Pillow and cached on disk next to the JPEG thumbs.
+- Public gem rows (`/gems`, `/gems/{id}`, `/recent`) gain `card_url`. `thumb_url`,
+  `full_url`, the `thumb`/`1920`/`full` bytes and the route's default are unchanged
+  (farm-2026's lightbox uses `full_url`).
+- `images_thumb.get_thumb` takes a format and returns the media type; the format is part of
+  the cache filename and ETag (`{sha}-720-webp.webp`), so a WebP is never served or 304'd for
+  a JPEG request. JPEG thumbs keep their historical filename and ETag.
+- Gem image responses now cache for 30 days (was 1 day); the placeholder and the
+  failed-resize fallback (new `-raw` ETag) cache for 60 s so a fixed image is picked up.
+- `data/cache/thumbs` (895 MB) moved to the Samsung SSD at
+  `farm-guardian-data/cache/thumbs`; the old path is now a symlink, same pattern as
+  `data/archive`. `images_thumb.configure()` logs instead of crashing Guardian startup if the
+  SSD is unmounted (dangling symlink).
+- Not touched: story-assets / reel-assets (the `.jpg`/`.mp4` URLs Meta fetches).
+
+**Measured (live, through the tunnel):** the home page's 12 gems total 0.87 MB at
+`size=card` against 6.9 MB at `size=1920`. `thumb`/`1920`/`full` responses are
+byte-identical before and after. New variant returns `image/webp`, 30-day immutable
+Cache-Control, and 304 on If-None-Match. farm-2026 switches `GemCard` to `card_url` in its
+own PR; the live site gets lighter only once that merges.
+
+**Verified:** `test_images_thumb.py` (5 tests) plus the existing `tools/pipeline/test_*.py`
+files. Plan: `docs/03-Oct-2026-gem-card-image-variant-plan.md`.
+
 ### v2.75.1 — s7-cam: the score's fill axis uses measured bird size, not the VLM's claim (Claude Opus 5.5) — 02-Oct-2026
 
 **What / why:** Boss, an hour after v2.75.0, on a frame of one rooster pecking at the right
