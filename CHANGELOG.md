@@ -4,6 +4,12 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.78.3 — bird photo ingest: caption can acknowledge background animals (Claude Sonnet 5.5 Low) — 21-Oct-2026
+
+**What / why:** a fence photo of two named hens was refused ("you named 2, I count 3") because the vision model counted a blurry injured turkey in the background.
+
+**How:** `tools/pipeline/bird_photo_ingest.py` — when the caption says extras are in frame ("in the background", "behind them", "plus ..."), a higher vision count than named birds is accepted for both solo and group filings. A lower count, or a group composition on a solo filing, is still flagged.
+
 ### v2.78.1 — camera watchdog: ignore list for cameras known down on purpose (Claude Sonnet 5.5) — 03-Oct-2026
 
 **What / why:** the staleness watchdog kept re-posting "Camera down" in #farm-2026 every ~10 minutes. Boss knows

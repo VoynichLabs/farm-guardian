@@ -34,6 +34,12 @@
 #          deliberately NOT a source — see the warning above _PLUMAGE_TERMS.
 #          Plan: farm-2026/docs/plans/2026-08-11-bird-observation-timestamps.md
 #
+#          21-Oct-2026 (Claude Sonnet 5.5 Low): the ambiguity gate now accepts a
+#          higher VLM bird_count than named birds when the Boss's caption says
+#          extras are in frame ("in the background", "plus ..."), because the
+#          VLM counts blurry background animals (an injured turkey blocked a
+#          two-hen fence photo). A LOWER count is still flagged.
+#
 #          Deliberate scope limits (v1): never writes stories/carousel/
 #          birdcatraz; never edits content/hatches/2026/*.md (ornitharch birds
 #          get a hatch_file_needs_update flag instead); never sends Discord
@@ -230,6 +236,21 @@ def _build_filename(orig: str, name_slug: str, descriptor: str, ext: str) -> str
     base = re.sub(r"-?suspected-?", "-", base, flags=re.IGNORECASE).strip("-")
     base = re.sub(r"-{2,}", "-", base)
     return f"{base}{ext}"
+
+
+# --- caption: extra animals ---------------------------------------------------
+# Words the Boss uses to say the frame holds more animals than he named
+# (e.g. "Birdimir and Henridot, injured turkey in the background").
+_EXTRAS_RE = re.compile(
+    r"\b(in the background|in the back|behind them|behind him|behind her|"
+    r"background|also in (?:the )?(?:frame|shot|photo|picture)|plus)\b",
+    re.IGNORECASE,
+)
+
+
+def _caption_acknowledges_extras(caption: str) -> bool:
+    """True when the caption itself says extra animals are in frame."""
+    return bool(_EXTRAS_RE.search(caption or ""))
 
 
 # --- VLM --------------------------------------------------------------------
@@ -655,12 +676,19 @@ def ingest(image_path: str, caption: str) -> dict:
 
         n = len(matched)
 
+        # The Boss's caption can say "plus X in the background". The VLM counts
+        # every animal in frame, blurry background ones included, so when the
+        # caption itself acknowledges extras we accept a higher count (never a
+        # lower one: fewer birds than named is still a mismatch).
+        extras_ok = _caption_acknowledges_extras(caption)
+
         # 4. Ambiguity gate — flag, never guess.
         if n == 1:
             # Solo path requires exactly one bird and a non-group composition.
             # Rejecting bird_count==0 is intentional (tighter than "> 1"): if
             # the VLM can't see a single clear bird we don't assert a portrait.
-            if bird_count != 1 or is_group_comp:
+            count_ok = bird_count == 1 or (extras_ok and bird_count > 1 and not is_group_comp)
+            if not count_ok or is_group_comp:
                 result["status"] = "ambiguous"
                 result["message"] = (
                     f"You said {matched[0]}, but I see {bird_count} bird(s)"
@@ -671,7 +699,7 @@ def ingest(image_path: str, caption: str) -> dict:
         else:
             # N named: only commit the file (as a group record) if the VLM's
             # count agrees. A mismatch is flagged, not guessed.
-            if bird_count != n:
+            if bird_count != n and not (extras_ok and bird_count > n):
                 result["status"] = "ambiguous"
                 result["message"] = (
                     f"You named {n} birds ({', '.join(matched)}) but I count "
