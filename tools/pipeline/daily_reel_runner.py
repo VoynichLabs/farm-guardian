@@ -1,4 +1,4 @@
-# Author: Claude Sonnet 4.6; Claude Opus 4.7 (22-June-2026 — duo2 timelapse lane); Claude Fable 5 (16-Jul-2026 — mba-cam lane relabeled brooder→turkey pen, v2.46.0; Codex captions for vlm_bypass lanes + posted-caption dedup + tag rotation from ledger + chicks bucket retired, v2.47.0; D8 codex_reel_curator wired into the s7-daily lane + opener pacing hook, D10 CAMERA_OF_THE_DAY_POOL/pick_camera_of_the_day rotation, v2.48.0); Claude Opus 4.8 (22-Jul-2026 — per-lane seconds_per_frame override so the two Reolink time-lapse lanes play fast without speeding up the s7/mixed lanes, v2.50.1); Claude Fable 5 (23-Jul-2026 — Codex subscription lapsed: all caption synthesis moved to the local VLM, timelapse lanes no longer short-circuit to a literal, BRAND_RULES extracted to caption_brand.py, s7 Codex frame-curation removed, v2.51.5); Claude Opus 5 (28-Jul-2026 — S7 daily lane rebuilt dawn-to-dusk: per-frame gem holds via _s7_daily_frame_holds, frame-0 duplication hack deleted, covered-day state key, s7-backlog lane converted to S7_WEEKLY_GEMS_REEL_LANE, v2.54.0); Claude Sonnet 5 Extra (03-Aug-2026 — 4 new lanes: house-yard/duo2 weekly + monthly daylight time-lapse Reels, v2.60.0); Claude Opus 5 (09-Aug-2026 — those 4 lanes moved to the dense fixed-fps stitch path via timelapse_fps/timelapse_min_frames, v2.69.0); Claude Opus 5 (10-Sep-2026 — caption synthesis uses whatever vision model is loaded, v2.72.0); Claude Opus 5 (21-Sep-2026 — standout-bird caption fact replaces the chick-era wording, v2.74.0)
+# Author: Claude Sonnet 4.6; Claude Opus 4.7 (22-June-2026 — duo2 timelapse lane); Claude Fable 5 (16-Jul-2026 — mba-cam lane relabeled brooder→turkey pen, v2.46.0; Codex captions for vlm_bypass lanes + posted-caption dedup + tag rotation from ledger + chicks bucket retired, v2.47.0; D8 codex_reel_curator wired into the s7-daily lane + opener pacing hook, D10 CAMERA_OF_THE_DAY_POOL/pick_camera_of_the_day rotation, v2.48.0); Claude Opus 4.8 (22-Jul-2026 — per-lane seconds_per_frame override so the two Reolink time-lapse lanes play fast without speeding up the s7/mixed lanes, v2.50.1); Claude Fable 5 (23-Jul-2026 — Codex subscription lapsed: all caption synthesis moved to the local VLM, timelapse lanes no longer short-circuit to a literal, BRAND_RULES extracted to caption_brand.py, s7 Codex frame-curation removed, v2.51.5); Claude Opus 5 (28-Jul-2026 — S7 daily lane rebuilt dawn-to-dusk: per-frame gem holds via _s7_daily_frame_holds, frame-0 duplication hack deleted, covered-day state key, s7-backlog lane converted to S7_WEEKLY_GEMS_REEL_LANE, v2.54.0); Claude Sonnet 5 Extra (03-Aug-2026 — 4 new lanes: house-yard/duo2 weekly + monthly daylight time-lapse Reels, v2.60.0); Claude Opus 5 (09-Aug-2026 — those 4 lanes moved to the dense fixed-fps stitch path via timelapse_fps/timelapse_min_frames, v2.69.0); Claude Opus 5 (10-Sep-2026 — caption synthesis uses whatever vision model is loaded, v2.72.0); Claude Opus 5 (21-Sep-2026 — standout-bird caption fact replaces the chick-era wording, v2.74.0); Claude Opus 5.5 Medium (29-Oct-2026 — _fetch_gem_row closes its connection; time-lapse captions were leaking one per frame and hitting launchd's 256 open-file cap; main() lifts that soft cap, v2.79.0)
 # Date: 09-May-2026 (updated 09-May-2026 — landscape mode + LM Studio caption synthesis + 4 timelapse lanes; 10-May-2026 — GWTC approval gate; 22-June-2026 — DUO2_TIMELAPSE_LANE; 16-Jul-2026 — D8/D10; 22-Jul-2026 — per-lane pacing override; 28-Jul-2026 — per-frame durations for reacted gems + weekly gems lane; 03-Aug-2026 — weekly/monthly multi-day lanes); 10-Sep-2026 — any-loaded-VLM caption synthesis
 # PURPOSE: Shared runner for scheduled Instagram Reel lanes. The
 #          existing mixed-camera daily Reel uses the approval-gated
@@ -33,6 +33,7 @@ import os
 import shutil
 import sqlite3
 import subprocess
+from contextlib import closing
 import sys
 import tempfile
 import time
@@ -270,7 +271,18 @@ HOUSE_YARD_CAM_TIMELAPSE_LANE = DailyReelLane(
         # be the gap." 21:00 rather than the global 20:00 so the evening light
         # is in the reel; 15h at 1-minute buckets is exactly the 900 cap.
         "timelapse_reel_single_day": True,
-        "timelapse_reel_daylight_end_hour": 21,
+        # 29-Oct-2026: the whole day, midnight to midnight, with the quiet
+        # stretches sped up. Boss: "the birds are up and awake at 4 in the
+        # morning, I really do want to see all 24 hours. I just don't want you
+        # to spend a lot of time on stuff when there's no action." Minutes
+        # whose frame barely differs from the last (the day's quietest 40%)
+        # keep 1 frame in 6, so they play six times faster; anything with
+        # movement plays at normal time-lapse speed, day or night.
+        "timelapse_reel_clock_window": True,
+        "timelapse_reel_daylight_start_hour": 0,
+        "timelapse_reel_daylight_end_hour": 24,
+        "timelapse_reel_quiet_keep_every": 6,
+        "timelapse_reel_quiet_percentile": 40,
     },
 )
 
@@ -309,7 +321,18 @@ DUO2_TIMELAPSE_LANE = DailyReelLane(
         # be the gap." 21:00 rather than the global 20:00 so the evening light
         # is in the reel; 15h at 1-minute buckets is exactly the 900 cap.
         "timelapse_reel_single_day": True,
-        "timelapse_reel_daylight_end_hour": 21,
+        # 29-Oct-2026: the whole day, midnight to midnight, with the quiet
+        # stretches sped up. Boss: "the birds are up and awake at 4 in the
+        # morning, I really do want to see all 24 hours. I just don't want you
+        # to spend a lot of time on stuff when there's no action." Minutes
+        # whose frame barely differs from the last (the day's quietest 40%)
+        # keep 1 frame in 6, so they play six times faster; anything with
+        # movement plays at normal time-lapse speed, day or night.
+        "timelapse_reel_clock_window": True,
+        "timelapse_reel_daylight_start_hour": 0,
+        "timelapse_reel_daylight_end_hour": 24,
+        "timelapse_reel_quiet_keep_every": 6,
+        "timelapse_reel_quiet_percentile": 40,
     },
 )
 
@@ -347,7 +370,18 @@ JIELI_DASHCAM_TIMELAPSE_LANE = DailyReelLane(
         # be the gap." 21:00 rather than the global 20:00 so the evening light
         # is in the reel; 15h at 1-minute buckets is exactly the 900 cap.
         "timelapse_reel_single_day": True,
-        "timelapse_reel_daylight_end_hour": 21,
+        # 29-Oct-2026: the whole day, midnight to midnight, with the quiet
+        # stretches sped up. Boss: "the birds are up and awake at 4 in the
+        # morning, I really do want to see all 24 hours. I just don't want you
+        # to spend a lot of time on stuff when there's no action." Minutes
+        # whose frame barely differs from the last (the day's quietest 40%)
+        # keep 1 frame in 6, so they play six times faster; anything with
+        # movement plays at normal time-lapse speed, day or night.
+        "timelapse_reel_clock_window": True,
+        "timelapse_reel_daylight_start_hour": 0,
+        "timelapse_reel_daylight_end_hour": 24,
+        "timelapse_reel_quiet_keep_every": 6,
+        "timelapse_reel_quiet_percentile": 40,
     },
 )
 
@@ -766,7 +800,11 @@ def _post_video_to_discord(
 
 
 def _fetch_gem_row(db_path: Path, gem_id: int) -> dict:
-    with sqlite3.connect(str(db_path)) as connection:
+    # closing() is required: sqlite3's own context manager only commits, it
+    # never closes. Time-lapse captions call this once per frame (600+), and
+    # the leaked handles hit launchd's 256 open-file cap, so every time-lapse
+    # lane died with "unable to open database file" (fixed 29-Oct-2026).
+    with closing(sqlite3.connect(str(db_path))) as connection:
         connection.row_factory = sqlite3.Row
         row = connection.execute(
             "SELECT * FROM image_archive WHERE id = ?",
@@ -1939,7 +1977,24 @@ def run_lane(
     )
 
 
+def _raise_open_file_limit(log_name: str) -> None:
+    # launchd starts these jobs with a soft cap of 256 open files (a Terminal
+    # gets far more, which is why manual runs never reproduced it). Dense
+    # time-lapse lanes touch 600+ frames plus the database, so lift the soft
+    # cap toward the hard cap before doing any work.
+    import resource
+
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    wanted = 8192 if hard == resource.RLIM_INFINITY else min(8192, hard)
+    if soft < wanted:
+        try:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (wanted, hard))
+        except (ValueError, OSError) as exc:
+            logging.getLogger(log_name).warning("could not raise open-file limit from %d: %s", soft, exc)
+
+
 def main(lane: DailyReelLane, argv: list[str] | None = None) -> int:
+    _raise_open_file_limit(lane.lane_id)
     parser = argparse.ArgumentParser(description=lane.description)
     parser.add_argument(
         "--dry-run",

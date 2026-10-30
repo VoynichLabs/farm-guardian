@@ -1,4 +1,4 @@
-# Author: Claude Opus 4.7 (1M context) / updated Claude Sonnet 4.6 01-May-2026; Claude Sonnet 4.6 09-May-2026 — landscape mode for time-lapse camera lanes; Claude Opus 5 28-Jul-2026 — optional per-frame durations + duration guard; Claude Opus 5 09-Aug-2026 — stitch_frames_to_timelapse (dense fixed-fps path), v2.69.0
+# Author: Claude Opus 4.7 (1M context) / updated Claude Sonnet 4.6 01-May-2026; Claude Sonnet 4.6 09-May-2026 — landscape mode for time-lapse camera lanes; Claude Opus 5 28-Jul-2026 — optional per-frame durations + duration guard; Claude Opus 5 09-Aug-2026 — stitch_frames_to_timelapse (dense fixed-fps path), v2.69.0; Claude Opus 5.5 Medium 29-Oct-2026 — xfade ffmpeg timeout scales with frame count (v2.79.0)
 # Date: 20-April-2026; 28-Jul-2026 — per_frame_seconds (variable hold per frame); 09-Aug-2026 — dense time-lapse path
 # PURPOSE: Stitch N Guardian gem JPEGs into an MP4 suitable for
 #          posting to Instagram as a Reel.
@@ -76,6 +76,7 @@ from __future__ import annotations
 import logging
 import shutil
 import sqlite3
+from contextlib import closing
 import subprocess
 import tempfile
 import uuid
@@ -416,7 +417,7 @@ def stitch_gems_to_reel(
 
     # Resolve gem ids -> on-disk JPEGs (preserving caller-specified order).
     jpeg_sources: list[Path] = []
-    with sqlite3.connect(str(db_path)) as conn:
+    with closing(sqlite3.connect(str(db_path))) as _db, _db as conn:
         conn.row_factory = sqlite3.Row
         for gid in gem_ids:
             row = conn.execute(
@@ -519,8 +520,12 @@ def stitch_gems_to_reel(
             "reel_stitcher: invoking ffmpeg (n=%d, duration=%.2fs, %dx%d, out=%s)",
             n, total_duration, target_w, target_h, output_path,
         )
+        # The xfade chain gets slower with every frame, and the Mini is often
+        # busy with model work. A flat 300 s killed the 25-Oct S7 weekly reel
+        # at 53 frames, so allow 20 s per frame with 300 s as the floor.
+        timeout_s = max(_FFMPEG_TIMEOUT_S, n * 20)
         proc = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=_FFMPEG_TIMEOUT_S,
+            cmd, capture_output=True, text=True, timeout=timeout_s,
         )
         if proc.returncode != 0:
             raise ReelStitcherError(
@@ -529,7 +534,7 @@ def stitch_gems_to_reel(
             )
     except subprocess.TimeoutExpired as e:
         raise ReelStitcherError(
-            f"ffmpeg timed out after {_FFMPEG_TIMEOUT_S}s"
+            f"ffmpeg timed out after {timeout_s}s"
         ) from e
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)
@@ -549,7 +554,7 @@ def _resolve_gem_jpegs(gem_ids: list[int], db_path: Path) -> list[Path]:
     duplicating the SELECT + resolve_gem_image_path pairing.
     """
     jpeg_sources: list[Path] = []
-    with sqlite3.connect(str(db_path)) as conn:
+    with closing(sqlite3.connect(str(db_path))) as _db, _db as conn:
         conn.row_factory = sqlite3.Row
         for gid in gem_ids:
             row = conn.execute(

@@ -231,6 +231,18 @@ the record of record instead of chasing a v2.64.0 entry that isn't there.
 
 Full detail: [`docs/28-Jul-2026-s7-dawn-to-dusk-reel-plan.md`](docs/28-Jul-2026-s7-dawn-to-dusk-reel-plan.md) and CHANGELOG v2.54.0.
 
+## 🚨 Daily time-lapse reels were silently dead 9-Aug → 29-Oct-2026 — READ BEFORE TOUCHING ANY REEL LANE
+
+The duo2, house-yard-cam and jieli-dashcam daily reels built a video every day for eleven weeks and crashed just before posting; nobody noticed because failures only went to `/tmp` logs. The Boss counts on these reels. Full write-up: [`docs/29-Oct-2026-instagram-outage-and-timelapse-recovery.md`](docs/29-Oct-2026-instagram-outage-and-timelapse-recovery.md) (CHANGELOG v2.79.0).
+
+- **Test lanes under launchd, never only from the Terminal.** launchd gives jobs a 256 open-file soft cap; a Terminal gets far more. The 9-Aug break (a sqlite connection leaked per frame) only showed up under launchd. Use `launchctl kickstart gui/$(id -u)/<label>`. `daily_reel_runner.main()` now lifts the cap; keep it.
+- **sqlite's `with sqlite3.connect(...)` does not close the connection.** Wrap it in `contextlib.closing` anywhere it runs in a loop.
+- **The alarm is the Discord digest** (`scripts/pipeline-digest.py`, noon and 8 pm): it pings Mark when the farm or VoynichLabs Instagram key fails, the farm account goes 36 h without a post, or any daily time-lapse lane goes 36 h without a posted marker. If you add a daily reel lane, add it to `DAILY_REEL_LANES` there.
+- **Window: midnight to midnight, quiet minutes fast.** Boss, 29-Oct: "I really do want to see all 24 hours. I just don't want you to spend a lot of time on stuff when there's no action." duo2/house-yard/dashcam use `timelapse_reel_clock_window` 00:00–24:00 plus `timelapse_reel_quiet_keep_every` 6 / `timelapse_reel_quiet_percentile` 40: frame-to-frame change picks the quiet minutes, not darkness (the birds are up at 4 am). Do not swap it back to sunrise→sunset.
+- **Posted markers are keyed by the UTC date the lane ran** (S7: the day covered). A manual re-run after 20:00 EDT writes tomorrow's key and makes tomorrow's scheduled run skip; re-date the marker.
+- **Catch-up lane:** `com.farmguardian.ig-timelapse-backlog` (11:40, 17:40) posts the ~230 unposted finished videos from that period, one per camera per run, keeping 6 quota slots free. It stops by itself when caught up.
+- **If a publish "fails" and you retry by hand, check Instagram first.** On 29-Oct a failure after the publish led to a double post.
+
 ## Related Repositories
 
 This project is part of a two-repo system:
@@ -397,9 +409,11 @@ system.
   Studio reports as vision-capable. Only when no vision model is loaded does anything skip. The
   verifier then fails open: UNVERIFIED alerts, debounced, 1–3 a night typically.
 - **Nothing loads the chicken model while any other model is loaded.** `ensure_model_loaded()`
-  returns `other-model-loaded` and touches nothing. The lmstudio-watchdog loads it only after LM
-  Studio has had *no* model loaded for 10 minutes straight, so it can't slip into the gap while
-  Boss swaps models.
+  returns `other-model-loaded` and touches nothing. Since v2.78.2 (11-Oct-2026) nothing auto-loads
+  it at all: `vlm_auto_load` in `tools/pipeline/config.json` is `false`, the orchestrator and the
+  bird-photo ingest skip their load calls, and the old lmstudio-watchdog plist is disabled
+  (`.disabled-11Oct2026`). When only a non-vision model is loaded (Boss's own work), VLM enrichment
+  and VLM captions pause and the reel/Nextdoor lanes use their fallback captions.
 - **⛔ Agents: never load, unload or swap LM Studio models to "fix" the farm.** On 08-Sep an agent
   unloaded Boss's `qwen3.8-27b` to put the chicken model back. Report LM Studio state; don't
   change it.

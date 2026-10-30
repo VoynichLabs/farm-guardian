@@ -4,6 +4,37 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.79.0 — Instagram back on its feet: time-lapse reels, key alarm, VoynichLabs poster (Claude Opus 5.5 Medium) — 29-Oct-2026
+
+**Why minor, not patch:** adds a new posting lane (VoynichLabs) and a new health check, beyond the bug fixes.
+
+**What / why:**
+- **Time-lapse reels had been failing at the caption step** ("unable to open database file") on the duo2, jieli-dashcam and house-yard-cam lanes. `_fetch_gem_row` relied on sqlite's context manager, which commits but never closes; one call per frame (600+) hit launchd's 256 open-file soft cap. Manual runs never reproduced it because a Terminal has a far higher cap.
+- **Farm posting was silent from 8 to 28 Oct** because Facebook invalidated the saved key, and every lane only logged a 400 to /tmp. Nobody was told.
+- **VoynichLabs had never posted:** the Boss's Facebook account is barred from linking Pages to Instagram, so the original Page-based plan could not work.
+
+**How:**
+- `tools/pipeline/daily_reel_runner.py` — `_fetch_gem_row` uses `contextlib.closing`; `main()` lifts the soft open-file cap to 8192 before any work. Verified: old code fails at row 186 under `ulimit -n 256`, new code runs 700 rows; duo2 lane re-run posted.
+- `tools/pipeline/ig_poster.py` — `_sweep_expired_assets` now guards the directory listing too. It ran after the IG publish and before posted-state was saved, so a raise there marked a live reel failed; a manual retry then posted the 29-Oct duo2 time-lapse twice (the duplicate was deleted through the Graph API).
+- `scripts/pipeline-digest.py` — every noon and 8 pm digest checks the farm Page key and the VoynichLabs Instagram key, and the age of the newest farm post; on a dead key or 36 h of silence it leads with a mention of Mark.
+- New `tools/voynichlabs/ig_reel_poster.py` — posts the next music-video reel from `captions.json` in the SSD music-videos instagram folder through the Instagram API with Instagram login (`graph.instagram.com`, key in `secrets/ai-literacy-meta.env`). Hosts via the farm reel-asset route, touches the copy so the farm sweep cannot reap it mid-ingest, deletes it after publish, records `posted.json` before anything else can fail, and posts a Discord note. First reel (Tool Call) published 29-Oct; weekly after that (Boss: weekly is fine).
+- **Daily time-lapse window is now the whole day, midnight to midnight, with quiet minutes sped up** for duo2, house-yard-cam and jieli-dashcam. Boss, 29-Oct: "the birds are up and awake at 4 in the morning, I really do want to see all 24 hours. I just don't want you to spend a lot of time on stuff when there's no action." Since 09-Aug the window had silently been sunrise -> sunset (07:14 -> 17:50 in late October), not the 06:00 -> 21:00 the comments claimed. New opt-in selector keys in `tools/pipeline/ig_selection.py`: `timelapse_reel_clock_window` (fixed clock bounds) and `timelapse_reel_quiet_keep_every` / `timelapse_reel_quiet_percentile` (`_thin_quiet_frames`: each minute's frame vs the previous at 64x36 greyscale; the day's quietest 40% keep 1 frame in 6). Measured from the pictures, not the clock, so dawn activity in the dark still plays at full speed. Checked on 28-Oct footage: house-yard 01-05 h scored ~0.3 vs 4-6 mid-morning; reels come out ~50 s; a full house-yard build was viewed frame by frame.
+- New `scripts/ig-timelapse-backlog.py` + LaunchAgent `com.farmguardian.ig-timelapse-backlog` (11:40 and 17:40): posts the built-but-never-posted daily time-lapses (29-Oct: S7 19 days, duo2 75, house-yard 76, dashcam 61), newest first, one per camera per run, only while 5+ IG quota slots stay free. Captions name the day shown. Writes `data/reels/backlog-status.json`; while it reports work left, `tools/social/publisher.py` drops the gem ceiling to `publisher_daily_cap_during_reel_backlog` (12, new key in `tools/social/config.json`), reverting to 18 by itself when caught up or if the status goes 3 days stale. Rationale: at the normal cap the lane gets ~2 slots a day (four months); the Boss ranks time-lapse reels first.
+- `scripts/pipeline-digest.py` also flags any daily time-lapse lane (`DAILY_REEL_LANES`) with no posted marker for 36 h.
+- Docs: `docs/29-Oct-2026-instagram-outage-and-timelapse-recovery.md` (plain-words write-up), CLAUDE.md warning section, `docs/SOCIAL_MEDIA_MAP.md` rows.
+- `tools/pipeline/reel_stitcher.py` — xfade ffmpeg timeout scales at 20 s per frame (floor 300 s); the 25-Oct S7 weekly gems reel died at the flat 300 s with 53 frames.
+- VoynichLabs reel poster scheduled weekly (Thursdays 19:00) via LaunchAgent `ai.bubba.voynichlabs-ig-reel`.
+- **Found by a four-agent read-only audit the same evening, and fixed:**
+  - Every `with sqlite3.connect(...)` in `ig_poster.py`, `ig_selection.py` and `reel_stitcher.py` is now `with closing(sqlite3.connect(...)) as _db, _db as c:` (closes, and still commits on success). `_write_reel_usage` leaked one handle per frame after every publish; measured on a database copy under `ulimit -n 256`: 400 writes saved, 1 descriptor left open (was ~254 per 300).
+  - `scripts/pipeline-digest.py` evening "Reel:" line had read "not built yet" every night since 14-Aug: it only looked at the legacy mixed-reel folders (lane retired 13-Aug). It now shows each daily time-lapse lane's real last post.
+  - Error text in the digest and the VoynichLabs poster is scrubbed of `access_token=` before it reaches Discord or the log.
+  - VoynichLabs poster skips a reel Meta rejects 3 times (`failed.json`) instead of retrying it forever and stalling the queue.
+  - Catch-up lane covers the jieli-dashcam (61 days) and the weekly and monthly duo2/house-yard reels (built every Sunday / 1st since 16-Aug, never posted; the monthly lanes have never posted at all). Each lane is hard-stopped at a fixed `LAST_DAY` so the new midnight-to-midnight markers can never be misread. 254 videos at 29-Oct.
+  - **Nextdoor cross-post dead since 29-Jul:** the venv was rebuilt that day without `playwright` (`ModuleNotFoundError`). Reinstalled (1.64.1, chromium headless shell 1248). A Halloween promo pop-up then blocked the composer; new `primitives.dismiss_promo_overlays` closes pop-ups first. Dry run reaches the final Post button with the audience on the neighborhood only.
+  - **Yard diary (website /yard) dead since 20-Oct:** its LaunchAgent ran Homebrew `python3`, which lost Pillow on a Homebrew upgrade. `com.farmguardian.yard-diary-capture` now runs `venv/bin/python` (outside the repo).
+  - CLAUDE.md: the lmstudio-watchdog paragraph described pre-v2.78.2 behaviour; corrected.
+- Outside the repo: `~/bin/voynichlabs-ig-token-refresh.py` + LaunchAgent `ai.bubba.voynichlabs-ig-token-refresh` renew the 60-day VoynichLabs key every Monday. Setup history: `docs/08-Oct-2026-second-instagram-account-plan.md`.
+
 ### v2.78.4 — farm diary: Boss is "Boss", not "Quid" (Claude Sonnet 5.5 Low) — 22-Oct-2026
 
 **What / why:** diary entries kept calling the Boss "Quid" because the transcript fed the model his raw Discord handle.

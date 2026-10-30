@@ -1,4 +1,4 @@
-# Author: Claude Opus 4.7 (1M context); Claude Fable 5 (16-Jul-2026 — scene-mapped photo subdir + Birdcatraz scene/hashtag buckets, v2.46.0; build_caption's default sign_off now rotates day-of-year instead of one hardcoded literal, D11, v2.48.0); Claude Opus 5 (01-Aug-2026 — reel lane off git onto tunnel-hosted assets + TTL sweep)
+# Author: Claude Opus 4.7 (1M context); Claude Fable 5 (16-Jul-2026 — scene-mapped photo subdir + Birdcatraz scene/hashtag buckets, v2.46.0; build_caption's default sign_off now rotates day-of-year instead of one hardcoded literal, D11, v2.48.0); Claude Opus 5 (01-Aug-2026 — reel lane off git onto tunnel-hosted assets + TTL sweep); Claude Opus 5.5 Medium (29-Oct-2026 — asset sweep guards its directory listing so a housekeeping error cannot fail a reel that already published, v2.79.0)
 # Date: 20-April-2026 (Phase 4 core + Phase 6 predicate/hashtags 20-Apr-2026; Phase 2 stories 20-Apr-2026; FB crosspost hooks 20-Apr-2026; Birdcatraz scene routing 16-Jul-2026; sign-off rotation 16-Jul-2026; reel asset hosting 01-Aug-2026)
 #
 #          01-Aug-2026 — REELS NO LONGER TOUCH GIT. post_reel_to_ig used to
@@ -61,6 +61,7 @@ import logging
 import os
 import shutil
 import sqlite3
+from contextlib import closing
 import subprocess
 import time
 import urllib.parse
@@ -325,7 +326,7 @@ def _publish(ig_id: str, container_id: str, user_token: str) -> dict:
 def _lookup_gem(db_path: Path, gem_id: int) -> Optional[dict]:
     """Return the image_archive row for a given gem id as a dict, or
     None if the id is not in the table."""
-    with sqlite3.connect(str(db_path)) as c:
+    with closing(sqlite3.connect(str(db_path))) as _db, _db as c:
         c.row_factory = sqlite3.Row
         row = c.execute(
             "SELECT * FROM image_archive WHERE id = ?",
@@ -348,7 +349,7 @@ def _write_permalink(
     explicitly clear. Skip reason is used for should_post_ig=False
     decisions (so we can audit later why a gem wasn't posted).
     """
-    with sqlite3.connect(str(db_path)) as c:
+    with closing(sqlite3.connect(str(db_path))) as _db, _db as c:
         c.execute(
             """
             UPDATE image_archive
@@ -375,7 +376,7 @@ def _write_reel_usage(
     and both lanes ran at 18:00). Reel usage now has its own ledger so
     photo/carousel eligibility survives a frame's appearance in a reel.
     """
-    with sqlite3.connect(str(db_path)) as c:
+    with closing(sqlite3.connect(str(db_path))) as _db, _db as c:
         c.execute(
             """
             UPDATE image_archive
@@ -416,7 +417,7 @@ def record_posted_caption(
             import re as _re
             _TAG_RE = _re.compile(r"#(\w+)")
         tags_csv = ",".join(_TAG_RE.findall(caption))
-        with sqlite3.connect(str(db_path)) as c:
+        with closing(sqlite3.connect(str(db_path))) as _db, _db as c:
             c.execute(
                 """
                 INSERT INTO ig_posted_captions
@@ -442,7 +443,7 @@ def recent_posted_captions(db_path: Path, limit: int = 8) -> list[str]:
     synthesis as a do-not-repeat list. Empty list on any error (a missing
     table on a not-yet-migrated DB must not break caption building)."""
     try:
-        with sqlite3.connect(str(db_path)) as c:
+        with closing(sqlite3.connect(str(db_path))) as _db, _db as c:
             rows = c.execute(
                 "SELECT caption FROM ig_posted_captions ORDER BY id DESC LIMIT ?",
                 (limit,),
@@ -456,7 +457,7 @@ def recent_tags_used(db_path: Path, posts: int = 3) -> list[str]:
     """Union of hashtags used in the last N live posts (no '#'), for
     pick_hashtags' rotation dedup. Empty list on any error."""
     try:
-        with sqlite3.connect(str(db_path)) as c:
+        with closing(sqlite3.connect(str(db_path))) as _db, _db as c:
             rows = c.execute(
                 "SELECT tags_csv FROM ig_posted_captions ORDER BY id DESC LIMIT ?",
                 (posts,),
@@ -591,7 +592,7 @@ def query_last_ig_post_ts(db_path: Path, camera_id: Optional[str] = None) -> Opt
     Returns None if no gem has ig_posted_at populated yet — i.e. the
     very first auto-post will always pass the time-gate.
     """
-    with sqlite3.connect(str(db_path)) as c:
+    with closing(sqlite3.connect(str(db_path))) as _db, _db as c:
         if camera_id:
             row = c.execute(
                 "SELECT MAX(ig_posted_at) FROM image_archive WHERE camera_id = ?",
@@ -1032,9 +1033,18 @@ def _sweep_expired_assets(db_path: Path, max_age_hours: int = _ASSET_TTL_HOURS) 
     cutoff = datetime.now(timezone.utc).timestamp() - (max_age_hours * 3600)
     removed = 0
     for root in (_story_asset_root(db_path), _reel_asset_root(db_path)):
-        if not root.is_dir():
+        # Listing the directory can itself raise (29-Oct-2026: EMFILE under
+        # launchd's 256-file cap). It ran after the IG publish but before the
+        # caller saved "posted" state, so the raise marked a live reel as
+        # failed and a retry published it twice. Guard the listing too.
+        try:
+            if not root.is_dir():
+                continue
+            entries = list(root.iterdir())
+        except OSError as exc:
+            log.warning("asset sweep: could not list %s: %s", root, exc)
             continue
-        for path in root.iterdir():
+        for path in entries:
             try:
                 if path.is_file() and path.stat().st_mtime < cutoff:
                     path.unlink()
@@ -1088,7 +1098,7 @@ def _write_story_metadata(
     other feed-post columns; a gem can be both a story and a feed
     post without collisions.
     """
-    with sqlite3.connect(str(db_path)) as c:
+    with closing(sqlite3.connect(str(db_path))) as _db, _db as c:
         c.execute(
             """
             UPDATE image_archive
@@ -1169,7 +1179,7 @@ def query_last_story_ts(db_path: Path) -> Optional[str]:
     is fine), so this helper has no camera_id variant — unlike
     query_last_ig_post_ts.
     """
-    with sqlite3.connect(str(db_path)) as c:
+    with closing(sqlite3.connect(str(db_path))) as _db, _db as c:
         row = c.execute(
             "SELECT MAX(ig_story_posted_at) FROM image_archive"
         ).fetchone()

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# Author: Claude Sonnet 4.6
-# Date: 06-May-2026
+# Author: Claude Sonnet 4.6; Claude Opus 5.5 Medium (29-Oct-2026 — Instagram key health check for the farm and VoynichLabs accounts, pings Mark when a key dies or the farm goes quiet 36h, v2.79.0)
+# Date: 06-May-2026 (updated 29-Oct-2026)
 # PURPOSE: Post a pipeline status digest to Discord at noon and 8pm.
 #          Noon slot shows stories posted since midnight.
 #          Evening slot shows stories posted since noon, plus reel status.
@@ -18,8 +18,13 @@
 #            com.farmguardian.pipeline-digest-noon.plist    — 12:00 local
 #            com.farmguardian.pipeline-digest-evening.plist — 20:00 local
 #
+#          Each run also does two read-only Instagram key checks (farm Page
+#          key via graph.facebook.com, VoynichLabs Instagram-login key via
+#          graph.instagram.com) plus a staleness check on each daily time-lapse
+#          lane, and leads with a Mark mention if anything fails.
+#
 # SRP/DRY check: Pass — read-only queries + one Discord POST. No DB writes,
-#                no IG API, no git. Reuses tools.social.ledger for quota.
+#                no publishing, no git. Reuses tools.social.ledger for quota.
 
 from __future__ import annotations
 
@@ -179,21 +184,25 @@ def _quota_used_rolling_24h(ledger_path: Path) -> int:
 
 
 def _reel_status_today() -> str:
-    """One-line reel status for today: posted / pending approval / quiet day."""
-    today = dt.date.today().isoformat()
-    posted_dir = REPO_ROOT / "data" / "reels" / "posted"
-    pending_dir = REPO_ROOT / "data" / "reels" / "pending"
-    expired_dir = REPO_ROOT / "data" / "reels" / "expired"
+    """One line: when each daily time-lapse reel last really posted.
 
-    if (posted_dir / f"{today}.json").exists():
-        return "posted to IG ✅"
-    if (pending_dir / f"{today}.json").exists():
-        state = json.loads((pending_dir / f"{today}.json").read_text())
-        n = len(state.get("gem_ids", []))
-        return f"queued in Discord for approval 🎬  ({n} frames)"
-    if (expired_dir / f"{today}.json").exists():
-        return "expired — no reaction in Discord ⚠️"
-    return "not built yet (runs at 6 pm)"
+    Rewritten 29-Oct-2026. The old version only looked at the legacy mixed-reel
+    folders (data/reels/posted etc.); that lane was retired 13-Aug, so from
+    14-Aug this line read "not built yet" every night whatever the camera reels
+    did, and their 11-week outage looked like a quiet day. It now reads each
+    live lane's own posted/ folder.
+    """
+    now = dt.datetime.now().timestamp()
+    parts = []
+    for label, folder in DAILY_REEL_LANES.items():
+        markers = list((REPO_ROOT / "data" / "reels" / folder / "posted").glob("*.json"))
+        if not markers:
+            parts.append(f"{label} never ⚠️")
+            continue
+        age_h = (now - max(m.stat().st_mtime for m in markers)) / 3600
+        mark = "✅" if age_h <= STALE_POST_HOURS else "⚠️"
+        parts.append(f"{label} {age_h:.0f}h ago {mark}")
+    return "last posted: " + "  ·  ".join(parts)
 
 
 def _build_message(slot: str, stories: dict, queue: dict,
@@ -240,11 +249,118 @@ def _build_message(slot: str, stories: dict, queue: dict,
     # Quota
     lines.append(f"IG quota used (rolling 24h): **{quota} / 25**")
 
-    # Reel (evening only — it hasn't run yet at noon)
+    # Daily time-lapse reels (evening only; the 21:00/21:30 lanes run after 8 pm,
+    # so the noon slot would only repeat yesterday).
     if slot == "evening":
-        lines.append(f"Reel: {reel}")
+        lines.append(f"Time-lapse reels {reel}")
 
     return "\n".join(lines)
+
+
+# Instagram keys checked on every digest. Added 29-Oct-2026 after the farm key
+# was silently invalidated by Facebook on 8-Oct and nothing posted for three
+# weeks while every lane only logged a 400 to /tmp. The farm key comes from the
+# meta env file _load_env() already sourced; the VoynichLabs key (Instagram
+# login, no Facebook Page) lives in its own file and is read directly.
+VOYNICHLABS_ENV = Path("/Users/macmini/bubba-workspace/secrets/ai-literacy-meta.env")
+STALE_POST_HOURS = 36
+
+
+def _read_env_file(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    return {
+        line.split("=", 1)[0]: line.split("=", 1)[1].strip()
+        for line in path.read_text().splitlines()
+        if "=" in line and not line.startswith("#")
+    }
+
+
+def _scrub(text: str) -> str:
+    # requests puts the full URL, access_token included, into connection-error
+    # messages. These lines go to Discord, so blank any token before use.
+    import re
+
+    return re.sub(r"access_token=[^&\s'\")]+", "access_token=<hidden>", str(text))[:200]
+
+
+def _graph_error(resp: requests.Response) -> str:
+    try:
+        return _scrub(resp.json().get("error", {}).get("message", "")[:160]) or f"http {resp.status_code}"
+    except ValueError:
+        return f"http {resp.status_code}"
+
+
+def _credential_alerts() -> list[str]:
+    """Return one line per broken Instagram account; empty when all is well.
+
+    Never raises: a network hiccup is reported as a line, not a crash, so the
+    rest of the digest still goes out.
+    """
+    import os
+
+    alerts: list[str] = []
+    farm_token = os.environ.get("LONG_LIVED_PAGE_TOKEN", "")
+    farm_ig = os.environ.get("IG_BUSINESS_ACCOUNT_ID", "")
+    try:
+        resp = requests.get(
+            f"https://graph.facebook.com/v25.0/{farm_ig}/media",
+            params={"fields": "timestamp", "limit": 1, "access_token": farm_token},
+            timeout=20,
+        )
+        if resp.status_code != 200:
+            alerts.append(f"Farm Instagram key is not working: {_graph_error(resp)}")
+        else:
+            data = resp.json().get("data") or []
+            newest = _parse_iso(data[0]["timestamp"].replace("+0000", "+00:00")) if data else None
+            if newest is not None:
+                age_h = (dt.datetime.now(dt.timezone.utc) - newest).total_seconds() / 3600
+                if age_h > STALE_POST_HOURS:
+                    alerts.append(f"Nothing has posted to the farm Instagram for {age_h / 24:.1f} days")
+    except requests.RequestException as exc:
+        alerts.append(f"Could not reach Instagram to check the farm key: {_scrub(exc)}")
+
+    voyn = _read_env_file(VOYNICHLABS_ENV)
+    if voyn.get("IG_ACCESS_TOKEN"):
+        try:
+            resp = requests.get(
+                f"{voyn.get('IG_API_BASE', 'https://graph.instagram.com/v25.0')}/me",
+                params={"fields": "username", "access_token": voyn["IG_ACCESS_TOKEN"]},
+                timeout=20,
+            )
+            if resp.status_code != 200:
+                alerts.append(f"VoynichLabs Instagram key is not working: {_graph_error(resp)}")
+        except requests.RequestException as exc:
+            alerts.append(f"Could not reach Instagram to check the VoynichLabs key: {_scrub(exc)}")
+    alerts.extend(_stale_reel_lane_alerts())
+    return alerts
+
+
+# Daily time-lapse lanes and their posted-state folders under data/reels/.
+# Each lane writes posted/<key>.json only after Instagram accepted the reel, so
+# the newest marker's age is "time since this camera last really posted". The
+# 9-Aug -> 29-Oct outage (duo2, house-yard, dashcam built a reel every day and
+# crashed before publishing) would have been flagged here within two days.
+DAILY_REEL_LANES = {
+    "S7 nest-box": "s7",
+    "Duo2": "duo2-timelapse",
+    "Guardian yard camera": "house-yard-cam-timelapse",
+    "Dashcam": "jieli-dashcam-timelapse",
+}
+
+
+def _stale_reel_lane_alerts() -> list[str]:
+    alerts: list[str] = []
+    now = dt.datetime.now().timestamp()
+    for label, folder in DAILY_REEL_LANES.items():
+        markers = list((REPO_ROOT / "data" / "reels" / folder / "posted").glob("*.json"))
+        if not markers:
+            alerts.append(f"{label} daily time-lapse has never recorded a post")
+            continue
+        age_h = (now - max(m.stat().st_mtime for m in markers)) / 3600
+        if age_h > STALE_POST_HOURS:
+            alerts.append(f"{label} daily time-lapse has not posted for {age_h / 24:.1f} days")
+    return alerts
 
 
 def _post_to_discord(webhook_url: str, message: str) -> bool:
@@ -294,6 +410,13 @@ def main(argv: list[str] | None = None) -> int:
     reel = _reel_status_today() if args.slot == "evening" else ""
 
     message = _build_message(args.slot, stories, queue, quota, reel)
+    alerts = _credential_alerts()
+    if alerts:
+        # Lead with the problem and ping Mark: buried in the digest body, the
+        # 8-Oct outage would have read like an ordinary quiet day.
+        from tools.pipeline.daily_reel_runner import MARK_DISCORD_USER_ID
+        warning = "\n".join(f"🚨 {line}" for line in alerts)
+        message = f"<@{MARK_DISCORD_USER_ID}> **Instagram posting problem**\n{warning}\n\n{message}"
 
     if args.dry_run:
         print(message)

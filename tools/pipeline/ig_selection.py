@@ -1,4 +1,4 @@
-# Author: Claude Sonnet 4.6; Claude Opus 4.8 (Bubba sub-agent) 14-June-2026 — golden-window two-window filter + seconds-granular bucketing for usb-cam/dominator-cam time-lapse lanes; Claude Opus 4.7 (Bubba sub-agent) 22-June-2026 — select_duo2_timelapse_gems wrapper; Claude Opus 5 28-Jul-2026 — S7 dawn-to-dusk single-day window + gem-survival union; s7-backlog drain converted to a 7-day weekly gems window; Claude Sonnet 5 Extra 03-Aug-2026 — select_multiday_timelapse_gems + house-yard/duo2 weekly+monthly wrappers, v2.60.0; Claude Opus 5 09-Aug-2026 — multiday trim switched from keep-most-recent to even-stride subsampling so a month reel spans a month, v2.69.0
+# Author: Claude Sonnet 4.6; Claude Opus 4.8 (Bubba sub-agent) 14-June-2026 — golden-window two-window filter + seconds-granular bucketing for usb-cam/dominator-cam time-lapse lanes; Claude Opus 4.7 (Bubba sub-agent) 22-June-2026 — select_duo2_timelapse_gems wrapper; Claude Opus 5 28-Jul-2026 — S7 dawn-to-dusk single-day window + gem-survival union; s7-backlog drain converted to a 7-day weekly gems window; Claude Sonnet 5 Extra 03-Aug-2026 — select_multiday_timelapse_gems + house-yard/duo2 weekly+monthly wrappers, v2.60.0; Claude Opus 5 09-Aug-2026 — multiday trim switched from keep-most-recent to even-stride subsampling so a month reel spans a month, v2.69.0; Claude Opus 5.5 Medium 29-Oct-2026 — optional fixed clock window + activity-based thinning of quiet minutes for single-day time-lapse lanes (v2.79.0)
 # Date: 07-May-2026; 09-May-2026 — _score_raw_frame + select_timelapse_gems for vlm_bypass lanes; 10-May-2026 — daylight filter for coop-roof time-lapse lanes; 11-May-2026 — S7 backlog duplicate guard; 14-June-2026 — golden activity windows (sunrise->09:00, 19:30->20:30), denser in-window sampling; 28-Jul-2026 — S7 daily reel bounded to one local calendar day, every reacted gem guaranteed to survive bucketing; 03-Aug-2026 — multi-day (weekly/monthly) keyframe-tier selectors for house-yard/duo2
 # PURPOSE: Select Instagram-post-eligible gems from image_archive on
 #          wall-clock windows (day, 2-hour, week). Pure SELECT +
@@ -69,6 +69,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from contextlib import closing
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Optional
@@ -259,7 +260,7 @@ def select_daily_carousel_gems(
     if today_utc_date is None:
         today_utc_date = datetime.now(timezone.utc).date().isoformat()
 
-    with sqlite3.connect(str(db_path)) as c:
+    with closing(sqlite3.connect(str(db_path))) as _db, _db as c:
         c.row_factory = sqlite3.Row
         rows = c.execute(
             """
@@ -341,7 +342,7 @@ def select_best_story_gem(
     now = _ensure_timezone(now)
     cutoff_iso = (now - timedelta(minutes=window_m)).isoformat()
 
-    with sqlite3.connect(str(db_path)) as c:
+    with closing(sqlite3.connect(str(db_path))) as _db, _db as c:
         c.row_factory = sqlite3.Row
         rows = c.execute(
             """
@@ -415,7 +416,7 @@ def select_all_unposted_story_gems(
 
     Returns [] when every reacted gem has already been posted.
     """
-    with sqlite3.connect(str(db_path)) as c:
+    with closing(sqlite3.connect(str(db_path))) as _db, _db as c:
         c.row_factory = sqlite3.Row
         rows = c.execute(
             """
@@ -476,7 +477,7 @@ def select_weekly_reel_gems(
     now = _ensure_timezone(now)
     cutoff_iso = (now - timedelta(days=window_d)).isoformat()
 
-    with sqlite3.connect(str(db_path)) as c:
+    with closing(sqlite3.connect(str(db_path))) as _db, _db as c:
         c.row_factory = sqlite3.Row
         rows = c.execute(
             """
@@ -580,7 +581,7 @@ def select_daily_reel_gems(
     max_frames = int(cfg.get("daily_reel_max_frames", 90))
     min_frames = int(cfg.get("daily_reel_min_frames", 6))
 
-    with sqlite3.connect(str(db_path)) as c:
+    with closing(sqlite3.connect(str(db_path))) as _db, _db as c:
         c.row_factory = sqlite3.Row
         rows = c.execute(
             """
@@ -729,7 +730,7 @@ def select_s7_daily_reel_gems(
     start_iso, end_iso = _local_day_bounds_utc(target, _reel_timezone(cfg))
 
     reaction_clause = "AND discord_reactions >= 1" if require_reactions else ""
-    with sqlite3.connect(str(db_path)) as c:
+    with closing(sqlite3.connect(str(db_path))) as _db, _db as c:
         c.row_factory = sqlite3.Row
         rows = c.execute(
             f"""
@@ -841,7 +842,7 @@ def partition_reacted_gem_ids(db_path: Path, gem_ids: list[int]) -> set[int]:
     if not gem_ids:
         return set()
     placeholders = ",".join("?" * len(gem_ids))
-    with sqlite3.connect(str(db_path)) as c:
+    with closing(sqlite3.connect(str(db_path))) as _db, _db as c:
         rows = c.execute(
             f"SELECT id FROM image_archive "
             f"WHERE id IN ({placeholders}) AND discord_reactions >= 1",
@@ -906,7 +907,7 @@ def select_s7_weekly_gems_reel_gems(
     tz = _reel_timezone(cfg)
     cutoff_iso = (_ensure_timezone(now) - timedelta(days=window_days)).isoformat()
 
-    with sqlite3.connect(str(db_path)) as c:
+    with closing(sqlite3.connect(str(db_path))) as _db, _db as c:
         c.row_factory = sqlite3.Row
         rows = c.execute(
             """
@@ -970,6 +971,65 @@ def select_s7_weekly_gems_reel_gems(
 # s7-weekly-gems on 28-Jul-2026; keep the old name resolvable so any
 # out-of-tree caller or ad-hoc script does not break on import.
 select_s7_backlog_reel_gems = select_s7_weekly_gems_reel_gems
+
+
+def _thin_quiet_frames(
+    frames: list[dict],
+    db_path: Path,
+    keep_every: int,
+    quiet_percentile: float,
+    camera_id: str,
+) -> list[dict]:
+    """Drop most frames from stretches where nothing moves.
+
+    Each frame is compared with the previous one at 64x36 greyscale (a cheap
+    JPEG draft decode, ~5 ms per frame; a full day of one-minute frames takes
+    ~10 s). The mean absolute pixel change is the activity score. Frames below
+    this day's quiet_percentile are "quiet", and only every keep_every-th
+    quiet frame is kept; every active frame stays. Thresholding on the day's
+    own distribution adapts to each camera and to night-vision vs daylight
+    without hand-tuned constants. Measured on 28-Oct-2026 house-yard: 01-05 h
+    scored ~0.3, mid-morning 4-6, so the split is clean.
+    A frame that cannot be read counts as active, so a decode problem can
+    only make the reel longer, never drop real action.
+    """
+    import numpy as np
+    from PIL import Image
+
+    ordered = sorted(frames, key=lambda r: r["ts"])
+    scores: list[Optional[float]] = []
+    previous = None
+    for row in ordered:
+        try:
+            with Image.open(db_path.parent / row["image_path"]) as img:
+                img.draft("L", (160, 90))
+                pixels = np.asarray(img.convert("L").resize((64, 36)), dtype=np.float32)
+        except (OSError, ValueError, KeyError, TypeError):
+            scores.append(None)
+            previous = None
+            continue
+        scores.append(None if previous is None else float(np.mean(np.abs(pixels - previous))))
+        previous = pixels
+
+    known = sorted(s for s in scores if s is not None)
+    if len(known) < 10:
+        return ordered
+    threshold = known[min(len(known) - 1, int(len(known) * quiet_percentile / 100))]
+    kept: list[dict] = []
+    quiet_seen = 0
+    for row, score in zip(ordered, scores):
+        if score is None or score >= threshold:
+            kept.append(row)
+        else:
+            if quiet_seen % keep_every == 0:
+                kept.append(row)
+            quiet_seen += 1
+    log.info(
+        "select_timelapse: activity thinning for %s kept %d/%d frames "
+        "(quiet below %.2f, 1 in %d quiet frames kept)",
+        camera_id, len(kept), len(ordered), threshold, keep_every,
+    )
+    return kept
 
 
 def select_timelapse_gems(
@@ -1064,6 +1124,17 @@ def select_timelapse_gems(
     # independent of what time the lane is scheduled — no plist moves — and
     # it always opens at 06:0x local on a full 14-hour day.
     single_day = bool(cfg.get("timelapse_reel_single_day", False))
+    # 29-Oct-2026: optional fixed clock window (the dense lanes use the whole
+    # day, 00:00 -> 24:00) plus activity-based thinning: minutes where the
+    # picture barely changes (birds asleep, empty yard) keep only one frame in
+    # quiet_keep_every, so the reel races through them. Darkness is NOT the
+    # test: Boss, 29-Oct-2026, "the birds are up and awake at 4 in the
+    # morning, I really do want to see all 24 hours. I just don't want you to
+    # spend a lot of time on stuff when there's no action." Off unless a lane
+    # opts in.
+    clock_window = bool(cfg.get("timelapse_reel_clock_window", False))
+    quiet_keep_every = int(cfg.get("timelapse_reel_quiet_keep_every", 0) or 0)
+    quiet_percentile = float(cfg.get("timelapse_reel_quiet_percentile", 40))
     end_iso: Optional[str] = None
     if single_day:
         tz = ZoneInfo(daylight_tz)
@@ -1085,6 +1156,12 @@ def select_timelapse_gems(
         longitude = float(solar_cfg.get("longitude", -71.9789))
         start_min = sunrise_minute(target_day, latitude, longitude, daylight_tz)
         end_min = sunset_minute(target_day, latitude, longitude, daylight_tz)
+        if clock_window and start_min is not None and end_min is not None:
+            # Boss, 29-Oct-2026: "I would still like to see the nighttime. I
+            # just don't want to spend as much time on it. Ideally, we'd see
+            # 5 am until midnight." Clock bounds replace the solar ones; the
+            # quiet stretches are thinned by activity below, not by the clock.
+            start_min, end_min = daylight_start * 60, daylight_end * 60
         if start_min is None or end_min is None:
             # Polar day/night — impossible at this latitude, but fall back to
             # the configured clock hours rather than raising.
@@ -1102,20 +1179,21 @@ def select_timelapse_gems(
         end_iso = end_local.astimezone(timezone.utc).isoformat()
         log.info(
             "select_timelapse: %s single-day window %s %s -> %s local "
-            "(sunrise->sunset)", camera_id, target_day,
+            "(%s)", camera_id, target_day,
             start_local.strftime("%H:%M"), end_local.strftime("%H:%M"),
+            "fixed clock hours" if clock_window else "sunrise->sunset",
         )
     else:
         cutoff_iso = (now - timedelta(hours=window_h)).isoformat()
 
-    with sqlite3.connect(str(db_path)) as c:
+    with closing(sqlite3.connect(str(db_path))) as _db, _db as c:
         c.row_factory = sqlite3.Row
         if end_iso is not None:
             # Both bounds. Moving only the cutoff would still run through to
             # `now` and drag the evening tail back in.
             rows = c.execute(
                 """
-                SELECT id, camera_id, ts, laplacian_var
+                SELECT id, camera_id, ts, laplacian_var, image_path
                   FROM image_archive
                  WHERE camera_id = ?
                    AND image_tier = 'raw'
@@ -1129,7 +1207,7 @@ def select_timelapse_gems(
         else:
             rows = c.execute(
                 """
-                SELECT id, camera_id, ts, laplacian_var
+                SELECT id, camera_id, ts, laplacian_var, image_path
                   FROM image_archive
                  WHERE camera_id = ?
                    AND image_tier = 'raw'
@@ -1228,6 +1306,10 @@ def select_timelapse_gems(
         groups.setdefault(bkey, []).append(item)
 
     representatives = [max(group, key=_score_raw_frame) for group in groups.values()]
+    if quiet_keep_every > 1 and not use_golden:
+        representatives = _thin_quiet_frames(
+            representatives, db_path, quiet_keep_every, quiet_percentile, camera_id,
+        )
     # Cap at max_frames by taking every Nth representative to preserve
     # temporal spread (rather than picking top-N by sharpness, which would
     # cluster at the best-lit part of the day).
@@ -1356,7 +1438,7 @@ def select_multiday_timelapse_gems(
     cutoff_iso = start_local.astimezone(timezone.utc).isoformat()
     end_iso = end_local.astimezone(timezone.utc).isoformat()
 
-    with sqlite3.connect(str(db_path)) as c:
+    with closing(sqlite3.connect(str(db_path))) as _db, _db as c:
         c.row_factory = sqlite3.Row
         rows = c.execute(
             """
@@ -1477,7 +1559,7 @@ def mark_gems_used_in_backlog_reel(
         return
     reason = "used-in-backlog-reel"
     placeholders = ",".join("?" * len(gem_ids))
-    with sqlite3.connect(str(db_path)) as c:
+    with closing(sqlite3.connect(str(db_path))) as _db, _db as c:
         c.execute(
             f"UPDATE image_archive SET ig_story_skip_reason = ? WHERE id IN ({placeholders})",
             [reason, *gem_ids],

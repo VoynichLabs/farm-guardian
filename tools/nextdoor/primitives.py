@@ -1,4 +1,4 @@
-# Author: Claude Opus 4.7 (1M context)
+# Author: Claude Opus 4.7 (1M context); Claude Opus 5.5 Medium 29-Oct-2026 — dismiss promo pop-ups before opening the composer (v2.79.0)
 # Date: 23-April-2026
 # PURPOSE: Low-level Nextdoor UI primitives. Selectors captured live
 #          2026-04-23 via chrome-devtools MCP against Boss's logged-in
@@ -201,9 +201,35 @@ def comment_on_post(page: Page, article: ElementHandle, text: str) -> bool:
 
 # -------- create post (cross-post lane) --------
 
+def dismiss_promo_overlays(page: Page) -> None:
+    """Close promotional pop-ups that sit over the feed.
+
+    29-Oct-2026: a full-screen "Share the best seasonal spots" Treat Map promo
+    covered the page, so the composer click timed out and the lane failed. The
+    composer itself is never open at this point, so Escape and any visible
+    modal close button only ever hit a promo. Best-effort: never raises.
+    """
+    for _ in range(3):
+        try:
+            page.keyboard.press("Escape")
+            page.wait_for_timeout(400)
+            closers = page.locator(
+                '[role="dialog"] button[aria-label*="lose" i], '
+                '[aria-modal="true"] button[aria-label*="lose" i]'
+            )
+            if closers.count() == 0:
+                return
+            closers.first.click(timeout=2000)
+            page.wait_for_timeout(600)
+        except Exception as e:  # noqa: BLE001 - a missed promo is retried by the click below
+            log.debug("dismiss_promo_overlays: %s", e)
+            return
+
+
 def open_create_post_dialog(page: Page) -> bool:
     """Click the "What's happening, neighbor?" prompt strip to open the
     composer dialog."""
+    dismiss_promo_overlays(page)
     try:
         entry = page.locator(NEXTDOOR_SELECTORS["CREATE_POST_ENTRYPOINT"]).first
         if entry.count() == 0:

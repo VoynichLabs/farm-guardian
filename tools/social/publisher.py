@@ -1,4 +1,4 @@
-# Author: Claude Sonnet 4.6
+# Author: Claude Sonnet 4.6; Claude Opus 5.5 Medium 29-Oct-2026 — gem cap lowered while the time-lapse reel backlog drains (v2.79.0)
 # Date: 06-May-2026
 # PURPOSE: One-decider orchestrator for IG+FB story publishing across
 #          the gem lane and the archive lane. Fires every 60 min via
@@ -271,6 +271,39 @@ def _post_archive_one(dry_run: bool, ledger_path: Path) -> Optional[dict]:
 # ---------------------------------------------------------------------------
 
 
+REEL_BACKLOG_STATUS = REPO_ROOT / "data" / "reels" / "backlog-status.json"
+
+
+def _reel_backlog_cap(cfg: dict, normal_cap: int) -> int:
+    """Lower the gem ceiling while old time-lapse reels are being caught up.
+
+    29-Oct-2026: ~230 daily time-lapse reels built 9-Aug -> 29-Oct were never
+    posted (see docs/29-Oct-2026-instagram-outage-and-timelapse-recovery.md).
+    At the normal cap of 18 the catch-up lane gets about 2 slots a day, which
+    would take four months. The Boss ranks time-lapse reels first, so while
+    scripts/ig-timelapse-backlog.py reports work left, gems use the lower
+    publisher_daily_cap_during_reel_backlog. Self-healing: once the status
+    says caught up, or if the status file is missing or older than 3 days
+    (the catch-up job stopped running), the normal cap comes straight back.
+    """
+    lowered = cfg.get("publisher_daily_cap_during_reel_backlog")
+    if lowered is None or not REEL_BACKLOG_STATUS.exists():
+        return normal_cap
+    try:
+        status = json.loads(REEL_BACKLOG_STATUS.read_text())
+        updated = dt.datetime.fromisoformat(status["updated_at"])
+    except (OSError, ValueError, KeyError) as exc:
+        log.warning("reel backlog status unreadable (%s); using normal cap", exc)
+        return normal_cap
+    if status.get("caught_up", True):
+        return normal_cap
+    if dt.datetime.now(dt.timezone.utc) - updated > dt.timedelta(days=3):
+        return normal_cap
+    log.info("reel backlog: %s reels left; gem cap %d -> %d",
+             status.get("remaining"), normal_cap, int(lowered))
+    return min(normal_cap, int(lowered))
+
+
 def run_tick(dry_run: bool = False) -> dict:
     """One decision cycle. Returns a summary dict. Never raises."""
     cfg = _load_config()
@@ -285,6 +318,7 @@ def run_tick(dry_run: bool = False) -> dict:
     # three. Gems are NOT lost when this cap bites — the queue has no time window
     # and drains on later ticks as old publishes age out of the rolling 24h.
     quota = int(cfg.get("publisher_daily_cap", cfg["ig_rolling_24h_quota"]))
+    quota = _reel_backlog_cap(cfg, quota)
     reserve_floor = int(cfg["archive_reserve_floor"])
     archive_fallback_enabled = bool(cfg.get("archive_fallback_enabled", True))
     max_per_tick = int(cfg["max_per_tick"])

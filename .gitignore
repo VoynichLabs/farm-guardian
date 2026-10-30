@@ -19,9 +19,11 @@ models/
 guardian.db
 
 # Hand-rolled backup copies — use git commits instead of file copies.
-# Existing sprawl was swept into backups/repo-bak-sweep-20260706/ (06-Jul-2026).
+# Existing sprawl was swept into backups/repo-bak-sweep-20260706/ (06-Jul-2026)
+# and backups/repo-bak-sweep-20261029/ (29-Oct-2026; *.bak-<tag> names added).
 *.bak
 *.bak.*
+*.bak-*
 *.backup
 *.backup.*
 backups/
