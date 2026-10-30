@@ -1826,15 +1826,20 @@ def run_daemon() -> int:
     # context (which 400s portrait frames with "Context size has been
     # exceeded"). Non-fatal: if LM Studio is down or slow at startup, log and
     # carry on — the per-cycle read-only skip already handles an unloaded model.
+    # 11-Oct-2026 (Boss, Kaggle work): vlm_auto_load defaults to False, so the
+    # pipeline never loads a model; it uses whatever vision model is loaded.
     want_ctx = cfg.get("vlm_load_context_length", 16384)
-    try:
-        outcome = ensure_model_loaded(cfg["lm_studio_base"], cfg["vlm_model_id"], want_ctx)
-        log.info("VLM ensure-loaded %s at context>=%d: %s",
-                 cfg["vlm_model_id"], want_ctx, outcome)
-    except Exception as e:
-        log.warning("ensure_model_loaded failed (%s: %s) — continuing; "
-                    "per-cycle skip handles an unloaded model",
-                    type(e).__name__, e)
+    if not cfg.get("vlm_auto_load", False):
+        log.info("vlm_auto_load is off — not loading any model; using whatever LM Studio has loaded")
+    else:
+        try:
+            outcome = ensure_model_loaded(cfg["lm_studio_base"], cfg["vlm_model_id"], want_ctx)
+            log.info("VLM ensure-loaded %s at context>=%d: %s",
+                     cfg["vlm_model_id"], want_ctx, outcome)
+        except Exception as e:
+            log.warning("ensure_model_loaded failed (%s: %s) — continuing; "
+                        "per-cycle skip handles an unloaded model",
+                        type(e).__name__, e)
 
     # Launch dedicated threads for vlm_bypass cameras so they don't contend
     # with the main VLM-serialized scheduler. These threads own their own

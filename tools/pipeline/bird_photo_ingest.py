@@ -274,8 +274,10 @@ def _run_vlm(image_bytes: bytes) -> Optional[dict]:
     model_id = cfg.get("vlm_model_id", "qwen/qwen3-vl-4b")
     try:
         # enrich() does NOT auto-load the model; ensure it once first.
-        from tools.pipeline.vlm_enricher import ensure_model_loaded
-        ensure_model_loaded(lm_base, model_id, cfg.get("vlm_load_context_length", 16384))
+        # Never loads a model unless vlm_auto_load is explicitly on (11-Oct-2026).
+        if cfg.get("vlm_auto_load", False):
+            from tools.pipeline.vlm_enricher import ensure_model_loaded
+            ensure_model_loaded(lm_base, model_id, cfg.get("vlm_load_context_length", 16384))
         result = enrich(
             image_bytes=image_bytes,
             camera_name=camera_name,

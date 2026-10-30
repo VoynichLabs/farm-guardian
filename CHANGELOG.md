@@ -10,6 +10,16 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 **How:** `tools/pipeline/bird_photo_ingest.py` — when the caption says extras are in frame ("in the background", "behind them", "plus ..."), a higher vision count than named birds is accepted for both solo and group filings. A lower count, or a group composition on a solo filing, is still flagged.
 
+### v2.78.2 — Farm Guardian never loads an LM Studio model (Claude Sonnet 5.5) — 11-Oct-2026
+
+**What / why:** Boss is running Kaggle work in LM Studio and wants the farm to use whatever model is loaded, never force its own.
+Reads already did (`resolve_loaded_vlm`). Two load paths remained: the pipeline's startup load and `com.farmguardian.lmstudio-watchdog`,
+which loads the chicken model after 10 minutes of an empty LM Studio, exactly what happens between experiments.
+
+**How:** new `vlm_auto_load` in `tools/pipeline/config.json` (default false) gates the startup load and the bird-photo ingest load.
+The watchdog LaunchAgent is booted out and its plist renamed `.disabled-11Oct2026`. To restore auto-loading, set `vlm_auto_load` true
+and rename the plist back. With nothing loaded, the pipeline skips and the night verifier fails open until a vision model is loaded.
+
 ### v2.78.1 — camera watchdog: ignore list for cameras known down on purpose (Claude Sonnet 5.5) — 03-Oct-2026
 
 **What / why:** the staleness watchdog kept re-posting "Camera down" in #farm-2026 every ~10 minutes. Boss knows

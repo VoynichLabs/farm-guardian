@@ -4,6 +4,7 @@
  "birds_preset_path": "",
  "lm_studio_base": "http://localhost:1234",
  "vlm_model_id": "qwen/qwen3-vl-4b",
+ "vlm_auto_load": false,
  "vlm_load_context_length": 16384,
  "vlm_input_long_edge_px": 768,
  "vlm_max_tokens": 600,
