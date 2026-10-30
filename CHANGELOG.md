@@ -4,6 +4,12 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.78.4 — farm diary: Boss is "Boss", not "Quid" (Claude Sonnet 5.5 Low) — 22-Oct-2026
+
+**What / why:** diary entries kept calling the Boss "Quid" because the transcript fed the model his raw Discord handle.
+
+**How:** `scripts/farm-diary-from-discord.py` — `render_transcript()` maps the handle to "Boss" before the model sees it.
+
 ### v2.78.3 — bird photo ingest: caption can acknowledge background animals (Claude Sonnet 5.5 Low) — 21-Oct-2026
 
 **What / why:** a fence photo of two named hens was refused ("you named 2, I count 3") because the vision model counted a blurry injured turkey in the background.

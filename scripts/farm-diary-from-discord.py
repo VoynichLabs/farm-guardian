@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 # Author: Claude Fable 5; Claude Opus 5 (14-Aug-2026 — cameras are the source, not the chatroom);
 #         Claude Sonnet 5 (17-Aug-2026 — UTC-to-local timestamp fix)
-# Date: 23-Jul-2026; 14-Aug-2026; 17-Aug-2026
+# Date: 23-Jul-2026; 14-Aug-2026; 17-Aug-2026; 22-Oct-2026
+#
+# 22-Oct-2026 (Claude Sonnet 5.5 Low) — The transcript showed each speaker's raw
+#          Discord username, so entries called the Boss "Quid" (from his handle
+#          quidbuckingham). render_transcript() now maps that handle to "Boss"
+#          via DISPLAY_NAMES before the model sees it.
 #
 # 17-Aug-2026 (v2.71.3) — All stored timestamps (Discord + guardian.db) are
 #          UTC. Every [HH:MM] shown to the model, and the "today" day filter
@@ -149,6 +154,11 @@ def fetch_recent_messages(token: str, channel_id: str, hours: int) -> list[dict]
     return out
 
 
+# Raw Discord handle -> the name the diary should use. The Boss is only ever
+# "the Boss" in entries; his handle must never reach the model.
+DISPLAY_NAMES = {"quidbuckingham": "Boss"}
+
+
 def render_transcript(messages: list[dict], char_cap: int = 14000) -> str:
     """Compact transcript for the model. Keeps who-said-what (the farm facts
     come from Boss, not from the bots) and drops noise."""
@@ -158,6 +168,7 @@ def render_transcript(messages: list[dict], char_cap: int = 14000) -> str:
         if not content:
             continue                               # image-only / embed-only
         author = (m.get("author") or {}).get("username") or "unknown"
+        author = DISPLAY_NAMES.get(author, author)
         is_bot = bool((m.get("author") or {}).get("bot"))
         content = re.sub(r"<@!?\d+>", "@someone", content)
         content = re.sub(r"https?://\S+", "[link]", content)
