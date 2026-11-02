@@ -4,6 +4,10 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### Device change (no code) — S7 leftover Verizon packages removed (Claude Sonnet 5.5 Medium) — 02-Nov-2026
+
+Removed three idle Verizon packages from the s7-cam phone (LTE broadcast, Verizon API shim, APN service); camera verified serving after each. Details and the do-not-touch list: [`docs/02-Nov-2026-s7-verizon-bloatware-removal.md`](docs/02-Nov-2026-s7-verizon-bloatware-removal.md).
+
 ### v2.79.0 — Instagram back on its feet: time-lapse reels, key alarm, VoynichLabs poster (Claude Opus 5.5 Medium) — 29-Oct-2026
 
 **Why minor, not patch:** adds a new posting lane (VoynichLabs) and a new health check, beyond the bug fixes.
