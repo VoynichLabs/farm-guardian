@@ -1,3 +1,7 @@
+# Author: GPT-6 (storage edit); original authors retained below
+# Date: 01-November-2026
+# PURPOSE: Keep RTSP burst scratch on the configured capture drive without tempfile fallback.
+# SRP/DRY check: Pass — reuse existing burst capture and tempfile lifecycle.
 # Author: Claude Opus 4.7 (edits 21-April-2026 — bake EXIF Orientation into ip_webcam returns so rotated S7 frames aren't sideways downstream); Claude Sonnet 4.6 (edits 27-April-2026 — allow_stale threaded through Guardian API capture, v2.37.13); Claude Opus 4.8 (edits 05-July-2026 — mirror live guardian capture.py: add force_portrait dimension fallback to _apply_exif_rotation and thread it through the ip_webcam path so S7 landscape/Orientation=1 frames are rotated to portrait, fixing sideways reel/IG images)
 # Date: 13-April-2026
 # PURPOSE: Per-camera high-quality frame capture for the multi-cam image
@@ -25,6 +29,7 @@ from __future__ import annotations
 
 import io
 import logging
+import os
 import subprocess
 import tempfile
 import time
@@ -215,7 +220,9 @@ def capture_rtsp_burst(rtsp_url: str, burst_size: int = 5, burst_interval_second
     JPEG bytes. This is the recipe for fixed-focus cameras (gwtc, mba-cam)
     where we can't trigger AF — we rely on motion/light-variation between
     frames to give us at least one sharp sample."""
-    with tempfile.TemporaryDirectory() as td:
+    # An explicit directory prevents tempfile from silently falling back to
+    # the internal drive when the configured footage SSD is unavailable.
+    with tempfile.TemporaryDirectory(dir=os.environ.get("GUARDIAN_CAPTURE_TMPDIR")) as td:
         td_path = Path(td)
         candidates: list[tuple[float, bytes]] = []
         for i in range(burst_size):
