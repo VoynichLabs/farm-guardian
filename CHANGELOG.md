@@ -4,6 +4,14 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.79.2 — new footage on Team SSD (GPT-6) — 01-Nov-2026
+
+The live archive, event snapshots, yard-diary masters, dropped source photos and generated reel media now resolve through their existing paths to `/Volumes/Team 4TB/data/farm-guardian/`. The active month is copied there; historical months remain reachable on Samsung, without moving its existing archive. Database paths remain unchanged. RTSP burst scratch accepts an explicit `GUARDIAN_CAPTURE_TMPDIR`; unlike implicit tempfile discovery this fails if the selected SSD path is unavailable instead of silently spilling raw frames onto the internal drive. Production pipeline launchd sets that path on Team. Thumbnail cache configuration follows Team too. Originals remain available until verification; details and rollback are in `docs/plans/2026-11-01-new-ssd-footage.md`.
+
+### v2.79.1 — chicken tab icon (GPT-6) — 31-Oct-2026
+
+The dashboard now uses a chicken emoji as its browser tab icon, embedded in the page so no extra request or service restart is needed.
+
 ### v2.79.0 — Instagram back on its feet: time-lapse reels, key alarm, VoynichLabs poster (Claude Opus 5.5 Medium) — 29-Oct-2026
 
 **Why minor, not patch:** adds a new posting lane (VoynichLabs) and a new health check, beyond the bug fixes.

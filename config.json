@@ -227,8 +227,8 @@
   },
   "images": {
     "thumb_cache": {
-      "dir": "/Volumes/Samsung 9100 SSD/farm-guardian-data/cache/thumbs",
-      "require_mount": "/Volumes/Samsung 9100 SSD",
+      "dir": "/Volumes/Team 4TB/data/farm-guardian/cache/thumbs",
+      "require_mount": "/Volumes/Team 4TB",
       "max_bytes": 2147483648,
       "min_free_bytes": 21474836480,
       "max_age_seconds": 43200

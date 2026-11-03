@@ -10,7 +10,7 @@ venv/
 bubba-workspace/secrets/
 
 # Runtime data
-events/
+/events
 models/
 *.log
 # Rotated logs: '*.log' does NOT match 'guardian.log.1' (the extension is .1),
