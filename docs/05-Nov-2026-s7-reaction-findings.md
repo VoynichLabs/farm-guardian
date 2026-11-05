@@ -152,4 +152,4 @@ Checks were run on the numbers and on the conclusions. These points were withdra
 1. Done: fill is measured on every linked frame (see the section above).
 2. Separate the fill term's effect from the rest of the score inside B2.
 3. Before any Kaggle upload: write these caveats on the card, decide the label wording ("a human reacted"), and do the people-in-frame check.
-4. Any change to how the score uses fill is a pipeline change and needs its own plan.
+4. Any change to how the score uses fill is a pipeline change. The plan is in [05-Nov-2026-s7-fill-first-posting-plan.md](05-Nov-2026-s7-fill-first-posting-plan.md), and it is awaiting approval; nothing has been changed.
