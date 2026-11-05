@@ -112,7 +112,7 @@ No confident bird box: 7.3% (Era A, 151 posts); 3.7% (B1, 27); 8.9% (B2, 79); 4.
 
 - Fill predicts your reactions in every era, including Era A, where the score had no fill term. The pattern holds with the detector's measure as well.
 - The detector's fill ranks reacted posts slightly better than the model's fill answer. The margin is small, so the detector is a modest improvement, not a different story.
-- The score ranks reacted posts worse than fill alone in both eras. In Era B2 the score includes fill and still ranks below fill by itself, so its other parts add noise. This is the most useful practical point for the posting rules, and changing them is a pipeline change that needs its own plan.
+- The score ranks reacted posts worse than fill alone in era A (no fill term) and era B1. In the newest era (from 3 October) the two rank about even. **This corrects an earlier line here that said fill beat the score in every era.** The replay section below has the current figures. Any change to the posting rules is a pipeline change that needs its own plan.
 - Frames the detector finds no bird in are rarely reacted to.
 - Ranking figures are computed on posted frames only, which are already selected.
 
@@ -137,6 +137,35 @@ Checks were run on the numbers and on the conclusions. These points were withdra
 - **Scene.** Seven posts are coop (1–11 September), not all birdcatraz.
 - **Stamped-pair gap.** Corrected to under one to eleven seconds.
 - **Listing counts.** From the run log, not from a saved listing.
+
+## Replay of the fill-first options and checks (05-Nov-2026, later)
+
+Plan: [05-Nov-2026-s7-fill-first-posting-plan.md](05-Nov-2026-s7-fill-first-posting-plan.md), Replay section. Script: `scripts/fill-first-replay.py`. Outputs on the SSD: `fill_first_replay_frames.csv` and `fill_first_replay_summary.txt`.
+
+**Changes from the sections above.** These figures replace the earlier ranking and lift numbers:
+- Three rollout days are left out of the era analysis: 12 Aug (floor 65 to 80), 19 Sep (floor 80 to 82, subject-size gate live) and 2 Oct (measured fill live from about 10:43 to 18:22). Posts from those days mix old and new scoring.
+- Today's gate is rebuilt from the live code. It reproduces every posted labelled frame's result in every era, and stored scores recompute exactly.
+- One label per frame: a frame counts as reacted if any of its posts drew a reaction. No frame has conflicting labels.
+
+**Fill against today's rule at matched volume** (candidate 1, a fill threshold chosen to post about as many frames as today):
+
+| Era | Today's posts | Candidate posts (threshold) | Keeps / drops of today's posts | Adds (never posted) | Kept, reacted | Dropped, reacted | Kept minus dropped |
+|---|---|---|---|---|---|---|---|
+| A, no fill term | 2,938 | 2,890 (34) | 1,303 / 1,635 | 1,587 | 21.3% | 11.3% | +10.0 (±2.7) |
+| B1, VLM fill | 955 | 974 (29) | 680 / 275 | 294 | 25.7% | 9.5% | +16.2 (±5.0) |
+| B2, measured fill | 1,383 | 1,323 (36) | 1,159 / 224 | 164 | 25.6% | 15.4% | +10.2 (±6.0) |
+
+**Ranking** (0.5 is chance): era A fill 0.63 against score 0.57; B1 fill 0.65 against 0.60; B2 fill 0.56 against 0.57. In B2 the figure is 0.59 against 0.57 where a bird was detected, and 0.60 against 0.58 if 2 October is included.
+
+**What the checks found:**
+- In the newest era, matching kept and dropped posts within each day lowers the lift from +10.2 to +6.2 (21 days).
+- The caption @-mention fires at a score of 87 or more and notifies Mark. It has existed since July, at 90 until 19 Sep. Eras A and B1 show gaps of +9 to +16 with and without the mention. In the newest era the gap is +16.6 with the mention (only 18 dropped posts carry it) and +4.7 without it (164 dropped posts).
+- 2 October alone has 268 labelled posts, 29 reacted (about 11%), against 23.8% for the rest of the newest era.
+- 1,594 newest-era frames (12%) have no confident bird box, so the scorer uses the vision model's coverage figure instead. The fill-only candidate would post 162 of them. Any fill-first rule must give those frames a fill of zero.
+
+**Read:** fill separates reacted from unreacted posts clearly in eras A and B1. In the newest era it does not clearly beat the score. Options that change volume add 164 to 1,587 frames per era that have never been posted, so they cannot be judged on reactions. Keep the posting gate as it is until the Boss decides otherwise. A live trial would be the only test that settles it.
+
+The labels are one person's reactions. Zero means no recorded reaction, not a dislike.
 
 ## Caveats
 
