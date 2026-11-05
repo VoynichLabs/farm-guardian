@@ -75,7 +75,49 @@ Small (1,002 confidently linked posts; 22.1% reacted). Bands: 80–84 17.4%; 85�
 - Measured fill, on the 933 posts that have a detector value (the five bins below cover 913; the other 20 are outside them): 30–39% 18.8%; 40–49% 25.3%; 50–59% 31.4%; 60–69% 30.8%; 70–79% 25.7% (35 posts).
 - Portrait 24.3% (936 posts) vs group 10.8% (333).
 
+## Fill measured on every frame (5 Nov, later)
+
+The detector's fill was then measured on every linked frame, not only the October-on frames, with `scripts/s7-measured-fill.py`. It reuses the pipeline's own detector (`tools/pipeline/presence.py`, same weights, same threshold, same dark-frame rule). Output: `fill_measured.csv` on the SSD.
+
+**Check against the live values.** On 300 frames that already carried the live pipeline's measured fill, the re-measurement differs by a median of about a quarter of a point, and all 300 agree within two points. The stored JPEGs reproduce the live measurement.
+
+**Coverage.** 7,463 frames measured; 348 had no confident bird box at the pipeline's threshold; 21 were too dark to judge. Frames with no confident box are kept as their own group, not counted as empty.
+
+**Share reacted by measured fill** (confidently linked posts, at least seven days old):
+
+| Fill | Era A (no fill term) | Era B1 (model fill term) | Era B2 (measured fill term) | Before 12 Aug |
+|---|---|---|---|---|
+| 0–9% | 5.4% | 9.1% | — | 2.3% |
+| 10–19% | 7.5% | 8.3% | 0.0% (41 posts) | 6.3% |
+| 20–29% | 13.5% | 16.6% | 6.9% | 13.0% |
+| 30–39% | 17.1% | 22.5% | 17.0% | 19.6% |
+| 40–49% | 24.0% | 28.5% | 25.9% | 23.5% |
+| 50–59% | 22.7% | 34.2% | 29.0% | 28.5% |
+| 60–69% | 21.8% | 36.4% | 28.6% | 27.6% |
+| 70–79% | 27.8% | — | 26.2% | 27.9% |
+
+No confident bird box: 7.3% (Era A, 151 posts); 3.7% (B1, 27); 8.9% (B2, 79); 4.6% (before 12 Aug, 65).
+
+**Ranking ability** (0.5 is chance; same posts in each comparison):
+
+| Measure | Era A | Era B2 |
+|---|---|---|
+| Measured fill alone | 0.646 | 0.626 |
+| Model's fill answer alone | 0.628 | 0.610 |
+| Score alone | 0.583 | 0.585 |
+
 ## Understanding
+
+**Revised after the full-set measurement:**
+
+- Fill predicts your reactions in every era, including Era A, where the score had no fill term. The pattern holds with the detector's measure as well.
+- The detector's fill ranks reacted posts slightly better than the model's fill answer. The margin is small, so the detector is a modest improvement, not a different story.
+- The score ranks reacted posts worse than fill alone in both eras. In Era B2 the score includes fill and still ranks below fill by itself, so its other parts add noise. This is the most useful practical point for the posting rules, and changing them is a pipeline change that needs its own plan.
+- Frames the detector finds no bird in are rarely reacted to.
+- Ranking figures are computed on posted frames only, which are already selected.
+
+The earlier summary below still stands, with the era numbers above replacing the pooled ones.
+
 
 1. **Frame fill is the strongest signal, and it appears in every era, including Era A when the score ignored fill.** Share reacted rises from about 5% for a small bird to about 23% for a bird filling most of the frame. That is the clearest result here.
 2. **Portrait framing also helps.** It shows in Era A (slightly) and clearly in B2.
@@ -102,11 +144,12 @@ Checks were run on the numbers and on the conclusions. These points were withdra
 - Fill, activity, bird count, scene and sub-scores are model outputs, not human labels.
 - Observational only. These are associations, not causes.
 - Posts are a selected set: frames that passed the scoring gate and the floor.
-- The measured-fill result rests on 933 posts from October on.
+- The fill figures are the detector's reading of each frame at the pipeline's threshold. Its misses (about one bird frame in twenty) sit in the no-box group, not in the empty ones.
+- Ranking figures compare reacted and passed-over posts that were already selected for posting. They say how well fill sorts those posts, not how well it would sort all frames.
 
 ## Next steps
 
-1. Measure fill for every linked frame still on disk, so the fill-by-reaction test covers Era A and B1, not only B2.
+1. Done: fill is measured on every linked frame (see the section above).
 2. Separate the fill term's effect from the rest of the score inside B2.
 3. Before any Kaggle upload: write these caveats on the card, decide the label wording ("a human reacted"), and do the people-in-frame check.
 4. Any change to how the score uses fill is a pipeline change and needs its own plan.
