@@ -180,5 +180,5 @@ The labels are one person's reactions. Zero means no recorded reaction, not a di
 
 1. Done: fill is measured on every linked frame (see the section above).
 2. Separate the fill term's effect from the rest of the score inside B2.
-3. Before any Kaggle upload: write these caveats on the card, decide the label wording ("a human reacted"), and do the people-in-frame check.
+3. Kaggle upload: the Boss approved sharing it on 06-Nov-2026. Built as a package with pictures and uploaded as a private Kaggle dataset, `markbarney/s7-chicken-photo-reactions` (06-Nov-2026; 7,520 pictures and the table verified on Kaggle; making it public is the Boss's call); see [06-Nov-2026-kaggle-s7-dataset-publish-plan.md](06-Nov-2026-kaggle-s7-dataset-publish-plan.md) and the card source [06-Nov-2026-kaggle-s7-dataset-card.md](06-Nov-2026-kaggle-s7-dataset-card.md). The people-in-frame check was dropped on the Boss's instruction ("you don't need to check the images for people or bad frames"); the card says the pictures were not hand-checked.
 4. Any change to how the score uses fill is a pipeline change. The plan is in [05-Nov-2026-s7-fill-first-posting-plan.md](05-Nov-2026-s7-fill-first-posting-plan.md), and it is awaiting approval; nothing has been changed.
