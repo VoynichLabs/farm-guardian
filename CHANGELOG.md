@@ -4,6 +4,16 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.80.0 — emoji reactions on S7 pictures become labeled data (Claude Sonnet 5.5 Low) — 18-Nov-2026
+
+**Why minor, not patch:** new script, new table and a new LaunchAgent — a new data pipeline, not a tweak. Closes the "known gap" left in v2.79.3.
+
+**What / why:** Boss, 18-Nov: reactions in the Autoresearch Arena #farm channel should be judgments for a chicken-picture dataset, and Bubba reported the wiring wasn't there. Vocabulary: ❤️ (any heart) = like, 💯 = standout, ❌ = wrong (picture or caption), 🧐 = questionable (needs a closer look). Any other emoji is stored raw with no label.
+
+**How:** new `scripts/arena-label-sync.py` + LaunchAgent `com.farmguardian.arena-label-sync` (every 10 min, plist in `deploy/ig-scheduled/`). It writes the new `image_labels` table — one row per message + person + emoji with first/last seen and `removed_at` (removals are marked, never deleted; a failed Discord fetch never counts as a removal) — and keeps `image_archive.discord_message_id` and `discord_reactions` current. **`discord_reactions` now means "distinct people who liked it" (like or standout) for Arena pictures, so ❌ and 🧐 never publish anything.** Reuses `discord-reaction-sync.py`'s gem matching and the harvester's bot token/ID list. Any person in the guild counts, not just the Boss. The old #farm-2026 reader is untouched. Verified live: one real heart on an S7 picture was recorded and matched to its picture.
+
+**Not done yet:** Bubba's tagged written notes ("this picture is wrong because...") are not captured; the table has no column for a reason.
+
 ### v2.79.3 — S7 gems post to the Autoresearch Arena #farm channel (Claude Sonnet 5.5 Low) — 18-Nov-2026
 
 **Why patch, not minor:** one routing change in one posting path; no new route, data source or API shape.
