@@ -1,6 +1,6 @@
 # Author: Claude Opus 4.7 (1M context); Claude Sonnet 4.6 (09-May-2026 — gwtc/usb-cam/dominator-cam disabled); Claude Fable 5 (02-Jul-2026 — tier+score gate restored, trim_caption added, v2.44.5); Claude Opus 4.8 (Bubba) (12-Jul-2026 — score floor 7→80 for the 0-100 component scale, v2.45.0; 13-Jul-2026 — floor 80→70, v2.45.2); Claude Fable 5 (16-Jul-2026 — brooder-era Discord usernames retired for the Birdcatraz move, v2.46.0); Claude Sonnet 5 (02-Aug-2026 — should_post docstring's stale "overall_score < 80" corrected to match the v2.45.2 constant, v2.59.0); Claude Opus 5 (07-Aug-2026 — transient-failure retry so a 503 stops destroying gems, v2.67.1; score floor 70→65 per Boss + docstring now names the constant instead of restating it, v2.67.2); Claude Opus 5 (12-Aug-2026 — score floor 65→80 per Boss, justified against the post-S7-swap score distribution; docstring history table completed and the stale "(this)" marker moved, v2.70.6)
-# Date: 23-April-2026
-# PURPOSE: Post strong-tier frames to the #farm-2026 Discord channel as they
+# Date: 23-April-2026 (last touched 18-Nov-2026 — Claude Sonnet 5.5 Low: s7-cam gems routed to the Autoresearch Arena #farm webhook via webhook_for_camera)
+# PURPOSE: Post strong-tier frames to the #farm-2026 Discord channel (s7-cam: the Arena #farm channel) as they
 #          land. Called from orchestrator.run_cycle whenever store returns
 #          tier=strong. Failures here must NEVER break the pipeline cycle —
 #          the post is fire-and-log.
@@ -385,6 +385,29 @@ def load_dotenv(path: Path) -> None:
         k = k.strip()
         v = v.strip().strip('"').strip("'")
         os.environ.setdefault(k, v)
+
+
+# Cameras whose gems go to the Autoresearch Arena #farm channel instead of the
+# VoynichLabs #farm-2026 channel (18-Nov-2026, Boss: S7 pictures are now posted
+# there for labeled reactions). Webhook per channel, so the author username,
+# retry loop and reaction-sync matching keep working unchanged.
+_ARENA_CAMERAS = frozenset({"s7-cam"})
+
+
+def webhook_for_camera(camera_name: str) -> str:
+    """Return the Discord webhook URL a camera's gems should post to.
+
+    s7-cam -> DISCORD_ARENA_WEBHOOK_URL (Autoresearch Arena #farm). Every other
+    camera, and s7-cam if the Arena webhook is missing (logged, so a gem is
+    never lost), -> DISCORD_WEBHOOK_URL (VoynichLabs #farm-2026)."""
+    import os
+    default = os.environ.get("DISCORD_WEBHOOK_URL", "")
+    if camera_name in _ARENA_CAMERAS:
+        arena = os.environ.get("DISCORD_ARENA_WEBHOOK_URL", "")
+        if arena:
+            return arena
+        log.warning("gem_poster: DISCORD_ARENA_WEBHOOK_URL missing; %s gem falls back to the default webhook", camera_name)
+    return default
 
 
 def post_gem(

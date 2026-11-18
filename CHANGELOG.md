@@ -4,6 +4,16 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.79.3 — S7 gems post to the Autoresearch Arena #farm channel (Claude Sonnet 5.5 Low) — 18-Nov-2026
+
+**Why patch, not minor:** one routing change in one posting path; no new route, data source or API shape.
+
+**What / why:** Boss, 18-Nov: S7 pictures now post to a new channel (`1572675202096173146`, guild Autoresearch Arena) for labeled reactions, as the start of building a chicken-picture dataset. The bot created a webhook in that channel; it is stored as `DISCORD_ARENA_WEBHOOK_URL` in the git-ignored `.env`.
+
+**How:** `tools/pipeline/gem_poster.py` — new `webhook_for_camera()`; `s7-cam` uses the Arena webhook, every other camera (and `s7-cam` if the Arena key is missing, logged) uses `DISCORD_WEBHOOK_URL`. `tools/pipeline/orchestrator.py` calls it instead of reading the env var directly. Alerts, watchdogs, digests, reel previews and other cameras' gems are unchanged and stay in VoynichLabs #farm-2026. Pipeline LaunchAgent restarted to load it.
+
+**Known gap (deliberate, first step only):** reaction reading (`scripts/discord-reaction-sync.py`, `tools/discord_harvester.py`) still reads the old channel, so reactions in the new channel are not yet recorded and do not publish to Instagram. The heart / X labeling regime is a later step.
+
 ### Device change (no code) — S7 leftover Verizon packages removed (Claude Sonnet 5.5 Medium) — 02-Nov-2026
 
 Removed three idle Verizon packages from the s7-cam phone (LTE broadcast, Verizon API shim, APN service); camera verified serving after each. Details and the do-not-touch list: [`docs/02-Nov-2026-s7-verizon-bloatware-removal.md`](docs/02-Nov-2026-s7-verizon-bloatware-removal.md).
