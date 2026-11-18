@@ -68,10 +68,13 @@ Studio. That is long obsolete.)*
 **The VLM image pipeline is a live production caller.** The
 `com.farmguardian.pipeline` LaunchAgent runs `tools/pipeline/vlm_enricher.py`,
 which POSTs every captured frame from every enabled camera to
-`/v1/chat/completions` on **`qwen/qwen3-vl-4b`** — the current
-production VLM since v2.44.3 (01-Jul-2026), verified loaded 2026-07-22.
-It loads the model itself at 16k context via `ensure_model_loaded` at
-daemon startup. If LM Studio stops, the gem/caption/curation stack
+`/v1/chat/completions` on whatever vision model is loaded in LM Studio.
+That is **Gemma 4 E2B** (`google/gemma-4-e2b`) as of 17-Nov-2026. The farm
+moved from the Qwen model (`qwen/qwen3-vl-4b`, the production VLM from
+v2.44.3, 01-Jul-2026, verified loaded 2026-07-22) to Gemma 4 E2B because it
+is much faster. Nothing auto-loads the vision model since v2.78.2
+(11-Oct-2026), so the model that answers is whatever LM Studio has loaded.
+If LM Studio stops, the gem/caption/curation stack
 stops producing. The safety rules in this document are therefore
 load-bearing, not theoretical.
 
@@ -83,7 +86,7 @@ requires LM Studio.*
 
 ⚠️ **Model names below are an April-2026 snapshot.** Wherever this
 document says `glm-4.6v-flash` or `qwen/qwen3.5-9b` in an example, the
-current production model is `qwen/qwen3-vl-4b`. Always check what is
+current production model is Gemma 4 E2B (`google/gemma-4-e2b`). Always check what is
 actually loaded with `GET /v1/models` before acting on any example here.
 
 **If you add new LM Studio integrations:** keep them out of the hot
@@ -549,7 +552,7 @@ Same docs page, verbatim:
 
 ### What we actually use to keep the model loaded
 
-`docs/16-May-2026-lmstudio-watchdog-plan.md` documents a tiny LaunchAgent + bash script that loads `qwen/qwen3-vl-4b` (at 16k context) via the documented Safe model swap pattern (above) only after **no** model has been loaded for 10 minutes straight (v2.72.1), so it never slips into the gap while Boss swaps models; it does nothing while any other model is loaded. The plan doc still names `qwen/qwen3.5-9b`, which was the model at the time; the installed script and `deploy/mac-mini/lmstudio-watchdog.sh` are the truth. It is the canonical answer to "how do I stop having to manually load the model after every LM Studio restart?" on this machine. If you are about to write your own auto-loader, read that plan first — the watchdog already covers it, and reinventing it (without the co-tenant skip rule, without the free-memory gate, etc.) is exactly the kind of avoidable mistake the reference doc exists to prevent.
+`docs/16-May-2026-lmstudio-watchdog-plan.md` documents a tiny LaunchAgent + bash script. Its script still names `qwen/qwen3-vl-4b` (at 16k context) as the model it loads, via the documented Safe model swap pattern (above), only after **no** model has been loaded for 10 minutes straight (v2.72.1), so it was built so it would never slip into the gap while the model was swapped; it does nothing while any other model is loaded. That LaunchAgent was disabled on 11-Oct-2026 (v2.78.2), so nothing loads a model automatically now. The live vision model is Gemma 4 E2B (`google/gemma-4-e2b`), and whatever is loaded in LM Studio is what answers. The plan doc still names `qwen/qwen3.5-9b`, which was the model at the time; the installed script and `deploy/mac-mini/lmstudio-watchdog.sh` are the truth. It is the canonical answer to "how do I stop having to manually load the model after every LM Studio restart?" on this machine. If you are about to write your own auto-loader, read that plan first — the watchdog was built to cover it, and reinventing it (without the co-tenant skip rule, without the free-memory gate, etc.) is exactly the kind of avoidable mistake the reference doc exists to prevent.
 
 ### Sources (LM Studio docs as of 2026-05-16)
 

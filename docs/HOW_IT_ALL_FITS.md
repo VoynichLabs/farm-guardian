@@ -5,7 +5,7 @@
 > ⚠️ **Read the corrections in this box before trusting the rest of this file.** Several sections below describe an April-2026 world:
 > - **Per-cycle IG auto-posting is DEAD** (`instagram.enabled=false`) and has been since early May. Publishing happens on scheduled LaunchAgent lanes, not on the capture cycle. Anywhere below that says "live auto-posting" is wrong.
 > - **Reels and Stories are not "no code" — they are live.** Three fixed daily camera reels (house-yard 09:00, s7 12:00, duo2 15:00), a mixed reel at 18:00, a carousel at 12:30, and hourly reacted-gem Stories all post today.
-> - **The production VLM is `qwen/qwen3-vl-4b`** (since v2.44.3, 01-Jul-2026), not any glm/qwen3.5 model named below.
+> - **The production VLM is Gemma 4 E2B** (`google/gemma-4-e2b` in LM Studio), which replaced the Qwen model (`qwen/qwen3-vl-4b`, live since v2.44.3, 01-Jul-2026) because it is much faster. It is not any glm, qwen3.5 or Gemma-4-31b model named below.
 > - **Both config files ARE tracked in git**, deliberately. The gitignore claim below is wrong.
 > - The camera fleet is **seven** cameras, not four.
 >
