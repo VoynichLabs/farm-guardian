@@ -4,6 +4,14 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.80.1 — silence means "overscored"; channel rules posted and pinned (Claude Sonnet 5.5 Low) — 18-Nov-2026
+
+**Why patch, not minor:** extends the v2.80.0 reader with one rule and adds a doc; no new route, table or LaunchAgent.
+
+**What / why:** Boss, 18-Nov: no reaction and no reply to a picture should read as "scored too high", and the channel needs to explain what score gets a picture sent. `scripts/arena-label-sync.py` now writes an `overscored` row (pseudo-person `(silence)`) into `image_labels` for a picture that is a day old with no human reaction and no human Reply — only if people were around (a human message that day, or a neighbouring picture got a response; Discord system messages do not count). It is retracted (`removed_at`) automatically if a reaction or reply shows up later, and never touches `discord_reactions`. The explainer text lives in `docs/18-Nov-2026-arena-channel-rules.md` and was posted and pinned in the channel; re-post it when the score floor, sharpness/face/fill rules, vocabulary or model change. An independent check of the text against the code corrected the score description (the model's own number is discarded; the score is computed from its ratings plus bird fill and count), the real fill bar (about a third of the frame in practice), and added that there is no posting limit. Stale `should_post` docstring ("Currently 65") corrected to 82.
+
+**Known limits:** a reaction arriving more than 48 h after posting is never seen (same limit as before); near-identical consecutive pictures can make silence on the later ones less meaningful because people already reacted to the first; the floor of 82 was tuned on the Qwen model and the Gemma model currently loaded may score differently.
+
 ### v2.80.0 — emoji reactions on S7 pictures become labeled data (Claude Sonnet 5.5 Low) — 18-Nov-2026
 
 **Why minor, not patch:** new script, new table and a new LaunchAgent — a new data pipeline, not a tweak. Closes the "known gap" left in v2.79.3.

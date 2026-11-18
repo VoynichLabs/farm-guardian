@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Author: Claude Sonnet 5.5 Low
-# Date: 18-Nov-2026 (💯 relabeled "underscored" later the same day, per Boss)
+# Date: 18-Nov-2026 (silence = overscored added; 💯 relabeled "underscored" later the same day, per Boss)
 # PURPOSE: Turn emoji reactions on S7 pictures in the Autoresearch Arena #farm
 #          channel into labeled data. For every Guardian gem message in that
 #          channel it records WHO reacted with WHICH emoji and WHEN in the
@@ -157,6 +157,43 @@ def _fetch_reactors(dh, token: str, msg_id: str, emoji: dict) -> list[dict] | No
     return None
 
 
+# --- Silence = "scored too high" ---------------------------------------------
+# Boss, 18-Nov-2026: if nobody reacts and nobody replies to a picture, that is a
+# signal the picture was overscored. Recorded as a pseudo-person row in
+# image_labels (user_id SILENCE_USER) so it exports like any other label, and
+# retracted automatically (removed_at) if a reaction or reply shows up later.
+SILENCE_HOURS = 24          # how long a picture gets before silence counts
+ALIVE_BEFORE_HOURS = 12     # neighbours this far BEFORE a post show people were around
+SILENCE_USER = "(silence)"
+SILENCE_EMOJI = "silence"
+SILENCE_LABEL = "overscored"
+
+
+def _ts(iso: str) -> datetime:
+    return datetime.fromisoformat(iso.replace("Z", "+00:00"))
+
+
+def channel_was_alive(post_ts: datetime, human_msg_times: list[datetime],
+                      engaged_post_times: list[datetime]) -> bool:
+    """Silence only means something if people were actually around. True when a
+    human wrote anything in the day after this post, or a neighbouring picture
+    (from ALIVE_BEFORE_HOURS before to SILENCE_HOURS after) got a reaction or
+    reply. Without this, a quiet night would mislabel every picture."""
+    end = post_ts + timedelta(hours=SILENCE_HOURS)
+    if any(post_ts <= t <= end for t in human_msg_times):
+        return True
+    start = post_ts - timedelta(hours=ALIVE_BEFORE_HOURS)
+    return any(start <= t <= end for t in engaged_post_times)
+
+
+def is_silent(post_ts: datetime, now: datetime, has_reaction: bool, has_reply: bool,
+              alive: bool) -> bool:
+    """True when a picture is old enough, drew no reaction and no reply from a
+    person, and the channel was alive around it."""
+    old_enough = (now - post_ts) >= timedelta(hours=SILENCE_HOURS)
+    return old_enough and not has_reaction and not has_reply and alive
+
+
 def record_message_labels(conn, gem_id: int, msg_id: str, now_iso: str,
                           seen: dict[tuple[str, str], dict]) -> int:
     """Upsert the reactions currently on one message and mark vanished ones
@@ -225,10 +262,27 @@ def main(argv: list[str] | None = None) -> int:
                 if helpers._camera_for_username((m.get("author") or {}).get("username") or "")]
     log.info("fetched %d messages, %d are Guardian gem posts", len(messages), len(gem_msgs))
 
+    # People vs machines: webhook posts (Guardian), bots (Bubba, Larry, Egon) and
+    # their replies never count as human engagement.
+    def _is_human(m: dict) -> bool:
+        a = m.get("author") or {}
+        # type 0 = normal message, 19 = reply; anything else (pin notices, joins)
+        # is Discord talking, not a person being around.
+        if m.get("type", 0) not in (0, 19):
+            return False
+        return not (a.get("bot") or m.get("webhook_id") or str(a.get("id", "")) in dh.BOT_USER_IDS)
+
+    human_msgs = [m for m in messages if _is_human(m)]
+    human_msg_times = [_ts(m["timestamp"]) for m in human_msgs]
+    replied_to = {(m.get("message_reference") or {}).get("message_id") for m in human_msgs} - {None}
+
     conn = sqlite3.connect(str(db_path), timeout=30)
-    labeled_msgs = unmatched = total_rows = 0
+    labeled_msgs = unmatched = total_rows = silent_count = 0
     try:
         conn.executescript(SCHEMA)
+        # Pass 1: read every gem's reactions (no writes yet; silence needs the
+        # whole picture of who engaged with what).
+        collected = []
         for i, msg in enumerate(gem_msgs):
             cam = helpers._camera_for_username(msg["author"]["username"])
             gem_id = helpers._find_matching_gem(conn, cam, msg["timestamp"])
@@ -255,13 +309,27 @@ def main(argv: list[str] | None = None) -> int:
             if not all_ok:
                 log.warning("msg=%s: some reaction fetches failed; skipping this message", msg["id"])
                 continue
-            now_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            collected.append((msg, gem_id, seen))
+
+        engaged_times = [_ts(m["timestamp"]) for m, _, sn in collected
+                         if sn or m["id"] in replied_to]
+        now = datetime.now(timezone.utc)
+
+        # Pass 2: decide silence, then write.
+        for msg, gem_id, seen in collected:
+            post_ts = _ts(msg["timestamp"])
+            alive = channel_was_alive(post_ts, human_msg_times, engaged_times)
+            if is_silent(post_ts, now, bool(seen), msg["id"] in replied_to, alive):
+                seen[(SILENCE_USER, SILENCE_EMOJI)] = {
+                    "username": None, "raw": SILENCE_EMOJI, "label": SILENCE_LABEL}
+                silent_count += 1
+            now_iso = now.isoformat(timespec="seconds")
             likers = record_message_labels(conn, gem_id, msg["id"], now_iso, seen)
             conn.execute(
                 "UPDATE image_archive SET discord_message_id = ?, discord_reactions = ?, "
                 "discord_reactions_checked_at = ? WHERE id = ?",
                 (msg["id"], likers, now_iso, gem_id))
-            if seen:
+            if any(k[0] != SILENCE_USER for k in seen):
                 labeled_msgs += 1
                 total_rows += len(seen)
             if args.dry_run:
@@ -271,8 +339,8 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         conn.close()
 
-    log.info("done%s: messages with reactions=%d, reaction rows=%d, unmatched posts=%d",
-             " (dry run, nothing written)" if args.dry_run else "", labeled_msgs, total_rows, unmatched)
+    log.info("done%s: messages with reactions=%d, reaction rows=%d, silent (overscored)=%d, unmatched posts=%d",
+             " (dry run, nothing written)" if args.dry_run else "", labeled_msgs, total_rows, silent_count, unmatched)
     return 0
 
 

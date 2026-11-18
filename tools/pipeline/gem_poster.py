@@ -255,7 +255,7 @@ def should_post(vlm_metadata: dict, tier: str, camera_id: Optional[str] = None) 
       - share_worth == 'skip'  → reject
       - tier != 'strong'       → reject  (v2.44.5; tier is store's share_worth)
       - overall_score < _MIN_OVERALL_SCORE or missing → reject (fail closed).
-        Currently 65 (v2.45.0 set 80; v2.45.2 → 70; v2.67.2 → 65). Named
+        Currently 82 (see the long history above the constant). Named
         rather than repeated as a literal: this docstring has already drifted
         from the constant twice and needed correcting in v2.59.0.
       - bird_count < 1         → reject
