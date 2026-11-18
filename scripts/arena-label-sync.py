@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 # Author: Claude Sonnet 5.5 Low
-# Date: 18-Nov-2026
+# Date: 18-Nov-2026 (💯 relabeled "underscored" later the same day, per Boss)
 # PURPOSE: Turn emoji reactions on S7 pictures in the Autoresearch Arena #farm
 #          channel into labeled data. For every Guardian gem message in that
 #          channel it records WHO reacted with WHICH emoji and WHEN in the
 #          image_labels table (one row per message+person+emoji, removals
 #          marked, never deleted), mapped to a small judgment vocabulary
-#          (like / standout / wrong / questionable; anything else is kept raw
+#          (like / underscored / wrong / questionable; anything else is kept raw
 #          with no label). It also keeps image_archive.discord_message_id and
 #          discord_reactions up to date, where discord_reactions now means
-#          "distinct people who liked it" (like or standout) so the existing
+#          "distinct people who liked it" (like or underscored) so the existing
 #          gating (website gems gallery, Instagram lanes) only ever acts on
 #          pictures people liked, never on ones marked wrong.
 #          Does NOT touch the old #farm-2026 flow: scripts/discord-reaction-sync.py
@@ -57,14 +57,14 @@ ARENA_CHANNEL_ID = "1572675202096173146"
 LIKE_EMOJI = {"❤", "🧡", "💛", "💚", "💙", "💜", "🤎", "🖤", "🤍", "💗", "💖", "♥"}
 LABEL_BY_EMOJI = {
     **{e: "like" for e in LIKE_EMOJI},
-    "💯": "standout",       # a "100%" shot — the best of the best
+    "💯": "underscored",    # "deserves a higher score" — the model scored this too low (Boss, 18-Nov-2026)
     "❌": "wrong",          # something about the picture or caption is wrong
     "✖": "wrong",
     "❎": "wrong",
     "🧐": "questionable",   # needs a closer look; not sure it is right
 }
 # Labels that count as "people liked this" for image_archive.discord_reactions.
-LIKING_LABELS = {"like", "standout"}
+LIKING_LABELS = {"like", "underscored"}  # underscored = liked more than the model scored it
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS image_labels (
@@ -162,7 +162,7 @@ def record_message_labels(conn, gem_id: int, msg_id: str, now_iso: str,
     """Upsert the reactions currently on one message and mark vanished ones
     removed. `seen` maps (user_id, normalized emoji) -> {username, raw, label}
     for every reaction fetched successfully. Returns the number of distinct
-    people currently liking the picture (like or standout)."""
+    people currently liking the picture (like or underscored)."""
     for (uid, emoji), info in seen.items():
         conn.execute(
             """
