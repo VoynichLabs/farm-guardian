@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Author: GPT-5.5; Claude Sonnet 4.6 (04-May-2026 — per-message commit to fix DB lock contention, v2.40.3); Claude Fable 5 (16-Jul-2026 — bird-name reply tagging + retention pinning, v2.47.2); Claude Opus 5 (21-Sep-2026 — vlm_json key any_special_chick -> standout_bird, v2.74.0)
-# Date: 03-May-2026 (last touched 21-Sep-2026)
-# PURPOSE: Two jobs, run in one pass over #farm-2026:
+# Date: 03-May-2026 (last touched 20-Nov-2026 by Claude Sonnet 5.5 Low: reads Arena #farm too, v2.80.3)
+# PURPOSE: Three jobs, run in one pass over Arena #farm (drops + replies only) and then old #farm-2026 (all three):
 #
 #          1. GUARDIAN GEMS — for every reacted message whose author is
 #             a Guardian webhook identity (mapped via gem_poster's
@@ -93,6 +93,9 @@ from typing import Optional
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
+
+
+ARENA_FARM_CHANNEL_ID = "1572675202096173146"  # Autoresearch Arena #farm (moved here 20-Nov-2026)
 
 
 def _setup_logging() -> None:
@@ -577,41 +580,16 @@ def _ingest_drop(
     return ("insert", int(cur.lastrowid))
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        description="Sync Discord reaction counts into image_archive.",
-    )
-    parser.add_argument(
-        "--since-hours",
-        type=int,
-        default=48,
-        help="Only check messages newer than this many hours (default 48).",
-    )
-    parser.add_argument(
-        "--backfill",
-        action="store_true",
-        help="Override --since-hours and scan the entire channel history.",
-    )
-    args = parser.parse_args(argv)
-    _setup_logging()
-    log = logging.getLogger("discord-reaction-sync")
+def _sync_channel(dh, token: str, db_path: Path, args, log, label: str, channel_id: str,
+                  sync_gems: bool) -> dict:
+    """One pass over one Discord channel: gem reactions (only if sync_gems), human drops, bird-name replies.
 
-    dh = _load_discord_client()
-
-    try:
-        token = dh.load_bot_token()
-    except SystemExit:
-        log.error("could not load Discord bot token (see stderr above)")
-        return 1
-
-    db_path = REPO_ROOT / "data" / "guardian.db"
-    if not db_path.exists():
-        log.error("guardian db not found: %s", db_path)
-        return 1
-
+    The harvester helpers read dh.CHANNEL_ID, so it is pointed at this channel for the pass.
+    """
+    dh.CHANNEL_ID = channel_id
     log.info(
-        "fetching messages from #farm-2026 (%s)...",
-        "ALL (backfill)" if args.backfill else f"last {args.since_hours}h",
+        "fetching messages from %s (%s)...",
+        label, "ALL (backfill)" if args.backfill else f"last {args.since_hours}h",
     )
     messages = dh.fetch_all_messages(token)
     log.info("fetched %d total messages", len(messages))
@@ -626,7 +604,7 @@ def main(argv: list[str] | None = None) -> int:
     # Bucket reacted messages into Guardian-gem updates vs human drops.
     # A message qualifies as a drop when: author is not a Guardian camera
     # AND at least one attachment is a still image.
-    guardian_msgs: list[dict] = []
+    guardian_msgs: list[dict] = []  # emptied below when sync_gems is False
     drop_msgs: list[dict] = []
     blocked_drop_msgs = 0
     for m in messages:
@@ -635,7 +613,10 @@ def main(argv: list[str] | None = None) -> int:
         author = (m.get("author") or {}).get("username") or ""
         cam = _camera_for_username(author)
         if cam is not None:
-            guardian_msgs.append(m)
+            # Arena #farm gem reactions belong to arena-label-sync (different vocabulary);
+            # counting them here too would double-write discord_reactions.
+            if sync_gems:
+                guardian_msgs.append(m)
             continue
         if author.lower() in _BLOCKED_DROP_AUTHORS:
             blocked_drop_msgs += 1
@@ -660,8 +641,8 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     if not guardian_msgs and not drop_msgs and not reply_msgs:
-        log.info("nothing to sync")
-        return 0
+        log.info("nothing to sync in %s", label)
+        return {"updated_gems": 0, "unmatched_gems": 0, "drops_inserted": 0, "drops_updated": 0, "drops_skipped": 0, "tagged": 0, "unmatched": 0}
 
     updated_gems = 0
     unmatched_gems = 0
@@ -751,6 +732,66 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         conn.close()
 
+    return {
+        "updated_gems": updated_gems, "unmatched_gems": unmatched_gems,
+        "drops_inserted": drops_inserted, "drops_updated": drops_updated,
+        "drops_skipped": drops_skipped, "tagged": tag_stats["tagged"], "unmatched": tag_stats["unmatched"],
+    }
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Sync Discord reaction counts into image_archive.",
+    )
+    parser.add_argument(
+        "--since-hours",
+        type=int,
+        default=48,
+        help="Only check messages newer than this many hours (default 48).",
+    )
+    parser.add_argument(
+        "--backfill",
+        action="store_true",
+        help="Override --since-hours and scan the entire channel history.",
+    )
+    args = parser.parse_args(argv)
+    _setup_logging()
+    log = logging.getLogger("discord-reaction-sync")
+
+    dh = _load_discord_client()
+
+    try:
+        token = dh.load_bot_token()
+    except SystemExit:
+        log.error("could not load Discord bot token (see stderr above)")
+        return 1
+
+    db_path = REPO_ROOT / "data" / "guardian.db"
+    if not db_path.exists():
+        log.error("guardian db not found: %s", db_path)
+        return 1
+
+    # Boss, 20-Nov-2026: the farm channel moved to Arena #farm. Read it first (drops and bird-name replies
+    # only; its gem reactions are arena-label-sync's job), then the old #farm-2026 as before so history and
+    # any stragglers keep working. Each pass is independent: a failure in one is logged, not fatal.
+    old_channel = dh.CHANNEL_ID
+    totals: dict = {}
+    for label, channel_id, sync_gems in (
+        ("Arena #farm", ARENA_FARM_CHANNEL_ID, False),
+        ("old #farm-2026", old_channel, True),
+    ):
+        try:
+            stats = _sync_channel(dh, token, db_path, args, log, label, channel_id, sync_gems)
+        except Exception as e:
+            log.error("pass over %s failed: %s", label, e)
+            continue
+        for k, v in stats.items():
+            totals[k] = totals.get(k, 0) + v
+    dh.CHANNEL_ID = old_channel
+    updated_gems = totals.get("updated_gems", 0); unmatched_gems = totals.get("unmatched_gems", 0)
+    drops_inserted = totals.get("drops_inserted", 0); drops_updated = totals.get("drops_updated", 0)
+    drops_skipped = totals.get("drops_skipped", 0)
+    tag_stats = {"tagged": totals.get("tagged", 0), "unmatched": totals.get("unmatched", 0)}
     log.info(
         "sync complete: guardian_updated=%d guardian_unmatched=%d "
         "drops_inserted=%d drops_updated=%d drops_skipped=%d "

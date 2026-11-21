@@ -4,6 +4,14 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.80.3 — reaction sync also reads Arena #farm for photo drops and bird-name replies (Claude Sonnet 5.5 Low) — 20-Nov-2026
+
+**Why patch:** the same script and job, one more channel; no new table or LaunchAgent.
+
+**What / why:** after v2.80.2 moved the farm reports to Arena #farm, nothing read human photo drops or bird-name replies there. `scripts/discord-reaction-sync.py` now makes two passes each run: Arena #farm first (human drops and bird-name replies only), then the old #farm-2026 exactly as before. Gem reactions are skipped on the Arena pass because `arena-label-sync` owns them with a different vocabulary; counting them here too would double-write `discord_reactions`. Each pass is isolated, so one failing does not stop the other.
+
+**Limits:** drop images from Arena #farm still need a human reaction (the Boss's own posts qualify automatically), as before. The other readers of `tools/discord_harvester.py` (diary jobs, reel approval check) are unchanged.
+
 ### v2.80.2 — every farm report now goes to Arena #farm; nightly diary suspended (Claude Sonnet 5.5 Low) — 20-Nov-2026
 
 **Why patch:** one small code edit plus a config move; no new route, table or job.
