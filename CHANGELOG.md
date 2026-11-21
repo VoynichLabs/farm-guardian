@@ -4,6 +4,14 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.80.2 — every farm report now goes to Arena #farm; nightly diary suspended (Claude Sonnet 5.5 Low) — 20-Nov-2026
+
+**Why patch:** one small code edit plus a config move; no new route, table or job.
+
+**What / why:** Boss, 20-Nov: everything that reported to #farm-2026 (VoynichLabs server) should report to #farm in the Autoresearch Arena server. Nearly every poster reads `DISCORD_WEBHOOK_URL` from `.env`, so that key now holds the Arena #farm webhook (same one as `DISCORD_ARENA_WEBHOOK_URL`). That moves the pipeline digests, the four daily time-lapse reel notices (S7, Duo2, house-yard, dashcam), the camera-staleness and Birdcatraz watchdogs, the weekly Instagram digest, the backlog notice, Guardian's own alerts and any non-S7 gem. The VoynichLabs music-video Instagram notices stay in VoynichLabs: `tools/voynichlabs/ig_reel_poster.py` now reads its own key, `DISCORD_VOYNICH_WEBHOOK_URL`, which holds the old webhook. The nightly farm-diary writer and its staleness alarm are unloaded (plists renamed `.disabled-20261120-boss-suspended`); the promote-on-reaction job is left running so already-posted diaries can still be promoted.
+
+**Not changed on purpose:** the old reaction sync and the other readers of the shared channel constant in `tools/discord_harvester.py` still read #farm-2026 (the Arena reader, `arena-label-sync`, already covers gem reactions in #farm; human photo drops and bird-name replies in #farm are not read by anything yet). Gem posts from non-S7 cameras are effectively inert today (only the S7 runs the vision model). Needs a restart of com.farmguardian.guardian and com.farmguardian.pipeline to re-read `.env`.
+
 ### v2.80.1 — silence means "overscored"; channel rules posted and pinned (Claude Sonnet 5.5 Low) — 18-Nov-2026
 
 **Why patch, not minor:** extends the v2.80.0 reader with one rule and adds a doc; no new route, table or LaunchAgent.

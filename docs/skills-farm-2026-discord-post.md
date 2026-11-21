@@ -1,11 +1,11 @@
-# Post Camera Frames to the #farm-2026 Discord Channel
+# Post Camera Frames to the Arena #farm Discord Channel
 
-**Last updated:** 02-May-2026
+**Last updated:** 20-Nov-2026 (Claude Sonnet 5.5 Low). The channel moved from #farm-2026 (VoynichLabs server) to #farm in the Autoresearch Arena server; this file keeps its old name so existing links still work.
 **Cross-refs:** `CHANGELOG.md` (v2.27.8 initial wiring, v2.27.9 incident context) · `docs/16-Apr-2026-s7-ipwebcam-frozen-incident.md`
 
 ## Purpose
 
-Post a live camera frame from Farm Guardian to the **#farm-2026** Discord channel. Boss set this flow up on 2026-04-16 and explicitly asked that any future agent working in this repo know how to do it without having to reverse-engineer the wiring. Good S7 brooder portraits are the usual case (the S7 is the only real camera in the fleet — 12 MP Sony IMX260 on a Galaxy S7), but the same pattern works for any camera Guardian exposes via `/api/cameras/<name>/frame`.
+Post a live camera frame from Farm Guardian to the **#farm** Discord channel in the Autoresearch Arena server. Boss set this flow up on 2026-04-16 and explicitly asked that any future agent working in this repo know how to do it without having to reverse-engineer the wiring. Good S7 brooder portraits are the usual case (the S7 is the only real camera in the fleet — 12 MP Sony IMX260 on a Galaxy S7), but the same pattern works for any camera Guardian exposes via `/api/cameras/<name>/frame`.
 
 **Broad strokes only — no credentials in this doc.** The webhook URL is a bearer token; it lives in `.env` (gitignored). Channel IDs and the webhook *name* are fine to put in writing (Boss confirmed); the URL itself is not. If you ever leak the URL into a committed file, the fix is (a) regenerate the webhook in Discord, (b) rewrite history to excise the leak.
 
@@ -37,8 +37,8 @@ Expected: `HTTP:200`. The response body is the Discord message JSON with CDN URL
 
 - **Webhook name:** `Farm Guardian` (Boss-created)
 - **Mark's user ID:** `293569238386606080`. Mention format is `<@293569238386606080>`. The S7 daily time-lapse Reel notice uses this mention.
-- **Guild ID:** `1471632570616643657` (the farm Discord server — shared across agents)
-- **Channel ID:** `1482466978806497522` — confirmed to be `#farm-2026` via the Discord webhook GET endpoint.
+- **Guild ID:** `1487180694773039185` (Autoresearch Arena). The old farm server, `1471632570616643657`, no longer receives farm reports.
+- **Channel ID:** `1572675202096173146` — `#farm`, confirmed via the Discord webhook GET endpoint on 20-Nov-2026. The old `#farm-2026` channel is `1482466978806497522` (history only).
 - **URL lives in:** the repo's `.env` file (gitignored), key `DISCORD_WEBHOOK_URL`. Also injected into the `com.farmguardian.s7-battery-monitor.plist` LaunchAgent's `EnvironmentVariables` on whichever Mac hosts the battery monitor. Never hardcode it anywhere else.
 - **If it leaks:** regenerate in Discord → Channel Settings → Integrations → Webhooks, then update `.env` and the LaunchAgent plist. Any prior commit containing the leaked URL has to be rewritten out of history.
 
@@ -49,7 +49,7 @@ source ~/GitHub/farm-guardian/.env
 curl -s "$DISCORD_WEBHOOK_URL" | python3 -c "import json,sys;d=json.load(sys.stdin);print(f\"name={d['name']} channel_id={d['channel_id']} guild_id={d['guild_id']}\")"
 ```
 
-If `channel_id` ever comes back as anything other than `1482466978806497522`, stop and re-check before posting — someone may have rewired the webhook.
+If `channel_id` ever comes back as anything other than `1572675202096173146`, stop and re-check before posting — someone may have rewired the webhook.
 
 ### The frame source
 

@@ -93,11 +93,12 @@ def _graph(method: str, url: str, **params) -> dict:
 
 
 def _notify_discord(text: str) -> None:
-    # Same webhook the farm digest uses; the farm .env holds it. Best-effort.
+    # Boss, 20-Nov-2026: farm reports moved to the Autoresearch Arena #farm channel (DISCORD_WEBHOOK_URL), but
+    # these music-video notices stay in VoynichLabs, so they use their own key. Best-effort; no key, no notice.
     from tools.pipeline.gem_poster import load_dotenv
 
     load_dotenv(REPO_ROOT / ".env")
-    webhook = os.environ.get("DISCORD_WEBHOOK_URL", "")
+    webhook = os.environ.get("DISCORD_VOYNICH_WEBHOOK_URL", "")
     if not webhook:
         return
     try:
