@@ -4,6 +4,10 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.80.4 — describe S7 frames without flock hints (GPT-6.2 Sol) — 22-Nov-2026
+
+The live image prompt no longer supplies bird profiles, camera expectations, or sample captions. It asks for one plain sentence about what's visible. The structured response and basic photo-quality instructions remain for the archive and posting pipeline.
+
 ### v2.80.3 — reaction sync also reads Arena #farm for photo drops and bird-name replies (Claude Sonnet 5.5 Low) — 20-Nov-2026
 
 **Why patch:** the same script and job, one more channel; no new table or LaunchAgent.
