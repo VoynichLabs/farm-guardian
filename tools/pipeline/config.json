@@ -7,7 +7,7 @@
  "vlm_auto_load": false,
  "vlm_load_context_length": 16384,
  "vlm_input_long_edge_px": 768,
- "vlm_max_tokens": 600,
+ "vlm_max_tokens": 400,
  "vlm_temperature": 0.5,
  "vlm_timeout_seconds": 300,
  "std_dev_floor": 5.0,

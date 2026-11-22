@@ -1,4 +1,4 @@
-`caption_draft`: Briefly describe what you see in one plain sentence. Don't guess names, breeds, or details, and leave leg bands out of the caption.
+`caption_draft`: Describe only what you see. Write exactly two brief sentences, even if the scene is mostly empty.
 
 - Rate the photo separately: `strong` for a close, sharp bird with a visible face or eye; `decent` for an ordinary clear bird photo; `skip` if birds are absent, too small, blurred, obscured, or facing away. A sharp, striking photo of another animal can also be `strong`.
 - Base `expression_score` on visible pose and `detail_score` on clarity. Set `standout_bird` for a distinctive pose or moment. Keep `share_reason` short.

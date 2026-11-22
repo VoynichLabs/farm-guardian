@@ -4,6 +4,10 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.80.5 — two brief camera caption sentences (GPT-6.2 Sol) — 22-Nov-2026
+
+Ask for two brief sentences about what the model sees. Lower the configured response budget from 600 to 400 tokens while leaving room for the required structured metadata. The existing reasoning-off request and scoring formula are unchanged.
+
 ### v2.80.4 — describe S7 frames without flock hints (GPT-6.2 Sol) — 22-Nov-2026
 
 The live image prompt no longer supplies bird profiles, camera expectations, or sample captions. It asks for one plain sentence about what's visible. The structured response and basic photo-quality instructions remain for the archive and posting pipeline.
