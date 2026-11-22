@@ -4,6 +4,10 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.80.6 — spend less time idle between S7 judgments (GPT-6.2 Sol) — 22-Nov-2026
+
+Use the existing half-second hot delay for ordinary warm cycles too, instead of waiting three seconds after each cycle. Keep capture quality, scoring, and cold backoff unchanged.
+
 ### v2.80.5 — two brief camera caption sentences (GPT-6.2 Sol) — 22-Nov-2026
 
 Ask for two brief sentences about what the model sees. Lower the configured response budget from 600 to 400 tokens while leaving room for the required structured metadata. The existing reasoning-off request and scoring formula are unchanged.

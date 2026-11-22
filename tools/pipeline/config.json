@@ -189,7 +189,7 @@
     },
     "cadence": {
      "hot_seconds": 0.5,
-     "warm_seconds": 3.0,
+     "warm_seconds": 0.5,
      "cold_seconds": 20.0,
      "hot_hold_seconds": 90.0,
      "cold_after_misses": 3
