@@ -308,7 +308,7 @@ These should be present in the CLAUDE.md file and the agents.md file.
 - Any behavior change requires:
   - Updating relevant docs.
   - Updating the top entry of `CHANGELOG.md` (SemVer; what/why/how; include author/model name).
-- Commits: do not commit unless explicitly requested; when asked, use descriptive commit messages and follow user instructions exactly.
+- Commits: when a task is done, commit and push it without being asked (descriptive message; stage only the files you changed; never secrets). Where this project requires branches and PRs, push the branch and open the PR instead of pushing to main. (Boss, 24-Nov-2026)
 - Keep technical depth in docs/changelog rather than dumping it into chat.
 
 ## Communication style
