@@ -4,6 +4,11 @@ All notable changes to Farm Guardian are documented here. Follows [Semantic Vers
 
 ## [Unreleased] - 2026-08-01
 
+### v2.80.7 — restore the strict photo judge, no flock hints (Claude Sonnet 5.5) — 24-Nov-2026
+
+**Why:** after the 22-Nov prompt cut, about two thirds of S7 frames with no bird in them were still rated `decent` or `strong` (24-Nov: 865 decent and 117 strong with `bird_count` 0, against 61 strong with a bird). Real bird shots were buried under empty coop and sky.
+**What:** `tools/pipeline/prompt.md` is back to the "is this a good photo of a bird?" judge from v2.74.0: no bird visible is always `skip`, torn between two grades picks the lower one, and `empty` composition is spelled out. Flock age, named-individual and sample-caption hints stay out, plain labels only. The two-sentence caption rule from v2.80.5 is kept. No schema or code change.
+
 ### v2.80.6 — spend less time idle between S7 judgments (GPT-6.2 Sol) — 22-Nov-2026
 
 Use the existing half-second hot delay for ordinary warm cycles too, instead of waiting three seconds after each cycle. Keep capture quality, scoring, and cold backoff unchanged.
